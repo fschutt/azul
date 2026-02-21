@@ -91,8 +91,9 @@ pub fn autofix_api(
     // Run the full diff analysis (returns both diff and type index)
     let (diff, index) = analyze_api_diff(project_root, api_data, verbose)?;
 
-    // Check FFI safety only for types that exist in api.json
-    let mut ffi_warnings = check_ffi_safety(&index, api_data);
+    // Check FFI safety for types that exist in api.json AND types about to be added
+    let addition_names: Vec<String> = diff.additions.iter().map(|a| a.type_name.clone()).collect();
+    let mut ffi_warnings = check_ffi_safety(&index, api_data, &addition_names);
 
     // Also check documentation for invalid characters
     let doc_warnings = check_doc_characters(api_data);
@@ -1210,6 +1211,8 @@ pub enum FfiSafetyWarningKind {
     },
     /// Enum with data variants but missing repr(C, u8) or similar
     EnumWithDataMissingReprCU8 { current_repr: Option<String> },
+    /// Enum without data variants but missing repr(C)
+    EnumMissingReprC { current_repr: Option<String> },
     /// Enum uses non-C repr like repr(u16) with explicit discriminant values
     /// This breaks FFI because discriminant values aren't portable
     NonCReprEnum { current_repr: String },
@@ -1262,6 +1265,7 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::MultiFieldVariant { .. } => true,
             FfiSafetyWarningKind::StdOptionInVariant { .. } => true,
             FfiSafetyWarningKind::EnumWithDataMissingReprCU8 { .. } => true,
+            FfiSafetyWarningKind::EnumMissingReprC { .. } => true,
             FfiSafetyWarningKind::NonCReprEnum { .. } => true,
             FfiSafetyWarningKind::DuplicateTypeName { .. } => true,
             FfiSafetyWarningKind::BoxCVoidField { .. } => true,
@@ -1316,21 +1320,29 @@ fn contains_unit_type(type_str: &str) -> bool {
     false
 }
 
-/// Check FFI safety of types that exist in api.json
+/// Check FFI safety of types that exist in api.json or are about to be added.
+/// `additional_type_names` contains type names from diff.additions that aren't
+/// in api.json yet but will be added — these also need repr checks in the source.
 pub fn check_ffi_safety(
     index: &type_index::TypeIndex,
     api_data: &ApiData,
+    additional_type_names: &[String],
 ) -> Vec<FfiSafetyWarning> {
     use std::collections::{BTreeMap, BTreeSet};
 
     // Build a set of type names that exist in api.json
-    let api_types: BTreeSet<String> = api_data
+    let mut api_types: BTreeSet<String> = api_data
         .0
         .values()
         .flat_map(|version| version.api.values())
         .flat_map(|module| module.classes.keys())
         .cloned()
         .collect();
+
+    // Also include types about to be added — they need repr checks too
+    for name in additional_type_names {
+        api_types.insert(name.clone());
+    }
 
     let mut warnings = Vec::new();
 
@@ -1491,6 +1503,7 @@ pub fn check_ffi_safety(
                 }
 
                 // Check 3: Enum with data needs repr(C, u8) or repr(C, i8) etc.
+                //          Enum without data needs repr(C)
                 if has_data_variants {
                     let repr_ok = match repr {
                         Some(r) => {
@@ -1512,6 +1525,21 @@ pub fn check_ffi_safety(
                             type_name: type_name.clone(),
                             file_path: file_path.clone(),
                             kind: FfiSafetyWarningKind::EnumWithDataMissingReprCU8 {
+                                current_repr: repr.clone(),
+                            },
+                        });
+                    }
+                } else {
+                    // Non-data enum must have repr(C)
+                    let has_repr_c = match repr {
+                        Some(r) => r.to_lowercase().contains("c"),
+                        None => false,
+                    };
+                    if !has_repr_c {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: type_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::EnumMissingReprC {
                                 current_repr: repr.clone(),
                             },
                         });
@@ -1606,20 +1634,18 @@ pub fn check_ffi_safety(
         }
     }
 
-    // Check for api.json enum repr mismatches
-    // Enums with data variants must have repr: "C, u8" (or similar with discriminant type)
-    // Enums without data variants must have repr: "C"
+    // Check api.json types for repr mismatches AND struct issues
     for (_version_name, version) in &api_data.0 {
         for (module_name, module) in &version.api {
             for (class_name, class_def) in &module.classes {
-                // Check if this is an enum (has enum_fields)
+                let file_path = format!("api.json - {}.{}", module_name, class_name);
+
+                // --- Enum checks ---
                 if let Some(variants) = &class_def.enum_fields {
                     let has_data_variants = variants.iter().any(|v| {
                         v.values().any(|variant_data| variant_data.r#type.is_some())
                     });
-                    
-                    let file_path = format!("api.json - {}.{}", module_name, class_name);
-                    
+
                     if has_data_variants {
                         // Enum with data needs repr(C, u8) or repr(C, i8) etc.
                         let repr_ok = match &class_def.repr {
@@ -1639,12 +1665,37 @@ pub fn check_ffi_safety(
                         if !repr_ok {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
-                                file_path,
+                                file_path: file_path.clone(),
                                 kind: FfiSafetyWarningKind::EnumWithDataMissingReprCU8 {
                                     current_repr: class_def.repr.clone(),
                                 },
                             });
                         }
+                    }
+                }
+
+                // --- Struct checks ---
+                if let Some(struct_fields) = &class_def.struct_fields {
+                    // Check 1: Struct must have repr(C) or repr(transparent)
+                    // Type aliases inherit repr from their target type in Rust,
+                    // so skip this check if the type has a type_alias field.
+                    let is_type_alias = class_def.type_alias.is_some();
+                    let has_repr = match &class_def.repr {
+                        Some(r) => {
+                            let r_lower = r.to_lowercase();
+                            r_lower.contains("c") || r_lower.contains("transparent")
+                        }
+                        None => is_type_alias, // type aliases inherit repr from target
+                    };
+
+                    if !has_repr {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: class_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::StructMissingReprC {
+                                current_repr: class_def.repr.clone(),
+                            },
+                        });
                     }
                 }
             }
@@ -1757,6 +1808,20 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!(
                 "    {} Add #[repr(C, u8)] for enums with data variants.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::EnumMissingReprC { current_repr } => {
+            let repr_display = current_repr.as_deref().unwrap_or("none");
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} Enum (no data variants) has repr: {}",
+                "→".dimmed(),
+                repr_display.yellow()
+            );
+            println!(
+                "    {} Add #[repr(C)] for enums without data variants.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());

@@ -42,7 +42,7 @@ use azul_css::{
             StyleTransformVec,
         },
     },
-    AzString, OptionString, U8Vec,
+    AzString, OptionString, StringVec, U8Vec,
 };
 
 use crate::{
@@ -2483,7 +2483,7 @@ impl From<DomXmlParseError> for CompileError {
 pub struct UselessFunctionArgumentError {
     pub component_name: AzString,
     pub argument_name: AzString,
-    pub valid_args: AzStringVec,
+    pub valid_args: StringVec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

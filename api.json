@@ -2662,6 +2662,22 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CursorParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::parsers::CursorParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -4450,7 +4466,7 @@
                                     "Re-render ALL image callbacks across all DOMs (applied after callback returns)",
                                     "",
                                     "This is the most efficient way to update animated GL textures from a timer.",
-                                    "Triggers only texture re-rendering \u2014 no DOM rebuild or display list resubmission.",
+                                    "Triggers only texture re-rendering  -  no DOM rebuild or display list resubmission.",
                                     "",
                                     "# Example",
                                     "```ignore",
@@ -7216,7 +7232,7 @@
                                     "Re-render ALL image callbacks across all DOMs (applied after callback returns)",
                                     "",
                                     "This is the most efficient way to update animated GL textures from a timer.",
-                                    "Triggers only texture re-rendering \u2014 no DOM rebuild or display list resubmission.",
+                                    "Triggers only texture re-rendering  -  no DOM rebuild or display list resubmission.",
                                     "",
                                     "# Example",
                                     "```ignore",
@@ -15451,6 +15467,44 @@
                             }
                         },
                         "functions": {},
+                        "repr": "C"
+                    },
+                    "ParseIntErrorWithInput": {
+                        "external": "azul_css::props::layout::position::ParseIntErrorWithInput",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "error": {
+                                    "type": "String"
+                                },
+                                "input": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ParseFloatErrorWithInput": {
+                        "external": "azul_css::props::basic::error::ParseFloatErrorWithInput",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "error": {
+                                    "type": "ParseFloatError"
+                                },
+                                "input": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -28056,29 +28110,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "ComponentEventFilter": {
-                        "external": "azul_core::events::ComponentEventFilter",
-                        "derive": [
-                            "PartialEq",
-                            "Hash",
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialOrd",
-                            "Eq",
-                            "Ord"
-                        ],
-                        "enum_fields": [
-                            {
-                                "AfterMount": {},
-                                "BeforeUnmount": {},
-                                "NodeResized": {},
-                                "DefaultAction": {},
-                                "Selected": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "VertexLayout": {
                         "external": "azul_core::gl::VertexLayout",
                         "derive": [
@@ -30974,6 +31005,1696 @@
                                 "Touch": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "LayoutInsetBottomParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutInsetBottomParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssColorParseErrorOwned": {
+                        "external": "azul_css::props::basic::color::CssColorParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidColor": {
+                                    "type": "String"
+                                },
+                                "InvalidFunctionName": {
+                                    "type": "String"
+                                },
+                                "InvalidColorComponent": {
+                                    "type": "u8"
+                                },
+                                "IntValueParseErr": {
+                                    "type": "ParseIntError"
+                                },
+                                "FloatValueParseErr": {
+                                    "type": "ParseFloatError"
+                                },
+                                "FloatValueOutOfRange": {
+                                    "type": "f32"
+                                },
+                                "MissingColorComponent": {
+                                    "type": "CssColorComponent"
+                                },
+                                "ExtraArguments": {
+                                    "type": "String"
+                                },
+                                "UnclosedColor": {
+                                    "type": "String"
+                                },
+                                "EmptyInput": {},
+                                "DirectionParseError": {
+                                    "type": "CssDirectionParseErrorOwned"
+                                },
+                                "UnsupportedDirection": {
+                                    "type": "String"
+                                },
+                                "InvalidPercentage": {
+                                    "type": "PercentageParseError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssPixelValueParseErrorOwned": {
+                        "external": "azul_css::props::basic::pixel::CssPixelValueParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "EmptyString": {},
+                                "NoValueGiven": {
+                                    "type": "PixelNoValueGivenError"
+                                },
+                                "ValueParseErr": {
+                                    "type": "ParseFloatErrorWithInput"
+                                },
+                                "InvalidPixelValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBorderStyleParseErrorOwned": {
+                        "external": "azul_css::props::style::border::CssBorderStyleParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidStyle": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleExclusionMarginParseErrorOwned": {
+                        "external": "azul_css::props::style::azul_exclusion::StyleExclusionMarginParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "FloatValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutTopParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutTopParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssScrollbarStyleParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::CssScrollbarStyleParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Invalid": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleInitialLetterParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleInitialLetterParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidFormat": {
+                                    "type": "String"
+                                },
+                                "InvalidSize": {
+                                    "type": "String"
+                                },
+                                "InvalidSink": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "JustifyContentParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::JustifyContentParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutMarginParseErrorOwned": {
+                        "external": "azul_css::props::layout::spacing::LayoutMarginParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValueParseError": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "TooManyValues": {},
+                                "TooFewValues": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextColorParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextColorParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ColorParseError": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "AlignItemsParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::AlignItemsParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleBorderRadiusParseErrorOwned": {
+                        "external": "azul_css::props::style::border_radius::CssStyleBorderRadiusParseErrorOwned",
+                        "repr": "C"
+                    },
+                    "AlignContentParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::AlignContentParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTabSizeParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTabSizeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutDisplayParseErrorOwned": {
+                        "external": "azul_css::props::layout::display::LayoutDisplayParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "AlignSelfParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::AlignSelfParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PercentageParseErrorWithInput": {
+                        "external": "azul_css::props::style::effects::parsers::PercentageParseErrorWithInput",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "error": {
+                                    "type": "PercentageParseError"
+                                },
+                                "input": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "LayoutWrapParseErrorOwned": {
+                        "external": "azul_css::props::layout::wrapping::LayoutWrapParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStylePerspectiveOriginParseErrorOwned": {
+                        "external": "azul_css::props::style::transform::CssStylePerspectiveOriginParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "WrongNumberOfComponents": {
+                                    "type": "WrongComponentCountError"
+                                },
+                                "PixelValueParseError": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TextJustifyParseErrorOwned": {
+                        "external": "azul_css::props::layout::text::TextJustifyParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBackgroundParseErrorOwned": {
+                        "external": "azul_css::props::style::background::CssBackgroundParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Error": {
+                                    "type": "String"
+                                },
+                                "InvalidBackground": {
+                                    "type": "ParenthesisParseErrorOwned"
+                                },
+                                "UnclosedGradient": {
+                                    "type": "String"
+                                },
+                                "NoDirection": {
+                                    "type": "String"
+                                },
+                                "TooFewGradientStops": {
+                                    "type": "String"
+                                },
+                                "DirectionParseError": {
+                                    "type": "CssDirectionParseErrorOwned"
+                                },
+                                "GradientParseError": {
+                                    "type": "CssGradientStopParseErrorOwned"
+                                },
+                                "ConicGradient": {
+                                    "type": "CssConicGradientParseErrorOwned"
+                                },
+                                "ShapeParseError": {
+                                    "type": "CssShapeParseErrorOwned"
+                                },
+                                "ImageParseError": {
+                                    "type": "CssImageParseErrorOwned"
+                                },
+                                "ColorParseError": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "JustifySelfParseErrorOwned": {
+                        "external": "azul_css::props::layout::grid::JustifySelfParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleVisibilityParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::parsers::StyleVisibilityParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutBoxSizingParseErrorOwned": {
+                        "external": "azul_css::props::layout::dimensions::parser::LayoutBoxSizingParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextIndentParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextIndentParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutRightParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutRightParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutClearParseErrorOwned": {
+                        "external": "azul_css::props::layout::wrapping::LayoutClearParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleLetterSpacingParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleLetterSpacingParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ColumnCountParseErrorOwned": {
+                        "external": "azul_css::props::layout::column::parser::ColumnCountParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "ParseInt": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleFilterParseErrorOwned": {
+                        "external": "azul_css::props::style::filter::parser::CssStyleFilterParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidFilter": {
+                                    "type": "String"
+                                },
+                                "InvalidParenthesis": {
+                                    "type": "ParenthesisParseErrorOwned"
+                                },
+                                "Shadow": {
+                                    "type": "CssShadowParseErrorOwned"
+                                },
+                                "BlendMode": {
+                                    "type": "InvalidValueErrOwned"
+                                },
+                                "Color": {
+                                    "type": "CssColorParseErrorOwned"
+                                },
+                                "Opacity": {
+                                    "type": "PercentageParseError"
+                                },
+                                "Blur": {
+                                    "type": "CssStyleBlurParseErrorOwned"
+                                },
+                                "ColorMatrix": {
+                                    "type": "CssStyleColorMatrixParseErrorOwned"
+                                },
+                                "Offset": {
+                                    "type": "CssStyleFilterOffsetParseErrorOwned"
+                                },
+                                "Composite": {
+                                    "type": "CssStyleCompositeFilterParseErrorOwned"
+                                },
+                                "Angle": {
+                                    "type": "CssAngleValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OpacityParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::parsers::OpacityParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ParsePercentage": {
+                                    "type": "PercentageParseErrorWithInput"
+                                },
+                                "OutOfRange": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleTransformParseErrorOwned": {
+                        "external": "azul_css::props::style::transform::CssStyleTransformParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidTransform": {
+                                    "type": "String"
+                                },
+                                "InvalidParenthesis": {
+                                    "type": "ParenthesisParseErrorOwned"
+                                },
+                                "WrongNumberOfComponents": {
+                                    "type": "WrongComponentCountError"
+                                },
+                                "NumberParseError": {
+                                    "type": "ParseFloatError"
+                                },
+                                "PixelValueParseError": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "AngleValueParseError": {
+                                    "type": "CssAngleValueParseErrorOwned"
+                                },
+                                "PercentageValueParseError": {
+                                    "type": "PercentageParseError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssConicGradientParseErrorOwned": {
+                        "external": "azul_css::props::style::background::CssConicGradientParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Position": {
+                                    "type": "CssBackgroundPositionParseErrorOwned"
+                                },
+                                "Angle": {
+                                    "type": "CssAngleValueParseErrorOwned"
+                                },
+                                "NoAngle": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextDecorationParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextDecorationParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutZIndexParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutZIndexParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "ParseInt": {
+                                    "type": "ParseIntErrorWithInput"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleWhiteSpaceParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleWhiteSpaceParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextCombineUprightParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextCombineUprightParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "InvalidDigits": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleDirectionParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleDirectionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleVerticalAlignParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleVerticalAlignParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleCompositeFilterParseErrorOwned": {
+                        "external": "azul_css::props::style::filter::parser::CssStyleCompositeFilterParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Invalid": {
+                                    "type": "InvalidValueErrOwned"
+                                },
+                                "Float": {
+                                    "type": "ParseFloatError"
+                                },
+                                "WrongNumberOfComponents": {
+                                    "type": "WrongComponentCountError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssShapeParseErrorOwned": {
+                        "external": "azul_css::props::style::background::CssShapeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ShapeErr": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PercentageParseErrorOwned": {
+                        "external": "azul_css::props::basic::length::PercentageParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ValueParseErr": {
+                                    "type": "ParseFloatError"
+                                },
+                                "NoPercentSign": {},
+                                "InvalidUnit": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutPositionParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutPositionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleHyphensParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleHyphensParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssAngleValueParseErrorOwned": {
+                        "external": "azul_css::props::basic::angle::CssAngleValueParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "EmptyString": {},
+                                "NoValueGiven": {
+                                    "type": "AngleNoValueGivenError"
+                                },
+                                "ValueParseErr": {
+                                    "type": "ParseFloatErrorWithInput"
+                                },
+                                "InvalidAngle": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutFloatParseErrorOwned": {
+                        "external": "azul_css::props::layout::display::LayoutFloatParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ColumnRuleColorParseErrorOwned": {
+                        "external": "azul_css::props::layout::column::parser::ColumnRuleColorParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Color": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBorderSideParseErrorOwned": {
+                        "external": "azul_css::props::style::border::CssBorderSideParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidDeclaration": {
+                                    "type": "String"
+                                },
+                                "Width": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "Style": {
+                                    "type": "CssBorderStyleParseErrorOwned"
+                                },
+                                "Color": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FlexDirectionParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::FlexDirectionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleFontSizeParseErrorOwned": {
+                        "external": "azul_css::props::basic::font::CssStyleFontSizeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MixBlendModeParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::parsers::MixBlendModeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleFilterOffsetParseErrorOwned": {
+                        "external": "azul_css::props::style::filter::parser::CssStyleFilterOffsetParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pixel": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "WrongNumberOfComponents": {
+                                    "type": "WrongComponentCountError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBackfaceVisibilityParseErrorOwned": {
+                        "external": "azul_css::props::style::transform::CssBackfaceVisibilityParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleHyphenationLanguageParseErrorOwned": {
+                        "external": "azul_css::props::style::azul_exclusion::StyleHyphenationLanguageParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidString": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ColumnWidthParseErrorOwned": {
+                        "external": "azul_css::props::layout::column::parser::ColumnWidthParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CombinedCssPropertyType": {
+                        "external": "azul_css::props::property::CombinedCssPropertyType",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "BorderRadius": {},
+                                "Overflow": {},
+                                "Margin": {},
+                                "Border": {},
+                                "BorderLeft": {},
+                                "BorderRight": {},
+                                "BorderTop": {},
+                                "BorderBottom": {},
+                                "BorderColor": {},
+                                "BorderStyle": {},
+                                "BorderWidth": {},
+                                "Padding": {},
+                                "BoxShadow": {},
+                                "BackgroundColor": {},
+                                "BackgroundImage": {},
+                                "Background": {},
+                                "Flex": {},
+                                "Grid": {},
+                                "Gap": {},
+                                "GridGap": {},
+                                "Font": {},
+                                "Columns": {},
+                                "ColumnRule": {},
+                                "GridArea": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleListStyleTypeParseErrorOwned": {
+                        "external": "azul_css::props::style::lists::StyleListStyleTypeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ColumnRuleWidthParseErrorOwned": {
+                        "external": "azul_css::props::layout::column::parser::ColumnRuleWidthParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pixel": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssGradientStopParseErrorOwned": {
+                        "external": "azul_css::props::style::background::CssGradientStopParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Error": {
+                                    "type": "String"
+                                },
+                                "Percentage": {
+                                    "type": "PercentageParseErrorOwned"
+                                },
+                                "Angle": {
+                                    "type": "CssAngleValueParseErrorOwned"
+                                },
+                                "ColorParseError": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ColumnRuleStyleParseErrorOwned": {
+                        "external": "azul_css::props::layout::column::parser::ColumnRuleStyleParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Style": {
+                                    "type": "CssBorderStyleParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssFontStyleParseErrorOwned": {
+                        "external": "azul_css::props::basic::font::CssFontStyleParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutLeftParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutLeftParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutWritingModeParseErrorOwned": {
+                        "external": "azul_css::props::layout::wrapping::LayoutWritingModeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleWordSpacingParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleWordSpacingParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleUserSelectParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleUserSelectParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssShadowParseErrorOwned": {
+                        "external": "azul_css::props::style::box_shadow::CssShadowParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "TooManyOrTooFewComponents": {
+                                    "type": "String"
+                                },
+                                "ValueParseErr": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "ColorParseError": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutHeightParseErrorOwned": {
+                        "external": "azul_css::props::layout::dimensions::parser::LayoutHeightParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "InvalidKeyword": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "JustifyItemsParseErrorOwned": {
+                        "external": "azul_css::props::layout::grid::JustifyItemsParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "BoxDecorationBreakParseErrorOwned": {
+                        "external": "azul_css::props::layout::fragmentation::parser::BoxDecorationBreakParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PageBreakParseErrorOwned": {
+                        "external": "azul_css::props::layout::fragmentation::parser::PageBreakParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleScrollbarColorParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::StyleScrollbarColorParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "Color": {
+                                    "type": "CssColorParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleLineClampParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleLineClampParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "ZeroValue": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssDirectionParseErrorOwned": {
+                        "external": "azul_css::props::basic::direction::CssDirectionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Error": {
+                                    "type": "String"
+                                },
+                                "InvalidArguments": {
+                                    "type": "String"
+                                },
+                                "ParseFloat": {
+                                    "type": "ParseFloatError"
+                                },
+                                "CornerError": {
+                                    "type": "CssDirectionCornerParseErrorOwned"
+                                },
+                                "AngleError": {
+                                    "type": "CssAngleValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutPaddingParseErrorOwned": {
+                        "external": "azul_css::props::layout::spacing::LayoutPaddingParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValueParseError": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "TooManyValues": {},
+                                "TooFewValues": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "BreakInsideParseErrorOwned": {
+                        "external": "azul_css::props::layout::fragmentation::parser::BreakInsideParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextAlignParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextAlignParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutScrollbarWidthParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::LayoutScrollbarWidthParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleBlurParseErrorOwned": {
+                        "external": "azul_css::props::style::filter::parser::CssStyleBlurParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pixel": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "TooManyComponents": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutOverflowParseErrorOwned": {
+                        "external": "azul_css::props::layout::overflow::LayoutOverflowParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssDirectionCornerParseErrorOwned": {
+                        "external": "azul_css::props::basic::direction::CssDirectionCornerParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidDirection": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleFontFamilyParseErrorOwned": {
+                        "external": "azul_css::props::basic::font::CssStyleFontFamilyParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidStyleFontFamily": {
+                                    "type": "String"
+                                },
+                                "UnclosedQuotes": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutWidthParseErrorOwned": {
+                        "external": "azul_css::props::layout::dimensions::parser::LayoutWidthParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "InvalidKeyword": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleColorMatrixParseErrorOwned": {
+                        "external": "azul_css::props::style::filter::parser::CssStyleColorMatrixParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Float": {
+                                    "type": "ParseFloatError"
+                                },
+                                "WrongNumberOfComponents": {
+                                    "type": "WrongComponentCountError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBorderRadiusParseErrorOwned": {
+                        "external": "azul_css::props::style::border_radius::CssBorderRadiusParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "TooManyValues": {
+                                    "type": "String"
+                                },
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleHangingPunctuationParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleHangingPunctuationParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssStyleTransformOriginParseErrorOwned": {
+                        "external": "azul_css::props::style::transform::CssStyleTransformOriginParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "WrongNumberOfComponents": {
+                                    "type": "WrongComponentCountError"
+                                },
+                                "PixelValueParseError": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBackgroundPositionParseErrorOwned": {
+                        "external": "azul_css::props::style::background::CssBackgroundPositionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NoPosition": {
+                                    "type": "String"
+                                },
+                                "TooManyComponents": {
+                                    "type": "String"
+                                },
+                                "FirstComponentWrong": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "SecondComponentWrong": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleListStylePositionParseErrorOwned": {
+                        "external": "azul_css::props::style::lists::StyleListStylePositionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssBorderParseErrorOwned": {
+                        "external": "azul_css::props::style::border::CssBorderParseErrorOwned",
                         "repr": "C"
                     }
                 }
@@ -47283,6 +49004,22 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CssImageParseErrorOwned": {
+                        "external": "azul_css::props::basic::image::CssImageParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "UnclosedQuotes": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -50881,6 +52618,264 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "CssFontWeightParseErrorOwned": {
+                        "external": "azul_css::props::basic::font::CssFontWeightParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                },
+                                "InvalidNumber": {
+                                    "type": "ParseIntError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "GridAutoFlowParseErrorOwned": {
+                        "external": "azul_css::props::layout::grid::GridAutoFlowParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssParseErrorOwned": {
+                        "external": "azul_css::parser2::CssParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "css_string": {
+                                    "type": "String"
+                                },
+                                "error": {
+                                    "type": "CssParseErrorInnerOwned"
+                                },
+                                "location": {
+                                    "type": "(ErrorLocation, ErrorLocation)"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FlexGrowParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::FlexGrowParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ParseFloat": {
+                                    "type": "ParseFloatErrorWithInput"
+                                },
+                                "NegativeValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssParseErrorInnerOwned": {
+                        "external": "azul_css::parser2::CssParseErrorInnerOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ParseError": {
+                                    "type": "CssSyntaxError"
+                                },
+                                "UnclosedBlock": {},
+                                "MalformedCss": {},
+                                "DynamicCssParseError": {
+                                    "type": "DynamicCssParseErrorOwned"
+                                },
+                                "PseudoSelectorParseError": {
+                                    "type": "CssPseudoSelectorParseErrorOwned"
+                                },
+                                "NodeTypeTag": {
+                                    "type": "NodeTypeTagParseErrorOwned"
+                                },
+                                "UnknownPropertyKey": {
+                                    "type": "UnknownPropertyKeyError"
+                                },
+                                "VarOnShorthandProperty": {
+                                    "type": "VarOnShorthandPropertyError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ParenthesisParseErrorOwned": {
+                        "external": "azul_css::props::basic::parse::ParenthesisParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "UnclosedBraces": {},
+                                "NoOpeningBraceFound": {},
+                                "NoClosingBraceFound": {},
+                                "StopWordNotFound": {
+                                    "type": "String"
+                                },
+                                "EmptyInput": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NodeTypeTagParseErrorOwned": {
+                        "external": "azul_css::css::NodeTypeTagParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Invalid": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssPseudoSelectorParseErrorOwned": {
+                        "external": "azul_css::parser2::CssPseudoSelectorParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "EmptyNthChild": {},
+                                "UnknownSelector": {
+                                    "type": "UnknownSelectorError"
+                                },
+                                "InvalidNthChildPattern": {
+                                    "type": "String"
+                                },
+                                "InvalidNthChild": {
+                                    "type": "ParseIntError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FlexWrapParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::FlexWrapParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "GridParseErrorOwned": {
+                        "external": "azul_css::props::layout::grid::GridParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FlexBasisParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::FlexBasisParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FlexShrinkParseErrorOwned": {
+                        "external": "azul_css::props::layout::flex::FlexShrinkParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ParseFloat": {
+                                    "type": "ParseFloatErrorWithInput"
+                                },
+                                "NegativeValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DynamicCssParseErrorOwned": {
+                        "external": "azul_css::parser2::DynamicCssParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidBraceContents": {
+                                    "type": "String"
+                                },
+                                "UnexpectedValue": {
+                                    "type": "CssParsingErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -51239,6 +53234,25 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "DurationParseErrorOwned": {
+                        "external": "azul_css::props::basic::time::DurationParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                },
+                                "ParseFloat": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -68078,6 +70092,11 @@
                     },
                     "ComponentParamVec": {
                         "external": "azul_core::xml::ComponentParamVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -68101,6 +70120,105 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentParamVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentParamVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentParamVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentParamVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_param_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_param_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_param_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentParamVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentParam"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentParamVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentParamVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentParam"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentParamVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentParamVecDestructorType": {
@@ -68117,6 +70235,11 @@
                     },
                     "ComponentDataFieldVec": {
                         "external": "azul_core::xml::ComponentDataFieldVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -68140,10 +70263,114 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentDataFieldVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentDataFieldVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentDataFieldVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataFieldVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_data_field_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_data_field_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_data_field_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentDataFieldVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentDataField"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataFieldVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentDataFieldVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentDataField"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataFieldVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentCallbackSlotVec": {
                         "external": "azul_core::xml::ComponentCallbackSlotVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -68167,6 +70394,105 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentCallbackSlotVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentCallbackSlotVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentCallbackSlotVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackSlotVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_callback_slot_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_callback_slot_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_callback_slot_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentCallbackSlotVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentCallbackSlot"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackSlotVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentCallbackSlotVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentCallbackSlot"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackSlotVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentCallbackSlotVecDestructorType": {
@@ -68255,6 +70581,10 @@
                     },
                     "ComponentDefVec": {
                         "external": "azul_core::xml::ComponentDefVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -68278,10 +70608,113 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentDefVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentDefVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentDefVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDefVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_def_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_def_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_def_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentDefVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentDef"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDefVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentDefVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentDef"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDefVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentLibraryVec": {
                         "external": "azul_core::xml::ComponentLibraryVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -68305,6 +70738,105 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentLibraryVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentLibraryVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentLibraryVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentLibraryVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_library_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_library_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_library_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentLibraryVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentLibrary"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentLibraryVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentLibraryVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentLibrary"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentLibraryVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentLibraryVecDestructorType": {
@@ -68334,6 +70866,192 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "ComponentDefVecSlice": {
+                        "external": "azul_css::ComponentDefVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentDef",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDataModelVecDestructorType": {
+                        "external": "azul_core::xml::ComponentDataModelVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentDataModelVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentLibraryVecSlice": {
+                        "external": "azul_css::ComponentLibraryVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentLibrary",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDataModelVecDestructor": {
+                        "external": "azul_core::xml::ComponentDataModelVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ComponentDataModelVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ComponentCallbackSlotVecSlice": {
+                        "external": "azul_css::ComponentCallbackSlotVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentCallbackSlot",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDataModelVec": {
+                        "external": "azul_core::xml::ComponentDataModelVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentDataModel",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ComponentDataModelVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDataFieldVecSlice": {
+                        "external": "azul_css::ComponentDataFieldVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentDataField",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentParamVecSlice": {
+                        "external": "azul_css::ComponentParamVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentParam",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -71935,9 +74653,18 @@
                         "repr": "C, u8"
                     },
                     "OptionNodeType": {
-                        "external": "azul_core::dom::OptionNodeType",
                         "doc": [
                             "Option<NodeType> wrapper for FFI."
+                        ],
+                        "external": "azul_core::dom::OptionNodeType",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
                         ],
                         "enum_fields": [
                             {
@@ -71947,14 +74674,120 @@
                                 }
                             }
                         ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentDef": {
+                        "external": "azul_core::option::OptionComponentDef",
                         "derive": [
                             "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentDef",
+                                    "doc": [
+                                        "Some value of type ComponentDef"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentLibrary": {
+                        "external": "azul_core::option::OptionComponentLibrary",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentLibrary",
+                                    "doc": [
+                                        "Some value of type ComponentLibrary"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentCallbackSlot": {
+                        "external": "azul_core::option::OptionComponentCallbackSlot",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentCallbackSlot",
+                                    "doc": [
+                                        "Some value of type ComponentCallbackSlot"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentDataField": {
+                        "external": "azul_core::option::OptionComponentDataField",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentDataField",
+                                    "doc": [
+                                        "Some value of type ComponentDataField"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentParam": {
+                        "external": "azul_core::option::OptionComponentParam",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentParam",
+                                    "doc": [
+                                        "Some value of type ComponentParam"
+                                    ]
+                                }
+                            }
                         ],
                         "repr": "C, u8"
                     }
@@ -73436,6 +76269,730 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "RenderDomError": {
+                        "external": "azul_core::xml::RenderDomError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Component": {
+                                    "type": "ComponentError"
+                                },
+                                "CssError": {
+                                    "type": "CssParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DomXmlParseError": {
+                        "external": "azul_core::xml::DomXmlParseError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NoHtmlNode": {},
+                                "MultipleHtmlRootNodes": {},
+                                "NoBodyInHtml": {},
+                                "MultipleBodyNodes": {},
+                                "Xml": {
+                                    "type": "XmlError"
+                                },
+                                "MalformedHierarchy": {
+                                    "type": "MalformedHierarchyError"
+                                },
+                                "RenderDom": {
+                                    "type": "RenderDomError"
+                                },
+                                "Component": {
+                                    "type": "ComponentParseError"
+                                },
+                                "Css": {
+                                    "type": "CssParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ErrorLocation": {
+                        "external": "azul_css::parser2::ErrorLocation",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "original_pos": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PixelNoValueGivenError": {
+                        "external": "azul_css::props::basic::pixel::PixelNoValueGivenError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "value": {
+                                    "type": "String"
+                                },
+                                "metric": {
+                                    "type": "SizeMetric"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VarOnShorthandPropertyError": {
+                        "external": "azul_css::parser2::VarOnShorthandPropertyError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "key": {
+                                    "type": "CombinedCssPropertyType"
+                                },
+                                "value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PercentageParseError": {
+                        "external": "azul_css::props::basic::length::PercentageParseError",
+                        "derive": [
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ValueParseErr": {
+                                    "type": "ParseFloatError"
+                                },
+                                "NoPercentSign": {},
+                                "InvalidUnit": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "WrongComponentCountError": {
+                        "external": "azul_css::props::basic::error::WrongComponentCountError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "expected": {
+                                    "type": "usize"
+                                },
+                                "got": {
+                                    "type": "usize"
+                                },
+                                "input": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AngleNoValueGivenError": {
+                        "external": "azul_css::props::basic::angle::AngleNoValueGivenError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "value": {
+                                    "type": "String"
+                                },
+                                "metric": {
+                                    "type": "AngleMetric"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WhiteSpaceInComponentNameError": {
+                        "external": "azul_core::xml::WhiteSpaceInComponentNameError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "arg_pos": {
+                                    "type": "usize"
+                                },
+                                "arg_name": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CompileError": {
+                        "external": "azul_core::xml::CompileError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Dom": {
+                                    "type": "RenderDomError"
+                                },
+                                "Xml": {
+                                    "type": "DomXmlParseError"
+                                },
+                                "Css": {
+                                    "type": "CssParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "WhiteSpaceInComponentTypeError": {
+                        "external": "azul_core::xml::WhiteSpaceInComponentTypeError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "arg_pos": {
+                                    "type": "usize"
+                                },
+                                "arg_name": {
+                                    "type": "String"
+                                },
+                                "arg_type": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "UnknownPropertyKeyError": {
+                        "external": "azul_css::parser2::UnknownPropertyKeyError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "key": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "UselessFunctionArgumentError": {
+                        "external": "azul_core::xml::UselessFunctionArgumentError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "component_name": {
+                                    "type": "String"
+                                },
+                                "argument_name": {
+                                    "type": "String"
+                                },
+                                "valid_args": {
+                                    "type": "StringVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentError": {
+                        "external": "azul_core::xml::ComponentError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "UselessFunctionArgument": {
+                                    "type": "UselessFunctionArgumentError"
+                                },
+                                "UnknownComponent": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "UnknownSelectorError": {
+                        "external": "azul_css::parser2::UnknownSelectorError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "selector": {
+                                    "type": "String"
+                                },
+                                "suggestion": {
+                                    "type": "Option<String>"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleLineHeightParseError": {
+                        "external": "azul_css::props::style::text::StyleLineHeightParseError",
+                        "derive": [
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Percentage": {
+                                    "type": "PercentageParseError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ComponentParseError": {
+                        "external": "azul_core::xml::ComponentParseError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NotAComponent": {},
+                                "UnnamedComponent": {},
+                                "MissingName": {
+                                    "type": "usize"
+                                },
+                                "MissingType": {
+                                    "type": "MissingTypeError"
+                                },
+                                "WhiteSpaceInComponentName": {
+                                    "type": "WhiteSpaceInComponentNameError"
+                                },
+                                "WhiteSpaceInComponentType": {
+                                    "type": "WhiteSpaceInComponentTypeError"
+                                },
+                                "CssError": {
+                                    "type": "CssParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MissingTypeError": {
+                        "external": "azul_core::xml::MissingTypeError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "arg_pos": {
+                                    "type": "usize"
+                                },
+                                "arg_name": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CssParsingErrorOwned": {
+                        "external": "azul_css::props::property::CssParsingErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Border": {
+                                    "type": "CssBorderParseErrorOwned"
+                                },
+                                "BorderRadius": {
+                                    "type": "CssStyleBorderRadiusParseErrorOwned"
+                                },
+                                "Padding": {
+                                    "type": "LayoutPaddingParseErrorOwned"
+                                },
+                                "Margin": {
+                                    "type": "LayoutMarginParseErrorOwned"
+                                },
+                                "Overflow": {
+                                    "type": "InvalidValueErrOwned"
+                                },
+                                "BoxShadow": {
+                                    "type": "CssShadowParseErrorOwned"
+                                },
+                                "Color": {
+                                    "type": "CssColorParseErrorOwned"
+                                },
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "Percentage": {
+                                    "type": "PercentageParseError"
+                                },
+                                "FontFamily": {
+                                    "type": "CssStyleFontFamilyParseErrorOwned"
+                                },
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                },
+                                "FlexGrow": {
+                                    "type": "FlexGrowParseErrorOwned"
+                                },
+                                "FlexShrink": {
+                                    "type": "FlexShrinkParseErrorOwned"
+                                },
+                                "Background": {
+                                    "type": "CssBackgroundParseErrorOwned"
+                                },
+                                "BackgroundPosition": {
+                                    "type": "CssBackgroundPositionParseErrorOwned"
+                                },
+                                "Opacity": {
+                                    "type": "OpacityParseErrorOwned"
+                                },
+                                "Visibility": {
+                                    "type": "StyleVisibilityParseErrorOwned"
+                                },
+                                "Scrollbar": {
+                                    "type": "CssScrollbarStyleParseErrorOwned"
+                                },
+                                "LayoutScrollbarWidth": {
+                                    "type": "LayoutScrollbarWidthParseErrorOwned"
+                                },
+                                "StyleScrollbarColor": {
+                                    "type": "StyleScrollbarColorParseErrorOwned"
+                                },
+                                "Transform": {
+                                    "type": "CssStyleTransformParseErrorOwned"
+                                },
+                                "TransformOrigin": {
+                                    "type": "CssStyleTransformOriginParseErrorOwned"
+                                },
+                                "PerspectiveOrigin": {
+                                    "type": "CssStylePerspectiveOriginParseErrorOwned"
+                                },
+                                "Filter": {
+                                    "type": "CssStyleFilterParseErrorOwned"
+                                },
+                                "TextColor": {
+                                    "type": "StyleTextColorParseErrorOwned"
+                                },
+                                "FontSize": {
+                                    "type": "CssStyleFontSizeParseErrorOwned"
+                                },
+                                "FontWeight": {
+                                    "type": "CssFontWeightParseErrorOwned"
+                                },
+                                "FontStyle": {
+                                    "type": "CssFontStyleParseErrorOwned"
+                                },
+                                "TextAlign": {
+                                    "type": "StyleTextAlignParseErrorOwned"
+                                },
+                                "TextJustify": {
+                                    "type": "TextJustifyParseErrorOwned"
+                                },
+                                "VerticalAlign": {
+                                    "type": "StyleVerticalAlignParseErrorOwned"
+                                },
+                                "LetterSpacing": {
+                                    "type": "StyleLetterSpacingParseErrorOwned"
+                                },
+                                "TextIndent": {
+                                    "type": "StyleTextIndentParseErrorOwned"
+                                },
+                                "InitialLetter": {
+                                    "type": "StyleInitialLetterParseErrorOwned"
+                                },
+                                "LineClamp": {
+                                    "type": "StyleLineClampParseErrorOwned"
+                                },
+                                "HangingPunctuation": {
+                                    "type": "StyleHangingPunctuationParseErrorOwned"
+                                },
+                                "TextCombineUpright": {
+                                    "type": "StyleTextCombineUprightParseErrorOwned"
+                                },
+                                "ExclusionMargin": {
+                                    "type": "StyleExclusionMarginParseErrorOwned"
+                                },
+                                "HyphenationLanguage": {
+                                    "type": "StyleHyphenationLanguageParseErrorOwned"
+                                },
+                                "LineHeight": {
+                                    "type": "StyleLineHeightParseError"
+                                },
+                                "WordSpacing": {
+                                    "type": "StyleWordSpacingParseErrorOwned"
+                                },
+                                "TabSize": {
+                                    "type": "StyleTabSizeParseErrorOwned"
+                                },
+                                "WhiteSpace": {
+                                    "type": "StyleWhiteSpaceParseErrorOwned"
+                                },
+                                "Hyphens": {
+                                    "type": "StyleHyphensParseErrorOwned"
+                                },
+                                "Direction": {
+                                    "type": "StyleDirectionParseErrorOwned"
+                                },
+                                "UserSelect": {
+                                    "type": "StyleUserSelectParseErrorOwned"
+                                },
+                                "TextDecoration": {
+                                    "type": "StyleTextDecorationParseErrorOwned"
+                                },
+                                "Cursor": {
+                                    "type": "CursorParseErrorOwned"
+                                },
+                                "CaretColor": {
+                                    "type": "CssColorParseErrorOwned"
+                                },
+                                "CaretAnimationDuration": {
+                                    "type": "DurationParseErrorOwned"
+                                },
+                                "CaretWidth": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "SelectionBackgroundColor": {
+                                    "type": "CssColorParseErrorOwned"
+                                },
+                                "SelectionColor": {
+                                    "type": "CssColorParseErrorOwned"
+                                },
+                                "SelectionRadius": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                },
+                                "LayoutDisplay": {
+                                    "type": "LayoutDisplayParseErrorOwned"
+                                },
+                                "LayoutFloat": {
+                                    "type": "LayoutFloatParseErrorOwned"
+                                },
+                                "LayoutBoxSizing": {
+                                    "type": "LayoutBoxSizingParseErrorOwned"
+                                },
+                                "LayoutWidth": {
+                                    "type": "LayoutWidthParseErrorOwned"
+                                },
+                                "LayoutHeight": {
+                                    "type": "LayoutHeightParseErrorOwned"
+                                },
+                                "LayoutMinWidth": {
+                                    "type": "LayoutMinWidthParseErrorOwned"
+                                },
+                                "LayoutMinHeight": {
+                                    "type": "LayoutMinHeightParseErrorOwned"
+                                },
+                                "LayoutMaxWidth": {
+                                    "type": "LayoutMaxWidthParseErrorOwned"
+                                },
+                                "LayoutMaxHeight": {
+                                    "type": "LayoutMaxHeightParseErrorOwned"
+                                },
+                                "LayoutPosition": {
+                                    "type": "LayoutPositionParseErrorOwned"
+                                },
+                                "LayoutTop": {
+                                    "type": "LayoutTopParseErrorOwned"
+                                },
+                                "LayoutRight": {
+                                    "type": "LayoutRightParseErrorOwned"
+                                },
+                                "LayoutLeft": {
+                                    "type": "LayoutLeftParseErrorOwned"
+                                },
+                                "LayoutInsetBottom": {
+                                    "type": "LayoutInsetBottomParseErrorOwned"
+                                },
+                                "LayoutZIndex": {
+                                    "type": "LayoutZIndexParseErrorOwned"
+                                },
+                                "FlexWrap": {
+                                    "type": "FlexWrapParseErrorOwned"
+                                },
+                                "FlexDirection": {
+                                    "type": "FlexDirectionParseErrorOwned"
+                                },
+                                "FlexBasis": {
+                                    "type": "FlexBasisParseErrorOwned"
+                                },
+                                "JustifyContent": {
+                                    "type": "JustifyContentParseErrorOwned"
+                                },
+                                "AlignItems": {
+                                    "type": "AlignItemsParseErrorOwned"
+                                },
+                                "AlignContent": {
+                                    "type": "AlignContentParseErrorOwned"
+                                },
+                                "Grid": {
+                                    "type": "GridParseErrorOwned"
+                                },
+                                "GridAutoFlow": {
+                                    "type": "GridAutoFlowParseErrorOwned"
+                                },
+                                "JustifySelf": {
+                                    "type": "JustifySelfParseErrorOwned"
+                                },
+                                "JustifyItems": {
+                                    "type": "JustifyItemsParseErrorOwned"
+                                },
+                                "AlignSelf": {
+                                    "type": "AlignSelfParseErrorOwned"
+                                },
+                                "LayoutWrap": {
+                                    "type": "LayoutWrapParseErrorOwned"
+                                },
+                                "LayoutWritingMode": {
+                                    "type": "LayoutWritingModeParseErrorOwned"
+                                },
+                                "LayoutClear": {
+                                    "type": "LayoutClearParseErrorOwned"
+                                },
+                                "LayoutOverflow": {
+                                    "type": "LayoutOverflowParseErrorOwned"
+                                },
+                                "BorderTopLeftRadius": {
+                                    "type": "StyleBorderTopLeftRadiusParseErrorOwned"
+                                },
+                                "BorderTopRightRadius": {
+                                    "type": "StyleBorderTopRightRadiusParseErrorOwned"
+                                },
+                                "BorderBottomLeftRadius": {
+                                    "type": "StyleBorderBottomLeftRadiusParseErrorOwned"
+                                },
+                                "BorderBottomRightRadius": {
+                                    "type": "StyleBorderBottomRightRadiusParseErrorOwned"
+                                },
+                                "BorderStyle": {
+                                    "type": "CssBorderStyleParseErrorOwned"
+                                },
+                                "BackfaceVisibility": {
+                                    "type": "CssBackfaceVisibilityParseErrorOwned"
+                                },
+                                "MixBlendMode": {
+                                    "type": "MixBlendModeParseErrorOwned"
+                                },
+                                "PageBreak": {
+                                    "type": "PageBreakParseErrorOwned"
+                                },
+                                "BreakInside": {
+                                    "type": "BreakInsideParseErrorOwned"
+                                },
+                                "Widows": {
+                                    "type": "WidowsParseErrorOwned"
+                                },
+                                "Orphans": {
+                                    "type": "OrphansParseErrorOwned"
+                                },
+                                "BoxDecorationBreak": {
+                                    "type": "BoxDecorationBreakParseErrorOwned"
+                                },
+                                "ColumnCount": {
+                                    "type": "ColumnCountParseErrorOwned"
+                                },
+                                "ColumnWidth": {
+                                    "type": "ColumnWidthParseErrorOwned"
+                                },
+                                "ColumnSpan": {
+                                    "type": "ColumnSpanParseErrorOwned"
+                                },
+                                "ColumnFill": {
+                                    "type": "ColumnFillParseErrorOwned"
+                                },
+                                "ColumnRuleWidth": {
+                                    "type": "ColumnRuleWidthParseErrorOwned"
+                                },
+                                "ColumnRuleStyle": {
+                                    "type": "ColumnRuleStyleParseErrorOwned"
+                                },
+                                "ColumnRuleColor": {
+                                    "type": "ColumnRuleColorParseErrorOwned"
+                                },
+                                "FlowInto": {
+                                    "type": "FlowIntoParseErrorOwned"
+                                },
+                                "FlowFrom": {
+                                    "type": "FlowFromParseErrorOwned"
+                                },
+                                "GenericParseError": {},
+                                "Content": {},
+                                "Counter": {},
+                                "ListStyleType": {
+                                    "type": "StyleListStyleTypeParseErrorOwned"
+                                },
+                                "ListStylePosition": {
+                                    "type": "StyleListStylePositionParseErrorOwned"
+                                },
+                                "StringSet": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -76425,6 +79982,22 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "InvalidValueErrOwned": {
+                        "external": "azul_css::props::basic::error::InvalidValueErrOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -77303,6 +80876,9 @@
                     },
                     "ChildPolicy": {
                         "external": "azul_core::xml::ChildPolicy",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -77320,15 +80896,18 @@
                             }
                         ],
                         "constructors": {
-                            "default": {
+                            "create": {
                                 "fn_args": [],
-                                "fn_body": "azul_core::xml::ChildPolicy::default()"
+                                "fn_body": "azul_core::xml::ChildPolicy::create()"
                             }
                         },
                         "repr": "C"
                     },
                     "ComponentSource": {
                         "external": "azul_core::xml::ComponentSource",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -77347,9 +80926,9 @@
                             }
                         ],
                         "constructors": {
-                            "default": {
+                            "create": {
                                 "fn_args": [],
-                                "fn_body": "azul_core::xml::ComponentSource::default()"
+                                "fn_body": "azul_core::xml::ComponentSource::create()"
                             }
                         },
                         "repr": "C"
@@ -77377,6 +80956,9 @@
                     },
                     "ComponentDef": {
                         "external": "azul_core::xml::ComponentDef",
+                        "custom_impls": [
+                            "Debug"
+                        ],
                         "derive": [
                             "Clone"
                         ],
@@ -77415,6 +80997,9 @@
                                 "callback_slots": {
                                     "type": "ComponentCallbackSlotVec"
                                 },
+                                "template": {
+                                    "type": "String"
+                                },
                                 "render_fn": {
                                     "type": "ComponentRenderFn"
                                 },
@@ -77430,10 +81015,14 @@
                         "repr": "C"
                     },
                     "ComponentCompileFn": {
-                        "external": "azul_core::xml::ComponentCompileFn",
                         "doc": [
                             "Opaque compile function pointer for component code generation."
                         ],
+                        "external": "azul_core::xml::ComponentCompileFn",
+                        "derive": [
+                            "Clone",
+                            "Copy"
+                        ],
                         "struct_fields": [
                             {
                                 "_internal": {
@@ -77441,16 +81030,44 @@
                                 }
                             }
                         ],
-                        "derive": [
-                            "Clone",
-                            "Copy"
-                        ],
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentDef",
+                                    "ref_kind": "ref"
+                                },
+                                {
+                                    "type": "CompileTarget",
+                                    "ref_kind": "ref"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "OptionString",
+                                    "ref_kind": "ref"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Result<String, CompileError>"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentRenderFn": {
-                        "external": "azul_core::xml::ComponentRenderFn",
                         "doc": [
                             "Opaque render function pointer for component DOM rendering."
+                        ],
+                        "external": "azul_core::xml::ComponentRenderFn",
+                        "derive": [
+                            "Clone",
+                            "Copy"
                         ],
                         "struct_fields": [
                             {
@@ -77459,10 +81076,27 @@
                                 }
                             }
                         ],
-                        "derive": [
-                            "Clone",
-                            "Copy"
-                        ],
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentDef",
+                                    "ref_kind": "ref"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "OptionString",
+                                    "ref_kind": "ref"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Result<StyledDom, RenderDomError>"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentLibrary": {
@@ -77487,6 +81121,12 @@
                                 },
                                 "exportable": {
                                     "type": "bool"
+                                },
+                                "modifiable": {
+                                    "type": "bool"
+                                },
+                                "data_models": {
+                                    "type": "ComponentDataModelVec"
                                 }
                             }
                         ],
@@ -77494,6 +81134,9 @@
                     },
                     "ComponentMap": {
                         "external": "azul_core::xml::ComponentMap",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone"
@@ -77506,12 +81149,107 @@
                             }
                         ],
                         "constructors": {
-                            "default": {
+                            "create": {
                                 "fn_args": [],
-                                "fn_body": "azul_core::xml::ComponentMap::default()"
+                                "fn_body": "azul_core::xml::ComponentMap::create()"
                             }
                         },
                         "functions": {},
+                        "repr": "C"
+                    },
+                    "ComponentArgumentType": {
+                        "external": "azul_core::xml::ComponentArgumentType",
+                        "repr": "C"
+                    },
+                    "ComponentDataModel": {
+                        "external": "azul_core::xml::ComponentDataModel",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "description": {
+                                    "type": "String"
+                                },
+                                "fields": {
+                                    "type": "ComponentDataFieldVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentEventFilter": {
+                        "external": "azul_core::events::ComponentEventFilter",
+                        "derive": [
+                            "PartialEq",
+                            "Hash",
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialOrd",
+                            "Eq",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "AfterMount": {},
+                                "BeforeUnmount": {},
+                                "NodeResized": {},
+                                "DefaultAction": {},
+                                "Selected": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentArgumentTypes": {
+                        "external": "azul_core::xml::ComponentArgumentTypes",
+                        "repr": "C"
+                    },
+                    "ComponentArgumentName": {
+                        "external": "azul_core::xml::ComponentArgumentName",
+                        "repr": "C"
+                    },
+                    "CssColorComponent": {
+                        "external": "azul_css::props::basic::color::CssColorComponent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Red": {},
+                                "Green": {},
+                                "Blue": {},
+                                "Hue": {},
+                                "Saturation": {},
+                                "Lightness": {},
+                                "Alpha": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "XmlComponent": {
+                        "external": "azul_core::xml::XmlComponent",
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "String"
+                                },
+                                "renderer": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "inherit_vars": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
