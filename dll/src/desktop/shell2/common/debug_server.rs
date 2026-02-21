@@ -3461,10 +3461,10 @@ fn build_component_registry() -> ComponentRegistryResponse {
     let map = ComponentMap::default();
     let mut libraries = Vec::new();
 
-    for lib in &map.libraries {
+    for lib in map.libraries.iter() {
         let mut components = Vec::new();
 
-        for def in &lib.components {
+        for def in lib.components.iter() {
             let tag = def.id.name.as_str();
 
             // --- attributes ---
@@ -3602,7 +3602,7 @@ fn build_exported_code(language: &str) -> Result<ExportedCodeResponse, String> {
         let mut all_component_sources = Vec::new();
 
         for lib in &exportable {
-            for def in &lib.components {
+            for def in lib.components.iter() {
                 let args = FilteredComponentArguments::default();
                 let text = OptionString::None;
 

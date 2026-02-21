@@ -4450,7 +4450,7 @@
                   "Re-render ALL image callbacks across all DOMs (applied after callback returns)",
                   "",
                   "This is the most efficient way to update animated GL textures from a timer.",
-                  "Triggers only texture re-rendering — no DOM rebuild or display list resubmission.",
+                  "Triggers only texture re-rendering \u2014 no DOM rebuild or display list resubmission.",
                   "",
                   "# Example",
                   "```ignore",
@@ -7216,7 +7216,7 @@
                   "Re-render ALL image callbacks across all DOMs (applied after callback returns)",
                   "",
                   "This is the most efficient way to update animated GL textures from a timer.",
-                  "Triggers only texture re-rendering — no DOM rebuild or display list resubmission.",
+                  "Triggers only texture re-rendering \u2014 no DOM rebuild or display list resubmission.",
                   "",
                   "# Example",
                   "```ignore",
@@ -68059,6 +68059,281 @@
               "returns": null
             },
             "repr": "C"
+          },
+          "ComponentCallbackSlotVecDestructor": {
+            "external": "azul_core::xml::ComponentCallbackSlotVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ComponentCallbackSlotVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentParamVec": {
+            "external": "azul_core::xml::ComponentParamVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "ComponentParam",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ComponentParamVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentParamVecDestructorType": {
+            "external": "azul_core::xml::ComponentParamVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ComponentParamVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "ComponentDataFieldVec": {
+            "external": "azul_core::xml::ComponentDataFieldVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "ComponentDataField",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ComponentDataFieldVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentCallbackSlotVec": {
+            "external": "azul_core::xml::ComponentCallbackSlotVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "ComponentCallbackSlot",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ComponentCallbackSlotVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentCallbackSlotVecDestructorType": {
+            "external": "azul_core::xml::ComponentCallbackSlotVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ComponentCallbackSlotVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "ComponentDataFieldVecDestructorType": {
+            "external": "azul_core::xml::ComponentDataFieldVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ComponentDataFieldVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "ComponentParamVecDestructor": {
+            "external": "azul_core::xml::ComponentParamVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ComponentParamVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentDataFieldVecDestructor": {
+            "external": "azul_core::xml::ComponentDataFieldVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ComponentDataFieldVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentDefVecDestructor": {
+            "external": "azul_core::xml::ComponentDefVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ComponentDefVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentDefVecDestructorType": {
+            "external": "azul_core::xml::ComponentDefVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ComponentDefVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "ComponentDefVec": {
+            "external": "azul_core::xml::ComponentDefVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "ComponentDef",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ComponentDefVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentLibraryVec": {
+            "external": "azul_core::xml::ComponentLibraryVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "ComponentLibrary",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ComponentLibraryVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentLibraryVecDestructorType": {
+            "external": "azul_core::xml::ComponentLibraryVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ComponentLibraryVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "ComponentLibraryVecDestructor": {
+            "external": "azul_core::xml::ComponentLibraryVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ComponentLibraryVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -71656,6 +71931,30 @@
                   ]
                 }
               }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionNodeType": {
+            "external": "azul_core::dom::OptionNodeType",
+            "doc": [
+              "Option<NodeType> wrapper for FFI."
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "NodeType"
+                }
+              }
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
             ],
             "repr": "C, u8"
           }
@@ -76849,6 +77148,367 @@
                 "fn_body": "object.clear_all()"
               }
             },
+            "repr": "C"
+          }
+        }
+      },
+      "component": {
+        "classes": {
+          "ComponentId": {
+            "external": "azul_core::xml::ComponentId",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "collection": {
+                  "type": "String"
+                },
+                "name": {
+                  "type": "String"
+                }
+              }
+            ],
+            "constructors": {
+              "builtin": {
+                "fn_args": [
+                  {
+                    "name": "String"
+                  }
+                ],
+                "fn_body": "azul_core::xml::ComponentId::builtin(name.as_str())"
+              },
+              "new": {
+                "fn_args": [
+                  {
+                    "collection": "String"
+                  },
+                  {
+                    "name": "String"
+                  }
+                ],
+                "fn_body": "azul_core::xml::ComponentId::new(collection.as_str(), name.as_str())"
+              }
+            },
+            "functions": {
+              "qualified_name": {
+                "doc": [
+                  "Returns \"collection:name\" format string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.qualified_name().into()"
+              }
+            },
+            "repr": "C"
+          },
+          "ComponentParam": {
+            "external": "azul_core::xml::ComponentParam",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "param_type": {
+                  "type": "String"
+                },
+                "default_value": {
+                  "type": "OptionString"
+                },
+                "description": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentCallbackSlot": {
+            "external": "azul_core::xml::ComponentCallbackSlot",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "callback_type": {
+                  "type": "String"
+                },
+                "description": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentDataField": {
+            "external": "azul_core::xml::ComponentDataField",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "field_type": {
+                  "type": "String"
+                },
+                "default_value": {
+                  "type": "OptionString"
+                },
+                "description": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ChildPolicy": {
+            "external": "azul_core::xml::ChildPolicy",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "NoChildren": {},
+                "AnyChildren": {},
+                "TextOnly": {}
+              }
+            ],
+            "constructors": {
+              "default": {
+                "fn_args": [],
+                "fn_body": "azul_core::xml::ChildPolicy::default()"
+              }
+            },
+            "repr": "C, u8"
+          },
+          "ComponentSource": {
+            "external": "azul_core::xml::ComponentSource",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Builtin": {},
+                "Compiled": {},
+                "UserDefined": {}
+              }
+            ],
+            "constructors": {
+              "default": {
+                "fn_args": [],
+                "fn_body": "azul_core::xml::ComponentSource::default()"
+              }
+            },
+            "repr": "C, u8"
+          },
+          "CompileTarget": {
+            "external": "azul_core::xml::CompileTarget",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Rust": {},
+                "C": {},
+                "Cpp": {},
+                "Python": {}
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "ComponentDef": {
+            "external": "azul_core::xml::ComponentDef",
+            "derive": [
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "id": {
+                  "type": "ComponentId"
+                },
+                "display_name": {
+                  "type": "String"
+                },
+                "description": {
+                  "type": "String"
+                },
+                "parameters": {
+                  "type": "ComponentParamVec"
+                },
+                "accepts_text": {
+                  "type": "bool"
+                },
+                "child_policy": {
+                  "type": "ChildPolicy"
+                },
+                "scoped_css": {
+                  "type": "String"
+                },
+                "example_xml": {
+                  "type": "String"
+                },
+                "source": {
+                  "type": "ComponentSource"
+                },
+                "data_model": {
+                  "type": "ComponentDataFieldVec"
+                },
+                "callback_slots": {
+                  "type": "ComponentCallbackSlotVec"
+                },
+                "render_fn": {
+                  "type": "ComponentRenderFn"
+                },
+                "compile_fn": {
+                  "type": "ComponentCompileFn"
+                },
+                "node_type": {
+                  "type": "OptionNodeType"
+                }
+              }
+            ],
+            "functions": {},
+            "repr": "C"
+          },
+          "ComponentCompileFn": {
+            "external": "azul_core::xml::ComponentCompileFn",
+            "doc": [
+              "Opaque compile function pointer for component code generation."
+            ],
+            "struct_fields": [
+              {
+                "_internal": {
+                  "type": "usize"
+                }
+              }
+            ],
+            "derive": [
+              "Clone",
+              "Copy"
+            ],
+            "repr": "C"
+          },
+          "ComponentRenderFn": {
+            "external": "azul_core::xml::ComponentRenderFn",
+            "doc": [
+              "Opaque render function pointer for component DOM rendering."
+            ],
+            "struct_fields": [
+              {
+                "_internal": {
+                  "type": "usize"
+                }
+              }
+            ],
+            "derive": [
+              "Clone",
+              "Copy"
+            ],
+            "repr": "C"
+          },
+          "ComponentLibrary": {
+            "external": "azul_core::xml::ComponentLibrary",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "version": {
+                  "type": "String"
+                },
+                "description": {
+                  "type": "String"
+                },
+                "components": {
+                  "type": "ComponentDefVec"
+                },
+                "exportable": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ComponentMap": {
+            "external": "azul_core::xml::ComponentMap",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "libraries": {
+                  "type": "ComponentLibraryVec"
+                }
+              }
+            ],
+            "constructors": {
+              "default": {
+                "fn_args": [],
+                "fn_body": "azul_core::xml::ComponentMap::default()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           }
         }

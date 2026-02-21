@@ -46,7 +46,7 @@ use azul_css::{
 };
 
 use crate::{
-    dom::{Dom, NodeType},
+    dom::{Dom, NodeType, OptionNodeType},
     styled_dom::StyledDom,
     window::{AzStringPair, StringPairVec},
 };
@@ -1309,7 +1309,7 @@ pub struct ComponentDef {
     /// Compile to source code in target language
     pub compile_fn: ComponentCompileFn,
     /// The NodeType to create for this component (for builtins)
-    pub node_type: Option<NodeType>,
+    pub node_type: OptionNodeType,
 }
 
 impl fmt::Debug for ComponentDef {
@@ -1325,6 +1325,11 @@ impl fmt::Debug for ComponentDef {
     }
 }
 
+impl_vec!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor, ComponentDefVecDestructorType, ComponentDefVecSlice, OptionComponentDef);
+impl_option!(ComponentDef, OptionComponentDef, copy = false, [Clone]);
+impl_vec_debug!(ComponentDef, ComponentDefVec);
+impl_vec_clone!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor);
+
 /// A named collection of component definitions
 #[derive(Debug, Clone)]
 pub struct ComponentLibrary {
@@ -1335,17 +1340,22 @@ pub struct ComponentLibrary {
     /// Human-readable description
     pub description: AzString,
     /// The components in this library
-    pub components: Vec<ComponentDef>,
+    pub components: ComponentDefVec,
     /// Whether this library can be exported (false for builtin/compiled)
     pub exportable: bool,
 }
+
+impl_vec!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor, ComponentLibraryVecDestructorType, ComponentLibraryVecSlice, OptionComponentLibrary);
+impl_option!(ComponentLibrary, OptionComponentLibrary, copy = false, [Debug, Clone]);
+impl_vec_debug!(ComponentLibrary, ComponentLibraryVec);
+impl_vec_clone!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor);
 
 /// The new component map — holds libraries with namespaced components.
 /// Coexists with `XmlComponentMap` during migration.
 #[derive(Debug, Clone)]
 pub struct ComponentMap {
     /// Libraries indexed by name. "builtin" is always present.
-    pub libraries: Vec<ComponentLibrary>,
+    pub libraries: ComponentLibraryVec,
 }
 
 impl ComponentMap {
@@ -1394,7 +1404,7 @@ fn builtin_render_fn(
     _args: &FilteredComponentArguments,
     text: &OptionString,
 ) -> Result<StyledDom, RenderDomError> {
-    let node_type = def.node_type.clone().unwrap_or(NodeType::Div);
+    let node_type: NodeType = Option::from(def.node_type.clone()).unwrap_or(NodeType::Div);
     let mut dom = Dom::create_node(node_type);
     if let Some(text_str) = text.as_ref() {
         let prepared = prepare_string(text_str);
@@ -1415,7 +1425,7 @@ fn builtin_compile_fn(
     text: &OptionString,
     indent: usize,
 ) -> Result<String, CompileError> {
-    let node_type = def.node_type.clone().unwrap_or(NodeType::Div);
+    let node_type: NodeType = Option::from(def.node_type.clone()).unwrap_or(NodeType::Div);
     let type_name = format!("{:?}", node_type); // "Div", "Body", "P", etc.
 
     match target {
@@ -1465,7 +1475,7 @@ fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, acc
         callback_slots: Vec::new().into(),
         render_fn: builtin_render_fn,
         compile_fn: builtin_compile_fn,
-        node_type: Some(node_type),
+        node_type: OptionNodeType::Some(node_type),
     }
 }
 
@@ -1476,7 +1486,7 @@ impl Default for ComponentMap {
             version: AzString::from_const_str("1.0.0"),
             description: AzString::from_const_str("Built-in HTML elements"),
             exportable: false,
-            components: vec![
+            components: alloc::vec![
                 // Structural
                 builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),
                 builtin_component_def("head", "Head", NodeType::Head, false, ChildPolicy::AnyChildren),
@@ -1537,11 +1547,11 @@ impl Default for ComponentMap {
                 builtin_component_def("form", "Form", NodeType::Form, false, ChildPolicy::AnyChildren),
                 builtin_component_def("label", "Label", NodeType::Label, true, ChildPolicy::AnyChildren),
                 builtin_component_def("button", "Button", NodeType::Button, true, ChildPolicy::AnyChildren),
-            ],
+            ].into(),
         };
 
         ComponentMap {
-            libraries: vec![builtin],
+            libraries: alloc::vec![builtin].into(),
         }
     }
 }

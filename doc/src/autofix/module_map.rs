@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 /// Canonical module names in api.json
 pub const MODULES: &[&str] = &[
     "app",
+    "component",
     "window",
     "callbacks",
     "dom",
@@ -276,6 +277,23 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "stroke",
             "fill",
             "tessellat",
+        ],
+    );
+
+    // Component module - component system types
+    map.insert(
+        "component",
+        vec![
+            "componentid",
+            "componentparam",
+            "componentcallbackslot",
+            "componentdatafield",
+            "componentdef",
+            "componentlibrary",
+            "componentmap",
+            "componentsource",
+            "childpolicy",
+            "compiletarget",
         ],
     );
 

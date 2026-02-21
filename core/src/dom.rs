@@ -489,6 +489,8 @@ pub enum NodeType {
     Icon(AzString),
 }
 
+impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 impl NodeType {
     fn into_library_owned_nodetype(&self) -> Self {
         use self::NodeType::*;
