@@ -1214,7 +1214,7 @@ impl_vec_clone!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVec
 
 /// What children a component accepts
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(u8)]
+#[repr(C)]
 pub enum ChildPolicy {
     /// No children allowed (void elements: br, hr, img, input)
     NoChildren,
@@ -1281,6 +1281,7 @@ pub type ComponentCompileFn = fn(
 ///
 /// This is the new `repr(C)` replacement for `XmlComponentTrait`.
 #[derive(Clone)]
+#[repr(C)]
 pub struct ComponentDef {
     /// Collection + name, e.g. builtin:div, shadcn:avatar
     pub id: ComponentId,
@@ -1332,6 +1333,7 @@ impl_vec_clone!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor);
 
 /// A named collection of component definitions
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct ComponentLibrary {
     /// Library identifier, e.g. "builtin", "shadcn", "myproject"
     pub name: AzString,
@@ -1353,6 +1355,7 @@ impl_vec_clone!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestru
 /// The new component map — holds libraries with namespaced components.
 /// Coexists with `XmlComponentMap` during migration.
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct ComponentMap {
     /// Libraries indexed by name. "builtin" is always present.
     pub libraries: ComponentLibraryVec,

@@ -330,6 +330,45 @@ impl<'a> IRBuilder<'a> {
                     }
                 }
 
+                // Validate repr annotation consistency
+                // Convention: structs → "C", simple enums (no data) → "C", enums with data → "C, u8"
+                if let Some(repr) = &class_data.repr {
+                    if class_data.struct_fields.is_some() {
+                        // Struct: must be repr(C)
+                        if repr != "C" && repr != "transparent" {
+                            errors.push(format!(
+                                "Invalid repr for struct {}: got repr({}), expected repr(C). \
+                                 Structs must use #[repr(C)] for FFI safety.",
+                                class_name, repr
+                            ));
+                        }
+                    } else if let Some(enum_fields) = &class_data.enum_fields {
+                        let has_data = enum_fields.iter()
+                            .flat_map(|m| m.values())
+                            .any(|v| v.r#type.is_some());
+
+                        if has_data {
+                            // Tagged union: must be repr(C, u8)
+                            if repr != "C, u8" {
+                                errors.push(format!(
+                                    "Invalid repr for tagged enum {}: got repr({}), expected repr(C, u8). \
+                                     Enums with variant data must use #[repr(C, u8)].",
+                                    class_name, repr
+                                ));
+                            }
+                        } else {
+                            // Simple enum: must be repr(C)
+                            if repr != "C" {
+                                errors.push(format!(
+                                    "Invalid repr for simple enum {}: got repr({}), expected repr(C). \
+                                     Enums without variant data must use #[repr(C)].",
+                                    class_name, repr
+                                ));
+                            }
+                        }
+                    }
+                }
+
                 // Check for reserved function names that conflict with auto-generated trait functions
                 const RESERVED_FN_NAMES: &[&str] = &[
                     "hash",
