@@ -55,95 +55,95 @@ const app = {
     schema: {
         commands: {
             // ── Queries ──
-            'get_state':            { desc: 'Get debug server state',              example: '/get_state',                                params: [] },
-            'get_dom':              { desc: 'Get raw DOM structure',                example: '/get_dom',                                  params: [] },
-            'get_html_string':      { desc: 'Get DOM as HTML string',              example: '/get_html_string',                          params: [] },
-            'get_dom_tree':         { desc: 'Get detailed DOM tree',               example: '/get_dom_tree',                             params: [] },
-            'get_node_hierarchy':   { desc: 'Get raw node hierarchy',              example: '/get_node_hierarchy',                       params: [] },
-            'get_layout_tree':      { desc: 'Get layout tree (debug)',             example: '/get_layout_tree',                          params: [] },
-            'get_display_list':     { desc: 'Get display list items',              example: '/get_display_list',                         params: [] },
-            'get_all_nodes_layout': { desc: 'Get all nodes with layout',           example: '/get_all_nodes_layout',                     params: [] },
-            'get_logs':             { desc: 'Get server logs',                     example: '/get_logs',                                 params: [{ name: 'since_request_id', type: 'number', placeholder: '0' }] },
+            'get_state':            { desc: 'Get debug server state',              examples: ['/get_state'],                              params: [] },
+            'get_dom':              { desc: 'Get raw DOM structure',                examples: ['/get_dom'],                                params: [] },
+            'get_html_string':      { desc: 'Get DOM as HTML string',              examples: ['/get_html_string'],                        params: [] },
+            'get_dom_tree':         { desc: 'Get detailed DOM tree',               examples: ['/get_dom_tree'],                            params: [] },
+            'get_node_hierarchy':   { desc: 'Get raw node hierarchy',              examples: ['/get_node_hierarchy'],                      params: [] },
+            'get_layout_tree':      { desc: 'Get layout tree (debug)',             examples: ['/get_layout_tree'],                         params: [] },
+            'get_display_list':     { desc: 'Get display list items',              examples: ['/get_display_list'],                        params: [] },
+            'get_all_nodes_layout': { desc: 'Get all nodes with layout',           examples: ['/get_all_nodes_layout'],                    params: [] },
+            'get_logs':             { desc: 'Get server logs',                     examples: ['/get_logs', '/get_logs since_request_id 5'], params: [{ name: 'since_request_id', type: 'number', placeholder: '0' }] },
 
             // ── Mouse ──
-            'mouse_move':     { desc: 'Move mouse to (x, y)',                      example: '/mouse_move 100 200',                       params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
-            'mouse_down':     { desc: 'Mouse button press at (x, y)',              example: '/mouse_down 100 200 left',                  params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
-            'mouse_up':       { desc: 'Mouse button release at (x, y)',            example: '/mouse_up 100 200 left',                    params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
-            'click':          { desc: 'Click (by selector, text, coords, or ID)',  example: '/click .btn',                               params: [{ name: 'selector', type: 'text', placeholder: '.btn' }, { name: 'text', type: 'text', placeholder: 'Label' }] },
-            'double_click':   { desc: 'Double-click at (x, y)',                    example: '/double_click 100 200',                     params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
-            'click_node':     { desc: 'Click on node by ID (deprecated)',          example: '/click_node 5',                             params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
-            'scroll':         { desc: 'Scroll at (x, y) by delta',                example: '/scroll 100 200 0 -50',                     params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'delta_x', type: 'number', value: 0 }, { name: 'delta_y', type: 'number', value: 50 }] },
-            'hit_test':       { desc: 'Find node at (x, y)',                       example: '/hit_test 100 200',                         params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
+            'mouse_move':     { desc: 'Move mouse to (x, y)',                      examples: ['/mouse_move x 100 y 200'],                  params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
+            'mouse_down':     { desc: 'Mouse button press at (x, y)',              examples: ['/mouse_down x 100 y 200 button left'],      params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
+            'mouse_up':       { desc: 'Mouse button release at (x, y)',            examples: ['/mouse_up x 100 y 200 button left'],        params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
+            'click':          { desc: 'Click (by selector, text, coords, or ID)',  examples: ['/click selector .btn', '/click text Submit', '/click node_id 42', '/click x 100 y 200'], params: [{ name: 'selector', type: 'text', placeholder: '.btn' }, { name: 'text', type: 'text', placeholder: 'Label' }, { name: 'node_id', type: 'number', placeholder: '42' }, { name: 'x', type: 'number', placeholder: '100' }, { name: 'y', type: 'number', placeholder: '200' }], variants: ['selector', 'text', 'node_id', 'x+y'] },
+            'double_click':   { desc: 'Double-click at (x, y)',                    examples: ['/double_click x 100 y 200'],                params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
+            'click_node':     { desc: 'Click on node by ID (deprecated)',          examples: ['/click_node node_id 5'],                    params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'button', type: 'text', placeholder: 'left' }] },
+            'scroll':         { desc: 'Scroll at (x, y) by delta',                examples: ['/scroll x 100 y 200 delta_x 0 delta_y -50'], params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }, { name: 'delta_x', type: 'number', value: 0 }, { name: 'delta_y', type: 'number', value: 50 }] },
+            'hit_test':       { desc: 'Find node at (x, y)',                       examples: ['/hit_test x 100 y 200'],                    params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
 
             // ── Keyboard ──
-            'key_down':       { desc: 'Key press event',                           example: '/key_down Enter',                           params: [{ name: 'key', type: 'text', placeholder: 'Enter' }] },
-            'key_up':         { desc: 'Key release event',                         example: '/key_up Enter',                             params: [{ name: 'key', type: 'text', placeholder: 'Enter' }] },
-            'text_input':     { desc: 'Type text string',                          example: '/text_input Hello',                         params: [{ name: 'text', type: 'text', placeholder: 'Hello' }] },
+            'key_down':       { desc: 'Key press event',                           examples: ['/key_down key Enter'],                      params: [{ name: 'key', type: 'text', placeholder: 'Enter' }] },
+            'key_up':         { desc: 'Key release event',                         examples: ['/key_up key Enter'],                        params: [{ name: 'key', type: 'text', placeholder: 'Enter' }] },
+            'text_input':     { desc: 'Type text string',                          examples: ['/text_input text Hello'],                    params: [{ name: 'text', type: 'text', placeholder: 'Hello' }] },
 
             // ── Window ──
-            'resize':         { desc: 'Resize window',                             example: '/resize 800 600',                           params: [{ name: 'width', type: 'number', value: 800 }, { name: 'height', type: 'number', value: 600 }] },
-            'move':           { desc: 'Move window to (x, y)',                     example: '/move 100 100',                             params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
-            'focus':          { desc: 'Focus the window',                          example: '/focus',                                    params: [] },
-            'blur':           { desc: 'Blur (unfocus) the window',                 example: '/blur',                                     params: [] },
-            'close':          { desc: 'Close the window',                          example: '/close',                                    params: [] },
-            'dpi_changed':    { desc: 'Simulate DPI change',                       example: '/dpi_changed 2',                            params: [{ name: 'dpi', type: 'number', value: 1 }] },
+            'resize':         { desc: 'Resize window',                             examples: ['/resize width 800 height 600'],              params: [{ name: 'width', type: 'number', value: 800 }, { name: 'height', type: 'number', value: 600 }] },
+            'move':           { desc: 'Move window to (x, y)',                     examples: ['/move x 100 y 100'],                        params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
+            'focus':          { desc: 'Focus the window',                          examples: ['/focus'],                                    params: [] },
+            'blur':           { desc: 'Blur (unfocus) the window',                 examples: ['/blur'],                                     params: [] },
+            'close':          { desc: 'Close the window',                          examples: ['/close'],                                    params: [] },
+            'dpi_changed':    { desc: 'Simulate DPI change',                       examples: ['/dpi_changed dpi 2'],                        params: [{ name: 'dpi', type: 'number', value: 1 }] },
 
             // ── DOM Inspection ──
-            'get_node_css_properties': { desc: 'Get computed CSS for a node',      example: '/get_node_css_properties 3',                params: [{ name: 'node_id', type: 'number', placeholder: '0' }, { name: 'selector', type: 'text', placeholder: '.item' }] },
-            'get_node_layout':         { desc: 'Get position/size of a node',      example: '/get_node_layout 3',                        params: [{ name: 'node_id', type: 'number', placeholder: '0' }, { name: 'selector', type: 'text', placeholder: '.item' }] },
-            'find_node_by_text':       { desc: 'Find node by text content',        example: '/find_node_by_text "Hello"',                params: [{ name: 'text', type: 'text', placeholder: 'Hello' }] },
+            'get_node_css_properties': { desc: 'Get computed CSS for a node',      examples: ['/get_node_css_properties node_id 3', '/get_node_css_properties selector .item'], params: [{ name: 'node_id', type: 'number', placeholder: '0' }, { name: 'selector', type: 'text', placeholder: '.item' }], variants: ['node_id', 'selector'] },
+            'get_node_layout':         { desc: 'Get position/size of a node',      examples: ['/get_node_layout node_id 3', '/get_node_layout selector .item', '/get_node_layout text Submit'], params: [{ name: 'node_id', type: 'number', placeholder: '0' }, { name: 'selector', type: 'text', placeholder: '.item' }, { name: 'text', type: 'text', placeholder: '' }], variants: ['node_id', 'selector', 'text'] },
+            'find_node_by_text':       { desc: 'Find node by text content',        examples: ['/find_node_by_text text "Hello"'],            params: [{ name: 'text', type: 'text', placeholder: 'Hello' }] },
 
             // ── Scrolling ──
-            'get_scroll_states':    { desc: 'Get all scroll positions',            example: '/get_scroll_states',                        params: [] },
-            'get_scrollable_nodes': { desc: 'List scrollable nodes',               example: '/get_scrollable_nodes',                     params: [] },
-            'scroll_node_by':       { desc: 'Scroll a node by delta',              example: '/scroll_node_by 5 0 -50',                   params: [{ name: 'node_id', type: 'number', placeholder: '5' }, { name: 'delta_x', type: 'number', value: 0 }, { name: 'delta_y', type: 'number', value: 0 }] },
-            'scroll_node_to':       { desc: 'Scroll a node to position',           example: '/scroll_node_to 5 0 100',                   params: [{ name: 'node_id', type: 'number', placeholder: '5' }, { name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] },
-            'scroll_into_view':     { desc: 'Scroll node into view (W3C)',         example: '/scroll_into_view .item',                   params: [{ name: 'selector', type: 'text', placeholder: '.item' }, { name: 'block', type: 'text', placeholder: 'center' }] },
-            'get_scrollbar_info':   { desc: 'Get scrollbar geometry for node',     example: '/get_scrollbar_info 5',                     params: [{ name: 'node_id', type: 'number', placeholder: '5' }, { name: 'orientation', type: 'text', placeholder: 'both' }] },
+            'get_scroll_states':    { desc: 'Get all scroll positions',            examples: ['/get_scroll_states'],                        params: [] },
+            'get_scrollable_nodes': { desc: 'List scrollable nodes',               examples: ['/get_scrollable_nodes'],                     params: [] },
+            'scroll_node_by':       { desc: 'Scroll a node by delta',              examples: ['/scroll_node_by node_id 5 delta_x 0 delta_y -50', '/scroll_node_by selector .scrollable delta_y 100'], params: [{ name: 'node_id', type: 'number', placeholder: '5' }, { name: 'selector', type: 'text', placeholder: '.scrollable' }, { name: 'delta_x', type: 'number', value: 0 }, { name: 'delta_y', type: 'number', value: 0 }], variants: ['node_id', 'selector'] },
+            'scroll_node_to':       { desc: 'Scroll a node to position',           examples: ['/scroll_node_to node_id 5 x 0 y 100', '/scroll_node_to selector .content x 0 y 500'], params: [{ name: 'node_id', type: 'number', placeholder: '5' }, { name: 'selector', type: 'text', placeholder: '.content' }, { name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }], variants: ['node_id', 'selector'] },
+            'scroll_into_view':     { desc: 'Scroll node into view (W3C)',         examples: ['/scroll_into_view selector .item'],           params: [{ name: 'selector', type: 'text', placeholder: '.item' }, { name: 'block', type: 'text', placeholder: 'center' }] },
+            'get_scrollbar_info':   { desc: 'Get scrollbar geometry for node',     examples: ['/get_scrollbar_info node_id 5', '/get_scrollbar_info selector .scrollable'], params: [{ name: 'node_id', type: 'number', placeholder: '5' }, { name: 'selector', type: 'text', placeholder: '.scrollable' }, { name: 'orientation', type: 'text', placeholder: 'both' }], variants: ['node_id', 'selector'] },
 
             // ── Selection / Drag ──
-            'get_selection_state':    { desc: 'Get text selection state',           example: '/get_selection_state',                      params: [] },
-            'dump_selection_manager': { desc: 'Dump selection manager (debug)',     example: '/dump_selection_manager',                   params: [] },
-            'get_drag_state':         { desc: 'Get drag state',                    example: '/get_drag_state',                           params: [] },
-            'get_drag_context':       { desc: 'Get drag context (debug)',           example: '/get_drag_context',                         params: [] },
-            'get_focus_state':        { desc: 'Get current focus node',            example: '/get_focus_state',                          params: [] },
-            'get_cursor_state':       { desc: 'Get cursor position/blink',         example: '/get_cursor_state',                         params: [] },
+            'get_selection_state':    { desc: 'Get text selection state',           examples: ['/get_selection_state'],                      params: [] },
+            'dump_selection_manager': { desc: 'Dump selection manager (debug)',     examples: ['/dump_selection_manager'],                    params: [] },
+            'get_drag_state':         { desc: 'Get drag state',                    examples: ['/get_drag_state'],                            params: [] },
+            'get_drag_context':       { desc: 'Get drag context (debug)',           examples: ['/get_drag_context'],                          params: [] },
+            'get_focus_state':        { desc: 'Get current focus node',            examples: ['/get_focus_state'],                            params: [] },
+            'get_cursor_state':       { desc: 'Get cursor position/blink',         examples: ['/get_cursor_state'],                           params: [] },
 
             // ── Control ──
-            'relayout':        { desc: 'Force re-layout',                          example: '/relayout',                                 params: [] },
-            'redraw':          { desc: 'Force redraw',                             example: '/redraw',                                   params: [] },
-            'wait':            { desc: 'Wait milliseconds',                        example: '/wait 500',                                 params: [{ name: 'ms', type: 'number', value: 500 }] },
-            'wait_frame':      { desc: 'Wait for next frame',                      example: '/wait_frame',                               params: [] },
+            'relayout':        { desc: 'Force re-layout',                          examples: ['/relayout'],                                  params: [] },
+            'redraw':          { desc: 'Force redraw',                             examples: ['/redraw'],                                    params: [] },
+            'wait':            { desc: 'Wait milliseconds',                        examples: ['/wait ms 500'],                               params: [{ name: 'ms', type: 'number', value: 500 }] },
+            'wait_frame':      { desc: 'Wait for next frame',                      examples: ['/wait_frame'],                                params: [] },
 
             // ── Screenshots ──
-            'take_screenshot':        { desc: 'Take screenshot (SW render)',       example: '/take_screenshot',                          params: [] },
-            'take_native_screenshot': { desc: 'Take native OS screenshot',         example: '/take_native_screenshot',                   params: [] },
+            'take_screenshot':        { desc: 'Take screenshot (SW render)',       examples: ['/take_screenshot'],                           params: [] },
+            'take_native_screenshot': { desc: 'Take native OS screenshot',         examples: ['/take_native_screenshot'],                    params: [] },
 
             // ── App State ──
-            'get_app_state':   { desc: 'Get global app state as JSON',             example: '/get_app_state',                            params: [] },
-            'set_app_state':   { desc: 'Set global app state from JSON',           example: '/set_app_state {"counter":0}',              params: [{ name: 'state', type: 'text', placeholder: '{"counter": 0}' }] },
+            'get_app_state':   { desc: 'Get global app state as JSON',             examples: ['/get_app_state'],                             params: [] },
+            'set_app_state':   { desc: 'Set global app state from JSON',           examples: ['/set_app_state state {"counter":0}'],          params: [{ name: 'state', type: 'text', placeholder: '{"counter": 0}' }] },
 
             // ── DOM Mutation ──
-            'insert_node':     { desc: 'Insert child node',                        example: '/insert_node 0 div',                        params: [{ name: 'parent_id', type: 'number', value: 0 }, { name: 'node_type', type: 'text', placeholder: 'div' }, { name: 'position', type: 'number', placeholder: '' }] },
-            'delete_node':     { desc: 'Delete a node',                            example: '/delete_node 5',                            params: [{ name: 'node_id', type: 'number', value: 0 }] },
-            'set_node_text':   { desc: 'Set text content of a node',               example: '/set_node_text 3 "Hello"',                  params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'text', type: 'text', placeholder: 'Hello' }] },
-            'set_node_classes':{ desc: 'Set CSS classes on a node',                example: '/set_node_classes 3 btn primary',            params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'classes', type: 'text', placeholder: 'btn primary' }] },
-            'set_node_css_override': { desc: 'Override a CSS property on a node',  example: '/set_node_css_override 3 width 100px',       params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'property', type: 'text', placeholder: 'width' }, { name: 'value', type: 'text', placeholder: '100px' }] },
+            'insert_node':     { desc: 'Insert child node',                        examples: ['/insert_node parent_id 0 node_type div'],     params: [{ name: 'parent_id', type: 'number', value: 0 }, { name: 'node_type', type: 'text', placeholder: 'div' }, { name: 'position', type: 'number', placeholder: '' }] },
+            'delete_node':     { desc: 'Delete a node',                            examples: ['/delete_node node_id 5'],                     params: [{ name: 'node_id', type: 'number', value: 0 }] },
+            'set_node_text':   { desc: 'Set text content of a node',               examples: ['/set_node_text node_id 3 text "Hello"'],      params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'text', type: 'text', placeholder: 'Hello' }] },
+            'set_node_classes':{ desc: 'Set CSS classes on a node',                examples: ['/set_node_classes node_id 3 classes btn primary'], params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'classes', type: 'text', placeholder: 'btn primary' }] },
+            'set_node_css_override': { desc: 'Override a CSS property on a node',  examples: ['/set_node_css_override node_id 3 property width value 100px'], params: [{ name: 'node_id', type: 'number', value: 0 }, { name: 'property', type: 'text', placeholder: 'width' }, { name: 'value', type: 'text', placeholder: '100px' }] },
 
             // ── Debugging ──
-            'resolve_function_pointers': { desc: 'Resolve fn ptrs to symbols',    example: '/resolve_function_pointers 0x1234',          params: [{ name: 'addresses', type: 'text', placeholder: '0x1234,0x5678' }] },
-            'get_component_registry':    { desc: 'Get registered components',      example: '/get_component_registry',                   params: [] },
+            'resolve_function_pointers': { desc: 'Resolve fn ptrs to symbols',    examples: ['/resolve_function_pointers addresses 0x1234'],  params: [{ name: 'addresses', type: 'text', placeholder: '0x1234,0x5678' }] },
+            'get_component_registry':    { desc: 'Get registered components',      examples: ['/get_component_registry'],                     params: [] },
 
             // ── E2E ──
-            'run_e2e_tests':  { desc: 'Run E2E test suite on server',              example: '/run_e2e_tests',                            params: [] },
+            'run_e2e_tests':  { desc: 'Run E2E test suite on server',              examples: ['/run_e2e_tests'],                              params: [] },
 
             // ── Assertions (virtual, used in E2E steps) ──
-            'assert_text':       { desc: 'Assert node text equals expected',       example: '/assert_text .label Hello',                 params: [{ name: 'selector', type: 'text', placeholder: '.label' }, { name: 'expected', type: 'text', placeholder: 'Hello' }] },
-            'assert_exists':     { desc: 'Assert element exists',                  example: '/assert_exists .element',                   params: [{ name: 'selector', type: 'text', placeholder: '.element' }] },
-            'assert_not_exists': { desc: 'Assert element does NOT exist',          example: '/assert_not_exists .gone',                  params: [{ name: 'selector', type: 'text', placeholder: '.gone' }] },
-            'assert_node_count': { desc: 'Assert selector matches N nodes',        example: '/assert_node_count li 5',                   params: [{ name: 'selector', type: 'text', placeholder: 'li' }, { name: 'expected', type: 'number', value: 5 }] },
-            'assert_layout':     { desc: 'Assert layout property value',           example: '/assert_layout .box width 100 1',           params: [{ name: 'selector', type: 'text', placeholder: '.box' }, { name: 'property', type: 'text', placeholder: 'width' }, { name: 'expected', type: 'number', value: 100 }, { name: 'tolerance', type: 'number', value: 1 }] },
-            'assert_app_state':  { desc: 'Assert app state path value',            example: '/assert_app_state counter 42',              params: [{ name: 'path', type: 'text', placeholder: 'counter' }, { name: 'expected', type: 'text', placeholder: '42' }] },
+            'assert_text':       { desc: 'Assert node text equals expected',       examples: ['/assert_text selector .label expected Hello'],  params: [{ name: 'selector', type: 'text', placeholder: '.label' }, { name: 'expected', type: 'text', placeholder: 'Hello' }] },
+            'assert_exists':     { desc: 'Assert element exists',                  examples: ['/assert_exists selector .element'],             params: [{ name: 'selector', type: 'text', placeholder: '.element' }] },
+            'assert_not_exists': { desc: 'Assert element does NOT exist',          examples: ['/assert_not_exists selector .gone'],            params: [{ name: 'selector', type: 'text', placeholder: '.gone' }] },
+            'assert_node_count': { desc: 'Assert selector matches N nodes',        examples: ['/assert_node_count selector li expected 5'],    params: [{ name: 'selector', type: 'text', placeholder: 'li' }, { name: 'expected', type: 'number', value: 5 }] },
+            'assert_layout':     { desc: 'Assert layout property value',           examples: ['/assert_layout selector .box property width expected 100 tolerance 1'], params: [{ name: 'selector', type: 'text', placeholder: '.box' }, { name: 'property', type: 'text', placeholder: 'width' }, { name: 'expected', type: 'number', value: 100 }, { name: 'tolerance', type: 'number', value: 1 }] },
+            'assert_app_state':  { desc: 'Assert app state path value',            examples: ['/assert_app_state path counter expected 42'],   params: [{ name: 'path', type: 'text', placeholder: 'counter' }, { name: 'expected', type: 'text', placeholder: '42' }] },
         }
     },
 
@@ -243,9 +243,36 @@ const app = {
         var div = document.createElement('div');
         div.className = 'log-entry ' + type;
         var time = new Date().toLocaleTimeString('en', { hour12: false });
-        var text = typeof msg === 'object' ? JSON.stringify(msg) : msg;
-        div.textContent = '[' + time + '] ' + text;
-        panel.appendChild(div);
+
+        // Check for base64 image data in the message (screenshots)
+        var imgData = null;
+        if (typeof msg === 'object') {
+            // Look for screenshot data in response
+            imgData = _extractBase64Image(msg);
+        } else if (typeof msg === 'string') {
+            try {
+                var parsed = JSON.parse(msg);
+                imgData = _extractBase64Image(parsed);
+            } catch(e) { /* not JSON, that's fine */ }
+        }
+
+        if (imgData) {
+            var text = typeof msg === 'object' ? JSON.stringify(msg).substring(0, 100) + '...' : msg.substring(0, 100) + '...';
+            div.innerHTML = '[' + time + '] Screenshot received';
+            panel.appendChild(div);
+            var imgDiv = document.createElement('div');
+            imgDiv.className = 'log-entry-image';
+            var img = document.createElement('img');
+            img.src = imgData.startsWith('data:') ? imgData : 'data:image/png;base64,' + imgData;
+            img.style.cssText = 'max-width:100%;max-height:300px;cursor:pointer;border:1px solid var(--border);border-radius:3px;margin:4px 0;';
+            img.onclick = function() { app.ui.showScreenshot(img.src); };
+            imgDiv.appendChild(img);
+            panel.appendChild(imgDiv);
+        } else {
+            var text = typeof msg === 'object' ? JSON.stringify(msg) : msg;
+            div.textContent = '[' + time + '] ' + text;
+            panel.appendChild(div);
+        }
         panel.scrollTop = panel.scrollHeight;
     },
 
@@ -271,10 +298,27 @@ const app = {
             var schema = self.schema.commands[cmd];
             var item = document.createElement('div');
             item.className = 'autocomplete-item';
-            item.innerHTML =
+            var examplesArr = schema.examples || (schema.example ? [schema.example] : []);
+            var firstExample = examplesArr[0] || '';
+            var extraExamples = examplesArr.slice(1);
+
+            var html = '<div class="autocomplete-main">' +
                 '<span class="autocomplete-cmd">/' + esc(cmd) + '</span>' +
                 '<span class="autocomplete-desc">' + esc(schema.desc || '') + '</span>' +
-                '<span class="autocomplete-example">' + esc(schema.example || '') + '</span>';
+                '</div>';
+            // First example on main line
+            if (firstExample) {
+                html += '<div class="autocomplete-example">' + esc(firstExample) + '</div>';
+            }
+            // Additional variant examples
+            if (extraExamples.length) {
+                html += '<div class="autocomplete-variants">';
+                extraExamples.forEach(function(ex) {
+                    html += '<div class="autocomplete-variant">' + esc(ex) + '</div>';
+                });
+                html += '</div>';
+            }
+            item.innerHTML = html;
             item.addEventListener('mousedown', function(e) {
                 e.preventDefault();
                 var input = document.getElementById('terminal-cmd');
@@ -559,8 +603,6 @@ const app = {
             if (node.id) html += '<div class="detail-row"><span class="detail-key">id</span><span class="detail-value">' + esc(node.id) + '</span></div>';
             if (node.classes && node.classes.length) html += '<div class="detail-row"><span class="detail-key">classes</span><span class="detail-value">' + esc(node.classes.join(' ')) + '</span></div>';
             if (node.text) html += '<div class="detail-row"><span class="detail-key">text</span><span class="detail-value">' + esc(node.text) + '</span></div>';
-            if (node.tab_index != null) html += '<div class="detail-row"><span class="detail-key">tabindex</span><span class="detail-value">' + node.tab_index + '</span></div>';
-            if (node.contenteditable) html += '<div class="detail-row"><span class="detail-key">contenteditable</span><span class="detail-value">true</span></div>';
             html += '</div>';
 
             // Right: Box Model (Chrome-style) — placeholder, filled by async fetch
@@ -590,11 +632,30 @@ const app = {
             html += '<div class="placeholder-text">Loading...</div>';
             html += '</div>';
 
+            // Accessibility section
+            html += '<div id="node-a11y-section" class="detail-section">';
+            html += '<div class="detail-section-header">Accessibility</div>';
+            var hasA11y = false;
+            if (node.tab_index != null) { html += '<div class="detail-row"><span class="detail-key">tabindex</span><span class="detail-value">' + node.tab_index + '</span></div>'; hasA11y = true; }
+            if (node.contenteditable) { html += '<div class="detail-row"><span class="detail-key">contenteditable</span><span class="detail-value">true</span></div>'; hasA11y = true; }
+            if (node.role) { html += '<div class="detail-row"><span class="detail-key">role</span><span class="detail-value">' + esc(node.role) + '</span></div>'; hasA11y = true; }
+            if (node.aria_label) { html += '<div class="detail-row"><span class="detail-key">aria-label</span><span class="detail-value">' + esc(node.aria_label) + '</span></div>'; hasA11y = true; }
+            if (node.focusable) { html += '<div class="detail-row"><span class="detail-key">focusable</span><span class="detail-value">true</span></div>'; hasA11y = true; }
+            if (!hasA11y) html += '<div class="placeholder-text" style="padding:4px 0">No accessibility attributes set.</div>';
+            html += '</div>';
+
+            // Clip mask section (loaded async)
+            html += '<div id="node-clip-section" class="detail-section">';
+            html += '<div class="detail-section-header">Clip / Scroll Nesting</div>';
+            html += '<div class="placeholder-text">Loading...</div>';
+            html += '</div>';
+
             panel.innerHTML = html;
 
             // Fetch layout (for box model) and CSS properties async
             app._loadNodeBoxModel(node.index);
             app._loadNodeCssProperties(node.index);
+            app._loadNodeClipInfo(node.index);
         },
 
         renderTestList: function() {
@@ -606,7 +667,37 @@ const app = {
                 div.onclick = function() { app.handlers.selectTest(test.id); };
                 var icon = test._result ? (test._result.status === 'pass' ? 'check_circle' : 'cancel') : 'description';
                 var iconColor = test._result ? (test._result.status === 'pass' ? 'var(--success)' : 'var(--error)') : 'inherit';
-                div.innerHTML = '<span class="material-icons" style="font-size:16px;color:' + iconColor + '">' + icon + '</span> ' + esc(test.name);
+
+                var iconSpan = document.createElement('span');
+                iconSpan.className = 'material-icons';
+                iconSpan.style.cssText = 'font-size:14px;color:' + iconColor;
+                iconSpan.textContent = icon;
+                div.appendChild(iconSpan);
+
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'test-name-editable';
+                nameSpan.textContent = test.name;
+                nameSpan.ondblclick = function(e) {
+                    e.stopPropagation();
+                    var inp = document.createElement('input');
+                    inp.type = 'text';
+                    inp.value = test.name;
+                    inp.className = 'test-name-input';
+                    inp.onblur = function() {
+                        test.name = inp.value.trim() || test.name;
+                        app.handlers.save();
+                        app.ui.renderTestList();
+                    };
+                    inp.onkeydown = function(ev) {
+                        if (ev.key === 'Enter') inp.blur();
+                        if (ev.key === 'Escape') { app.ui.renderTestList(); }
+                    };
+                    nameSpan.innerHTML = '';
+                    nameSpan.appendChild(inp);
+                    inp.focus();
+                    inp.select();
+                };
+                div.appendChild(nameSpan);
                 container.appendChild(div);
             });
         },
@@ -629,12 +720,17 @@ const app = {
                     ? '<img class="screenshot-thumb" src="' + step.screenshot + '" style="max-width:40px;max-height:24px;margin-left:5px;vertical-align:middle;cursor:pointer" onclick="app.ui.showScreenshot(this.src)">'
                     : '';
 
+                // Compact param display: only show if params exist and have values
+                var paramEntries = Object.entries(step.params || {}).filter(function(e) { return e[1] !== '' && e[1] !== undefined && e[1] !== null; });
+                var paramStr = paramEntries.length ? paramEntries.map(function(e) { return e[0] + '=' + e[1]; }).join(' ') : '';
+                var durationStr = step.duration_ms != null ? ' <span style="color:var(--text-muted)">' + step.duration_ms + 'ms</span>' : '';
+
                 div.innerHTML =
                     '<div class="step-gutter"><div class="breakpoint ' + (step.breakpoint ? 'active' : '') + '" onclick="app.handlers.toggleBreakpoint(' + idx + ', event)"></div></div>' +
                     '<div class="step-content" onclick="app.ui.showStepDetails(' + idx + ')">' +
-                    '<div class="step-title">' + esc(step.op) + thumbHtml + '</div>' +
-                    '<div class="step-meta">' + (Object.entries(step.params || {}).map(function(e) { return e[0] + '=' + e[1]; }).join(', ') || 'No params') +
-                    (step.duration_ms != null ? ' <span>' + step.duration_ms + 'ms</span>' : '') + '</div>' +
+                    '<span class="step-title">' + esc(step.op) + '</span>' +
+                    (paramStr ? ' <span class="step-params">' + esc(paramStr) + '</span>' : '') +
+                    durationStr + thumbHtml +
                     (step.error ? '<div style="color:var(--error);font-size:10px">' + esc(step.error) + '</div>' : '') +
                     '</div>' +
                     '<div class="step-gutter"><span class="material-icons" style="font-size:14px;cursor:pointer" onclick="app.handlers.deleteStep(' + idx + ', event)">close</span></div>';
@@ -647,28 +743,67 @@ const app = {
             document.getElementById('screenshot-modal').classList.add('active');
         },
 
-        showAddStepForm: function() {
+        showAddStepInline: function() {
             var container = document.getElementById('details-content');
             var ops = '<select id="new-step-op" class="form-control" onchange="app.ui.updateStepParamsForm()">';
             for (var op in app.schema.commands) ops += '<option value="' + op + '">' + op + '</option>';
             ops += '</select>';
             container.innerHTML =
-                '<h3 style="margin-bottom:10px">Add Step</h3>' +
+                '<div class="add-step-form">' +
                 '<div class="form-group"><label class="form-label">Operation</label>' + ops + '</div>' +
+                '<div id="step-variant-selector"></div>' +
                 '<div id="step-params-container"></div>' +
-                '<button class="btn-primary" onclick="app.handlers.addStepFromForm()">Add Step</button>';
+                '<div style="padding:6px 10px"><button class="btn-sm" onclick="app.handlers.addStepFromForm()">Add Step</button></div>' +
+                '</div>';
             this.updateStepParamsForm();
+        },
+
+        showAddStepForm: function() {
+            this.showAddStepInline();
         },
 
         updateStepParamsForm: function() {
             var op = document.getElementById('new-step-op').value;
             var schema = app.schema.commands[op];
             var container = document.getElementById('step-params-container');
+            var variantContainer = document.getElementById('step-variant-selector');
+            var params = schema.params || [];
+            var variants = schema.variants || [];
+
+            // Variant selector (if command has variants)
+            if (variants.length && variantContainer) {
+                var activeVariant = variantContainer.dataset.active || variants[0];
+                var vhtml = '<div class="form-group"><label class="form-label">Target by</label><div class="variant-tabs">';
+                variants.forEach(function(v) {
+                    vhtml += '<span class="variant-tab' + (v === activeVariant ? ' active' : '') + '" onclick="this.parentElement.parentElement.parentElement.dataset.active=\'' + v + '\'; app.ui.updateStepParamsForm()">' + esc(v) + '</span>';
+                });
+                vhtml += '</div></div>';
+                variantContainer.innerHTML = vhtml;
+                variantContainer.dataset.active = activeVariant;
+
+                // Filter params: show only params that match the variant
+                var variantFields = activeVariant.split('+');
+                // Always show non-variant params too (those not in any variant group)
+                var allVariantFields = [];
+                variants.forEach(function(v) { v.split('+').forEach(function(f) { allVariantFields.push(f); }); });
+
+                params = params.filter(function(p) {
+                    // Show if it's a variant field in the active variant, or not a variant field at all
+                    return variantFields.indexOf(p.name) >= 0 || allVariantFields.indexOf(p.name) < 0;
+                });
+            } else if (variantContainer) {
+                variantContainer.innerHTML = '';
+            }
+
             var html = '';
-            (schema.params || []).forEach(function(p) {
-                html += '<div class="form-group"><label class="form-label">' + p.name + ' (' + p.type + ')</label>' +
-                    '<input type="' + (p.type === 'number' ? 'number' : 'text') + '" class="form-control step-param-input" data-name="' + p.name + '" placeholder="' + (p.placeholder || '') + '" value="' + (p.value !== undefined ? p.value : '') + '"></div>';
-            });
+            if (params.length === 0) {
+                html = '<div class="form-group"><span style="color:var(--text-muted);font-size:11px">No parameters required.</span></div>';
+            } else {
+                params.forEach(function(p) {
+                    html += '<div class="form-group"><label class="form-label">' + p.name + ' (' + p.type + ')</label>' +
+                        '<input type="' + (p.type === 'number' ? 'number' : 'text') + '" class="form-control step-param-input" data-name="' + p.name + '" placeholder="' + (p.placeholder || '') + '" value="' + (p.value !== undefined ? p.value : '') + '"></div>';
+                });
+            }
             container.innerHTML = html;
         },
 
@@ -765,6 +900,7 @@ const app = {
             var overrides = this.state.cssOverrides[nodeId] || {};
 
             var html = '<div class="detail-section-header">CSS Properties (' + props.length + ')</div>';
+            html += '<div class="css-props-scroll">';
             if (props.length === 0) {
                 html += '<div class="placeholder-text">No CSS properties set.</div>';
             } else {
@@ -780,6 +916,7 @@ const app = {
                     html += '</div>';
                 });
             }
+            html += '</div>'; // css-props-scroll
 
             // Add new override row
             html += '<div class="css-add-row">';
@@ -791,6 +928,44 @@ const app = {
             section.innerHTML = html;
         } catch(e) {
             section.innerHTML = '<div class="detail-section-header">CSS Properties</div><div class="placeholder-text" style="color:var(--error)">Failed to load</div>';
+        }
+    },
+
+    /* ================================================================
+     * CLIP/SCROLL NESTING INFO
+     * ================================================================ */
+    _loadNodeClipInfo: async function(nodeId) {
+        var section = document.getElementById('node-clip-section');
+        if (!section) return;
+        try {
+            var res = await this.api.post({ op: 'get_display_list' });
+            var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
+            var items = data.items || [];
+            var analysis = data.clip_analysis || {};
+
+            var html = '<div class="detail-section-header">Clip / Scroll Nesting</div>';
+
+            // Find this node's clip/scroll depths
+            var nodeItem = items.find(function(it) { return it.node_index === nodeId || it.index === nodeId; });
+            if (nodeItem) {
+                html += '<div class="detail-row"><span class="detail-key">clip_depth</span><span class="detail-value">' + (nodeItem.clip_depth || 0) + '</span></div>';
+                html += '<div class="detail-row"><span class="detail-key">scroll_depth</span><span class="detail-value">' + (nodeItem.scroll_depth || 0) + '</span></div>';
+                if (nodeItem.content_size) html += '<div class="detail-row"><span class="detail-key">content_size</span><span class="detail-value">' + round(nodeItem.content_size.width || 0) + ' × ' + round(nodeItem.content_size.height || 0) + '</span></div>';
+                if (nodeItem.scroll_id) html += '<div class="detail-row"><span class="detail-key">scroll_id</span><span class="detail-value">' + nodeItem.scroll_id + '</span></div>';
+            } else {
+                html += '<div class="placeholder-text" style="padding:4px 0">No display list entry for this node.</div>';
+            }
+
+            // Show analysis summary
+            if (analysis.balanced !== undefined) {
+                html += '<div class="detail-row" style="margin-top:6px"><span class="detail-key">balanced</span><span class="detail-value" style="color:' + (analysis.balanced ? 'var(--success)' : 'var(--error)') + '">' + analysis.balanced + '</span></div>';
+                html += '<div class="detail-row"><span class="detail-key">final_clip_depth</span><span class="detail-value">' + (analysis.final_clip_depth || 0) + '</span></div>';
+                html += '<div class="detail-row"><span class="detail-key">final_scroll_depth</span><span class="detail-value">' + (analysis.final_scroll_depth || 0) + '</span></div>';
+            }
+
+            section.innerHTML = html;
+        } catch(e) {
+            section.innerHTML = '<div class="detail-section-header">Clip / Scroll Nesting</div><div class="placeholder-text" style="padding:4px 0">Not available.</div>';
         }
     },
 
@@ -1632,10 +1807,21 @@ function _downloadJSON(data, filename) {
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
 }
+function _extractBase64Image(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    // data.value.data (screenshot response), data.screenshot, etc.
+    if (obj.data && obj.data.value && obj.data.value.data && typeof obj.data.value.data === 'string' && obj.data.value.data.length > 100) return obj.data.value.data;
+    if (obj.data && obj.data.screenshot && typeof obj.data.screenshot === 'string') return obj.data.screenshot;
+    if (obj.screenshot && typeof obj.screenshot === 'string') return obj.screenshot;
+    // Nested: data.value might be the base64 string directly for take_screenshot
+    if (obj.data && typeof obj.data === 'string' && obj.data.length > 100) return obj.data;
+    return null;
+}
 
 /**
- * Parse a slash command like "/click .btn" into a JSON payload.
- * Maps positional args to the schema params in order.
+ * Parse a slash command with named parameters.
+ * Syntax: /cmd key1 value1 key2 value2 ...
+ * Falls back to positional args if names don't match schema params.
  */
 function _parseSlashCommand(input) {
     // Split: "/cmd arg1 arg2 ..." — but respect quoted strings
@@ -1653,24 +1839,60 @@ function _parseSlashCommand(input) {
     var payload = { op: cmd };
     var args = parts.slice(1);
     var params = schema.params || [];
+    var paramNames = {};
+    params.forEach(function(p) { paramNames[p.name] = p; });
 
-    for (var i = 0; i < params.length && i < args.length; i++) {
-        var p = params[i];
-        var v = args[i];
-        if (p.type === 'number') {
-            payload[p.name] = parseFloat(v);
-        } else if (p.name === 'classes') {
-            // Collect remaining args as array
-            payload[p.name] = args.slice(i);
-            break;
-        } else if (p.name === 'addresses') {
-            payload[p.name] = v.split(',');
-        } else if (p.name === 'state') {
-            // Try to parse as JSON, else use as string
-            try { payload[p.name] = JSON.parse(args.slice(i).join(' ')); } catch(e) { payload[p.name] = v; }
-            break;
-        } else {
-            payload[p.name] = v;
+    // Try named-parameter parsing: check if args[0] is a known param name
+    var isNamed = args.length >= 2 && paramNames[args[0]];
+
+    if (isNamed) {
+        // Parse key-value pairs
+        var i = 0;
+        while (i < args.length) {
+            var key = args[i];
+            var param = paramNames[key];
+            if (param) {
+                i++;
+                if (i < args.length) {
+                    var val = args[i];
+                    if (param.type === 'number') {
+                        payload[key] = parseFloat(val);
+                    } else if (key === 'addresses') {
+                        payload[key] = val.split(',');
+                    } else if (key === 'state') {
+                        try { payload[key] = JSON.parse(args.slice(i).join(' ')); } catch(e) { payload[key] = val; }
+                        break;
+                    } else if (key === 'classes') {
+                        payload[key] = args.slice(i);
+                        break;
+                    } else {
+                        payload[key] = val;
+                    }
+                    i++;
+                }
+            } else {
+                // Unknown key, skip
+                i++;
+            }
+        }
+    } else {
+        // Fallback: positional args
+        for (var i = 0; i < params.length && i < args.length; i++) {
+            var p = params[i];
+            var v = args[i];
+            if (p.type === 'number') {
+                payload[p.name] = parseFloat(v);
+            } else if (p.name === 'classes') {
+                payload[p.name] = args.slice(i);
+                break;
+            } else if (p.name === 'addresses') {
+                payload[p.name] = v.split(',');
+            } else if (p.name === 'state') {
+                try { payload[p.name] = JSON.parse(args.slice(i).join(' ')); } catch(e) { payload[p.name] = v; }
+                break;
+            } else {
+                payload[p.name] = v;
+            }
         }
     }
     return payload;

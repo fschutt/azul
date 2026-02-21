@@ -300,15 +300,28 @@ body {
 }
 .detail-value.editable:hover { border-color: var(--accent); }
 
+.css-props-scroll {
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
 .css-prop-row {
     display: flex;
+    justify-content: space-between;
     padding: 2px 0;
     font-size: 12px;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    gap: 12px;
 }
-.css-prop-name { color: var(--attr-color); min-width: 140px; }
-.css-prop-value { color: var(--string-color); flex: 1; cursor: text; }
-.css-prop-value:hover { border-bottom: 1px dashed var(--accent); }
+.css-prop-name { color: var(--attr-color); flex-shrink: 0; }
+.css-prop-value {
+    color: var(--string-color);
+    text-align: right;
+    cursor: text;
+    border-bottom: 1px dashed transparent;
+    padding: 0 2px;
+}
+.css-prop-value:hover { border-bottom-color: var(--accent); }
 .css-prop-value.overridden { color: var(--warning); font-weight: bold; }
 
 .css-add-row {
@@ -472,11 +485,20 @@ body {
 }
 
 /* ─── Test Steps ─── */
-.floating-controls {
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background-color: var(--bg-sidebar); border: 1px solid var(--border);
-    border-radius: 6px; padding: 5px; display: flex; gap: 5px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 100;
+.test-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-sidebar);
+    flex-shrink: 0;
+}
+.toolbar-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
 }
 .icon-btn {
     background: transparent; border: none; color: var(--text-main);
@@ -486,19 +508,30 @@ body {
 .icon-btn:hover { background-color: var(--bg-hover); }
 .icon-btn.success { color: var(--success); }
 .icon-btn.danger { color: var(--error); }
+.btn-sm {
+    background: var(--bg-input);
+    color: var(--text-main);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 11px;
+}
+.btn-sm:hover { background: var(--bg-hover); }
 
-.step-list { padding: 10px; overflow-y: auto; flex: 1; }
+.step-list { padding: 4px; overflow-y: auto; flex: 1; }
 .step-item {
     display: flex; align-items: center;
     background-color: var(--bg-sidebar);
-    margin-bottom: 4px; border-radius: 3px;
-    border: 1px solid transparent; padding: 5px;
+    margin-bottom: 2px; border-radius: 3px;
+    border: 1px solid transparent; padding: 3px 4px;
+    font-size: 12px;
 }
 .step-item:hover { border-color: var(--border); }
 .step-item.active { border-left: 3px solid var(--accent); }
 .step-item.pass { border-left: 3px solid var(--success); }
 .step-item.fail { border-left: 3px solid var(--error); }
-.step-gutter { width: 30px; display: flex; justify-content: center; }
+.step-gutter { width: 24px; display: flex; justify-content: center; flex-shrink: 0; }
 .breakpoint {
     width: 10px; height: 10px; border-radius: 50%;
     background: var(--error); opacity: 0; cursor: pointer; transition: opacity 0.2s;
@@ -506,9 +539,43 @@ body {
 .breakpoint.active { opacity: 1; }
 .step-item:hover .breakpoint { opacity: 0.5; }
 .step-item:hover .breakpoint.active { opacity: 1; }
-.step-content { flex: 1; display: flex; flex-direction: column; cursor: pointer; }
-.step-title { font-weight: bold; font-size: 12px; }
+.step-content { flex: 1; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.step-title { font-weight: bold; font-size: 12px; font-family: monospace; }
+.step-params { font-size: 11px; color: var(--text-muted); font-family: monospace; }
 .step-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 10px; }
+
+/* ─── Test name editing ─── */
+.test-name-editable { margin-left: 6px; cursor: default; }
+.test-name-input {
+    background: var(--bg-input);
+    border: 1px solid var(--accent);
+    color: var(--text-main);
+    font-size: 13px;
+    padding: 1px 4px;
+    width: 100%;
+    outline: none;
+}
+
+/* ─── Variant tabs ─── */
+.variant-tabs {
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+}
+.variant-tab {
+    padding: 2px 8px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    color: var(--text-muted);
+    background: var(--bg-input);
+}
+.variant-tab:hover { color: var(--text-main); border-color: var(--accent); }
+.variant-tab.active { color: white; background: var(--accent); border-color: var(--accent); }
+
+/* ─── Add step form ─── */
+.add-step-form { font-size: 12px; }
 
 /* ─── Forms ─── */
 .form-group { padding: 10px; border-bottom: 1px solid var(--border); }
@@ -574,15 +641,17 @@ body {
 .autocomplete-item {
     padding: 4px 12px;
     cursor: pointer;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
     font-size: 12px;
     white-space: nowrap;
 }
 .autocomplete-item:hover {
     background-color: var(--accent);
     color: white;
+}
+.autocomplete-main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
 }
 .autocomplete-cmd {
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -603,10 +672,21 @@ body {
     font-family: monospace;
     font-size: 10px;
     opacity: 0.7;
-    flex-shrink: 0;
-    margin-left: auto;
+    padding-left: 168px;
+    margin-top: 1px;
 }
 .autocomplete-item:hover .autocomplete-example { color: rgba(255,255,255,0.6); }
+.autocomplete-variants {
+    padding-left: 168px;
+}
+.autocomplete-variant {
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 10px;
+    opacity: 0.5;
+    margin-top: 1px;
+}
+.autocomplete-item:hover .autocomplete-variant { color: rgba(255,255,255,0.5); }
 
 /* ─── JSON Tree (App State) ─── */
 .json-tree {

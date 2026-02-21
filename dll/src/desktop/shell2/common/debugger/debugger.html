@@ -91,19 +91,10 @@
             </div>
 
             <div id="sidebar-testing" class="sidebar-content hidden">
-                <div class="btn-row">
-                    <button class="btn-primary" onclick="app.handlers.newTest()">+ New Test</button>
+                <div class="btn-row" style="padding:6px 10px;">
+                    <button class="btn-sm" onclick="app.handlers.newTest()">+ New Test</button>
                 </div>
                 <div id="test-list-container"></div>
-                <hr style="border-color:var(--border); margin:10px 0;">
-                <div class="btn-row">
-                    <button class="btn-primary" onclick="app.runner.runServerSide()" title="Run selected test on server">
-                        <span class="material-icons" style="font-size:14px;vertical-align:middle">play_arrow</span> Run
-                    </button>
-                    <button class="btn-primary" onclick="app.runner.runAllServerSide()" title="Run ALL tests on server">
-                        <span class="material-icons" style="font-size:14px;vertical-align:middle">play_circle</span> All
-                    </button>
-                </div>
                 <div id="run-status" class="hidden" style="padding:10px; text-align:center; color:var(--text-muted)">
                     <span class="spinner"></span> Running...
                 </div>
@@ -133,12 +124,18 @@
                     </div>
                 </div>
 
-                <div id="view-testing" class="hidden" style="height:100%; position:relative; display:flex; flex-direction:column;">
-                    <div class="floating-controls">
+                <div id="view-testing" class="hidden" style="height:100%; display:flex; flex-direction:column;">
+                    <!-- Toolbar (left-aligned, below tab) -->
+                    <div class="test-toolbar">
                         <button class="icon-btn success" title="Run (client)" onclick="app.runner.run()"><span class="material-icons">play_arrow</span></button>
                         <button class="icon-btn" title="Pause" onclick="app.runner.pause()"><span class="material-icons">pause</span></button>
-                        <button class="icon-btn" title="Step" onclick="app.runner.step()"><span class="material-icons">redo</span></button>
+                        <button class="icon-btn" title="Step Over" onclick="app.runner.step()"><span class="material-icons">redo</span></button>
                         <button class="icon-btn danger" title="Reset" onclick="app.runner.reset()"><span class="material-icons">stop</span></button>
+                        <div class="toolbar-sep"></div>
+                        <button class="icon-btn" title="Run on server" onclick="app.runner.runServerSide()"><span class="material-icons">cloud_upload</span></button>
+                        <button class="icon-btn" title="Run all on server" onclick="app.runner.runAllServerSide()"><span class="material-icons">cloud_done</span></button>
+                        <div class="toolbar-sep"></div>
+                        <button class="icon-btn" title="Add Step" onclick="app.ui.showAddStepInline()"><span class="material-icons">add</span></button>
                     </div>
                     <div style="display:flex; flex:1; overflow:hidden;">
                         <div id="steps-container" class="step-list" style="flex:1; overflow:auto;">
@@ -147,9 +144,6 @@
                         <div id="details-content" style="width:280px; overflow:auto; padding:10px; border-left:1px solid var(--border);">
                             <div class="placeholder-text">Select a step to see details.</div>
                         </div>
-                    </div>
-                    <div style="padding:10px; border-top:1px solid var(--border); flex-shrink:0;">
-                        <button class="btn-primary" style="width:auto;" onclick="app.ui.showAddStepForm()">+ Add Step</button>
                     </div>
                 </div>
 
