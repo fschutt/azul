@@ -138,6 +138,10 @@ pub enum ResponseData {
     LibraryComponents(LibraryComponentsResponse),
     /// Exported code (compiled project files)
     ExportedCode(ExportedCodeResponse),
+    /// Component library imported successfully
+    ImportedLibrary(ImportedLibraryResponse),
+    /// Component library exported as JSON
+    ExportedLibrary(ExportedLibraryResponse),
 }
 
 /// Wrapper for E2E test results
@@ -349,6 +353,112 @@ pub struct LibrarySummary {
 pub struct LibraryComponentsResponse {
     pub library: String,
     pub components: Vec<ComponentInfo>,
+}
+
+/// Response for ImportComponentLibrary
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ImportedLibraryResponse {
+    /// Name of the imported library
+    pub library_name: String,
+    /// Number of components imported
+    pub component_count: usize,
+    /// Whether this was an update (true) or new addition (false)
+    pub was_update: bool,
+}
+
+/// Response for ExportComponentLibrary — JSON-serializable library definition
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedLibraryResponse {
+    /// Library name
+    pub name: String,
+    /// Library version
+    pub version: String,
+    /// Library description
+    pub description: String,
+    /// Component definitions (JSON-serializable subset)
+    pub components: Vec<ExportedComponentDef>,
+}
+
+/// A component definition in JSON-serializable form (for import/export)
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedComponentDef {
+    /// Component name (without collection prefix)
+    pub name: String,
+    /// Human-readable display name
+    pub display_name: String,
+    /// Markdown description
+    #[serde(default)]
+    pub description: String,
+    /// Parameters the component accepts
+    #[serde(default)]
+    pub parameters: Vec<ExportedComponentParam>,
+    /// Whether this component accepts text content
+    #[serde(default)]
+    pub accepts_text: bool,
+    /// Child policy: "no_children", "any_children", "text_only"
+    #[serde(default = "default_child_policy")]
+    pub child_policy: String,
+    /// Scoped CSS for the component
+    #[serde(default)]
+    pub scoped_css: String,
+    /// Example XML usage
+    #[serde(default)]
+    pub example_xml: String,
+    /// XML template body (for rendering)
+    #[serde(default)]
+    pub template: String,
+    /// Data model fields
+    #[serde(default)]
+    pub data_fields: Vec<ExportedDataField>,
+    /// Callback slots
+    #[serde(default)]
+    pub callback_slots: Vec<ExportedCallbackSlot>,
+}
+
+#[cfg(feature = "std")]
+fn default_child_policy() -> String { "any_children".to_string() }
+
+/// A parameter in JSON form
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedComponentParam {
+    pub name: String,
+    #[serde(rename = "type", default = "default_param_type")]
+    pub param_type: String,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[cfg(feature = "std")]
+fn default_param_type() -> String { "String".to_string() }
+
+/// A data model field in JSON form
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedDataField {
+    pub name: String,
+    #[serde(rename = "type", default = "default_param_type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// A callback slot in JSON form
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedCallbackSlot {
+    pub name: String,
+    #[serde(default)]
+    pub callback_type: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 /// Metadata about a RefAny's type
@@ -1536,6 +1646,20 @@ pub enum DebugEvent {
     ExportCode {
         /// Target language: "rust", "c", "cpp", "python"
         language: String,
+    },
+    /// Import a component library from JSON definition.
+    /// Components are added to the runtime component map as user-defined.
+    ImportComponentLibrary {
+        /// The library definition in JSON form
+        library: ExportedLibraryResponse,
+    },
+    /// Export a component library as JSON.
+    /// Only user-defined (exportable) libraries can be exported.
+    /// If no library name is given, exports ALL exportable libraries.
+    ExportComponentLibrary {
+        /// Library name to export, or omit for all exportable
+        #[serde(default)]
+        library: Option<String>,
     },
     /// Open a source file in the user's editor (best-effort)
     OpenFile {
@@ -3660,7 +3784,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
 fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -> Result<ExportedCodeResponse, String> {
     use azul_core::xml::{
         ComponentMap, CompileTarget, XmlComponentMap,
-        FilteredComponentArguments,
+        FilteredComponentArguments, ComponentDef,
     };
     use azul_css::corety::OptionString;
 
@@ -3676,42 +3800,57 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
     let mut files = std::collections::HashMap::new();
     let mut warnings = Vec::new();
 
-    // Only export user-defined (exportable) libraries
+    // Collect all exportable component definitions with their data models
     let exportable = map_ref.get_exportable_libraries();
 
-    if exportable.is_empty() {
-        // Even with no user components, generate a minimal scaffold
-        // that shows the builtin component usage
-        let (filename, content) = generate_scaffold(&target, &[]);
-        files.insert(filename, content);
-        warnings.push("No user-defined component libraries to export. Generated minimal scaffold.".to_string());
-    } else {
-        let mut all_component_sources = Vec::new();
+    // Gather component info for scaffold generation
+    let mut component_infos: Vec<ScaffoldComponentInfo> = Vec::new();
 
-        for lib in &exportable {
-            for def in lib.components.iter() {
-                let args = FilteredComponentArguments::default();
-                let text = OptionString::None;
+    for lib in &exportable {
+        for def in lib.components.iter() {
+            let args = FilteredComponentArguments::default();
+            let text = OptionString::None;
 
-                match (def.compile_fn)(def, &target, &xml_map, &args, &text, 0) {
-                    Ok(code) => {
-                        all_component_sources.push((
-                            def.id.name.as_str().to_string(),
-                            code,
-                        ));
-                    }
-                    Err(e) => {
-                        warnings.push(format!(
-                            "Failed to compile component '{}': {:?}",
-                            def.id.qualified_name(), e
-                        ));
-                    }
+            let compiled_code = match (def.compile_fn)(def, &target, &xml_map, &args, &text, 0) {
+                Ok(code) => Some(code),
+                Err(e) => {
+                    warnings.push(format!(
+                        "Failed to compile component '{}': {:?}",
+                        def.id.qualified_name(), e
+                    ));
+                    None
                 }
-            }
-        }
+            };
 
-        let (filename, content) = generate_scaffold(&target, &all_component_sources);
+            component_infos.push(ScaffoldComponentInfo {
+                name: def.id.name.as_str().to_string(),
+                display_name: def.display_name.as_str().to_string(),
+                compiled_code,
+                data_fields: def.data_model.iter().map(|f| (
+                    f.name.as_str().to_string(),
+                    f.field_type.as_str().to_string(),
+                    f.default_value.as_ref().map(|d| d.as_str().to_string()),
+                )).collect(),
+                callback_slots: def.callback_slots.iter().map(|s| (
+                    s.name.as_str().to_string(),
+                    s.callback_type.as_str().to_string(),
+                )).collect(),
+                parameters: def.parameters.iter().map(|p| (
+                    p.name.as_str().to_string(),
+                    p.param_type.as_str().to_string(),
+                    p.default_value.as_ref().map(|d| d.as_str().to_string()),
+                )).collect(),
+            });
+        }
+    }
+
+    let scaffold_files = generate_scaffold(&target, &component_infos);
+    for (filename, content) in scaffold_files {
         files.insert(filename, content);
+    }
+
+    if component_infos.is_empty() {
+        warnings.push("No user-defined component libraries to export. Generated minimal scaffold.".to_string());
     }
 
     Ok(ExportedCodeResponse {
@@ -3721,99 +3860,479 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
     })
 }
 
-/// Generate a minimal project scaffold for the given target language
+/// Collected info about a component for scaffold generation
+#[cfg(feature = "std")]
+struct ScaffoldComponentInfo {
+    name: String,
+    display_name: String,
+    compiled_code: Option<String>,
+    data_fields: Vec<(String, String, Option<String>)>,    // (name, type, default)
+    callback_slots: Vec<(String, String)>,                  // (name, callback_type)
+    parameters: Vec<(String, String, Option<String>)>,      // (name, type, default)
+}
+
+/// Convert a snake_case or kebab-case name to PascalCase
+#[cfg(feature = "std")]
+fn to_pascal_case(s: &str) -> String {
+    s.split(|c: char| c == '_' || c == '-')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut s = first.to_uppercase().to_string();
+                    s.extend(chars);
+                    s
+                }
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+/// Map component type strings to Rust types
+#[cfg(feature = "std")]
+fn map_type_to_rust(type_str: &str) -> &str {
+    match type_str {
+        "String" | "string" => "String",
+        "bool" | "Bool" | "boolean" => "bool",
+        "i32" | "int" | "Int" => "i32",
+        "i64" => "i64",
+        "f32" | "float" | "Float" => "f32",
+        "f64" | "double" | "Double" => "f64",
+        "u32" | "uint" => "u32",
+        "u64" => "u64",
+        "usize" => "usize",
+        _ => "String", // fallback
+    }
+}
+
+/// Map component type strings to C types
+#[cfg(feature = "std")]
+fn map_type_to_c(type_str: &str) -> &str {
+    match type_str {
+        "String" | "string" => "AzString",
+        "bool" | "Bool" | "boolean" => "bool",
+        "i32" | "int" | "Int" => "int32_t",
+        "i64" => "int64_t",
+        "f32" | "float" | "Float" => "float",
+        "f64" | "double" | "Double" => "double",
+        "u32" | "uint" => "uint32_t",
+        "u64" => "uint64_t",
+        "usize" => "size_t",
+        _ => "AzString",
+    }
+}
+
+/// Generate default value expression for a type in Rust
+#[cfg(feature = "std")]
+fn rust_default_for_type(type_str: &str, default_val: Option<&str>) -> String {
+    if let Some(val) = default_val {
+        match type_str {
+            "String" | "string" => format!("\"{}\".to_string()", val),
+            "bool" | "Bool" | "boolean" => val.to_string(),
+            _ => val.to_string(),
+        }
+    } else {
+        match type_str {
+            "String" | "string" => "String::new()".to_string(),
+            "bool" | "Bool" | "boolean" => "false".to_string(),
+            "i32" | "int" | "Int" | "i64" | "u32" | "u64" | "usize" => "0".to_string(),
+            "f32" | "float" | "Float" | "f64" | "double" | "Double" => "0.0".to_string(),
+            _ => "String::new()".to_string(),
+        }
+    }
+}
+
+/// Generate a project scaffold for the given target language
 #[cfg(feature = "std")]
 fn generate_scaffold(
     target: &azul_core::xml::CompileTarget,
-    components: &[(String, String)],
-) -> (String, String) {
+    components: &[ScaffoldComponentInfo],
+) -> Vec<(String, String)> {
     use azul_core::xml::CompileTarget;
 
-    let component_code = components
-        .iter()
-        .map(|(name, code)| format!("// Component: {}\n{}\n", name, code))
-        .collect::<Vec<_>>()
-        .join("\n");
-
     match target {
-        CompileTarget::Rust => {
-            let code = format!(
-                r#"//! Auto-generated by Azul debugger
-//! Language: Rust
+        CompileTarget::Rust => generate_rust_scaffold(components),
+        CompileTarget::C => generate_c_scaffold(components),
+        CompileTarget::Cpp => generate_cpp_scaffold(components),
+        CompileTarget::Python => generate_python_scaffold(components),
+    }
+}
+
+/// Generate a complete Rust project scaffold
+#[cfg(feature = "std")]
+fn generate_rust_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+
+    // --- Cargo.toml ---
+    let cargo_toml = r#"[package]
+name = "my-azul-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+azul = "0.0.1"
+"#;
+    files.push(("Cargo.toml".to_string(), cargo_toml.to_string()));
+
+    // --- Build DataModel struct ---
+    let mut data_model_fields = String::new();
+    let mut data_model_defaults = String::new();
+    let mut has_data_fields = false;
+
+    for comp in components {
+        for (field_name, field_type, default_val) in &comp.data_fields {
+            has_data_fields = true;
+            let rust_type = map_type_to_rust(field_type);
+            data_model_fields.push_str(&format!("    pub {}: {},\n", field_name, rust_type));
+            data_model_defaults.push_str(&format!(
+                "            {}: {},\n",
+                field_name,
+                rust_default_for_type(field_type, default_val.as_deref())
+            ));
+        }
+    }
+
+    if !has_data_fields {
+        data_model_fields.push_str("    pub counter: usize,\n");
+        data_model_defaults.push_str("            counter: 0,\n");
+    }
+
+    // --- Build callback stubs ---
+    let mut callback_stubs = String::new();
+    for comp in components {
+        for (slot_name, _cb_type) in &comp.callback_slots {
+            callback_stubs.push_str(&format!(
+                r#"
+extern "C" fn {slot_name}(data: &mut RefAny, info: &mut CallbackInfo) -> Update {{
+    // TODO: implement {slot_name} callback
+    Update::DoNothing
+}}
+"#,
+                slot_name = slot_name
+            ));
+        }
+    }
+
+    // --- Build layout function ---
+    let mut layout_body = String::new();
+    if components.is_empty() {
+        layout_body.push_str("    Dom::body()\n");
+        layout_body.push_str("        .with_child(Dom::text(\"Hello from Azul!\"))\n");
+        layout_body.push_str("        .style(Css::empty())\n");
+    } else {
+        layout_body.push_str("    Dom::body()\n");
+        for comp in components {
+            if let Some(ref code) = comp.compiled_code {
+                layout_body.push_str(&format!(
+                    "        .with_child({}) // {}\n",
+                    code, comp.display_name
+                ));
+            } else {
+                layout_body.push_str(&format!(
+                    "        .with_child(Dom::div()) // TODO: {} component\n",
+                    comp.display_name
+                ));
+            }
+        }
+        layout_body.push_str("        .style(Css::empty())\n");
+    }
+
+    // --- Assemble main.rs ---
+    let main_rs = format!(
+        r#"//! Auto-generated by Azul debugger
+//! Customize this file to build your application.
 
 extern crate azul;
 use azul::prelude::*;
 
-{}
+/// Application data model
+struct DataModel {{
+{fields}}}
+
+impl Default for DataModel {{
+    fn default() -> Self {{
+        Self {{
+{defaults}        }}
+    }}
+}}
+{callbacks}
+/// Layout callback — returns the DOM tree for a window
+extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {{
+    let _data = match data.downcast_ref::<DataModel>() {{
+        Some(d) => d,
+        None => return StyledDom::default(),
+    }};
+
+{layout_body}}}
 
 fn main() {{
     let app = App::new(RefAny::new(DataModel::default()), AppConfig::new(LayoutSolver::Default));
-    app.run(WindowCreateOptions::new(layout));
+    let window = WindowCreateOptions::new(layout);
+    app.run(window);
 }}
 "#,
-                component_code
-            );
-            ("main.rs".to_string(), code)
+        fields = data_model_fields,
+        defaults = data_model_defaults,
+        callbacks = callback_stubs,
+        layout_body = layout_body,
+    );
+    files.push(("src/main.rs".to_string(), main_rs));
+
+    files
+}
+
+/// Generate a complete C project scaffold
+#[cfg(feature = "std")]
+fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+
+    // --- Build DataModel struct ---
+    let mut struct_fields = String::new();
+    let mut has_data_fields = false;
+
+    for comp in components {
+        for (field_name, field_type, _default) in &comp.data_fields {
+            has_data_fields = true;
+            let c_type = map_type_to_c(field_type);
+            struct_fields.push_str(&format!("    {} {};\n", c_type, field_name));
         }
-        CompileTarget::C => {
-            let code = format!(
-                r#"/* Auto-generated by Azul debugger */
-/* Language: C */
+    }
 
+    if !has_data_fields {
+        struct_fields.push_str("    size_t counter;\n");
+    }
+
+    // --- Build layout body ---
+    let mut layout_body = String::new();
+    if components.is_empty() {
+        layout_body.push_str("    AzDom body = AzDom_body();\n");
+        layout_body.push_str("    AzDom text = AzDom_text(AzString_fromConstStr(\"Hello from Azul!\"));\n");
+        layout_body.push_str("    AzDom_addChild(&body, text);\n");
+        layout_body.push_str("    return AzStyledDom_new(body, AzCss_empty());\n");
+    } else {
+        layout_body.push_str("    AzDom body = AzDom_body();\n");
+        for comp in components {
+            if let Some(ref code) = comp.compiled_code {
+                layout_body.push_str(&format!("    AzDom_addChild(&body, {}); /* {} */\n", code, comp.display_name));
+            } else {
+                layout_body.push_str(&format!("    AzDom_addChild(&body, AzDom_div()); /* TODO: {} */\n", comp.display_name));
+            }
+        }
+        layout_body.push_str("    return AzStyledDom_new(body, AzCss_empty());\n");
+    }
+
+    // --- Callback stubs ---
+    let mut callback_stubs = String::new();
+    for comp in components {
+        for (slot_name, _cb_type) in &comp.callback_slots {
+            callback_stubs.push_str(&format!(
+                r#"
+AzUpdate {slot_name}(AzRefAny* data, AzCallbackInfo* info) {{
+    /* TODO: implement {slot_name} */
+    return AzUpdate_DoNothing;
+}}
+"#,
+                slot_name = slot_name
+            ));
+        }
+    }
+
+    let main_c = format!(
+        r#"/* Auto-generated by Azul debugger */
 #include "azul.h"
-#include <stdio.h>
 
-{}
+typedef struct {{
+{fields}}} DataModel;
+{callbacks}
+AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {{
+{layout_body}}}
 
 int main() {{
+    DataModel model = {{ 0 }};
+    AzRefAny ref_any = AzRefAny_newC(&model, sizeof(DataModel), 0, NULL, NULL, NULL);
     AzAppConfig config = AzAppConfig_new(AzLayoutSolver_Default);
-    AzApp* app = AzApp_new(AzRefAny_newC(NULL, 0, 0, NULL, NULL, NULL), config);
+    AzApp* app = AzApp_new(ref_any, config);
     AzWindowCreateOptions w = AzWindowCreateOptions_new(layout);
     AzApp_run(app, w);
     return 0;
 }}
 "#,
-                component_code
-            );
-            ("main.c".to_string(), code)
-        }
-        CompileTarget::Cpp => {
-            let code = format!(
-                r#"// Auto-generated by Azul debugger
-// Language: C++
+        fields = struct_fields,
+        callbacks = callback_stubs,
+        layout_body = layout_body,
+    );
+    files.push(("main.c".to_string(), main_c));
+    files
+}
 
+/// Generate a complete C++ project scaffold
+#[cfg(feature = "std")]
+fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+
+    let mut struct_fields = String::new();
+    let mut has_data_fields = false;
+
+    for comp in components {
+        for (field_name, field_type, default_val) in &comp.data_fields {
+            has_data_fields = true;
+            let rust_type = map_type_to_rust(field_type);
+            let cpp_type = match rust_type {
+                "String" => "std::string",
+                "bool" => "bool",
+                "i32" => "int32_t",
+                "i64" => "int64_t",
+                "f32" => "float",
+                "f64" => "double",
+                "u32" => "uint32_t",
+                "u64" => "uint64_t",
+                "usize" => "size_t",
+                other => other,
+            };
+            let default_str = match default_val.as_deref() {
+                Some(v) => format!(" = {}", v),
+                None => match rust_type {
+                    "String" => String::new(),
+                    "bool" => " = false".to_string(),
+                    _ => " = 0".to_string(),
+                },
+            };
+            struct_fields.push_str(&format!("    {} {}{};\n", cpp_type, field_name, default_str));
+        }
+    }
+
+    if !has_data_fields {
+        struct_fields.push_str("    size_t counter = 0;\n");
+    }
+
+    let mut layout_body = String::new();
+    if components.is_empty() {
+        layout_body.push_str("    auto body = Dom::body();\n");
+        layout_body.push_str("    body.add_child(Dom::text(\"Hello from Azul!\"));\n");
+        layout_body.push_str("    return body.style(Css::empty());\n");
+    } else {
+        layout_body.push_str("    auto body = Dom::body();\n");
+        for comp in components {
+            if let Some(ref code) = comp.compiled_code {
+                layout_body.push_str(&format!("    body.add_child({}); // {}\n", code, comp.display_name));
+            } else {
+                layout_body.push_str(&format!("    body.add_child(Dom::div()); // TODO: {}\n", comp.display_name));
+            }
+        }
+        layout_body.push_str("    return body.style(Css::empty());\n");
+    }
+
+    let main_cpp = format!(
+        r#"// Auto-generated by Azul debugger
 #include "azul.hpp"
 using namespace Azul;
 
-{}
+struct DataModel {{
+{fields}}};
+
+StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {{
+{layout_body}}}
 
 int main() {{
-    auto app = App(RefAny(), AppConfig(LayoutSolver::Default));
+    DataModel model;
+    auto app = App(RefAny::new(model), AppConfig(LayoutSolver::Default));
     app.run(WindowCreateOptions(layout));
     return 0;
 }}
 "#,
-                component_code
-            );
-            ("main.cpp".to_string(), code)
-        }
-        CompileTarget::Python => {
-            let code = format!(
-                r#"# Auto-generated by Azul debugger
-# Language: Python
+        fields = struct_fields,
+        layout_body = layout_body,
+    );
+    files.push(("main.cpp".to_string(), main_cpp));
+    files
+}
 
-from azul import *
+/// Generate a complete Python project scaffold
+#[cfg(feature = "std")]
+fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
+    let mut files = Vec::new();
 
-{}
+    let mut class_fields = String::new();
+    let mut has_data_fields = false;
 
-app = App(RefAny(), AppConfig(LayoutSolver.Default))
-app.run(WindowCreateOptions(layout))
-"#,
-                component_code
-            );
-            ("main.py".to_string(), code)
+    for comp in components {
+        for (field_name, field_type, default_val) in &comp.data_fields {
+            has_data_fields = true;
+            let default_str = match default_val.as_deref() {
+                Some(v) => match field_type.as_str() {
+                    "String" | "string" => format!("\"{}\"", v),
+                    _ => v.to_string(),
+                },
+                None => match field_type.as_str() {
+                    "String" | "string" => "\"\"".to_string(),
+                    "bool" | "Bool" | "boolean" => "False".to_string(),
+                    "f32" | "f64" | "float" | "double" | "Float" | "Double" => "0.0".to_string(),
+                    _ => "0".to_string(),
+                },
+            };
+            class_fields.push_str(&format!("        self.{} = {}\n", field_name, default_str));
         }
     }
+
+    if !has_data_fields {
+        class_fields.push_str("        self.counter = 0\n");
+    }
+
+    let mut layout_body = String::new();
+    if components.is_empty() {
+        layout_body.push_str("    body = Dom.body()\n");
+        layout_body.push_str("    body.add_child(Dom.text(\"Hello from Azul!\"))\n");
+        layout_body.push_str("    return body.style(Css.empty())\n");
+    } else {
+        layout_body.push_str("    body = Dom.body()\n");
+        for comp in components {
+            if let Some(ref code) = comp.compiled_code {
+                layout_body.push_str(&format!("    body.add_child({})  # {}\n", code, comp.display_name));
+            } else {
+                layout_body.push_str(&format!("    body.add_child(Dom.div())  # TODO: {}\n", comp.display_name));
+            }
+        }
+        layout_body.push_str("    return body.style(Css.empty())\n");
+    }
+
+    // --- Callback stubs ---
+    let mut callback_stubs = String::new();
+    for comp in components {
+        for (slot_name, _cb_type) in &comp.callback_slots {
+            callback_stubs.push_str(&format!(
+                r#"
+def {slot_name}(data, info):
+    """TODO: implement {slot_name}"""
+    return Update.DoNothing
+"#,
+                slot_name = slot_name
+            ));
+        }
+    }
+
+    let main_py = format!(
+        r#"# Auto-generated by Azul debugger
+from azul import *
+
+class DataModel:
+    def __init__(self):
+{class_fields}
+{callbacks}
+def layout(data, info):
+{layout_body}
+
+model = DataModel()
+app = App(RefAny(model), AppConfig(LayoutSolver.Default))
+app.run(WindowCreateOptions(layout))
+"#,
+        class_fields = class_fields,
+        callbacks = callback_stubs,
+        layout_body = layout_body,
+    );
+    files.push(("main.py".to_string(), main_py));
+    files
 }
 
 /// Returns universal HTML attributes that all elements support
@@ -7184,6 +7703,148 @@ fn process_debug_event(
                 Err(e) => {
                     send_err(request, &format!("Export failed: {}", e));
                 }
+            }
+        }
+
+        DebugEvent::ImportComponentLibrary { library: lib_json } => {
+            use azul_core::xml::{
+                ComponentDef, ComponentId, ComponentParam, ComponentDataField,
+                ComponentCallbackSlot, ComponentLibrary, ChildPolicy,
+                ComponentSource, ComponentDefVec, ComponentLibraryVec,
+            };
+            use azul_css::corety::{OptionString, AzString};
+
+            let lib_name = lib_json.name.clone();
+            let component_count = lib_json.components.len();
+
+            // Convert ExportedLibraryResponse -> ComponentLibrary
+            let mut defs = Vec::new();
+            for c in &lib_json.components {
+                let child_policy = match c.child_policy.as_str() {
+                    "no_children" => ChildPolicy::NoChildren,
+                    "text_only" => ChildPolicy::TextOnly,
+                    _ => ChildPolicy::AnyChildren,
+                };
+                let params: Vec<ComponentParam> = c.parameters.iter().map(|p| ComponentParam {
+                    name: AzString::from(p.name.as_str()),
+                    param_type: AzString::from(p.param_type.as_str()),
+                    default_value: p.default.as_ref().map(|d| OptionString::Some(AzString::from(d.as_str()))).unwrap_or(OptionString::None),
+                    description: AzString::from(p.description.as_str()),
+                }).collect();
+                let data_fields: Vec<ComponentDataField> = c.data_fields.iter().map(|f| ComponentDataField {
+                    name: AzString::from(f.name.as_str()),
+                    field_type: AzString::from(f.field_type.as_str()),
+                    default_value: f.default.as_ref().map(|d| OptionString::Some(AzString::from(d.as_str()))).unwrap_or(OptionString::None),
+                    description: AzString::from(f.description.as_str()),
+                }).collect();
+                let callback_slots: Vec<ComponentCallbackSlot> = c.callback_slots.iter().map(|s| ComponentCallbackSlot {
+                    name: AzString::from(s.name.as_str()),
+                    callback_type: AzString::from(s.callback_type.as_str()),
+                    description: AzString::from(s.description.as_str()),
+                }).collect();
+
+                defs.push(ComponentDef {
+                    id: ComponentId::new(&lib_name, &c.name),
+                    display_name: AzString::from(c.display_name.as_str()),
+                    description: AzString::from(c.description.as_str()),
+                    parameters: params.into(),
+                    accepts_text: c.accepts_text,
+                    child_policy,
+                    scoped_css: AzString::from(c.scoped_css.as_str()),
+                    example_xml: AzString::from(c.example_xml.as_str()),
+                    source: ComponentSource::UserDefined,
+                    data_model: data_fields.into(),
+                    callback_slots: callback_slots.into(),
+                    render_fn: azul_core::xml::user_defined_render_fn,
+                    compile_fn: azul_core::xml::user_defined_compile_fn,
+                    node_type: azul_core::dom::OptionNodeType::None,
+                });
+            }
+
+            let new_lib = ComponentLibrary {
+                name: AzString::from(lib_name.as_str()),
+                version: AzString::from(lib_json.version.as_str()),
+                description: AzString::from(lib_json.description.as_str()),
+                components: ComponentDefVec::from_vec(defs),
+                exportable: true,
+            };
+
+            // Insert or replace in the component map
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let was_update = if let Some(existing) = libs.iter_mut().find(|l| l.name.as_str() == lib_name) {
+                *existing = new_lib;
+                true
+            } else {
+                libs.push(new_lib);
+                false
+            };
+            map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+            drop(map_guard);
+
+            send_ok(request, None, Some(ResponseData::ImportedLibrary(ImportedLibraryResponse {
+                library_name: lib_name,
+                component_count,
+                was_update,
+            })));
+            needs_update = true;
+        }
+
+        DebugEvent::ExportComponentLibrary { library: lib_name_opt } => {
+            let map_guard = component_map.lock().unwrap();
+            let registry = build_component_registry(&*map_guard);
+            drop(map_guard);
+
+            let exportable_libs: Vec<&ComponentLibraryInfo> = registry.libraries.iter()
+                .filter(|lib| lib.exportable)
+                .filter(|lib| lib_name_opt.as_ref().map_or(true, |n| &lib.name == n))
+                .collect();
+
+            if exportable_libs.is_empty() {
+                if let Some(ref name) = lib_name_opt {
+                    send_err(request, &format!(
+                        "Library '{}' not found or is not exportable (builtin/compiled libraries cannot be exported)", name
+                    ));
+                } else {
+                    send_err(request, "No exportable component libraries found. Only user-defined libraries can be exported.");
+                }
+            } else {
+                // Export the first matching library (or the only one)
+                let lib = exportable_libs[0];
+                let exported = ExportedLibraryResponse {
+                    name: lib.name.clone(),
+                    version: lib.version.clone(),
+                    description: lib.description.clone(),
+                    components: lib.components.iter().map(|c| ExportedComponentDef {
+                        name: c.tag.clone(),
+                        display_name: c.display_name.clone(),
+                        description: c.description.clone(),
+                        parameters: c.attributes.iter().map(|a| ExportedComponentParam {
+                            name: a.name.clone(),
+                            param_type: a.attr_type.clone(),
+                            default: a.default.clone(),
+                            description: a.description.clone(),
+                        }).collect(),
+                        accepts_text: c.accepts_text,
+                        child_policy: c.child_policy.clone(),
+                        scoped_css: c.scoped_css.clone(),
+                        example_xml: c.example_xml.clone(),
+                        template: String::new(), // Template not stored in runtime representation
+                        data_fields: c.data_fields.iter().map(|f| ExportedDataField {
+                            name: f.name.clone(),
+                            field_type: f.field_type.clone(),
+                            default: f.default.clone(),
+                            description: f.description.clone(),
+                        }).collect(),
+                        callback_slots: c.callback_slots.iter().map(|s| ExportedCallbackSlot {
+                            name: s.name.clone(),
+                            callback_type: s.callback_type.clone(),
+                            description: s.description.clone(),
+                        }).collect(),
+                    }).collect(),
+                };
+                send_ok(request, None, Some(ResponseData::ExportedLibrary(exported)));
             }
         }
 

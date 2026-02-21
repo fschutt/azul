@@ -1507,6 +1507,65 @@ fn builtin_compile_fn(
     }
 }
 
+/// Default render function for user-defined (JSON-imported) components.
+/// Renders the component as a div with a text label showing the component name.
+pub fn user_defined_render_fn(
+    def: &ComponentDef,
+    _components: &XmlComponentMap,
+    _args: &FilteredComponentArguments,
+    text: &OptionString,
+) -> Result<StyledDom, RenderDomError> {
+    let mut dom = Dom::create_node(NodeType::Div);
+    if let Some(text_str) = text.as_ref() {
+        let prepared = prepare_string(text_str);
+        if !prepared.is_empty() {
+            dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
+        }
+    }
+    Ok(dom.style(Css::empty()))
+}
+
+/// Default compile function for user-defined (JSON-imported) components.
+/// Generates code that creates a div node for the target language.
+pub fn user_defined_compile_fn(
+    def: &ComponentDef,
+    target: &CompileTarget,
+    _components: &XmlComponentMap,
+    _args: &FilteredComponentArguments,
+    text: &OptionString,
+    indent: usize,
+) -> Result<String, CompileError> {
+    let tag = def.id.name.as_str();
+    match target {
+        CompileTarget::Rust => {
+            if let Some(text_str) = text.as_ref() {
+                Ok(format!(
+                    "Dom::create_node(NodeType::Div).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
+                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
+                ))
+            } else {
+                Ok(format!("Dom::create_node(NodeType::Div) /* {} */", tag))
+            }
+        }
+        CompileTarget::C => {
+            if let Some(text_str) = text.as_ref() {
+                Ok(format!(
+                    "AzDom_createText(AzString_fromConstStr(\"{}\"))",
+                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
+                ))
+            } else {
+                Ok(format!("AzDom_createDiv() /* {} */", tag))
+            }
+        }
+        CompileTarget::Cpp => {
+            Ok(format!("Dom::create_div() /* {} */", tag))
+        }
+        CompileTarget::Python => {
+            Ok(format!("Dom.div() # {}", tag))
+        }
+    }
+}
+
 /// Create a ComponentDef for a builtin HTML element
 fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, accepts_text: bool, child_policy: ChildPolicy) -> ComponentDef {
     ComponentDef {

@@ -148,6 +148,9 @@ const app = {
             'get_component_registry':    { desc: 'Get registered components',      examples: ['/get_component_registry'],                     params: [] },
             'get_libraries':             { desc: 'List registered libraries',      examples: ['/get_libraries'],                              params: [] },
             'get_library_components':    { desc: 'Get components in library',      examples: ['/get_library_components library builtin'],      params: [{ name: 'library', type: 'text', placeholder: 'builtin' }] },
+            'import_component_library':  { desc: 'Import component library (JSON)', examples: ['/import_component_library'],                    params: [{ name: 'library', type: 'text', placeholder: '{"name":"mylib","version":"1.0","components":[]}' }] },
+            'export_component_library':  { desc: 'Export component library (JSON)', examples: ['/export_component_library library mylib'],       params: [{ name: 'library', type: 'text', placeholder: 'mylib' }] },
+            'export_code':               { desc: 'Export app code for language',     examples: ['/export_code language rust'],                    params: [{ name: 'language', type: 'text', placeholder: 'rust' }] },
 
             // ── Snapshots ──
             'restore_snapshot': { desc: 'Restore saved app state snapshot',       examples: ['/restore_snapshot alias initial-state'],         params: [{ name: 'alias', type: 'text', placeholder: 'initial-state' }] },
@@ -1290,6 +1293,102 @@ const app = {
             });
             _downloadJSON(exported, 'azul_e2e_tests.json');
             app.log('Exported ' + exported.length + ' E2E test(s)', 'info');
+        },
+
+        /* ── Component Library Import / Export ── */
+        importComponentLibrary: function() {
+            document.getElementById('file-import-component-lib').click();
+        },
+
+        handleComponentLibraryImport: async function(input) {
+            var file = input.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    var libJson = JSON.parse(e.target.result);
+                    // Validate basic structure
+                    if (!libJson.name || !Array.isArray(libJson.components)) {
+                        alert('Invalid component library JSON: must have "name" and "components" array.');
+                        return;
+                    }
+                    var res = await app.api.post({ op: 'import_component_library', library: libJson });
+                    if (res.status === 'ok') {
+                        var d = (res.data && res.data.value) ? res.data.value : (res.data || {});
+                        var action = d.was_update ? 'Updated' : 'Imported';
+                        app.log(action + ' library "' + d.library_name + '" with ' + d.component_count + ' component(s)', 'info');
+                        // Refresh library list
+                        await app.handlers.loadLibraries();
+                        // Auto-select the imported library
+                        app.handlers.selectLibrary(libJson.name);
+                    } else {
+                        app.log('Import failed: ' + (res.message || JSON.stringify(res)), 'error');
+                    }
+                } catch(err) {
+                    alert('Invalid component library JSON: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+            input.value = '';
+        },
+
+        exportComponentLibrary: async function() {
+            var libName = app.state.selectedLibrary;
+            if (!libName) {
+                app.log('No library selected. Select a library first in the Components panel.', 'warn');
+                return;
+            }
+            try {
+                var res = await app.api.post({ op: 'export_component_library', library: libName });
+                if (res.status === 'ok') {
+                    var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
+                    _downloadJSON(data, libName + '_components.json');
+                    app.log('Exported library "' + libName + '"', 'info');
+                } else {
+                    app.log('Export failed: ' + (res.message || 'Library may not be exportable (builtin libraries cannot be exported)'), 'error');
+                }
+            } catch(e) {
+                app.log('Export component library failed: ' + e.message, 'error');
+            }
+        },
+
+        exportCode: async function(language) {
+            try {
+                var res = await app.api.post({ op: 'export_code', language: language });
+                if (res.status === 'ok') {
+                    var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
+                    var files = data.files || {};
+                    var warnings = data.warnings || [];
+
+                    // Log warnings
+                    warnings.forEach(function(w) { app.log('Export warning: ' + w, 'warn'); });
+
+                    // Download each file
+                    var fileNames = Object.keys(files);
+                    if (fileNames.length === 0) {
+                        app.log('No files generated for ' + language, 'warn');
+                        return;
+                    }
+
+                    if (fileNames.length === 1) {
+                        // Single file: download directly as text
+                        var fname = fileNames[0];
+                        var blob = new Blob([files[fname]], { type: 'text/plain' });
+                        var url = URL.createObjectURL(blob);
+                        var a = document.createElement('a');
+                        a.href = url; a.download = fname; a.click();
+                        URL.revokeObjectURL(url);
+                    } else {
+                        // Multiple files: download as JSON bundle
+                        _downloadJSON(files, 'azul_export_' + language + '.json');
+                    }
+                    app.log('Exported code (' + language + '): ' + fileNames.join(', '), 'info');
+                } else {
+                    app.log('Code export failed: ' + (res.message || JSON.stringify(res)), 'error');
+                }
+            } catch(e) {
+                app.log('Code export failed: ' + e.message, 'error');
+            }
         },
 
         /* ── Test management ── */

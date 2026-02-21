@@ -23,6 +23,11 @@
                     <span class="material-icons mi">note_add</span>
                     E2E Tests (append)...
                 </div>
+                <div class="menu-dropdown-separator"></div>
+                <div class="menu-dropdown-item" onclick="app.handlers.importComponentLibrary()">
+                    <span class="material-icons mi">extension</span>
+                    Component Library...
+                </div>
             </div>
         </div>
         <div class="menu-item" data-menu="export">
@@ -37,6 +42,28 @@
                     <span class="material-icons mi">save_alt</span>
                     E2E Tests (CLI format)
                 </div>
+                <div class="menu-dropdown-separator"></div>
+                <div class="menu-dropdown-item" onclick="app.handlers.exportComponentLibrary()">
+                    <span class="material-icons mi">extension</span>
+                    Component Library (JSON)
+                </div>
+                <div class="menu-dropdown-separator"></div>
+                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('rust')">
+                    <span class="material-icons mi">code</span>
+                    Code (Rust)
+                </div>
+                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('c')">
+                    <span class="material-icons mi">code</span>
+                    Code (C)
+                </div>
+                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('cpp')">
+                    <span class="material-icons mi">code</span>
+                    Code (C++)
+                </div>
+                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('python')">
+                    <span class="material-icons mi">code</span>
+                    Code (Python)
+                </div>
             </div>
         </div>
         <div style="flex:1"></div>
@@ -46,6 +73,7 @@
     <!-- Hidden file inputs -->
     <input type="file" id="file-import-project" class="hidden" accept=".json" onchange="app.handlers.handleProjectImport(this)">
     <input type="file" id="file-import-e2e" class="hidden" accept=".json" onchange="app.handlers.handleE2eImport(this)">
+    <input type="file" id="file-import-component-lib" class="hidden" accept=".json" onchange="app.handlers.handleComponentLibraryImport(this)">
 
     <!-- Main Workbench -->
     <div class="workbench">
