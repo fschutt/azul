@@ -1115,6 +1115,441 @@ impl FilteredComponentArguments {
     }
 }
 
+// ============================================================================
+// New repr(C) component system — replaces XmlComponentTrait over time
+// ============================================================================
+
+/// Identifies a component within a library collection.
+/// e.g. collection="builtin", name="div" for the `<div>` element,
+/// or collection="shadcn", name="avatar" for a custom component.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentId {
+    /// Library / collection name: "builtin", "shadcn", "myproject"
+    pub collection: AzString,
+    /// Component name within the collection: "div", "avatar", "card"
+    pub name: AzString,
+}
+
+impl ComponentId {
+    pub fn builtin(name: &str) -> Self {
+        Self {
+            collection: AzString::from_const_str("builtin"),
+            name: AzString::from(name),
+        }
+    }
+
+    pub fn new(collection: &str, name: &str) -> Self {
+        Self {
+            collection: AzString::from(collection),
+            name: AzString::from(name),
+        }
+    }
+
+    /// Returns "collection:name" format string
+    pub fn qualified_name(&self) -> String {
+        format!("{}:{}", self.collection.as_str(), self.name.as_str())
+    }
+}
+
+/// A parameter that a component accepts (for the GUI builder / code export).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentParam {
+    /// Parameter name, e.g. "label", "image", "size"
+    pub name: AzString,
+    /// Type name from the Azul type system, e.g. "String", "f32", "RefAny"
+    /// "RefAny" signals: this is a backreference slot
+    pub param_type: AzString,
+    /// Default value (as a string), or None if required
+    pub default_value: OptionString,
+    /// Human-readable description
+    pub description: AzString,
+}
+
+impl_vec!(ComponentParam, ComponentParamVec, ComponentParamVecDestructor, ComponentParamVecDestructorType, ComponentParamVecSlice, OptionComponentParam);
+impl_option!(ComponentParam, OptionComponentParam, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec_debug!(ComponentParam, ComponentParamVec);
+impl_vec_partialeq!(ComponentParam, ComponentParamVec);
+impl_vec_clone!(ComponentParam, ComponentParamVec, ComponentParamVecDestructor);
+
+/// A callback slot that a component exposes for parent wiring.
+/// References a `CallbackTypeDef` from the api.json type system.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentCallbackSlot {
+    /// Slot name, e.g. "on_click", "on_value_change", "on_focus_lost"
+    pub name: AzString,
+    /// The callback type name, e.g. "ButtonOnClickCallbackType"
+    pub callback_type: AzString,
+    /// Human-readable description
+    pub description: AzString,
+}
+
+impl_vec!(ComponentCallbackSlot, ComponentCallbackSlotVec, ComponentCallbackSlotVecDestructor, ComponentCallbackSlotVecDestructorType, ComponentCallbackSlotVecSlice, OptionComponentCallbackSlot);
+impl_option!(ComponentCallbackSlot, OptionComponentCallbackSlot, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec_debug!(ComponentCallbackSlot, ComponentCallbackSlotVec);
+impl_vec_partialeq!(ComponentCallbackSlot, ComponentCallbackSlotVec);
+impl_vec_clone!(ComponentCallbackSlot, ComponentCallbackSlotVec, ComponentCallbackSlotVecDestructor);
+
+/// A field in the component's internal data model.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentDataField {
+    /// Field name, e.g. "counter", "text", "number"
+    pub name: AzString,
+    /// Type name, e.g. "f32", "String", "RefAny"
+    pub field_type: AzString,
+    /// Default value (JSON-encoded), or None
+    pub default_value: OptionString,
+    /// Human-readable description
+    pub description: AzString,
+}
+
+impl_vec!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor, ComponentDataFieldVecDestructorType, ComponentDataFieldVecSlice, OptionComponentDataField);
+impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec_debug!(ComponentDataField, ComponentDataFieldVec);
+impl_vec_partialeq!(ComponentDataField, ComponentDataFieldVec);
+impl_vec_clone!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor);
+
+/// What children a component accepts
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum ChildPolicy {
+    /// No children allowed (void elements: br, hr, img, input)
+    NoChildren,
+    /// Any children allowed (div, body, section)
+    AnyChildren,
+    /// Only text content (p, span, h1-h6)
+    TextOnly,
+}
+
+impl Default for ChildPolicy {
+    fn default() -> Self {
+        ChildPolicy::AnyChildren
+    }
+}
+
+/// Source of a component definition — determines whether it can be exported
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ComponentSource {
+    /// Built into the DLL (HTML elements). Never exported.
+    Builtin,
+    /// Compiled Rust widget (Button, TextInput, etc.). Never exported.
+    Compiled,
+    /// Defined via JSON/XML at runtime. Can be exported.
+    UserDefined,
+}
+
+impl Default for ComponentSource {
+    fn default() -> Self {
+        ComponentSource::UserDefined
+    }
+}
+
+/// The target language for code compilation
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum CompileTarget {
+    Rust,
+    C,
+    Cpp,
+    Python,
+}
+
+/// Render function type: takes component definition + arguments, returns StyledDom
+pub type ComponentRenderFn = fn(
+    &ComponentDef,
+    &XmlComponentMap,
+    &FilteredComponentArguments,
+    &OptionString,
+) -> Result<StyledDom, RenderDomError>;
+
+/// Compile function type: takes component definition + target language + context, returns source code
+pub type ComponentCompileFn = fn(
+    &ComponentDef,
+    &CompileTarget,
+    &XmlComponentMap,
+    &FilteredComponentArguments,
+    &OptionString,
+    indent: usize,
+) -> Result<String, CompileError>;
+
+/// A component definition — the "class" / "template" of a component.
+/// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
+///
+/// This is the new `repr(C)` replacement for `XmlComponentTrait`.
+#[derive(Clone)]
+pub struct ComponentDef {
+    /// Collection + name, e.g. builtin:div, shadcn:avatar
+    pub id: ComponentId,
+    /// Human-readable display name, e.g. "Link" for builtin:a, "Avatar" for shadcn:avatar
+    pub display_name: AzString,
+    /// Markdown documentation for the component
+    pub description: AzString,
+    /// Parameters this component accepts (for GUI builder inspector)
+    pub parameters: ComponentParamVec,
+    /// Whether this component accepts text content
+    pub accepts_text: bool,
+    /// Child policy (no children, any, text only)
+    pub child_policy: ChildPolicy,
+    /// The component's own scoped CSS
+    pub scoped_css: AzString,
+    /// Example usage as XML
+    pub example_xml: AzString,
+    /// Where this component was defined (determines exportability)
+    pub source: ComponentSource,
+    /// Internal data model fields (for code export struct generation)
+    pub data_model: ComponentDataFieldVec,
+    /// Callback slots (for wiring in the GUI builder)
+    pub callback_slots: ComponentCallbackSlotVec,
+    /// Render to live DOM
+    pub render_fn: ComponentRenderFn,
+    /// Compile to source code in target language
+    pub compile_fn: ComponentCompileFn,
+    /// The NodeType to create for this component (for builtins)
+    pub node_type: Option<NodeType>,
+}
+
+impl fmt::Debug for ComponentDef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ComponentDef")
+            .field("id", &self.id)
+            .field("display_name", &self.display_name)
+            .field("source", &self.source)
+            .field("accepts_text", &self.accepts_text)
+            .field("parameters", &self.parameters.len())
+            .field("callback_slots", &self.callback_slots.len())
+            .finish()
+    }
+}
+
+/// A named collection of component definitions
+#[derive(Debug, Clone)]
+pub struct ComponentLibrary {
+    /// Library identifier, e.g. "builtin", "shadcn", "myproject"
+    pub name: AzString,
+    /// Version string
+    pub version: AzString,
+    /// Human-readable description
+    pub description: AzString,
+    /// The components in this library
+    pub components: Vec<ComponentDef>,
+    /// Whether this library can be exported (false for builtin/compiled)
+    pub exportable: bool,
+}
+
+/// The new component map — holds libraries with namespaced components.
+/// Coexists with `XmlComponentMap` during migration.
+#[derive(Debug, Clone)]
+pub struct ComponentMap {
+    /// Libraries indexed by name. "builtin" is always present.
+    pub libraries: Vec<ComponentLibrary>,
+}
+
+impl ComponentMap {
+    /// Qualified lookup: "shadcn:avatar" -> finds library "shadcn", component "avatar"
+    pub fn get(&self, collection: &str, name: &str) -> Option<&ComponentDef> {
+        self.libraries
+            .iter()
+            .find(|lib| lib.name.as_str() == collection)
+            .and_then(|lib| lib.components.iter().find(|c| c.id.name.as_str() == name))
+    }
+
+    /// Unqualified lookup: "div" -> searches ONLY the "builtin" library.
+    pub fn get_unqualified(&self, name: &str) -> Option<&ComponentDef> {
+        self.get("builtin", name)
+    }
+
+    /// Parse a "collection:name" string into a lookup
+    pub fn get_by_qualified_name(&self, qualified: &str) -> Option<&ComponentDef> {
+        if let Some((collection, name)) = qualified.split_once(':') {
+            self.get(collection, name)
+        } else {
+            self.get_unqualified(qualified)
+        }
+    }
+
+    /// Get all libraries that can be exported (user-defined only)
+    pub fn get_exportable_libraries(&self) -> Vec<&ComponentLibrary> {
+        self.libraries.iter().filter(|lib| lib.exportable).collect()
+    }
+
+    /// Get all component definitions across all libraries
+    pub fn all_components(&self) -> Vec<&ComponentDef> {
+        self.libraries.iter().flat_map(|lib| lib.components.iter()).collect()
+    }
+}
+
+// ============================================================================
+// Builtin component bridge — wraps existing render/compile into ComponentDef
+// ============================================================================
+
+/// Default render function for builtin HTML elements.
+/// Delegates to creating a DOM node of the appropriate NodeType.
+fn builtin_render_fn(
+    def: &ComponentDef,
+    _components: &XmlComponentMap,
+    _args: &FilteredComponentArguments,
+    text: &OptionString,
+) -> Result<StyledDom, RenderDomError> {
+    let node_type = def.node_type.clone().unwrap_or(NodeType::Div);
+    let mut dom = Dom::create_node(node_type);
+    if let Some(text_str) = text.as_ref() {
+        let prepared = prepare_string(text_str);
+        if !prepared.is_empty() {
+            dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
+        }
+    }
+    Ok(dom.style(Css::empty()))
+}
+
+/// Default compile function for builtin HTML elements.
+/// Generates `Dom::create_node(NodeType::Div)` style code for the target language.
+fn builtin_compile_fn(
+    def: &ComponentDef,
+    target: &CompileTarget,
+    _components: &XmlComponentMap,
+    _args: &FilteredComponentArguments,
+    text: &OptionString,
+    indent: usize,
+) -> Result<String, CompileError> {
+    let node_type = def.node_type.clone().unwrap_or(NodeType::Div);
+    let type_name = format!("{:?}", node_type); // "Div", "Body", "P", etc.
+
+    match target {
+        CompileTarget::Rust => {
+            if let Some(text_str) = text.as_ref() {
+                Ok(format!(
+                    "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
+                    type_name,
+                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
+                ))
+            } else {
+                Ok(format!("Dom::create_node(NodeType::{})", type_name))
+            }
+        }
+        CompileTarget::C => {
+            if let Some(text_str) = text.as_ref() {
+                Ok(format!(
+                    "AzDom_createText(AzString_fromConstStr(\"{}\"))",
+                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
+                ))
+            } else {
+                Ok(format!("AzDom_create{}()", type_name))
+            }
+        }
+        CompileTarget::Cpp => {
+            Ok(format!("Dom::create_{}()", type_name.to_lowercase()))
+        }
+        CompileTarget::Python => {
+            Ok(format!("Dom.{}()", type_name.to_lowercase()))
+        }
+    }
+}
+
+/// Create a ComponentDef for a builtin HTML element
+fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, accepts_text: bool, child_policy: ChildPolicy) -> ComponentDef {
+    ComponentDef {
+        id: ComponentId::builtin(tag),
+        display_name: AzString::from(display_name),
+        description: AzString::from(format!("HTML <{}> element", tag).as_str()),
+        parameters: Vec::new().into(),
+        accepts_text,
+        child_policy,
+        scoped_css: AzString::from_const_str(""),
+        example_xml: AzString::from(format!("<{}>content</{}>", tag, tag).as_str()),
+        source: ComponentSource::Builtin,
+        data_model: Vec::new().into(),
+        callback_slots: Vec::new().into(),
+        render_fn: builtin_render_fn,
+        compile_fn: builtin_compile_fn,
+        node_type: Some(node_type),
+    }
+}
+
+impl Default for ComponentMap {
+    fn default() -> Self {
+        let builtin = ComponentLibrary {
+            name: AzString::from_const_str("builtin"),
+            version: AzString::from_const_str("1.0.0"),
+            description: AzString::from_const_str("Built-in HTML elements"),
+            exportable: false,
+            components: vec![
+                // Structural
+                builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),
+                builtin_component_def("head", "Head", NodeType::Head, false, ChildPolicy::AnyChildren),
+                builtin_component_def("title", "Title", NodeType::Title, true, ChildPolicy::TextOnly),
+                builtin_component_def("body", "Body", NodeType::Body, false, ChildPolicy::AnyChildren),
+                // Block-level
+                builtin_component_def("div", "Div", NodeType::Div, false, ChildPolicy::AnyChildren),
+                builtin_component_def("header", "Header", NodeType::Header, false, ChildPolicy::AnyChildren),
+                builtin_component_def("footer", "Footer", NodeType::Footer, false, ChildPolicy::AnyChildren),
+                builtin_component_def("section", "Section", NodeType::Section, false, ChildPolicy::AnyChildren),
+                builtin_component_def("article", "Article", NodeType::Article, false, ChildPolicy::AnyChildren),
+                builtin_component_def("aside", "Aside", NodeType::Aside, false, ChildPolicy::AnyChildren),
+                builtin_component_def("nav", "Nav", NodeType::Nav, false, ChildPolicy::AnyChildren),
+                builtin_component_def("main", "Main", NodeType::Main, false, ChildPolicy::AnyChildren),
+                // Headings
+                builtin_component_def("h1", "Heading 1", NodeType::H1, true, ChildPolicy::TextOnly),
+                builtin_component_def("h2", "Heading 2", NodeType::H2, true, ChildPolicy::TextOnly),
+                builtin_component_def("h3", "Heading 3", NodeType::H3, true, ChildPolicy::TextOnly),
+                builtin_component_def("h4", "Heading 4", NodeType::H4, true, ChildPolicy::TextOnly),
+                builtin_component_def("h5", "Heading 5", NodeType::H5, true, ChildPolicy::TextOnly),
+                builtin_component_def("h6", "Heading 6", NodeType::H6, true, ChildPolicy::TextOnly),
+                // Text content
+                builtin_component_def("p", "Paragraph", NodeType::P, true, ChildPolicy::AnyChildren),
+                builtin_component_def("span", "Span", NodeType::Span, true, ChildPolicy::AnyChildren),
+                builtin_component_def("pre", "Preformatted", NodeType::Pre, true, ChildPolicy::TextOnly),
+                builtin_component_def("code", "Code", NodeType::Code, true, ChildPolicy::TextOnly),
+                builtin_component_def("blockquote", "Blockquote", NodeType::BlockQuote, true, ChildPolicy::AnyChildren),
+                builtin_component_def("br", "Line Break", NodeType::Br, false, ChildPolicy::NoChildren),
+                builtin_component_def("hr", "Horizontal Rule", NodeType::Hr, false, ChildPolicy::NoChildren),
+                builtin_component_def("icon", "Icon", NodeType::Div, true, ChildPolicy::NoChildren),
+                // Lists
+                builtin_component_def("ul", "Unordered List", NodeType::Ul, false, ChildPolicy::AnyChildren),
+                builtin_component_def("ol", "Ordered List", NodeType::Ol, false, ChildPolicy::AnyChildren),
+                builtin_component_def("li", "List Item", NodeType::Li, true, ChildPolicy::AnyChildren),
+                builtin_component_def("dl", "Description List", NodeType::Dl, false, ChildPolicy::AnyChildren),
+                builtin_component_def("dt", "Description Term", NodeType::Dt, true, ChildPolicy::TextOnly),
+                builtin_component_def("dd", "Description Details", NodeType::Dd, true, ChildPolicy::AnyChildren),
+                // Tables
+                builtin_component_def("table", "Table", NodeType::Table, false, ChildPolicy::AnyChildren),
+                builtin_component_def("thead", "Table Head", NodeType::THead, false, ChildPolicy::AnyChildren),
+                builtin_component_def("tbody", "Table Body", NodeType::TBody, false, ChildPolicy::AnyChildren),
+                builtin_component_def("tfoot", "Table Foot", NodeType::TFoot, false, ChildPolicy::AnyChildren),
+                builtin_component_def("tr", "Table Row", NodeType::Tr, false, ChildPolicy::AnyChildren),
+                builtin_component_def("th", "Table Header Cell", NodeType::Th, true, ChildPolicy::AnyChildren),
+                builtin_component_def("td", "Table Data Cell", NodeType::Td, true, ChildPolicy::AnyChildren),
+                // Inline
+                builtin_component_def("a", "Link", NodeType::A, true, ChildPolicy::AnyChildren),
+                builtin_component_def("strong", "Strong", NodeType::Strong, true, ChildPolicy::TextOnly),
+                builtin_component_def("em", "Emphasis", NodeType::Em, true, ChildPolicy::TextOnly),
+                builtin_component_def("b", "Bold", NodeType::B, true, ChildPolicy::TextOnly),
+                builtin_component_def("i", "Italic", NodeType::I, true, ChildPolicy::TextOnly),
+                builtin_component_def("u", "Underline", NodeType::U, true, ChildPolicy::TextOnly),
+                builtin_component_def("small", "Small", NodeType::Small, true, ChildPolicy::TextOnly),
+                builtin_component_def("mark", "Mark", NodeType::Mark, true, ChildPolicy::TextOnly),
+                builtin_component_def("sub", "Subscript", NodeType::Sub, true, ChildPolicy::TextOnly),
+                builtin_component_def("sup", "Superscript", NodeType::Sup, true, ChildPolicy::TextOnly),
+                // Forms
+                builtin_component_def("form", "Form", NodeType::Form, false, ChildPolicy::AnyChildren),
+                builtin_component_def("label", "Label", NodeType::Label, true, ChildPolicy::AnyChildren),
+                builtin_component_def("button", "Button", NodeType::Button, true, ChildPolicy::AnyChildren),
+            ],
+        };
+
+        ComponentMap {
+            libraries: vec![builtin],
+        }
+    }
+}
+
+// ============================================================================
+// End new component system types
+// ============================================================================
+
 /// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponentTrait {
     /// Returns the type ID of this component, default = `div`
@@ -3267,14 +3702,19 @@ pub fn set_stringified_attributes(
     }
 }
 
-/// Item of a split string - either a variable name or a string
+/// Item of a split string - either a variable name (with optional format spec) or a string
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum DynamicItem {
-    Var(String),
+    /// A variable reference, e.g. {counter} or {counter:?} or {price:.2}
+    Var {
+        name: String,
+        /// Optional format specifier after the colon: "?" for debug, ".2" for precision, etc.
+        format_spec: Option<String>,
+    },
     Str(String),
 }
 
-/// Splits a string into formatting arguments
+/// Splits a string into formatting arguments, supporting format specifiers like `{var:?}`
 /// ```rust
 /// # use azul_core::xml::DynamicItem::*;
 /// # use azul_core::xml::split_dynamic_string;
@@ -3282,11 +3722,11 @@ pub enum DynamicItem {
 /// let split = split_dynamic_string(s);
 /// let output = vec![
 ///     Str("hello ".to_string()),
-///     Var("a".to_string()),
+///     Var { name: "a".to_string(), format_spec: None },
 ///     Str(", ".to_string()),
-///     Var("b".to_string()),
+///     Var { name: "b".to_string(), format_spec: None },
 ///     Str("{ ".to_string()),
-///     Var("c".to_string()),
+///     Var { name: "c".to_string(), format_spec: None },
 ///     Str(" }".to_string()),
 /// ];
 /// assert_eq!(output, split);
@@ -3330,10 +3770,19 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
                     }
 
                     // subtract 1 from start for opening brace, one from end for closing brace
-                    items.push(Var(input
+                    let var_content: String = input
                         [(current_idx + 1)..(current_idx + start_offset - 1)]
                         .iter()
-                        .collect()));
+                        .collect();
+                    // Split on first ':' to separate variable name from format specifier
+                    let (var_name, format_spec) = if let Some(colon_pos) = var_content.find(':') {
+                        let name = var_content[..colon_pos].to_string();
+                        let spec = var_content[(colon_pos + 1)..].to_string();
+                        (name, Some(spec))
+                    } else {
+                        (var_content, None)
+                    };
+                    items.push(Var { name: var_name, format_spec });
                     current_idx = current_idx + start_offset;
                     last_idx = current_idx;
                 } else {
@@ -3374,19 +3823,24 @@ pub fn combine_and_replace_dynamic_items(
 
     for item in input {
         match item {
-            DynamicItem::Var(v) => {
-                let variable_name = normalize_casing(v.trim());
+            DynamicItem::Var { name, format_spec } => {
+                let variable_name = normalize_casing(name.trim());
                 match variables
                     .iter()
                     .find(|s| s.0 == variable_name)
                     .map(|q| &q.1)
                 {
                     Some(resolved_var) => {
+                        // Format specifiers are applied at compile time, not at runtime replacement
                         s.push_str(&resolved_var);
                     }
                     None => {
                         s.push('{');
-                        s.push_str(v);
+                        s.push_str(name);
+                        if let Some(spec) = format_spec {
+                            s.push(':');
+                            s.push_str(spec);
+                        }
                         s.push('}');
                     }
                 }
@@ -3994,7 +4448,14 @@ fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
     } else if input.len() == 1 {
         // common: there is only one "dynamic item" - skip the "format!()" macro
         match &input[0] {
-            Var(v) => normalize_casing(v.trim()),
+            Var { name, format_spec } => {
+                let var_name = normalize_casing(name.trim());
+                if let Some(spec) = format_spec {
+                    format!("format!(\"{{:{}}}\", {}).into()", spec, var_name)
+                } else {
+                    var_name
+                }
+            }
             Str(s) => format!("AzString::from_const_str(\"{}\")", s),
         }
     } else {
@@ -4003,9 +4464,13 @@ fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
         let mut variables = Vec::new();
         for item in input {
             match item {
-                Var(v) => {
-                    let variable_name = normalize_casing(v.trim());
-                    formatted_str.push_str(&format!("{{{}}}", variable_name));
+                Var { name, format_spec } => {
+                    let variable_name = normalize_casing(name.trim());
+                    if let Some(spec) = format_spec {
+                        formatted_str.push_str(&format!("{{{}:{}}}", variable_name, spec));
+                    } else {
+                        formatted_str.push_str(&format!("{{{}}}", variable_name));
+                    }
                     variables.push(variable_name.clone());
                 }
                 Str(s) => {

@@ -132,6 +132,8 @@ pub enum ResponseData {
     FunctionPointers(FunctionPointersResponse),
     /// Component registry (available tags and their attributes)
     ComponentRegistry(ComponentRegistryResponse),
+    /// Exported code (compiled project files)
+    ExportedCode(ExportedCodeResponse),
 }
 
 /// Wrapper for E2E test results
@@ -213,11 +215,39 @@ pub struct ResolvedFunctionPointer {
     pub approximate: bool,
 }
 
+/// Response for ExportCode: compiled project as a base64-encoded ZIP
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportedCodeResponse {
+    /// Target language used
+    pub language: String,
+    /// Map of filename → file content (source code)
+    pub files: std::collections::HashMap<String, String>,
+    /// Any warnings or notes from compilation
+    pub warnings: Vec<String>,
+}
+
 /// Response for GetComponentRegistry
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentRegistryResponse {
-    /// Map of tag name → component info
+    /// Libraries of components, grouped by collection name
+    pub libraries: Vec<ComponentLibraryInfo>,
+}
+
+/// A library / collection of components
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentLibraryInfo {
+    /// Library name (e.g., "builtin", "shadcn", "myproject")
+    pub name: String,
+    /// Library version
+    pub version: String,
+    /// Human-readable description
+    pub description: String,
+    /// Whether this library can be exported
+    pub exportable: bool,
+    /// Components in this library
     pub components: Vec<ComponentInfo>,
 }
 
@@ -227,10 +257,28 @@ pub struct ComponentRegistryResponse {
 pub struct ComponentInfo {
     /// The tag name (e.g., "div", "a", "button")
     pub tag: String,
+    /// The qualified name (e.g., "builtin:div", "shadcn:avatar")
+    pub qualified_name: String,
+    /// Display name for the GUI (e.g., "Link" for "a", "Avatar")
+    pub display_name: String,
+    /// Description / documentation
+    pub description: String,
     /// Whether this tag accepts text content
     pub accepts_text: bool,
-    /// Available attributes for this tag (e.g., [("href", "String")])
+    /// Child policy: "no_children", "any_children", "text_only"
+    pub child_policy: String,
+    /// Source: "builtin", "compiled", "user_defined"
+    pub source: String,
+    /// Available attributes/parameters for this component
     pub attributes: Vec<ComponentAttributeInfo>,
+    /// Callback slots this component exposes
+    pub callback_slots: Vec<ComponentCallbackSlotInfo>,
+    /// Data model fields
+    pub data_fields: Vec<ComponentDataFieldInfo>,
+    /// Example XML usage
+    pub example_xml: String,
+    /// Scoped CSS
+    pub scoped_css: String,
 }
 
 /// Info about an attribute a component accepts
@@ -241,6 +289,36 @@ pub struct ComponentAttributeInfo {
     pub name: String,
     /// Attribute type hint (e.g., "String", "bool", "i32")
     pub attr_type: String,
+    /// Default value, if any
+    pub default: Option<String>,
+    /// Description
+    pub description: String,
+}
+
+/// Info about a callback slot
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentCallbackSlotInfo {
+    /// Slot name (e.g., "on_click", "on_value_change")
+    pub name: String,
+    /// Callback type name (e.g., "ButtonOnClickCallbackType")
+    pub callback_type: String,
+    /// Description
+    pub description: String,
+}
+
+/// Info about a data model field
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentDataFieldInfo {
+    /// Field name
+    pub name: String,
+    /// Field type
+    pub field_type: String,
+    /// Default value
+    pub default: Option<String>,
+    /// Description
+    pub description: String,
 }
 
 /// Metadata about a RefAny's type
@@ -1416,6 +1494,12 @@ pub enum DebugEvent {
     },
     /// Get the component registry: which tags are available and what attributes they accept
     GetComponentRegistry,
+    /// Export code: compile all exportable components into a project scaffold
+    /// and return the result as base64-encoded ZIP
+    ExportCode {
+        /// Target language: "rust", "c", "cpp", "python"
+        language: String,
+    },
     /// Open a source file in the user's editor (best-effort)
     OpenFile {
         /// Absolute path to the file
@@ -3364,62 +3448,285 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     }
 }
 
-/// Build the component registry from the XmlComponentMap.
-/// Uses `get_available_arguments()` from each component's trait impl
-/// to discover accepted attributes, supplemented by well-known HTML attributes.
+/// Build the component registry from the new `ComponentMap`.
 ///
-/// The XmlComponentMap is created fresh each call. It is not stored in a static
-/// because `Box<dyn XmlComponentTrait>` is not `Send + Sync`. This is fine
-/// because the call is infrequent and XmlComponentMap::default() is fast.
+/// The `ComponentMap` is created fresh each call — it's cheap and avoids
+/// `Send+Sync` issues. For builtin HTML elements the well-known attribute
+/// tables (`get_universal_attributes`, `get_tag_specific_attributes`) are
+/// merged in so the debugger inspector can show them.
 #[cfg(feature = "std")]
 fn build_component_registry() -> ComponentRegistryResponse {
-    use azul_core::xml::XmlComponentMap;
+    use azul_core::xml::{ComponentMap, ComponentSource, ChildPolicy};
 
-    let map = XmlComponentMap::default();
-    let mut components = Vec::new();
+    let map = ComponentMap::default();
+    let mut libraries = Vec::new();
 
-    for (tag_name, xml_comp) in &map.components {
-        let args = xml_comp.renderer.get_available_arguments();
-        let mut attributes: Vec<ComponentAttributeInfo> = args.args.iter()
-            .map(|(name, typ)| ComponentAttributeInfo {
-                name: name.clone(),
-                attr_type: typ.clone(),
-            })
-            .collect();
+    for lib in &map.libraries {
+        let mut components = Vec::new();
 
-        // Add well-known HTML attributes based on tag type
-        let tag = tag_name.as_str();
-        let extra_attrs = get_tag_specific_attributes(tag);
-        for (attr_name, attr_type) in extra_attrs {
-            if !attributes.iter().any(|a| a.name == attr_name) {
-                attributes.push(ComponentAttributeInfo {
-                    name: attr_name.to_string(),
-                    attr_type: attr_type.to_string(),
-                });
+        for def in &lib.components {
+            let tag = def.id.name.as_str();
+
+            // --- attributes ---
+            let mut attributes: Vec<ComponentAttributeInfo> = def.parameters.as_ref().iter()
+                .map(|p| ComponentAttributeInfo {
+                    name: p.name.as_str().to_string(),
+                    attr_type: p.param_type.as_str().to_string(),
+                    default: p.default_value.as_ref().map(|s| s.as_str().to_string()),
+                    description: p.description.as_str().to_string(),
+                })
+                .collect();
+
+            // Enrich builtin elements with well-known HTML attributes
+            if def.source == ComponentSource::Builtin {
+                for (attr_name, attr_type) in get_tag_specific_attributes(tag) {
+                    if !attributes.iter().any(|a| a.name == attr_name) {
+                        attributes.push(ComponentAttributeInfo {
+                            name: attr_name.to_string(),
+                            attr_type: attr_type.to_string(),
+                            default: None,
+                            description: String::new(),
+                        });
+                    }
+                }
+                for (attr_name, attr_type) in get_universal_attributes() {
+                    if !attributes.iter().any(|a| a.name == attr_name) {
+                        attributes.push(ComponentAttributeInfo {
+                            name: attr_name.to_string(),
+                            attr_type: attr_type.to_string(),
+                            default: None,
+                            description: String::new(),
+                        });
+                    }
+                }
             }
+
+            // --- callback slots ---
+            let callback_slots: Vec<ComponentCallbackSlotInfo> = def.callback_slots.as_ref().iter()
+                .map(|s| ComponentCallbackSlotInfo {
+                    name: s.name.as_str().to_string(),
+                    callback_type: s.callback_type.as_str().to_string(),
+                    description: s.description.as_str().to_string(),
+                })
+                .collect();
+
+            // --- data fields ---
+            let data_fields: Vec<ComponentDataFieldInfo> = def.data_model.as_ref().iter()
+                .map(|f| ComponentDataFieldInfo {
+                    name: f.name.as_str().to_string(),
+                    field_type: f.field_type.as_str().to_string(),
+                    default: f.default_value.as_ref().map(|s| s.as_str().to_string()),
+                    description: f.description.as_str().to_string(),
+                })
+                .collect();
+
+            let child_policy_str = match def.child_policy {
+                ChildPolicy::NoChildren => "no_children",
+                ChildPolicy::AnyChildren => "any_children",
+                ChildPolicy::TextOnly => "text_only",
+            };
+
+            let source_str = match def.source {
+                ComponentSource::Builtin => "builtin",
+                ComponentSource::Compiled => "compiled",
+                ComponentSource::UserDefined => "user_defined",
+            };
+
+            components.push(ComponentInfo {
+                tag: tag.to_string(),
+                qualified_name: def.id.qualified_name(),
+                display_name: def.display_name.as_str().to_string(),
+                description: def.description.as_str().to_string(),
+                accepts_text: def.accepts_text,
+                child_policy: child_policy_str.to_string(),
+                source: source_str.to_string(),
+                attributes,
+                callback_slots,
+                data_fields,
+                example_xml: def.example_xml.as_str().to_string(),
+                scoped_css: def.scoped_css.as_str().to_string(),
+            });
         }
 
-        // Always add the universal HTML attributes
-        for (attr_name, attr_type) in get_universal_attributes() {
-            if !attributes.iter().any(|a| a.name == attr_name) {
-                attributes.push(ComponentAttributeInfo {
-                    name: attr_name.to_string(),
-                    attr_type: attr_type.to_string(),
-                });
-            }
-        }
+        // Sort components within the library by tag name
+        components.sort_by(|a, b| a.tag.cmp(&b.tag));
 
-        components.push(ComponentInfo {
-            tag: tag_name.clone(),
-            accepts_text: args.accepts_text,
-            attributes,
+        libraries.push(ComponentLibraryInfo {
+            name: lib.name.as_str().to_string(),
+            version: lib.version.as_str().to_string(),
+            description: lib.description.as_str().to_string(),
+            exportable: lib.exportable,
+            components,
         });
     }
 
-    // Sort by tag name for consistent output
-    components.sort_by(|a, b| a.tag.cmp(&b.tag));
+    ComponentRegistryResponse { libraries }
+}
 
-    ComponentRegistryResponse { components }
+/// Build exported code for all exportable component libraries.
+///
+/// Uses `compile_fn` on each exportable component to generate source code
+/// in the target language, then packages the result as a set of files.
+/// For the "builtin" library this is a no-op (builtin components are not exported).
+#[cfg(feature = "std")]
+fn build_exported_code(language: &str) -> Result<ExportedCodeResponse, String> {
+    use azul_core::xml::{
+        ComponentMap, CompileTarget, XmlComponentMap,
+        FilteredComponentArguments,
+    };
+    use azul_css::corety::OptionString;
+
+    let target = match language {
+        "rust" => CompileTarget::Rust,
+        "c" => CompileTarget::C,
+        "cpp" | "c++" => CompileTarget::Cpp,
+        "python" => CompileTarget::Python,
+        other => return Err(format!("Unsupported language: '{}'. Use: rust, c, cpp, python", other)),
+    };
+
+    let map = ComponentMap::default();
+    let xml_map = XmlComponentMap::default();
+    let mut files = std::collections::HashMap::new();
+    let mut warnings = Vec::new();
+
+    // Only export user-defined (exportable) libraries
+    let exportable = map.get_exportable_libraries();
+
+    if exportable.is_empty() {
+        // Even with no user components, generate a minimal scaffold
+        // that shows the builtin component usage
+        let (filename, content) = generate_scaffold(&target, &[]);
+        files.insert(filename, content);
+        warnings.push("No user-defined component libraries to export. Generated minimal scaffold.".to_string());
+    } else {
+        let mut all_component_sources = Vec::new();
+
+        for lib in &exportable {
+            for def in &lib.components {
+                let args = FilteredComponentArguments::default();
+                let text = OptionString::None;
+
+                match (def.compile_fn)(def, &target, &xml_map, &args, &text, 0) {
+                    Ok(code) => {
+                        all_component_sources.push((
+                            def.id.name.as_str().to_string(),
+                            code,
+                        ));
+                    }
+                    Err(e) => {
+                        warnings.push(format!(
+                            "Failed to compile component '{}': {:?}",
+                            def.id.qualified_name(), e
+                        ));
+                    }
+                }
+            }
+        }
+
+        let (filename, content) = generate_scaffold(&target, &all_component_sources);
+        files.insert(filename, content);
+    }
+
+    Ok(ExportedCodeResponse {
+        language: language.to_string(),
+        files,
+        warnings,
+    })
+}
+
+/// Generate a minimal project scaffold for the given target language
+#[cfg(feature = "std")]
+fn generate_scaffold(
+    target: &azul_core::xml::CompileTarget,
+    components: &[(String, String)],
+) -> (String, String) {
+    use azul_core::xml::CompileTarget;
+
+    let component_code = components
+        .iter()
+        .map(|(name, code)| format!("// Component: {}\n{}\n", name, code))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    match target {
+        CompileTarget::Rust => {
+            let code = format!(
+                r#"//! Auto-generated by Azul debugger
+//! Language: Rust
+
+extern crate azul;
+use azul::prelude::*;
+
+{}
+
+fn main() {{
+    let app = App::new(RefAny::new(DataModel::default()), AppConfig::new(LayoutSolver::Default));
+    app.run(WindowCreateOptions::new(layout));
+}}
+"#,
+                component_code
+            );
+            ("main.rs".to_string(), code)
+        }
+        CompileTarget::C => {
+            let code = format!(
+                r#"/* Auto-generated by Azul debugger */
+/* Language: C */
+
+#include "azul.h"
+#include <stdio.h>
+
+{}
+
+int main() {{
+    AzAppConfig config = AzAppConfig_new(AzLayoutSolver_Default);
+    AzApp* app = AzApp_new(AzRefAny_newC(NULL, 0, 0, NULL, NULL, NULL), config);
+    AzWindowCreateOptions w = AzWindowCreateOptions_new(layout);
+    AzApp_run(app, w);
+    return 0;
+}}
+"#,
+                component_code
+            );
+            ("main.c".to_string(), code)
+        }
+        CompileTarget::Cpp => {
+            let code = format!(
+                r#"// Auto-generated by Azul debugger
+// Language: C++
+
+#include "azul.hpp"
+using namespace Azul;
+
+{}
+
+int main() {{
+    auto app = App(RefAny(), AppConfig(LayoutSolver::Default));
+    app.run(WindowCreateOptions(layout));
+    return 0;
+}}
+"#,
+                component_code
+            );
+            ("main.cpp".to_string(), code)
+        }
+        CompileTarget::Python => {
+            let code = format!(
+                r#"# Auto-generated by Azul debugger
+# Language: Python
+
+from azul import *
+
+{}
+
+app = App(RefAny(), AppConfig(LayoutSolver.Default))
+app.run(WindowCreateOptions(layout))
+"#,
+                component_code
+            );
+            ("main.py".to_string(), code)
+        }
+    }
 }
 
 /// Returns universal HTML attributes that all elements support
@@ -6728,6 +7035,22 @@ fn process_debug_event(
                 None,
                 Some(ResponseData::ComponentRegistry(registry)),
             );
+        }
+
+        DebugEvent::ExportCode { language } => {
+            let result = build_exported_code(&language);
+            match result {
+                Ok(response) => {
+                    send_ok(
+                        request,
+                        None,
+                        Some(ResponseData::ExportedCode(response)),
+                    );
+                }
+                Err(e) => {
+                    send_err(request, &format!("Export failed: {}", e));
+                }
+            }
         }
 
         DebugEvent::OpenFile { file, line } => {
