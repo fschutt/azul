@@ -1686,7 +1686,15 @@ const app = {
                 var res = await app.api.post({ op: step.op, ...step.params });
                 step.lastResponse = res;
                 step.duration_ms = Math.round(performance.now() - t0);
-                if (res.status === 'error') throw new Error(res.message);
+                // HTTP-level error
+                if (res.status === 'error') throw new Error(res.message || 'Server error');
+                // Semantic failure: check data.value for success/found/passed fields
+                var val = (res.data && res.data.value) ? res.data.value : null;
+                if (val) {
+                    if (val.success === false) throw new Error(val.message || val.error || 'Operation failed (success: false)');
+                    if (val.found === false) throw new Error('Target not found (found: false)');
+                    if (val.passed === false) throw new Error(val.message || 'Assertion failed (passed: false)');
+                }
                 if (res.data && res.data.value && res.data.value.data && res.data.type === 'screenshot') step.screenshot = res.data.value.data;
                 step.status = 'pass';
             } catch(e) {
