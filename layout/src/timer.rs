@@ -382,7 +382,7 @@ impl TimerCallbackInfo {
     /// Re-render ALL image callbacks across all DOMs (applied after callback returns)
     ///
     /// This is the most efficient way to update animated GL textures from a timer.
-    /// Triggers only texture re-rendering — no DOM rebuild or display list resubmission.
+    /// Triggers only texture re-rendering - no DOM rebuild or display list resubmission.
     pub fn update_all_image_callbacks(&mut self) {
         self.callback_info.update_all_image_callbacks();
     }

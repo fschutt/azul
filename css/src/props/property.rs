@@ -425,6 +425,7 @@ pub fn get_css_key_map() -> CssKeyMap {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum CombinedCssPropertyType {
     BorderRadius,
     Overflow,

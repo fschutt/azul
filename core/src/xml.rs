@@ -1257,6 +1257,12 @@ impl Default for ChildPolicy {
     }
 }
 
+impl ChildPolicy {
+    pub fn create() -> Self {
+        Self::default()
+    }
+}
+
 /// Source of a component definition — determines whether it can be exported
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -1272,6 +1278,12 @@ pub enum ComponentSource {
 impl Default for ComponentSource {
     fn default() -> Self {
         ComponentSource::UserDefined
+    }
+}
+
+impl ComponentSource {
+    pub fn create() -> Self {
+        Self::default()
     }
 }
 
@@ -1693,6 +1705,10 @@ impl Default for ComponentMap {
 }
 
 impl ComponentMap {
+    pub fn create() -> Self {
+        Self::default()
+    }
+
     /// Build a `ComponentMap` from the libraries stored in an `AppConfig`.
     ///
     /// The `component_libraries` field already contains builtins (registered in
@@ -2467,7 +2483,7 @@ impl From<DomXmlParseError> for CompileError {
 pub struct UselessFunctionArgumentError {
     pub component_name: AzString,
     pub argument_name: AzString,
-    pub valid_args: Vec<String>,
+    pub valid_args: AzStringVec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
