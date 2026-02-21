@@ -58,23 +58,39 @@
             <div class="activity-icon" data-view="testing" onclick="app.ui.switchView('testing')" title="E2E Testing">
                 <span class="material-icons">bug_report</span>
             </div>
+            <div class="activity-icon" data-view="components" onclick="app.ui.switchView('components')" title="Component Registry">
+                <span class="material-icons">widgets</span>
+            </div>
         </div>
 
-        <!-- Sidebar -->
-        <div class="sidebar">
+        <!-- App State Panel (always visible) -->
+        <div class="panel-col" id="appstate-panel" style="width:220px">
+            <div class="sidebar-header">
+                <span>App State</span>
+                <div style="display:flex;gap:4px;align-items:center">
+                    <span class="material-icons clickable" style="font-size:14px" onclick="app.handlers.saveAppState()" title="Save to app">save</span>
+                    <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.loadAppState()" title="Refresh">refresh</span>
+                </div>
+            </div>
+            <div id="app-state-tree" class="sidebar-content" style="padding:0;">
+                <div class="placeholder-text">Click refresh to load.</div>
+            </div>
+        </div>
+        <div class="resizer" data-target="appstate-panel" data-min="120" data-max="500"></div>
+
+        <!-- Sidebar (DOM Tree / Tests / Components) -->
+        <div class="panel-col sidebar" id="sidebar-panel" style="width:280px">
             <div class="sidebar-header">
                 <span id="sidebar-title">DOM Explorer</span>
                 <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.refreshSidebar()" title="Refresh">refresh</span>
             </div>
 
-            <!-- Inspector sidebar: DOM Tree -->
             <div id="sidebar-inspector" class="sidebar-content">
                 <div id="dom-tree-container" class="dom-tree">
                     <div class="placeholder-text">Loading DOM tree...</div>
                 </div>
             </div>
 
-            <!-- Testing sidebar -->
             <div id="sidebar-testing" class="sidebar-content hidden">
                 <div class="btn-row">
                     <button class="btn-primary" onclick="app.handlers.newTest()">+ New Test</button>
@@ -93,10 +109,17 @@
                     <span class="spinner"></span> Running...
                 </div>
             </div>
+
+            <div id="sidebar-components" class="sidebar-content hidden">
+                <div id="component-registry-container" style="padding:8px;">
+                    <div class="placeholder-text">Loading component registry...</div>
+                </div>
+            </div>
         </div>
+        <div class="resizer" data-target="sidebar-panel" data-min="180" data-max="500"></div>
 
         <!-- Main Editor -->
-        <div class="editor-group">
+        <div class="editor-group" id="editor-group">
             <div class="editor-tabs">
                 <div class="tab">
                     <span class="material-icons" style="font-size:14px; color:var(--accent)">description</span>
@@ -105,15 +128,12 @@
             </div>
 
             <div class="editor-content">
-
-                <!-- View: Inspector (Node Details) -->
                 <div id="view-inspector" style="height:100%; display:flex; flex-direction:column; overflow:hidden;">
                     <div id="node-detail-panel" style="flex:1; overflow:auto; padding:15px;">
                         <div class="placeholder-text">Select a node in the DOM Explorer to inspect it.</div>
                     </div>
                 </div>
 
-                <!-- View: Testing -->
                 <div id="view-testing" class="hidden" style="height:100%; position:relative; display:flex; flex-direction:column;">
                     <div class="floating-controls">
                         <button class="icon-btn success" title="Run (client)" onclick="app.runner.run()"><span class="material-icons">play_arrow</span></button>
@@ -128,10 +148,17 @@
                         <button class="btn-primary" style="width:auto;" onclick="app.ui.showAddStepForm()">+ Add Step</button>
                     </div>
                 </div>
+
+                <div id="view-components" class="hidden" style="height:100%; overflow:auto; padding:15px;">
+                    <div id="component-detail-panel">
+                        <div class="placeholder-text">Select a component from the sidebar to see its details.</div>
+                    </div>
+                </div>
             </div>
 
             <!-- Bottom Panel -->
-            <div class="bottom-panel">
+            <div class="bottom-panel" id="bottom-panel">
+                <div class="resizer-h" data-target="bottom-panel" data-min="80" data-max="500"></div>
                 <div class="panel-tabs">
                     <div class="panel-tab active" data-panel="terminal" onclick="app.ui.switchPanel('terminal')">Terminal</div>
                     <div class="panel-tab" data-panel="debug" onclick="app.ui.switchPanel('debug')">Debug Console</div>
@@ -140,13 +167,18 @@
                 <div id="panel-debug" class="terminal-output hidden"></div>
                 <div class="terminal-input-row">
                     <span style="color:var(--accent); margin-right:5px;">&gt;</span>
-                    <input type="text" id="terminal-cmd" class="terminal-input" placeholder='{"op": "get_state"}' onkeydown="if(event.key==='Enter') app.handlers.terminalEnter(this)">
+                    <input type="text" id="terminal-cmd" class="terminal-input" placeholder='/get_state  or  {"op": "get_state"}'
+                        oninput="app.handlers.terminalInput(this)"
+                        onkeydown="if(event.key==='Enter') app.handlers.terminalEnter(this); if(event.key==='Escape') app._hideAutocomplete();"
+                        onfocus="if(this.value.startsWith('/')) app.handlers.terminalInput(this)"
+                        onblur="setTimeout(()=>app._hideAutocomplete(), 150)">
                 </div>
             </div>
         </div>
+        <div class="resizer" data-target="secondary-sidebar" data-min="150" data-max="500" data-side="right"></div>
 
-        <!-- Secondary Sidebar (Properties / CSS) -->
-        <div class="secondary-sidebar">
+        <!-- Secondary Sidebar (Properties) -->
+        <div class="panel-col secondary-sidebar" id="secondary-sidebar" style="width:300px">
             <div class="sidebar-header">Properties</div>
             <div id="prop-panel" class="sidebar-content">
                 <div id="details-content" style="padding:10px;">
@@ -154,15 +186,14 @@
                 </div>
             </div>
         </div>
-
     </div>
 
-    <!-- Context Menu (DOM tree right-click) -->
+    <!-- Context Menu -->
     <div id="context-menu" class="context-menu hidden">
-        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('div')">Insert child &lt;div&gt;</div>
-        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('span')">Insert child &lt;span&gt;</div>
-        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('p')">Insert child &lt;p&gt;</div>
-        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('button')">Insert child &lt;button&gt;</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('div')">Insert child div</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('span')">Insert child span</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('p')">Insert child p</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('button')">Insert child button</div>
         <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('text')">Insert child (text)</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" onclick="app.handlers.ctxDeleteNode()">Delete node</div>

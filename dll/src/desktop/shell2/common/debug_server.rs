@@ -118,6 +118,20 @@ pub enum ResponseData {
     CursorState(CursorStateResponse),
     /// E2E test results
     E2eResults(E2eResultsResponse),
+    /// Node inserted result (returns new node_id)
+    NodeInserted(NodeInsertedResponse),
+    /// Node deleted result
+    NodeDeleted(NodeDeletedResponse),
+    /// Node text set result
+    NodeTextSet(NodeTextSetResponse),
+    /// Node classes set result
+    NodeClassesSet(NodeClassesSetResponse),
+    /// Node CSS override result
+    NodeCssOverrideSet(NodeCssOverrideSetResponse),
+    /// Resolved function pointer names
+    FunctionPointers(FunctionPointersResponse),
+    /// Component registry (available tags and their attributes)
+    ComponentRegistry(ComponentRegistryResponse),
 }
 
 /// Wrapper for E2E test results
@@ -125,6 +139,100 @@ pub enum ResponseData {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct E2eResultsResponse {
     pub results: Vec<E2eTestResult>,
+}
+
+/// Response for InsertNode: returns the new node's ID
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeInsertedResponse {
+    pub new_node_id: u64,
+    pub parent_id: u64,
+    pub node_type: String,
+}
+
+/// Response for DeleteNode
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct NodeDeletedResponse {
+    pub node_id: u64,
+    pub success: bool,
+}
+
+/// Response for SetNodeText
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeTextSetResponse {
+    pub node_id: u64,
+    pub new_text: String,
+}
+
+/// Response for SetNodeClasses
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeClassesSetResponse {
+    pub node_id: u64,
+    pub classes: Vec<String>,
+    pub id: Option<String>,
+}
+
+/// Response for SetNodeCssOverride
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeCssOverrideSetResponse {
+    pub node_id: u64,
+    pub property: String,
+    pub value: String,
+}
+
+/// Response for ResolveFunctionPointers
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FunctionPointersResponse {
+    pub resolved: Vec<ResolvedFunctionPointer>,
+}
+
+/// A resolved function pointer
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ResolvedFunctionPointer {
+    pub address: String,
+    pub symbol_name: Option<String>,
+    /// The shared library / binary file that contains this symbol
+    pub file_name: Option<String>,
+    /// Source file path (if debug info available)
+    pub source_file: Option<String>,
+    /// Source line number (if debug info available)
+    pub source_line: Option<u32>,
+}
+
+/// Response for GetComponentRegistry
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentRegistryResponse {
+    /// Map of tag name → component info
+    pub components: Vec<ComponentInfo>,
+}
+
+/// Information about a registered component/tag
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentInfo {
+    /// The tag name (e.g., "div", "a", "button")
+    pub tag: String,
+    /// Whether this tag accepts text content
+    pub accepts_text: bool,
+    /// Available attributes for this tag (e.g., [("href", "String")])
+    pub attributes: Vec<ComponentAttributeInfo>,
+}
+
+/// Info about an attribute a component accepts
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentAttributeInfo {
+    /// Attribute name (e.g., "href", "src", "alt")
+    pub name: String,
+    /// Attribute type hint (e.g., "String", "bool", "i32")
+    pub attr_type: String,
 }
 
 /// Metadata about a RefAny's type
@@ -1240,6 +1348,62 @@ pub enum DebugEvent {
     RunE2eTests {
         tests: Vec<E2eTest>,
     },
+
+    // DOM Mutation
+    /// Insert a new child node into the DOM tree
+    InsertNode {
+        /// Parent node ID to insert under
+        parent_id: u64,
+        /// Node type / tag name (e.g. "div", "p", "span", "text:Hello World")
+        node_type: String,
+        /// Child index to insert at (omit to append at end)
+        #[serde(default)]
+        position: Option<usize>,
+        /// CSS classes for the new node
+        #[serde(default)]
+        classes: Vec<String>,
+        /// Optional ID attribute for the new node
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// Delete a node from the DOM tree (tombstones it)
+    DeleteNode {
+        /// Node ID to delete
+        node_id: u64,
+    },
+    /// Set the text content of a node
+    SetNodeText {
+        /// Node ID to modify
+        node_id: u64,
+        /// New text content
+        text: String,
+    },
+    /// Set CSS classes on a node (replaces existing classes)
+    SetNodeClasses {
+        /// Node ID to modify
+        node_id: u64,
+        /// New CSS classes
+        classes: Vec<String>,
+        /// Optional new ID (omit to keep current)
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// Override CSS properties on a node
+    SetNodeCssOverride {
+        /// Node ID to modify
+        node_id: u64,
+        /// CSS property name (e.g. "width", "background-color")
+        property: String,
+        /// CSS property value (e.g. "100px", "red")
+        value: String,
+    },
+    /// Resolve function pointers to symbol names (via dladdr)
+    ResolveFunctionPointers {
+        /// List of function pointer addresses (as decimal strings)
+        addresses: Vec<String>,
+    },
+    /// Get the component registry: which tags are available and what attributes they accept
+    GetComponentRegistry,
 }
 
 // ==================== Node Resolution Helper ====================
@@ -3031,6 +3195,252 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
         "rwin" | "rmeta" => Some(VirtualKeyCode::RWin),
         
         _ => None,
+    }
+}
+
+/// Resolved symbol info from a function pointer address
+#[cfg(feature = "std")]
+struct ResolvedSymbolInfo {
+    symbol_name: Option<String>,
+    file_name: Option<String>,
+    source_file: Option<String>,
+    source_line: Option<u32>,
+}
+
+/// Resolve a function pointer address to a symbol name, library file,
+/// and source location (file + line) using the `backtrace` crate.
+///
+/// This is pure Rust and works on macOS, Linux, and Windows.
+/// Falls back gracefully: if debug info is unavailable, only symbol name
+/// and/or library file are returned. If nothing can be resolved, all
+/// fields are None.
+#[cfg(feature = "std")]
+fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
+    if address == 0 {
+        return ResolvedSymbolInfo {
+            symbol_name: None,
+            file_name: None,
+            source_file: None,
+            source_line: None,
+        };
+    }
+
+    let mut symbol_name: Option<String> = None;
+    let mut file_name: Option<String> = None;
+    let mut source_file: Option<String> = None;
+    let mut source_line: Option<u32> = None;
+
+    // Use backtrace crate to resolve symbol + source info
+    backtrace::resolve(address as *mut std::os::raw::c_void, |symbol| {
+        if let Some(name) = symbol.name() {
+            symbol_name = Some(format!("{}", name));
+        }
+        if let Some(filename) = symbol.filename() {
+            source_file = Some(filename.display().to_string());
+        }
+        if let Some(lineno) = symbol.lineno() {
+            source_line = Some(lineno);
+        }
+    });
+
+    // Also try to get the containing binary/library name via backtrace::Frame.
+    // The backtrace::resolve above doesn't give us the library file,
+    // so we fall back to dladdr / platform API for that.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use std::ffi::CStr;
+
+        #[repr(C)]
+        struct DlInfo {
+            dli_fname: *const std::os::raw::c_char,
+            dli_fbase: *mut std::os::raw::c_void,
+            dli_sname: *const std::os::raw::c_char,
+            dli_saddr: *mut std::os::raw::c_void,
+        }
+
+        extern "C" {
+            fn dladdr(addr: *const std::os::raw::c_void, info: *mut DlInfo) -> std::os::raw::c_int;
+        }
+
+        unsafe {
+            let mut info: DlInfo = std::mem::zeroed();
+            let result = dladdr(address as *const std::os::raw::c_void, &mut info);
+            if result != 0 {
+                if !info.dli_fname.is_null() {
+                    file_name = Some(CStr::from_ptr(info.dli_fname).to_string_lossy().into_owned());
+                }
+                // If backtrace didn't resolve the symbol, try dladdr's symbol
+                if symbol_name.is_none() && !info.dli_sname.is_null() {
+                    symbol_name = Some(CStr::from_ptr(info.dli_sname).to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, try to get module name for the address
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+
+        extern "system" {
+            fn GetModuleHandleExW(
+                flags: u32,
+                module_name: *const u16,
+                module: *mut *mut std::os::raw::c_void,
+            ) -> i32;
+            fn GetModuleFileNameW(
+                module: *mut std::os::raw::c_void,
+                filename: *mut u16,
+                size: u32,
+            ) -> u32;
+        }
+
+        unsafe {
+            let mut module = std::ptr::null_mut();
+            // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = 0x04
+            // GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT = 0x02
+            let flags = 0x04 | 0x02;
+            let ret = GetModuleHandleExW(
+                flags,
+                address as *const u16,
+                &mut module,
+            );
+            if ret != 0 && !module.is_null() {
+                let mut buf = [0u16; 260];
+                let len = GetModuleFileNameW(module, buf.as_mut_ptr(), 260);
+                if len > 0 {
+                    file_name = Some(
+                        OsString::from_wide(&buf[..len as usize])
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+            }
+        }
+    }
+
+    ResolvedSymbolInfo {
+        symbol_name,
+        file_name,
+        source_file,
+        source_line,
+    }
+}
+
+/// Build the component registry from the XmlComponentMap.
+/// Uses `get_available_arguments()` from each component's trait impl
+/// to discover accepted attributes, supplemented by well-known HTML attributes.
+///
+/// The XmlComponentMap is created fresh each call. It is not stored in a static
+/// because `Box<dyn XmlComponentTrait>` is not `Send + Sync`. This is fine
+/// because the call is infrequent and XmlComponentMap::default() is fast.
+#[cfg(feature = "std")]
+fn build_component_registry() -> ComponentRegistryResponse {
+    use azul_core::xml::XmlComponentMap;
+
+    let map = XmlComponentMap::default();
+    let mut components = Vec::new();
+
+    for (tag_name, xml_comp) in &map.components {
+        let args = xml_comp.renderer.get_available_arguments();
+        let mut attributes: Vec<ComponentAttributeInfo> = args.args.iter()
+            .map(|(name, typ)| ComponentAttributeInfo {
+                name: name.clone(),
+                attr_type: typ.clone(),
+            })
+            .collect();
+
+        // Add well-known HTML attributes based on tag type
+        let tag = tag_name.as_str();
+        let extra_attrs = get_tag_specific_attributes(tag);
+        for (attr_name, attr_type) in extra_attrs {
+            if !attributes.iter().any(|a| a.name == attr_name) {
+                attributes.push(ComponentAttributeInfo {
+                    name: attr_name.to_string(),
+                    attr_type: attr_type.to_string(),
+                });
+            }
+        }
+
+        // Always add the universal HTML attributes
+        for (attr_name, attr_type) in get_universal_attributes() {
+            if !attributes.iter().any(|a| a.name == attr_name) {
+                attributes.push(ComponentAttributeInfo {
+                    name: attr_name.to_string(),
+                    attr_type: attr_type.to_string(),
+                });
+            }
+        }
+
+        components.push(ComponentInfo {
+            tag: tag_name.clone(),
+            accepts_text: args.accepts_text,
+            attributes,
+        });
+    }
+
+    // Sort by tag name for consistent output
+    components.sort_by(|a, b| a.tag.cmp(&b.tag));
+
+    ComponentRegistryResponse { components }
+}
+
+/// Returns universal HTML attributes that all elements support
+fn get_universal_attributes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("id", "String"),
+        ("class", "String"),
+        ("style", "String"),
+        ("tabindex", "i32"),
+        ("contenteditable", "bool"),
+        ("draggable", "bool"),
+        ("hidden", "bool"),
+        ("lang", "String"),
+        ("dir", "String"),
+        ("title", "String"),
+        ("aria-label", "String"),
+        ("aria-labelledby", "String"),
+        ("aria-describedby", "String"),
+        ("role", "String"),
+        ("data-*", "String"),
+    ]
+}
+
+/// Returns tag-specific attributes based on the HTML element type
+fn get_tag_specific_attributes(tag: &str) -> Vec<(&'static str, &'static str)> {
+    match tag {
+        "a" => vec![("href", "String"), ("target", "String"), ("rel", "String")],
+        "img" | "image" => vec![("src", "String"), ("alt", "String"), ("width", "String"), ("height", "String")],
+        "input" => vec![
+            ("type", "String"), ("name", "String"), ("value", "String"),
+            ("placeholder", "String"), ("required", "bool"), ("disabled", "bool"),
+            ("readonly", "bool"), ("checked", "bool"), ("min", "String"),
+            ("max", "String"), ("step", "String"), ("pattern", "String"),
+            ("maxlength", "i32"), ("minlength", "i32"), ("autocomplete", "String"),
+        ],
+        "button" => vec![("type", "String"), ("name", "String"), ("value", "String"), ("disabled", "bool")],
+        "form" => vec![("action", "String"), ("method", "String")],
+        "label" => vec![("for", "String")],
+        "select" => vec![("name", "String"), ("required", "bool"), ("disabled", "bool")],
+        "option" => vec![("value", "String"), ("selected", "bool"), ("disabled", "bool")],
+        "textarea" => vec![
+            ("name", "String"), ("placeholder", "String"), ("rows", "i32"),
+            ("cols", "i32"), ("required", "bool"), ("disabled", "bool"),
+            ("readonly", "bool"), ("maxlength", "i32"),
+        ],
+        "td" | "th" => vec![("colspan", "i32"), ("rowspan", "i32"), ("scope", "String")],
+        "meta" => vec![("charset", "String"), ("name", "String"), ("content", "String")],
+        "link" => vec![("href", "String"), ("rel", "String"), ("type", "String")],
+        "script" => vec![("src", "String"), ("type", "String"), ("defer", "bool"), ("async", "bool")],
+        "source" => vec![("src", "String"), ("type", "String")],
+        "video" | "audio" => vec![("src", "String"), ("controls", "bool"), ("autoplay", "bool"), ("loop", "bool")],
+        "canvas" => vec![("width", "String"), ("height", "String")],
+        "iframe" => vec![("src", "String"), ("width", "String"), ("height", "String")],
+        "icon" => vec![("name", "String")],
+        "meter" => vec![("value", "String"), ("min", "String"), ("max", "String"), ("low", "String"), ("high", "String")],
+        "progress" => vec![("value", "String"), ("max", "String")],
+        _ => vec![],
     }
 }
 
@@ -5887,6 +6297,248 @@ fn process_debug_event(
                 Some(ResponseData::E2eResults(E2eResultsResponse {
                     results: all_results,
                 })),
+            );
+        }
+
+        // === DOM Mutation ===
+
+        DebugEvent::InsertNode { parent_id, node_type, position, classes, id } => {
+            use azul_core::dom::DomId;
+            use azul_core::id::NodeId;
+
+            let dom_id = DomId { inner: 0 };
+            let parent_node_id = NodeId::new(*parent_id as usize);
+
+            // Validate parent exists
+            let layout_window = callback_info.get_layout_window();
+            let node_count = layout_window.layout_results.get(&dom_id)
+                .map(|lr| lr.styled_dom.node_data.as_ref().len())
+                .unwrap_or(0);
+
+            if parent_node_id.index() >= node_count {
+                send_err(request, format!("Parent node {} not found (total nodes: {})", parent_id, node_count));
+            } else {
+                let new_node_id = node_count as u64; // New node will be appended at end
+                let classes_az: Vec<azul_css::AzString> = classes.iter()
+                    .map(|c| azul_css::AzString::from(c.as_str()))
+                    .collect();
+                let id_az = id.as_ref().map(|i| azul_css::AzString::from(i.as_str()));
+
+                callback_info.insert_child_node(
+                    dom_id,
+                    parent_node_id,
+                    azul_css::AzString::from(node_type.as_str()),
+                    *position,
+                    classes_az,
+                    id_az,
+                );
+                needs_update = true;
+
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::NodeInserted(NodeInsertedResponse {
+                        new_node_id,
+                        parent_id: *parent_id,
+                        node_type: node_type.clone(),
+                    })),
+                );
+            }
+        }
+
+        DebugEvent::DeleteNode { node_id } => {
+            use azul_core::dom::DomId;
+            use azul_core::id::NodeId;
+
+            let dom_id = DomId { inner: 0 };
+            let target_node_id = NodeId::new(*node_id as usize);
+
+            let layout_window = callback_info.get_layout_window();
+            let node_count = layout_window.layout_results.get(&dom_id)
+                .map(|lr| lr.styled_dom.node_data.as_ref().len())
+                .unwrap_or(0);
+
+            if target_node_id.index() >= node_count || *node_id == 0 {
+                send_err(request, format!("Cannot delete node {} (root or out of range)", node_id));
+            } else {
+                callback_info.delete_node(dom_id, target_node_id);
+                needs_update = true;
+
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::NodeDeleted(NodeDeletedResponse {
+                        node_id: *node_id,
+                        success: true,
+                    })),
+                );
+            }
+        }
+
+        DebugEvent::SetNodeText { node_id, text } => {
+            use azul_core::dom::{DomId, DomNodeId};
+            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::id::NodeId;
+
+            let dom_id = DomId { inner: 0 };
+            let target_node_id = NodeId::new(*node_id as usize);
+
+            let layout_window = callback_info.get_layout_window();
+            let node_count = layout_window.layout_results.get(&dom_id)
+                .map(|lr| lr.styled_dom.node_data.as_ref().len())
+                .unwrap_or(0);
+
+            if target_node_id.index() >= node_count {
+                send_err(request, format!("Node {} not found", node_id));
+            } else {
+                let dom_node_id = DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(target_node_id)),
+                };
+                callback_info.change_node_text(
+                    dom_node_id,
+                    azul_css::AzString::from(text.as_str()),
+                );
+                needs_update = true;
+
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::NodeTextSet(NodeTextSetResponse {
+                        node_id: *node_id,
+                        new_text: text.clone(),
+                    })),
+                );
+            }
+        }
+
+        DebugEvent::SetNodeClasses { node_id, classes, id } => {
+            use azul_core::dom::{DomId, IdOrClass};
+            use azul_core::id::NodeId;
+
+            let dom_id = DomId { inner: 0 };
+            let target_node_id = NodeId::new(*node_id as usize);
+
+            let layout_window = callback_info.get_layout_window();
+            let node_count = layout_window.layout_results.get(&dom_id)
+                .map(|lr| lr.styled_dom.node_data.as_ref().len())
+                .unwrap_or(0);
+
+            if target_node_id.index() >= node_count {
+                send_err(request, format!("Node {} not found", node_id));
+            } else {
+                let mut ids_and_classes = Vec::new();
+                if let Some(id_str) = id {
+                    ids_and_classes.push(IdOrClass::Id(azul_css::AzString::from(id_str.as_str())));
+                }
+                for class in classes.iter() {
+                    ids_and_classes.push(IdOrClass::Class(azul_css::AzString::from(class.as_str())));
+                }
+
+                callback_info.set_node_ids_and_classes(
+                    dom_id,
+                    target_node_id,
+                    ids_and_classes.into(),
+                );
+                needs_update = true;
+
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::NodeClassesSet(NodeClassesSetResponse {
+                        node_id: *node_id,
+                        classes: classes.clone(),
+                        id: id.clone(),
+                    })),
+                );
+            }
+        }
+
+        DebugEvent::SetNodeCssOverride { node_id, property, value } => {
+            use azul_core::dom::DomId;
+            use azul_core::id::NodeId;
+            use azul_css::props::property::{CssPropertyType, get_css_key_map};
+
+            let dom_id = DomId { inner: 0 };
+            let target_node_id = NodeId::new(*node_id as usize);
+
+            let layout_window = callback_info.get_layout_window();
+            let node_count = layout_window.layout_results.get(&dom_id)
+                .map(|lr| lr.styled_dom.node_data.as_ref().len())
+                .unwrap_or(0);
+
+            if target_node_id.index() >= node_count {
+                send_err(request, format!("Node {} not found", node_id));
+            } else {
+                let key_map = get_css_key_map();
+                match CssPropertyType::from_str(&property, &key_map) {
+                    Some(prop_type) => {
+                        match azul_css::props::property::parse_css_property(prop_type, &value) {
+                            Ok(css_prop) => {
+                                callback_info.change_node_css_properties(
+                                    dom_id,
+                                    target_node_id,
+                                    vec![css_prop].into(),
+                                );
+                                needs_update = true;
+
+                                send_ok(
+                                    request,
+                                    None,
+                                    Some(ResponseData::NodeCssOverrideSet(NodeCssOverrideSetResponse {
+                                        node_id: *node_id,
+                                        property: property.clone(),
+                                        value: value.clone(),
+                                    })),
+                                );
+                            }
+                            Err(e) => {
+                                send_err(request, format!("Failed to parse CSS value '{}' for property '{}': {:?}", value, property, e));
+                            }
+                        }
+                    }
+                    None => {
+                        send_err(request, format!("Unknown CSS property: '{}'", property));
+                    }
+                }
+            }
+        }
+
+        DebugEvent::ResolveFunctionPointers { addresses } => {
+            let mut resolved = Vec::new();
+
+            for addr_str in addresses.iter() {
+                // Support both decimal and hex (0x...) addresses
+                let address = if addr_str.starts_with("0x") || addr_str.starts_with("0X") {
+                    usize::from_str_radix(&addr_str[2..], 16).unwrap_or(0)
+                } else {
+                    addr_str.parse::<usize>().unwrap_or(0)
+                };
+                let info = resolve_function_pointer(address);
+                resolved.push(ResolvedFunctionPointer {
+                    address: addr_str.clone(),
+                    symbol_name: info.symbol_name,
+                    file_name: info.file_name,
+                    source_file: info.source_file,
+                    source_line: info.source_line,
+                });
+            }
+
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::FunctionPointers(FunctionPointersResponse {
+                    resolved,
+                })),
+            );
+        }
+
+        DebugEvent::GetComponentRegistry => {
+            let registry = build_component_registry();
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::ComponentRegistry(registry)),
             );
         }
 
