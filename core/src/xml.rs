@@ -1438,34 +1438,6 @@ impl ComponentMap {
         self.libraries.iter().flat_map(|lib| lib.components.iter()).collect()
     }
 
-    /// Merge user-registered libraries into this map.
-    ///
-    /// For each library in `user_libs`:
-    /// - If a library with the same name already exists, its components are
-    ///   merged (replacing any with the same `id.name`).
-    /// - Otherwise the library is appended.
-    pub fn merge_user_libraries(&mut self, user_libs: &ComponentLibraryVec) {
-        for lib in user_libs.iter() {
-            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs_vec = core::mem::replace(&mut self.libraries, empty_libs).into_library_owned_vec();
-            if let Some(existing) = libs_vec.iter_mut().find(|l| l.name.as_str() == lib.name.as_str()) {
-                // Merge components into the existing library
-                let empty_comps = ComponentDefVec::from_const_slice(&[]);
-                let mut comps = core::mem::replace(&mut existing.components, empty_comps).into_library_owned_vec();
-                for comp in lib.components.iter() {
-                    if let Some(ec) = comps.iter_mut().find(|c| c.id.name.as_str() == comp.id.name.as_str()) {
-                        *ec = comp.clone();
-                    } else {
-                        comps.push(comp.clone());
-                    }
-                }
-                existing.components = ComponentDefVec::from_vec(comps);
-            } else {
-                libs_vec.push(lib.clone());
-            }
-            self.libraries = ComponentLibraryVec::from_vec(libs_vec);
-        }
-    }
 }
 
 // ============================================================================
@@ -1572,11 +1544,12 @@ impl ComponentMap {
     /// Build a `ComponentMap` from the libraries stored in an `AppConfig`.
     ///
     /// The `component_libraries` field already contains builtins (registered in
-    /// `AppConfig::create()`) plus any user-added libraries.
+    /// `AppConfig::create()`) plus any user-added libraries.  No merging needed —
+    /// `add_component_library` / `add_component` handle insertion at registration time.
     pub fn from_libraries(libs: &ComponentLibraryVec) -> Self {
-        let mut map = ComponentMap::default();
-        map.merge_user_libraries(libs);
-        map
+        ComponentMap {
+            libraries: libs.clone(),
+        }
     }
 }
 

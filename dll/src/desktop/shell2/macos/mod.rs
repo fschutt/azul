@@ -2772,32 +2772,7 @@ impl MacOSWindow {
             );
         }
 
-        // Register debug timer if AZUL_DEBUG is enabled
-        #[cfg(feature = "std")]
-        if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
-            log_debug!(
-                LogCategory::DebugServer,
-                "[Window Init] Registering debug timer (AZUL_DEBUG is set)"
-            );
-
-            use super::common::event::PlatformWindow;
-            use azul_layout::callbacks::ExternalSystemCallbacks;
-
-            let timer_id: usize = 0xDEBE; // Special debug timer ID
-            // Clone app_data so GetAppState/SetAppState can access it in the timer callback
-            let app_data_for_timer = window.common.app_data.borrow().clone();
-            let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
-                app_data_for_timer,
-                ExternalSystemCallbacks::rust_internal().get_system_time_fn,
-            );
-            // Use start_timer to register both in layout_window AND create native NSTimer
-            window.start_timer(timer_id, debug_timer);
-            log_debug!(
-                LogCategory::DebugServer,
-                "[Window Init] Debug timer registered with ID 0x{:X}",
-                timer_id
-            );
-        }
+        // Register debug timer is now done from run() with explicit channel + component map
 
         // Perform initial layout
         log_debug!(

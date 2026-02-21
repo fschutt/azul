@@ -26,7 +26,7 @@
 //! AZUL_RUN_E2E_TESTS=tests.json ./my_app
 //! ```
 
-use std::{ffi::c_void, sync::Arc};
+use std::{ffi::c_void, sync::{Arc, Mutex}};
 
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
@@ -187,6 +187,8 @@ fn run_stub(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
+    component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
     use azul_core::icon::SharedIconProvider;
@@ -202,7 +204,13 @@ fn run_stub(
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let window = StubWindow::new(root_window, app_data_arc, config, shared_icon_provider, fc_cache, font_registry)?;
+    let mut window = StubWindow::new(root_window, app_data_arc, config, shared_icon_provider, fc_cache, font_registry)?;
+
+    // Register debug timer if debug/E2E is active
+    if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
+        debug_server::register_debug_timer(&mut window, rx, cm);
+    }
+
     window.run()
 }
 
@@ -235,24 +243,43 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    // Set up E2E runner (pushes event onto queue, spawns result thread).
-    // Does NOT replace run() — the app continues normally.
-    if let Some(ref test_file) = e2e_test_file() {
+
+    // -- Debug / E2E infrastructure (channels, component map) --
+    // Must happen before headless check: E2E tests need the channel even in headless mode.
+    let debug_port = debug_server::get_debug_port();
+    let e2e_file = e2e_test_file();
+    let needs_debug = debug_port.is_some() || e2e_file.is_some();
+
+    let (debug_request_rx, component_map) = if needs_debug {
+        let cm = Arc::new(Mutex::new(
+            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
+        ));
+        let rx = if let Some(port) = debug_port {
+            let (_handle, rx) = debug_server::start_debug_server(port);
+            rx
+        } else {
+            let (_handle, rx) = debug_server::create_debug_channel();
+            rx
+        };
+        (Some(rx), Some(cm))
+    } else {
+        (None, None)
+    };
+
+    // Set up E2E runner AFTER channel is ready (queue_e2e_tests accesses DEBUG_SERVER)
+    if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
 
     // Check for headless mode BEFORE any platform-specific initialization
     if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
 
-    use super::common::debug_server;
     use azul_core::icon::SharedIconProvider;
     use azul_core::resources::AppTerminationBehavior;
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
-
-    // Note: Debug server is already started in App::create()
 
     debug_server::log(
         debug_server::LogLevel::Info,
@@ -289,7 +316,7 @@ pub fn run(
             "Creating MacOSWindow...",
             None,
         );
-        let window =
+        let mut window =
             MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
@@ -297,6 +324,11 @@ pub fn run(
             "MacOSWindow created successfully",
             None,
         );
+
+        // Register debug timer with explicit channel + component map (no globals)
+        if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
+            debug_server::register_debug_timer(&mut window, rx, cm);
+        }
 
         // Box and leak the window to get a stable pointer for the registry
         // SAFETY: We manage the lifetime through the registry
@@ -534,11 +566,29 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    if let Some(ref test_file) = e2e_test_file() {
+    let debug_port = debug_server::get_debug_port();
+    let e2e_file = e2e_test_file();
+    let needs_debug = debug_port.is_some() || e2e_file.is_some();
+    let (debug_request_rx, component_map) = if needs_debug {
+        let cm = Arc::new(Mutex::new(
+            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
+        ));
+        let rx = if let Some(port) = debug_port {
+            let (_handle, rx) = debug_server::start_debug_server(port);
+            rx
+        } else {
+            let (_handle, rx) = debug_server::create_debug_channel();
+            rx
+        };
+        (Some(rx), Some(cm))
+    } else {
+        (None, None)
+    };
+    if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
     if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     unsafe {
         INITIAL_OPTIONS = Some((app_data, config, fc_cache, font_registry, root_window));
@@ -555,11 +605,29 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    if let Some(ref test_file) = e2e_test_file() {
+    let debug_port = debug_server::get_debug_port();
+    let e2e_file = e2e_test_file();
+    let needs_debug = debug_port.is_some() || e2e_file.is_some();
+    let (debug_request_rx, component_map) = if needs_debug {
+        let cm = Arc::new(Mutex::new(
+            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
+        ));
+        let rx = if let Some(port) = debug_port {
+            let (_handle, rx) = debug_server::start_debug_server(port);
+            rx
+        } else {
+            let (_handle, rx) = debug_server::create_debug_channel();
+            rx
+        };
+        (Some(rx), Some(cm))
+    } else {
+        (None, None)
+    };
+    if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
     if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     use std::cell::RefCell;
@@ -582,11 +650,16 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone())?;
+    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone())?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
     );
+
+    // Register debug timer with explicit channel + component map (no globals)
+    if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
+        debug_server::register_debug_timer(&mut window, rx, cm);
+    }
 
     // Store the window pointer in the user data field for the window procedure
     // and register in global registry for multi-window support
@@ -817,11 +890,29 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    if let Some(ref test_file) = e2e_test_file() {
+    let debug_port = debug_server::get_debug_port();
+    let e2e_file = e2e_test_file();
+    let needs_debug = debug_port.is_some() || e2e_file.is_some();
+    let (debug_request_rx, component_map) = if needs_debug {
+        let cm = Arc::new(Mutex::new(
+            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
+        ));
+        let rx = if let Some(port) = debug_port {
+            let (_handle, rx) = debug_server::start_debug_server(port);
+            rx
+        } else {
+            let (_handle, rx) = debug_server::create_debug_channel();
+            rx
+        };
+        (Some(rx), Some(cm))
+    } else {
+        (None, None)
+    };
+    if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
     if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 
@@ -841,7 +932,15 @@ pub fn run(
     let app_data_arc = Arc::new(RefCell::new(app_data));
 
     // Create the root window
-    let window = LinuxWindow::new_with_resources(root_window, app_data_arc, resources.clone())?;
+    let mut window = LinuxWindow::new_with_resources(root_window, app_data_arc, resources.clone())?;
+
+    // Register debug timer with explicit channel + component map (no globals)
+    if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
+        match &mut window {
+            LinuxWindow::X11(w) => debug_server::register_debug_timer(w, rx, cm),
+            LinuxWindow::Wayland(w) => debug_server::register_debug_timer(w, rx, cm),
+        }
+    }
 
     // Box and register window in global registry
     let window_ptr = Box::into_raw(Box::new(window));

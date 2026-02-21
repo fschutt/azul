@@ -16,7 +16,7 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use crate::desktop::shell2::common::debug_server::{self, DebugServerHandle, LogCategory};
+use crate::desktop::shell2::common::debug_server::{self, LogCategory};
 use crate::log_error;
 
 #[derive(Debug, Clone)]
@@ -108,9 +108,6 @@ pub struct AppInternal {
     /// At layout time, `request_fonts()` blocks until the needed fonts are ready,
     /// then snapshots into `fc_cache`. This eliminates the ~700ms startup block.
     pub font_registry: Option<Arc<FcFontRegistry>>,
-    /// Debug server handle (if AZUL_DEBUG is set)
-    #[allow(dead_code)]
-    pub debug_server: Option<Arc<DebugServerHandle>>,
 }
 
 impl AppInternal {
@@ -120,14 +117,6 @@ impl AppInternal {
     /// This does not open any windows, but it starts the event loop
     /// to the display server
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
-        // Start debug server first if AZUL_DEBUG is set (blocks until ready)
-        let debug_server = if let Some(port) = debug_server::get_debug_port() {
-            // Debug server will be started - logging will be available after this
-            let handle = debug_server::start_debug_server(port);
-            Some(Arc::new(handle))
-        } else {
-            None
-        };
 
         debug_server::log(
             debug_server::LogLevel::Info,
@@ -228,7 +217,6 @@ impl AppInternal {
             config: app_config,
             fc_cache: Box::new(fc_cache),
             font_registry: font_registry,
-            debug_server,
         }
     }
 

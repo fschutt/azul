@@ -1777,9 +1777,6 @@ pub struct Modifiers {
 // ==================== Global State ====================
 
 #[cfg(feature = "std")]
-static REQUEST_QUEUE: OnceLock<Mutex<VecDeque<DebugRequest>>> = OnceLock::new();
-
-#[cfg(feature = "std")]
 static LOG_QUEUE: OnceLock<Mutex<Vec<LogMessage>>> = OnceLock::new();
 
 #[cfg(feature = "std")]
@@ -1798,6 +1795,11 @@ static E2E_ACTIVE: AtomicBool = AtomicBool::new(false);
 #[cfg(feature = "std")]
 static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 
+/// Global debug server handle (singleton — one per application).
+/// Started in `AppInternal::create()` when `AZUL_DEBUG=<port>` is set.
+#[cfg(feature = "std")]
+static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
+
 // ==================== Debug Server Handle ====================
 
 /// Handle to the debug server for clean shutdown
@@ -1806,6 +1808,9 @@ pub struct DebugServerHandle {
     pub shutdown_tx: mpsc::Sender<()>,
     pub thread_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub port: u16,
+    /// The sender side of the spmc channel.
+    /// HTTP thread and `queue_e2e_tests` use this to push `DebugRequest`s.
+    pub request_tx: Arc<Mutex<spmc::Sender<DebugRequest>>>,
 }
 
 #[cfg(feature = "std")]
@@ -1840,28 +1845,30 @@ impl Drop for DebugServerHandle {
 
 // ==================== Public API ====================
 
+/// Get a clone of the global `DebugServerHandle` `Arc`.
+///
+/// Returns `None` when `AZUL_DEBUG` was not set or the server
+/// hasn't been started yet.
+#[cfg(feature = "std")]
+pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
+    DEBUG_SERVER.get().cloned()
+}
+
 /// Check if the debug timer should be registered.
 ///
 /// Returns `true` when either `AZUL_DEBUG=<port>` started the HTTP
-/// server **or** `AZUL_RUN_E2E_TESTS` queued tests.  Both use the
-/// same `REQUEST_QUEUE` and `debug_timer_callback`.
+/// server **or** `AZUL_RUN_E2E_TESTS` queued tests.
 #[cfg(feature = "std")]
 pub fn is_debug_enabled() -> bool {
     DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
 }
 
-/// Initialise the `REQUEST_QUEUE` without starting the HTTP server.
-///
-/// Called by `queue_e2e_tests()` and `start_debug_server()`.  Safe to
-/// call multiple times (uses `OnceLock`).
-#[cfg(feature = "std")]
-pub fn ensure_queue_initialized() {
-    REQUEST_QUEUE.get_or_init(|| Mutex::new(VecDeque::new()));
-}
-
-/// Push `RunE2eTests` onto the `REQUEST_QUEUE` and return the response
+/// Push `RunE2eTests` via the spmc channel and return the response
 /// receiver.  Activates the E2E flag so `is_debug_enabled()` returns
 /// `true` and the timer gets registered by the platform event loop.
+///
+/// Requires `DEBUG_SERVER` to be set (by `start_debug_server` or
+/// `create_debug_channel`).
 ///
 /// The caller is responsible for receiving from the returned channel —
 /// typically on a background thread that prints results and calls
@@ -1870,7 +1877,6 @@ pub fn ensure_queue_initialized() {
 pub fn queue_e2e_tests(
     tests: Vec<E2eTest>,
 ) -> std::sync::mpsc::Receiver<DebugResponseData> {
-    ensure_queue_initialized();
     E2E_ACTIVE.store(true, Ordering::SeqCst);
 
     let test_count = tests.len();
@@ -1901,9 +1907,9 @@ pub fn queue_e2e_tests(
         response_tx: tx,
     };
 
-    if let Some(queue) = REQUEST_QUEUE.get() {
-        if let Ok(mut q) = queue.lock() {
-            q.push_back(request);
+    if let Some(handle) = DEBUG_SERVER.get() {
+        if let Ok(mut sender) = handle.request_tx.lock() {
+            let _ = sender.send(request);
         }
     }
 
@@ -1925,14 +1931,20 @@ pub fn get_debug_port() -> Option<u16> {
 /// Initialize and start the debug server.
 ///
 /// This function:
-/// 1. Binds to the port (exits process if port is taken)
-/// 2. Starts the HTTP server thread
-/// 3. Blocks until the server is ready to accept connections
-/// 4. Returns a handle for clean shutdown
+/// 1. Creates an `spmc::channel` for debug requests
+/// 2. Binds to the port (exits process if port is taken)
+/// 3. Starts the HTTP server thread (captures the `spmc::Sender`)
+/// 4. Blocks until the server is ready to accept connections
+/// 5. Stores the handle in `DEBUG_SERVER` for global access
+/// 6. Returns the handle AND the `spmc::Receiver` for window timers
 ///
-/// Should be called from App::create().
+/// Called once from `run()` when `AZUL_DEBUG=<port>` is set.
+/// Subsequent calls return the existing handle (without a new receiver).
 #[cfg(feature = "std")]
-pub fn start_debug_server(port: u16) -> DebugServerHandle {
+pub fn start_debug_server(
+    port: u16,
+) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
+
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
@@ -1940,10 +1952,14 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
 
     // Initialize static state
     SERVER_START_TIME.get_or_init(std::time::Instant::now);
-    REQUEST_QUEUE.get_or_init(|| Mutex::new(VecDeque::new()));
     LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
     let _ = DEBUG_PORT.set(port);
     DEBUG_ENABLED.store(true, Ordering::SeqCst);
+
+    // Create spmc channel for debug requests
+    let (request_tx, request_rx) = spmc::channel::<DebugRequest>();
+    let request_tx = Arc::new(Mutex::new(request_tx));
+    let request_tx_for_thread = request_tx.clone();
 
     // Try to bind - exit if port is taken
     let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
@@ -2003,7 +2019,7 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
                         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
                         // Increase write timeout to 30s for large screenshot transfers
                         stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-                        handle_http_connection(&mut stream);
+                        handle_http_connection(&mut stream, &request_tx_for_thread);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         // No connection pending, sleep a bit
@@ -2041,11 +2057,38 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
         None,
     );
 
-    DebugServerHandle {
+    let handle = Arc::new(DebugServerHandle {
         shutdown_tx,
         thread_handle: Mutex::new(Some(thread_handle)),
         port,
-    }
+        request_tx,
+    });
+    let _ = DEBUG_SERVER.set(handle.clone());
+    (handle, request_rx)
+}
+
+/// Create a debug channel without starting the HTTP server.
+///
+/// Used for E2E-only mode (`AZUL_RUN_E2E_TESTS` without `AZUL_DEBUG`).
+/// Creates the `spmc` channel, stores a minimal `DebugServerHandle` in
+/// `DEBUG_SERVER`, and returns the receiver for window timers.
+#[cfg(feature = "std")]
+pub fn create_debug_channel() -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
+    SERVER_START_TIME.get_or_init(std::time::Instant::now);
+    LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
+
+    let (request_tx, request_rx) = spmc::channel::<DebugRequest>();
+    let request_tx = Arc::new(Mutex::new(request_tx));
+    let (shutdown_tx, _shutdown_rx) = mpsc::channel::<()>();
+
+    let handle = Arc::new(DebugServerHandle {
+        shutdown_tx,
+        thread_handle: Mutex::new(None),
+        port: 0,
+        request_tx,
+    });
+    let _ = DEBUG_SERVER.set(handle.clone());
+    (handle, request_rx)
 }
 
 /// Log a message (thread-safe, lock-free when debug is disabled)
@@ -2093,12 +2136,6 @@ fn log_internal(
     }
 }
 
-/// Pop a debug request from the queue (called by timer callback)
-#[cfg(feature = "std")]
-pub fn pop_request() -> Option<DebugRequest> {
-    REQUEST_QUEUE.get()?.lock().ok()?.pop_front()
-}
-
 /// Take all log messages
 #[cfg(feature = "std")]
 pub fn take_logs() -> Vec<LogMessage> {
@@ -2144,7 +2181,7 @@ fn serialize_http_response(response: &DebugHttpResponse) -> String {
 // ==================== HTTP Server ====================
 
 #[cfg(feature = "std")]
-fn handle_http_connection(stream: &mut std::net::TcpStream) {
+fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) {
     use std::io::{Read, Write};
 
     let mut buffer = [0u8; 16384];
@@ -2262,7 +2299,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
 
             if let Some(start) = body_start {
                 let body = &request[start..];
-                handle_event_request(body)
+                handle_event_request(body, request_tx)
             } else {
                 serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
                     request_id: None,
@@ -2328,7 +2365,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
 }
 
 #[cfg(feature = "std")]
-fn handle_event_request(body: &str) -> String {
+fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) -> String {
     use std::time::Duration;
 
     // Parse the event request
@@ -2362,11 +2399,9 @@ fn handle_event_request(body: &str) -> String {
                 response_tx: tx,
             };
 
-            // Push to queue
-            if let Some(queue) = REQUEST_QUEUE.get() {
-                if let Ok(mut q) = queue.lock() {
-                    q.push_back(request);
-                }
+            // Send via spmc channel
+            if let Ok(mut sender) = request_tx.lock() {
+                let _ = sender.send(request);
             }
 
             // Wait for response (with timeout)
@@ -3059,27 +3094,46 @@ pub extern "C" fn debug_timer_callback(
     use azul_core::callbacks::{TimerCallbackReturn, Update};
     use azul_core::task::TerminateTimer;
 
-    // Check queue length first (without popping)
-    let queue_len = REQUEST_QUEUE
-        .get()
-        .and_then(|q| q.lock().ok())
-        .map(|q| q.len())
-        .unwrap_or(0);
+    // Downcast the RefAny to DebugTimerData to get app_data + channel
+    let dtd = match timer_data.downcast_ref::<DebugTimerData>() {
+        Some(d) => d,
+        None => {
+            log(
+                LogLevel::Error,
+                LogCategory::DebugServer,
+                "[timer] Failed to downcast DebugTimerData",
+                None,
+            );
+            return TimerCallbackReturn {
+                should_update: Update::DoNothing,
+                should_terminate: TerminateTimer::Continue,
+            };
+        }
+    };
+    let mut app_data = dtd.app_data.clone();
+    let component_map = dtd.component_map.clone();
+    let request_rx = dtd.request_rx.clone();
+    let my_window_id = dtd.window_id.clone();
+    drop(dtd);
 
-    if queue_len > 0 {
-        log(
-            LogLevel::Debug,
-            LogCategory::DebugServer,
-            format!("[timer] debug_timer_callback: {} request(s) in queue", queue_len),
-            None,
-        );
-    }
-
-    // Process all pending requests
+    // Drain all available requests from the SPMC channel
     let mut needs_update = false;
     let mut processed_count = 0;
 
-    while let Some(request) = pop_request() {
+    while let Ok(request) = request_rx.try_recv() {
+        // Window-targeted routing
+        if let Some(ref target_id) = request.window_id {
+            if target_id != &my_window_id {
+                // Not for us — but SPMC already consumed it.
+                // Send error so HTTP thread doesn't hang forever.
+                send_err(&request, format!(
+                    "Request targeted window '{}' but was consumed by '{}'",
+                    target_id, my_window_id
+                ));
+                continue;
+            }
+        }
+
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
@@ -3087,8 +3141,8 @@ pub extern "C" fn debug_timer_callback(
             request.window_id.as_deref(),
         );
 
-        // Pass the app_data (stored in timer_data) to process_debug_event
-        let result = process_debug_event(&request, &mut timer_info.callback_info, &mut timer_data);
+        // Pass the app_data and component_map to process_debug_event
+        let result = process_debug_event(&request, &mut timer_info.callback_info, &mut app_data, &component_map);
         needs_update = needs_update || result;
         processed_count += 1;
     }
@@ -3485,20 +3539,17 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     }
 }
 
-/// Build the component registry from the new `ComponentMap`.
+/// Build the component registry from the provided `ComponentMap`.
 ///
-/// The `ComponentMap` is created fresh each call — it's cheap and avoids
-/// `Send+Sync` issues. For builtin HTML elements the well-known attribute
-/// tables (`get_universal_attributes`, `get_tag_specific_attributes`) are
-/// merged in so the debugger inspector can show them.
+/// For builtin HTML elements the well-known attribute tables are merged
+/// in so the debugger inspector can show them.
 #[cfg(feature = "std")]
-fn build_component_registry() -> ComponentRegistryResponse {
+fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> ComponentRegistryResponse {
     use azul_core::xml::{ComponentMap, ComponentSource, ChildPolicy};
 
-    let map = ComponentMap::default();
     let mut libraries = Vec::new();
 
-    for lib in map.libraries.iter() {
+    for lib in map_ref.libraries.iter() {
         let mut components = Vec::new();
 
         for def in lib.components.iter() {
@@ -3606,7 +3657,7 @@ fn build_component_registry() -> ComponentRegistryResponse {
 /// in the target language, then packages the result as a set of files.
 /// For the "builtin" library this is a no-op (builtin components are not exported).
 #[cfg(feature = "std")]
-fn build_exported_code(language: &str) -> Result<ExportedCodeResponse, String> {
+fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -> Result<ExportedCodeResponse, String> {
     use azul_core::xml::{
         ComponentMap, CompileTarget, XmlComponentMap,
         FilteredComponentArguments,
@@ -3621,13 +3672,12 @@ fn build_exported_code(language: &str) -> Result<ExportedCodeResponse, String> {
         other => return Err(format!("Unsupported language: '{}'. Use: rust, c, cpp, python", other)),
     };
 
-    let map = ComponentMap::default();
     let xml_map = XmlComponentMap::default();
     let mut files = std::collections::HashMap::new();
     let mut warnings = Vec::new();
 
     // Only export user-defined (exportable) libraries
-    let exportable = map.get_exportable_libraries();
+    let exportable = map_ref.get_exportable_libraries();
 
     if exportable.is_empty() {
         // Even with no user components, generate a minimal scaffold
@@ -3830,6 +3880,7 @@ fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
     app_data: &mut azul_core::refany::RefAny,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
 ) -> bool {
     use azul_core::geom::{LogicalPosition, LogicalSize};
 
@@ -6495,6 +6546,7 @@ fn process_debug_event(
                             &setup_request,
                             callback_info,
                             app_data,
+                            component_map,
                         );
                         if setup_update { needs_update = true; }
                     }
@@ -6571,6 +6623,7 @@ fn process_debug_event(
                                 &snap_req,
                                 callback_info,
                                 app_data,
+                                component_map,
                             );
                             if snap_update { needs_update = true; }
                             match snap_rx.try_recv() {
@@ -6656,6 +6709,7 @@ fn process_debug_event(
                                     &step_request,
                                     callback_info,
                                     app_data,
+                                    component_map,
                                 );
                                 if step_needs_update {
                                     needs_update = true;
@@ -7066,7 +7120,9 @@ fn process_debug_event(
         }
 
         DebugEvent::GetComponentRegistry => {
-            let registry = build_component_registry();
+            let map_guard = component_map.lock().unwrap();
+            let registry = build_component_registry(&*map_guard);
+            drop(map_guard);
             send_ok(
                 request,
                 None,
@@ -7075,7 +7131,9 @@ fn process_debug_event(
         }
 
         DebugEvent::GetLibraries => {
-            let registry = build_component_registry();
+            let map_guard = component_map.lock().unwrap();
+            let registry = build_component_registry(&*map_guard);
+            drop(map_guard);
             let libraries = registry.libraries.iter().map(|lib| LibrarySummary {
                 name: lib.name.clone(),
                 version: lib.version.clone(),
@@ -7091,7 +7149,9 @@ fn process_debug_event(
         }
 
         DebugEvent::GetLibraryComponents { library } => {
-            let registry = build_component_registry();
+            let map_guard = component_map.lock().unwrap();
+            let registry = build_component_registry(&*map_guard);
+            drop(map_guard);
             if let Some(lib) = registry.libraries.iter().find(|l| l.name == *library) {
                 send_ok(
                     request,
@@ -7110,7 +7170,9 @@ fn process_debug_event(
         }
 
         DebugEvent::ExportCode { language } => {
-            let result = build_exported_code(&language);
+            let map_guard = component_map.lock().unwrap();
+            let result = build_exported_code(&language, &*map_guard);
+            drop(map_guard);
             match result {
                 Ok(response) => {
                     send_ok(
@@ -7169,22 +7231,31 @@ fn process_debug_event(
     needs_update
 }
 
-/// Create a Timer for the debug server polling
-/// 
+/// Create a Timer for the debug server polling.
+///
 /// # Arguments
-/// * `app_data` - The application state (RefAny) that will be available in the timer callback
-///   for GetAppState/SetAppState operations
+/// * `app_data` - The application state (`GetAppState` / `SetAppState`)
 /// * `get_system_time_fn` - Callback to get the current system time
+/// * `request_rx` - The spmc receiver for debug requests (cloned per window)
+/// * `component_map` - Shared component map (Arc-cloned per window)
+/// * `window_id` - This window's unique ID string
 #[cfg(feature = "std")]
 pub fn create_debug_timer(
     app_data: azul_core::refany::RefAny,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    request_rx: spmc::Receiver<DebugRequest>,
+    component_map: Arc<Mutex<azul_core::xml::ComponentMap>>,
+    window_id: String,
 ) -> azul_layout::timer::Timer {
     use azul_core::task::Duration;
     use azul_layout::timer::{Timer, TimerCallback};
 
-    // Store the app_data in the timer so GetAppState/SetAppState can access it
-    let timer_data = app_data;
+    let timer_data = azul_core::refany::RefAny::new(DebugTimerData {
+        app_data,
+        component_map,
+        request_rx,
+        window_id,
+    });
 
     Timer::create(
         timer_data,
@@ -7194,6 +7265,60 @@ pub fn create_debug_timer(
     .with_interval(Duration::System(
         azul_core::task::SystemTimeDiff::from_millis(16),
     ))
+}
+
+/// Register the debug timer on a window if `AZUL_DEBUG` or E2E mode is active.
+///
+/// This is the single cross-platform entry point that replaces the
+/// copy-pasted registration blocks in each platform window constructor.
+/// It reads `app_data` and `window_id` from the window, then creates
+/// a `DebugTimerData` with the given channel receiver and component map.
+#[cfg(feature = "std")]
+pub fn register_debug_timer(
+    window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
+    request_rx: spmc::Receiver<DebugRequest>,
+    component_map: Arc<Mutex<azul_core::xml::ComponentMap>>,
+) {
+    if !is_debug_enabled() {
+        return;
+    }
+
+    log(
+        LogLevel::Debug,
+        LogCategory::DebugServer,
+        "[Window Init] Registering debug timer",
+        None,
+    );
+
+    let timer_id: usize = 0xDEBE;
+    let app_data_for_timer = window.get_app_data().borrow().clone();
+    let window_id = window.get_current_window_state().window_id.as_str().to_string();
+    let get_system_time_fn = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
+    let debug_timer = create_debug_timer(app_data_for_timer, get_system_time_fn, request_rx, component_map, window_id);
+    window.start_timer(timer_id, debug_timer);
+
+    log(
+        LogLevel::Debug,
+        LogCategory::DebugServer,
+        &format!("[Window Init] Debug timer registered with ID 0x{:X}", timer_id),
+        None,
+    );
+}
+
+/// Data stored in the debug timer's `RefAny`.
+///
+/// Holds the application state, component map, spmc receiver, and window ID
+/// so that `debug_timer_callback` can process debug requests for this window.
+#[cfg(feature = "std")]
+struct DebugTimerData {
+    /// The user's application state (`GetAppState` / `SetAppState`)
+    app_data: azul_core::refany::RefAny,
+    /// Shared component map built from `AppConfig::component_libraries`
+    component_map: Arc<Mutex<azul_core::xml::ComponentMap>>,
+    /// This window's clone of the spmc receiver
+    request_rx: spmc::Receiver<DebugRequest>,
+    /// This window's unique ID for request routing
+    window_id: String,
 }
 
 // ==================== Logging Macros ====================

@@ -595,41 +595,8 @@ impl Win32Window {
             }
         }
 
-        // Register debug timer if AZUL_DEBUG is enabled
-        #[cfg(feature = "std")]
-        if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
-            use azul_core::task::TimerId;
-            use azul_layout::callbacks::ExternalSystemCallbacks;
-
-            let timer_id: usize = 0xDEBE; // Special debug timer ID
-            // Clone app_data so GetAppState/SetAppState can access it in the timer callback
-            let app_data_for_timer = result.common.app_data.borrow().clone();
-            let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
-                app_data_for_timer,
-                ExternalSystemCallbacks::rust_internal().get_system_time_fn,
-            );
-
-            // Insert into layout_window
-            if let Some(layout_window) = result.common.layout_window.as_mut() {
-                layout_window
-                    .timers
-                    .insert(TimerId { id: timer_id }, debug_timer.clone());
-            }
-
-            // Also create native Win32 timer
-            let interval_ms = debug_timer.tick_millis().min(u32::MAX as u64) as u32;
-            let native_timer_id = unsafe {
-                (result.win32.user32.SetTimer)(result.hwnd, timer_id, interval_ms, ptr::null())
-            };
-            result.timers.insert(timer_id, native_timer_id);
-            log_debug!(
-                LogCategory::Timer,
-                "Debug timer registered with ID 0x{:X}, interval {}ms",
-                timer_id,
-                interval_ms
-            );
-        }
-        timing_log!("Final setup (callback + debug timer)");
+        // Register debug timer is now done from run() with explicit channel + component map
+        timing_log!("Final setup (callback)");
 
         // Apply initial window state for fields not set during window creation
         result.apply_initial_window_state();
