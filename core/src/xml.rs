@@ -2461,12 +2461,21 @@ impl From<DomXmlParseError> for CompileError {
     }
 }
 
+/// Wrapper for UselessFunctionArgument error data.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct UselessFunctionArgumentError {
+    pub component_name: AzString,
+    pub argument_name: AzString,
+    pub valid_args: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ComponentError {
     /// While instantiating a component, a function argument
     /// was encountered that the component won't use or react to.
-    UselessFunctionArgument(AzString, AzString, Vec<String>),
+    UselessFunctionArgument(UselessFunctionArgumentError),
     /// A certain node type can't be rendered, because the
     /// renderer for this node is not available isn't available
     ///
@@ -2494,6 +2503,31 @@ impl From<CssParseErrorOwned> for RenderDomError {
     }
 }
 
+/// Wrapper for MissingType error data.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MissingTypeError {
+    pub arg_pos: usize,
+    pub arg_name: AzString,
+}
+
+/// Wrapper for WhiteSpaceInComponentName error data.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct WhiteSpaceInComponentNameError {
+    pub arg_pos: usize,
+    pub arg_name: AzString,
+}
+
+/// Wrapper for WhiteSpaceInComponentType error data.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct WhiteSpaceInComponentTypeError {
+    pub arg_pos: usize,
+    pub arg_name: AzString,
+    pub arg_type: AzString,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum ComponentParseError {
@@ -2505,13 +2539,13 @@ pub enum ComponentParseError {
     MissingName(usize),
     /// Argument at position `usize` with the name
     /// `String` doesn't have a `: type`
-    MissingType(usize, AzString),
+    MissingType(MissingTypeError),
     /// Component name may not contain a whitespace
     /// (probably missing a `:` between the name and the type)
-    WhiteSpaceInComponentName(usize, AzString),
+    WhiteSpaceInComponentName(WhiteSpaceInComponentNameError),
     /// Component type may not contain a whitespace
     /// (probably missing a `,` between the type and the next name)
-    WhiteSpaceInComponentType(usize, AzString, AzString),
+    WhiteSpaceInComponentType(WhiteSpaceInComponentTypeError),
     /// Error parsing the <style> tag / CSS
     CssError(CssParseErrorOwned),
 }
@@ -2565,24 +2599,24 @@ impl<'a> fmt::Display for ComponentParseError {
                 "Argument at position {} is either empty or has no name",
                 arg_pos
             ),
-            MissingType(arg_pos, arg_name) => write!(
+            MissingType(e) => write!(
                 f,
                 "Argument \"{}\" at position {} doesn't have a `: type`",
-                arg_pos, arg_name
+                e.arg_pos, e.arg_name
             ),
-            WhiteSpaceInComponentName(arg_pos, arg_name_unparsed) => {
+            WhiteSpaceInComponentName(e) => {
                 write!(
                     f,
                     "Missing `:` between the name and the type in argument {} (around \"{}\")",
-                    arg_pos, arg_name_unparsed
+                    e.arg_pos, e.arg_name
                 )
             }
-            WhiteSpaceInComponentType(arg_pos, arg_name, arg_type_unparsed) => {
+            WhiteSpaceInComponentType(e) => {
                 write!(
                     f,
                     "Missing `,` between two arguments (in argument {}, position {}, around \
                      \"{}\")",
-                    arg_name, arg_pos, arg_type_unparsed
+                    e.arg_name, e.arg_pos, e.arg_type
                 )
             }
             CssError(lsf) => write!(f, "Error parsing <style> tag: {}", lsf.to_shared()),
@@ -2594,11 +2628,11 @@ impl fmt::Display for ComponentError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::ComponentError::*;
         match self {
-            UselessFunctionArgument(k, v, available_args) => {
+            UselessFunctionArgument(e) => {
                 write!(
                     f,
                     "Useless component argument \"{}\": \"{}\" - available args are: {:#?}",
-                    k, v, available_args
+                    e.component_name, e.argument_name, e.valid_args
                 )
             }
             UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name),
@@ -2995,24 +3029,24 @@ pub fn parse_component_arguments<'a>(
             return Err(MissingName(arg_idx));
         }
         if arg_name.chars().any(char::is_whitespace) {
-            return Err(WhiteSpaceInComponentName(arg_idx, arg_name.into()));
+            return Err(WhiteSpaceInComponentName(WhiteSpaceInComponentNameError { arg_pos: arg_idx, arg_name: arg_name.into() }));
         }
 
         let arg_type = colon_iterator
             .next()
-            .ok_or(MissingType(arg_idx, arg_name.into()))?;
+            .ok_or(MissingType(MissingTypeError { arg_pos: arg_idx, arg_name: arg_name.into() }))?;
         let arg_type = arg_type.trim();
 
         if arg_type.is_empty() {
-            return Err(MissingType(arg_idx, arg_name.into()));
+            return Err(MissingType(MissingTypeError { arg_pos: arg_idx, arg_name: arg_name.into() }));
         }
 
         if arg_type.chars().any(char::is_whitespace) {
-            return Err(WhiteSpaceInComponentType(
-                arg_idx,
-                arg_name.into(),
-                arg_type.into(),
-            ));
+            return Err(WhiteSpaceInComponentType(WhiteSpaceInComponentTypeError {
+                arg_pos: arg_idx,
+                arg_name: arg_name.into(),
+                arg_type: arg_type.into(),
+            }));
         }
 
         let arg_name = normalize_casing(arg_name);

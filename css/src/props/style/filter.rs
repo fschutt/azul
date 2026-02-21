@@ -8,7 +8,7 @@ use core::{fmt, num::ParseFloatError};
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{
-    error::{InvalidValueErr, InvalidValueErrOwned},
+    error::{InvalidValueErr, InvalidValueErrOwned, WrongComponentCountError},
     length::parse_float_value,
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
@@ -429,11 +429,7 @@ mod parser {
     #[repr(C, u8)]
     pub enum CssStyleColorMatrixParseErrorOwned {
         Float(ParseFloatError),
-        WrongNumberOfComponents {
-            expected: usize,
-            got: usize,
-            input: String,
-        },
+        WrongNumberOfComponents(WrongComponentCountError),
     }
 
     impl<'a> CssStyleColorMatrixParseError<'a> {
@@ -444,11 +440,11 @@ mod parser {
                     expected,
                     got,
                     input,
-                } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents {
+                } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                     expected: *expected,
                     got: *got,
                     input: input.to_string(),
-                },
+                }),
             }
         }
     }
@@ -457,14 +453,10 @@ mod parser {
         pub fn to_shared<'a>(&'a self) -> CssStyleColorMatrixParseError<'a> {
             match self {
                 Self::Float(e) => CssStyleColorMatrixParseError::Float(e.clone()),
-                Self::WrongNumberOfComponents {
-                    expected,
-                    got,
-                    input,
-                } => CssStyleColorMatrixParseError::WrongNumberOfComponents {
-                    expected: *expected,
-                    got: *got,
-                    input,
+                Self::WrongNumberOfComponents(e) => CssStyleColorMatrixParseError::WrongNumberOfComponents {
+                    expected: e.expected,
+                    got: e.got,
+                    input: &e.input,
                 },
             }
         }
@@ -494,11 +486,7 @@ mod parser {
     #[repr(C, u8)]
     pub enum CssStyleFilterOffsetParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
-        WrongNumberOfComponents {
-            expected: usize,
-            got: usize,
-            input: String,
-        },
+        WrongNumberOfComponents(WrongComponentCountError),
     }
 
     impl<'a> CssStyleFilterOffsetParseError<'a> {
@@ -509,11 +497,11 @@ mod parser {
                     expected,
                     got,
                     input,
-                } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents {
+                } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                     expected: *expected,
                     got: *got,
                     input: input.to_string(),
-                },
+                }),
             }
         }
     }
@@ -522,14 +510,10 @@ mod parser {
         pub fn to_shared<'a>(&'a self) -> CssStyleFilterOffsetParseError<'a> {
             match self {
                 Self::Pixel(e) => CssStyleFilterOffsetParseError::Pixel(e.to_shared()),
-                Self::WrongNumberOfComponents {
-                    expected,
-                    got,
-                    input,
-                } => CssStyleFilterOffsetParseError::WrongNumberOfComponents {
-                    expected: *expected,
-                    got: *got,
-                    input,
+                Self::WrongNumberOfComponents(e) => CssStyleFilterOffsetParseError::WrongNumberOfComponents {
+                    expected: e.expected,
+                    got: e.got,
+                    input: &e.input,
                 },
             }
         }
@@ -567,11 +551,7 @@ mod parser {
     pub enum CssStyleCompositeFilterParseErrorOwned {
         Invalid(InvalidValueErrOwned),
         Float(ParseFloatError),
-        WrongNumberOfComponents {
-            expected: usize,
-            got: usize,
-            input: String,
-        },
+        WrongNumberOfComponents(WrongComponentCountError),
     }
 
     impl<'a> CssStyleCompositeFilterParseError<'a> {
@@ -585,11 +565,11 @@ mod parser {
                     expected,
                     got,
                     input,
-                } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents {
+                } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                     expected: *expected,
                     got: *got,
                     input: input.to_string(),
-                },
+                }),
             }
         }
     }
@@ -599,14 +579,10 @@ mod parser {
             match self {
                 Self::Invalid(e) => CssStyleCompositeFilterParseError::Invalid(e.to_shared()),
                 Self::Float(e) => CssStyleCompositeFilterParseError::Float(e.clone()),
-                Self::WrongNumberOfComponents {
-                    expected,
-                    got,
-                    input,
-                } => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
-                    expected: *expected,
-                    got: *got,
-                    input,
+                Self::WrongNumberOfComponents(e) => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
+                    expected: e.expected,
+                    got: e.got,
+                    input: &e.input,
                 },
             }
         }

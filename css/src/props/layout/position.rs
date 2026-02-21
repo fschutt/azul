@@ -363,11 +363,19 @@ impl_display! { LayoutZIndexParseError<'a>, {
     ParseInt(e, s) => format!("Invalid z-index integer \"{}\": {}", s, e),
 }}
 
+/// Wrapper for ParseInt error with input string.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct ParseIntErrorWithInput {
+    pub error: String,
+    pub input: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutZIndexParseErrorOwned {
     InvalidValue(String),
-    ParseInt(String, String),
+    ParseInt(ParseIntErrorWithInput),
 }
 
 impl<'a> LayoutZIndexParseError<'a> {
@@ -377,7 +385,7 @@ impl<'a> LayoutZIndexParseError<'a> {
                 LayoutZIndexParseErrorOwned::InvalidValue(s.to_string())
             }
             LayoutZIndexParseError::ParseInt(e, s) => {
-                LayoutZIndexParseErrorOwned::ParseInt(e.to_string(), s.to_string())
+                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string(), input: s.to_string() })
             }
         }
     }
@@ -389,9 +397,9 @@ impl LayoutZIndexParseErrorOwned {
             LayoutZIndexParseErrorOwned::InvalidValue(s) => {
                 LayoutZIndexParseError::InvalidValue(s.as_str())
             }
-            LayoutZIndexParseErrorOwned::ParseInt(_e, s) => {
+            LayoutZIndexParseErrorOwned::ParseInt(e) => {
                 // We can't reconstruct ParseIntError, so use InvalidValue
-                LayoutZIndexParseError::InvalidValue(s.as_str())
+                LayoutZIndexParseError::InvalidValue(e.input.as_str())
             }
         }
     }

@@ -3,6 +3,8 @@
 use alloc::string::{String, ToString};
 use core::{fmt, num::ParseFloatError};
 
+use crate::props::basic::error::ParseFloatErrorWithInput;
+
 use crate::props::{basic::length::FloatValue, formatter::PrintAsCssValue};
 
 /// Enum representing the metric associated with an angle (deg, rad, etc.)
@@ -192,12 +194,20 @@ impl_display! { CssAngleValueParseError<'a>, {
     InvalidAngle(s) => format!("Invalid angle value: \"{}\"", s),
 }}
 
+/// Wrapper for NoValueGiven error in angle parsing.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct AngleNoValueGivenError {
+    pub value: String,
+    pub metric: AngleMetric,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssAngleValueParseErrorOwned {
     EmptyString,
-    NoValueGiven(String, AngleMetric),
-    ValueParseErr(ParseFloatError, String),
+    NoValueGiven(AngleNoValueGivenError),
+    ValueParseErr(ParseFloatErrorWithInput),
     InvalidAngle(String),
 }
 
@@ -206,10 +216,10 @@ impl<'a> CssAngleValueParseError<'a> {
         match self {
             CssAngleValueParseError::EmptyString => CssAngleValueParseErrorOwned::EmptyString,
             CssAngleValueParseError::NoValueGiven(s, metric) => {
-                CssAngleValueParseErrorOwned::NoValueGiven(s.to_string(), *metric)
+                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: s.to_string(), metric: *metric })
             }
             CssAngleValueParseError::ValueParseErr(err, s) => {
-                CssAngleValueParseErrorOwned::ValueParseErr(err.clone(), s.to_string())
+                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone(), input: s.to_string() })
             }
             CssAngleValueParseError::InvalidAngle(s) => {
                 CssAngleValueParseErrorOwned::InvalidAngle(s.to_string())
@@ -222,11 +232,11 @@ impl CssAngleValueParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssAngleValueParseError<'a> {
         match self {
             CssAngleValueParseErrorOwned::EmptyString => CssAngleValueParseError::EmptyString,
-            CssAngleValueParseErrorOwned::NoValueGiven(s, metric) => {
-                CssAngleValueParseError::NoValueGiven(s.as_str(), *metric)
+            CssAngleValueParseErrorOwned::NoValueGiven(e) => {
+                CssAngleValueParseError::NoValueGiven(e.value.as_str(), e.metric)
             }
-            CssAngleValueParseErrorOwned::ValueParseErr(err, s) => {
-                CssAngleValueParseError::ValueParseErr(err.clone(), s.as_str())
+            CssAngleValueParseErrorOwned::ValueParseErr(e) => {
+                CssAngleValueParseError::ValueParseErr(e.error.clone(), e.input.as_str())
             }
             CssAngleValueParseErrorOwned::InvalidAngle(s) => {
                 CssAngleValueParseError::InvalidAngle(s.as_str())

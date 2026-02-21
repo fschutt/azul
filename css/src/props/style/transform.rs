@@ -9,6 +9,7 @@ use std::num::ParseFloatError;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{
+    error::WrongComponentCountError,
     length::parse_float_value,
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
@@ -403,11 +404,7 @@ impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
 pub enum CssStyleTransformParseErrorOwned {
     InvalidTransform(String),
     InvalidParenthesis(ParenthesisParseErrorOwned),
-    WrongNumberOfComponents {
-        expected: usize,
-        got: usize,
-        input: String,
-    },
+    WrongNumberOfComponents(WrongComponentCountError),
     NumberParseError(core::num::ParseFloatError),
     PixelValueParseError(CssPixelValueParseErrorOwned),
     AngleValueParseError(CssAngleValueParseErrorOwned),
@@ -427,11 +424,11 @@ impl<'a> CssStyleTransformParseError<'a> {
                 expected,
                 got,
                 input,
-            } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents {
+            } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
                 input: input.to_string(),
-            },
+            }),
             Self::NumberParseError(e) => {
                 CssStyleTransformParseErrorOwned::NumberParseError(e.clone())
             }
@@ -455,14 +452,10 @@ impl CssStyleTransformParseErrorOwned {
             Self::InvalidParenthesis(e) => {
                 CssStyleTransformParseError::InvalidParenthesis(e.to_shared())
             }
-            Self::WrongNumberOfComponents {
-                expected,
-                got,
-                input,
-            } => CssStyleTransformParseError::WrongNumberOfComponents {
-                expected: *expected,
-                got: *got,
-                input,
+            Self::WrongNumberOfComponents(e) => CssStyleTransformParseError::WrongNumberOfComponents {
+                expected: e.expected,
+                got: e.got,
+                input: &e.input,
             },
             Self::NumberParseError(e) => CssStyleTransformParseError::NumberParseError(e.clone()),
             Self::PixelValueParseError(e) => {
@@ -498,11 +491,7 @@ impl_from! { CssPixelValueParseError<'a>, CssStyleTransformOriginParseError::Pix
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssStyleTransformOriginParseErrorOwned {
-    WrongNumberOfComponents {
-        expected: usize,
-        got: usize,
-        input: String,
-    },
+    WrongNumberOfComponents(WrongComponentCountError),
     PixelValueParseError(CssPixelValueParseErrorOwned),
 }
 
@@ -513,11 +502,11 @@ impl<'a> CssStyleTransformOriginParseError<'a> {
                 expected,
                 got,
                 input,
-            } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents {
+            } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
                 input: input.to_string(),
-            },
+            }),
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained())
             }
@@ -528,14 +517,10 @@ impl<'a> CssStyleTransformOriginParseError<'a> {
 impl CssStyleTransformOriginParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssStyleTransformOriginParseError<'a> {
         match self {
-            Self::WrongNumberOfComponents {
-                expected,
-                got,
-                input,
-            } => CssStyleTransformOriginParseError::WrongNumberOfComponents {
-                expected: *expected,
-                got: *got,
-                input,
+            Self::WrongNumberOfComponents(e) => CssStyleTransformOriginParseError::WrongNumberOfComponents {
+                expected: e.expected,
+                got: e.got,
+                input: &e.input,
             },
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseError::PixelValueParseError(e.to_shared())
@@ -564,11 +549,7 @@ impl_from! { CssPixelValueParseError<'a>, CssStylePerspectiveOriginParseError::P
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssStylePerspectiveOriginParseErrorOwned {
-    WrongNumberOfComponents {
-        expected: usize,
-        got: usize,
-        input: String,
-    },
+    WrongNumberOfComponents(WrongComponentCountError),
     PixelValueParseError(CssPixelValueParseErrorOwned),
 }
 
@@ -579,11 +560,11 @@ impl<'a> CssStylePerspectiveOriginParseError<'a> {
                 expected,
                 got,
                 input,
-            } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents {
+            } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
                 input: input.to_string(),
-            },
+            }),
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained())
             }
@@ -594,14 +575,10 @@ impl<'a> CssStylePerspectiveOriginParseError<'a> {
 impl CssStylePerspectiveOriginParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssStylePerspectiveOriginParseError<'a> {
         match self {
-            Self::WrongNumberOfComponents {
-                expected,
-                got,
-                input,
-            } => CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
-                expected: *expected,
-                got: *got,
-                input,
+            Self::WrongNumberOfComponents(e) => CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
+                expected: e.expected,
+                got: e.got,
+                input: &e.input,
             },
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseError::PixelValueParseError(e.to_shared())

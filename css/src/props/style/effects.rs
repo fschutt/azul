@@ -232,10 +232,18 @@ pub mod parsers {
         OutOfRange(s) => format!("Invalid opacity value \"{}\": must be between 0 and 1", s),
     }}
 
+    /// Wrapper for PercentageParseError with input string.
+    #[derive(Debug, Clone, PartialEq)]
+    #[repr(C)]
+    pub struct PercentageParseErrorWithInput {
+        pub error: PercentageParseError,
+        pub input: String,
+    }
+
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum OpacityParseErrorOwned {
-        ParsePercentage(PercentageParseError, String),
+        ParsePercentage(PercentageParseErrorWithInput),
         OutOfRange(String),
     }
 
@@ -243,7 +251,7 @@ pub mod parsers {
         pub fn to_contained(&self) -> OpacityParseErrorOwned {
             match self {
                 Self::ParsePercentage(err, s) => {
-                    OpacityParseErrorOwned::ParsePercentage(err.clone(), s.to_string())
+                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: s.to_string() })
                 }
                 Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange(s.to_string()),
             }
@@ -253,8 +261,8 @@ pub mod parsers {
     impl OpacityParseErrorOwned {
         pub fn to_shared<'a>(&'a self) -> OpacityParseError<'a> {
             match self {
-                Self::ParsePercentage(err, s) => {
-                    OpacityParseError::ParsePercentage(err.clone(), s.as_str())
+                Self::ParsePercentage(e) => {
+                    OpacityParseError::ParsePercentage(e.error.clone(), e.input.as_str())
                 }
                 Self::OutOfRange(s) => OpacityParseError::OutOfRange(s.as_str()),
             }

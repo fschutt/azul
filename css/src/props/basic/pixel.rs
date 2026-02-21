@@ -2,7 +2,7 @@ use core::fmt;
 use std::num::ParseFloatError;
 
 use crate::props::{
-    basic::{FloatValue, SizeMetric},
+    basic::{error::ParseFloatErrorWithInput, FloatValue, SizeMetric},
     formatter::FormatAsCssValue,
 };
 
@@ -734,13 +734,21 @@ impl_display! { CssPixelValueParseError<'a>, {
     InvalidPixelValue(s) => format!("Invalid pixel value: \"{}\"", s),
 }}
 
+/// Wrapper for NoValueGiven error in pixel value parsing.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct PixelNoValueGivenError {
+    pub value: String,
+    pub metric: SizeMetric,
+}
+
 /// Owned version of CssPixelValueParseError.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssPixelValueParseErrorOwned {
     EmptyString,
-    NoValueGiven(String, SizeMetric),
-    ValueParseErr(ParseFloatError, String),
+    NoValueGiven(PixelNoValueGivenError),
+    ValueParseErr(ParseFloatErrorWithInput),
     InvalidPixelValue(String),
 }
 
@@ -749,10 +757,10 @@ impl<'a> CssPixelValueParseError<'a> {
         match self {
             CssPixelValueParseError::EmptyString => CssPixelValueParseErrorOwned::EmptyString,
             CssPixelValueParseError::NoValueGiven(s, metric) => {
-                CssPixelValueParseErrorOwned::NoValueGiven(s.to_string(), *metric)
+                CssPixelValueParseErrorOwned::NoValueGiven(PixelNoValueGivenError { value: s.to_string(), metric: *metric })
             }
             CssPixelValueParseError::ValueParseErr(err, s) => {
-                CssPixelValueParseErrorOwned::ValueParseErr(err.clone(), s.to_string())
+                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone(), input: s.to_string() })
             }
             CssPixelValueParseError::InvalidPixelValue(s) => {
                 CssPixelValueParseErrorOwned::InvalidPixelValue(s.to_string())
@@ -765,11 +773,11 @@ impl CssPixelValueParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssPixelValueParseError<'a> {
         match self {
             CssPixelValueParseErrorOwned::EmptyString => CssPixelValueParseError::EmptyString,
-            CssPixelValueParseErrorOwned::NoValueGiven(s, metric) => {
-                CssPixelValueParseError::NoValueGiven(s.as_str(), *metric)
+            CssPixelValueParseErrorOwned::NoValueGiven(e) => {
+                CssPixelValueParseError::NoValueGiven(e.value.as_str(), e.metric)
             }
-            CssPixelValueParseErrorOwned::ValueParseErr(err, s) => {
-                CssPixelValueParseError::ValueParseErr(err.clone(), s.as_str())
+            CssPixelValueParseErrorOwned::ValueParseErr(e) => {
+                CssPixelValueParseError::ValueParseErr(e.error.clone(), e.input.as_str())
             }
             CssPixelValueParseErrorOwned::InvalidPixelValue(s) => {
                 CssPixelValueParseError::InvalidPixelValue(s.as_str())

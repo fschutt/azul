@@ -6,7 +6,10 @@ use core::num::ParseFloatError;
 use crate::{
     format_rust_code::FormatAsRustCode,
     props::{
-        basic::length::{parse_float_value, FloatValue},
+        basic::{
+            error::ParseFloatErrorWithInput,
+            length::{parse_float_value, FloatValue},
+        },
         formatter::PrintAsCssValue,
     },
 };
@@ -81,7 +84,7 @@ impl_display! { FlexGrowParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum FlexGrowParseErrorOwned {
-    ParseFloat(ParseFloatError, String),
+    ParseFloat(ParseFloatErrorWithInput),
     NegativeValue(String),
 }
 
@@ -90,7 +93,7 @@ impl<'a> FlexGrowParseError<'a> {
     pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
         match self {
             FlexGrowParseError::ParseFloat(e, s) => {
-                FlexGrowParseErrorOwned::ParseFloat(e.clone(), s.to_string())
+                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone(), input: s.to_string() })
             }
             FlexGrowParseError::NegativeValue(s) => {
                 FlexGrowParseErrorOwned::NegativeValue(s.to_string())
@@ -103,8 +106,8 @@ impl<'a> FlexGrowParseError<'a> {
 impl FlexGrowParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> FlexGrowParseError<'a> {
         match self {
-            FlexGrowParseErrorOwned::ParseFloat(e, s) => {
-                FlexGrowParseError::ParseFloat(e.clone(), s.as_str())
+            FlexGrowParseErrorOwned::ParseFloat(e) => {
+                FlexGrowParseError::ParseFloat(e.error.clone(), e.input.as_str())
             }
             FlexGrowParseErrorOwned::NegativeValue(s) => {
                 FlexGrowParseError::NegativeValue(s.as_str())
@@ -187,7 +190,7 @@ impl_display! { FlexShrinkParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum FlexShrinkParseErrorOwned {
-    ParseFloat(ParseFloatError, String),
+    ParseFloat(ParseFloatErrorWithInput),
     NegativeValue(String),
 }
 
@@ -196,7 +199,7 @@ impl<'a> FlexShrinkParseError<'a> {
     pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
         match self {
             FlexShrinkParseError::ParseFloat(e, s) => {
-                FlexShrinkParseErrorOwned::ParseFloat(e.clone(), s.to_string())
+                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone(), input: s.to_string() })
             }
             FlexShrinkParseError::NegativeValue(s) => {
                 FlexShrinkParseErrorOwned::NegativeValue(s.to_string())
@@ -209,8 +212,8 @@ impl<'a> FlexShrinkParseError<'a> {
 impl FlexShrinkParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> FlexShrinkParseError<'a> {
         match self {
-            FlexShrinkParseErrorOwned::ParseFloat(e, s) => {
-                FlexShrinkParseError::ParseFloat(e.clone(), s.as_str())
+            FlexShrinkParseErrorOwned::ParseFloat(e) => {
+                FlexShrinkParseError::ParseFloat(e.error.clone(), e.input.as_str())
             }
             FlexShrinkParseErrorOwned::NegativeValue(s) => {
                 FlexShrinkParseError::NegativeValue(s.as_str())

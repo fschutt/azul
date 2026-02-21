@@ -920,6 +920,7 @@ impl SystemColorRef {
 // --- PARSER ---
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
 pub enum CssColorComponent {
     Red,
     Green,

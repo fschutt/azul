@@ -101,6 +101,22 @@ pub enum CssParseErrorInner<'a> {
     },
 }
 
+/// Wrapper for UnknownPropertyKey error.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct UnknownPropertyKeyError {
+    pub key: String,
+    pub value: String,
+}
+
+/// Wrapper for VarOnShorthandProperty error.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct VarOnShorthandPropertyError {
+    pub key: CombinedCssPropertyType,
+    pub value: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssParseErrorInnerOwned {
@@ -110,11 +126,8 @@ pub enum CssParseErrorInnerOwned {
     DynamicCssParseError(DynamicCssParseErrorOwned),
     PseudoSelectorParseError(CssPseudoSelectorParseErrorOwned),
     NodeTypeTag(NodeTypeTagParseErrorOwned),
-    UnknownPropertyKey(String, String),
-    VarOnShorthandProperty {
-        key: CombinedCssPropertyType,
-        value: String,
-    },
+    UnknownPropertyKey(UnknownPropertyKeyError),
+    VarOnShorthandProperty(VarOnShorthandPropertyError),
 }
 
 impl<'a> CssParseErrorInner<'a> {
@@ -133,13 +146,13 @@ impl<'a> CssParseErrorInner<'a> {
                 CssParseErrorInnerOwned::NodeTypeTag(e.to_contained())
             }
             CssParseErrorInner::UnknownPropertyKey(a, b) => {
-                CssParseErrorInnerOwned::UnknownPropertyKey(a.to_string(), b.to_string())
+                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError { key: a.to_string(), value: b.to_string() })
             }
             CssParseErrorInner::VarOnShorthandProperty { key, value } => {
-                CssParseErrorInnerOwned::VarOnShorthandProperty {
+                CssParseErrorInnerOwned::VarOnShorthandProperty(VarOnShorthandPropertyError {
                     key: key.clone(),
                     value: value.to_string(),
-                }
+                })
             }
         }
     }
@@ -160,13 +173,13 @@ impl CssParseErrorInnerOwned {
             CssParseErrorInnerOwned::NodeTypeTag(e) => {
                 CssParseErrorInner::NodeTypeTag(e.to_shared())
             }
-            CssParseErrorInnerOwned::UnknownPropertyKey(a, b) => {
-                CssParseErrorInner::UnknownPropertyKey(a, b)
+            CssParseErrorInnerOwned::UnknownPropertyKey(e) => {
+                CssParseErrorInner::UnknownPropertyKey(&e.key, &e.value)
             }
-            CssParseErrorInnerOwned::VarOnShorthandProperty { key, value } => {
+            CssParseErrorInnerOwned::VarOnShorthandProperty(e) => {
                 CssParseErrorInner::VarOnShorthandProperty {
-                    key: key.clone(),
-                    value,
+                    key: e.key.clone(),
+                    value: &e.value,
                 }
             }
         }
@@ -230,11 +243,19 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
 }}
 
+/// Wrapper for UnknownSelector error.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct UnknownSelectorError {
+    pub selector: String,
+    pub suggestion: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssPseudoSelectorParseErrorOwned {
     EmptyNthChild,
-    UnknownSelector(String, Option<String>),
+    UnknownSelector(UnknownSelectorError),
     InvalidNthChildPattern(String),
     InvalidNthChild(ParseIntError),
 }
@@ -246,10 +267,10 @@ impl<'a> CssPseudoSelectorParseError<'a> {
                 CssPseudoSelectorParseErrorOwned::EmptyNthChild
             }
             CssPseudoSelectorParseError::UnknownSelector(a, b) => {
-                CssPseudoSelectorParseErrorOwned::UnknownSelector(
-                    a.to_string(),
-                    b.map(|s| s.to_string()),
-                )
+                CssPseudoSelectorParseErrorOwned::UnknownSelector(UnknownSelectorError {
+                    selector: a.to_string(),
+                    suggestion: b.map(|s| s.to_string()),
+                })
             }
             CssPseudoSelectorParseError::InvalidNthChildPattern(s) => {
                 CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string())
@@ -267,8 +288,8 @@ impl CssPseudoSelectorParseErrorOwned {
             CssPseudoSelectorParseErrorOwned::EmptyNthChild => {
                 CssPseudoSelectorParseError::EmptyNthChild
             }
-            CssPseudoSelectorParseErrorOwned::UnknownSelector(a, b) => {
-                CssPseudoSelectorParseError::UnknownSelector(a, b.as_deref())
+            CssPseudoSelectorParseErrorOwned::UnknownSelector(e) => {
+                CssPseudoSelectorParseError::UnknownSelector(&e.selector, e.suggestion.as_deref())
             }
             CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s) => {
                 CssPseudoSelectorParseError::InvalidNthChildPattern(s)
