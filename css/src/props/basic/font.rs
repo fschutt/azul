@@ -421,6 +421,7 @@ impl<'a> From<ParseIntError> for CssFontWeightParseError<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssFontWeightParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
     InvalidNumber(ParseIntError),
@@ -480,6 +481,7 @@ impl_display! { CssFontStyleParseError<'a>, {
 impl_from! { InvalidValueErr<'a>, CssFontStyleParseError::InvalidValue }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssFontStyleParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -521,6 +523,7 @@ impl_display! { CssStyleFontSizeParseError<'a>, {
 impl_from! { CssPixelValueParseError<'a>, CssStyleFontSizeParseError::PixelValue }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssStyleFontSizeParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -567,6 +570,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssStyleFontFamilyParseErrorOwned {
     InvalidStyleFontFamily(String),
     UnclosedQuotes(String),

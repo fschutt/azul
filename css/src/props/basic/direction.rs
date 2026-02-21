@@ -199,6 +199,7 @@ impl_display! { CssDirectionCornerParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssDirectionCornerParseErrorOwned {
     InvalidDirection(String),
 }
@@ -249,6 +250,7 @@ impl_from! { CssDirectionCornerParseError<'a>, CssDirectionParseError::CornerErr
 impl_from! { CssAngleValueParseError<'a>, CssDirectionParseError::AngleError }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssDirectionParseErrorOwned {
     Error(String),
     InvalidArguments(String),

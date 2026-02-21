@@ -84,6 +84,7 @@ impl_from!(ParseFloatError, StyleExclusionMarginParseError::FloatValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleExclusionMarginParseErrorOwned {
     FloatValue(String),
 }
@@ -189,6 +190,7 @@ impl_display! { StyleHyphenationLanguageParseError, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleHyphenationLanguageParseErrorOwned {
     InvalidString(String),
 }

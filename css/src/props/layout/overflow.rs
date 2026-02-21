@@ -94,6 +94,7 @@ impl_display! { LayoutOverflowParseError<'a>, {
 
 /// An owned version of `LayoutOverflowParseError`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
 pub enum LayoutOverflowParseErrorOwned {
     InvalidValue(String),
 }

@@ -781,6 +781,7 @@ impl_display! { LayoutScrollbarWidthParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutScrollbarWidthParseErrorOwned {
     InvalidValue(String),
 }
@@ -826,6 +827,7 @@ impl_display! { StyleScrollbarColorParseError<'a>, {
 impl_from!(CssColorParseError<'a>, StyleScrollbarColorParseError::Color);
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleScrollbarColorParseErrorOwned {
     InvalidValue(String),
     Color(CssColorParseErrorOwned),
@@ -890,6 +892,7 @@ impl_display! { CssScrollbarStyleParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssScrollbarStyleParseErrorOwned {
     Invalid(String),
 }

@@ -1089,6 +1089,7 @@ impl ComponentArguments {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct FilteredComponentArguments {
     /// The types of the component, i.e. `date => String`, in order
     pub types: ComponentArgumentTypes,
@@ -2039,6 +2040,7 @@ impl_vec_ord!(XmlNode, XmlNodeVec);
 impl_vec_hash!(XmlNode, XmlNodeVec);
 impl_vec_clone!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
 
+#[repr(C)]
 pub struct XmlComponent {
     pub id: String,
     /// DOM rendering component (boxed trait)
@@ -2058,6 +2060,7 @@ impl core::fmt::Debug for XmlComponent {
 }
 
 /// Holds all XML components - builtin components
+#[repr(C)]
 pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
     /// Key is the normalized component name (lowercase with underscores)
@@ -2363,6 +2366,7 @@ impl XmlComponentMap {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum DomXmlParseError {
     /// No `<html></html>` node component present
     NoHtmlNode,
@@ -2415,6 +2419,7 @@ impl From<CssParseErrorOwned> for DomXmlParseError {
 /// Error that can happen from the translation from XML code to Rust code -
 /// stringified, since it is only used for printing and is not exposed in the public API
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CompileError {
     Dom(RenderDomError),
     Xml(DomXmlParseError),
@@ -2457,6 +2462,7 @@ impl From<DomXmlParseError> for CompileError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum ComponentError {
     /// While instantiating a component, a function argument
     /// was encountered that the component won't use or react to.
@@ -2469,6 +2475,7 @@ pub enum ComponentError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum RenderDomError {
     Component(ComponentError),
     /// Error parsing the CSS on the component style
@@ -2488,6 +2495,7 @@ impl From<CssParseErrorOwned> for RenderDomError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum ComponentParseError {
     /// Given XmlNode is not a `<component />` node.
     NotAComponent,

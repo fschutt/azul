@@ -1398,6 +1398,7 @@ pub enum CssParsingError<'a> {
 
 /// Owned version of `CssParsingError`.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssParsingErrorOwned {
     // Shorthand properties
     Border(CssBorderParseErrorOwned),

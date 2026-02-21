@@ -303,6 +303,7 @@ mod parser {
     }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum CssStyleFilterParseErrorOwned {
         InvalidFilter(String),
         InvalidParenthesis(ParenthesisParseErrorOwned),
@@ -377,6 +378,7 @@ mod parser {
     impl_from!(CssPixelValueParseError<'a>, CssStyleBlurParseError::Pixel);
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum CssStyleBlurParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
         TooManyComponents(String),
@@ -424,6 +426,7 @@ mod parser {
     }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum CssStyleColorMatrixParseErrorOwned {
         Float(ParseFloatError),
         WrongNumberOfComponents {
@@ -488,6 +491,7 @@ mod parser {
     );
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum CssStyleFilterOffsetParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
         WrongNumberOfComponents {
@@ -559,6 +563,7 @@ mod parser {
     }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum CssStyleCompositeFilterParseErrorOwned {
         Invalid(InvalidValueErrOwned),
         Float(ParseFloatError),

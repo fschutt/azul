@@ -12,6 +12,7 @@ impl_display! {CssImageParseError<'a>, {
 
 /// Owned version of CssImageParseError.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssImageParseErrorOwned {
     UnclosedQuotes(String),
 }

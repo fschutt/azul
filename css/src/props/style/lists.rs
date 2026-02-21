@@ -143,6 +143,7 @@ impl_display! { StyleListStyleTypeParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleListStyleTypeParseErrorOwned {
     InvalidValue(String),
 }
@@ -203,6 +204,7 @@ impl_display! { StyleListStylePositionParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleListStylePositionParseErrorOwned {
     InvalidValue(String),
 }

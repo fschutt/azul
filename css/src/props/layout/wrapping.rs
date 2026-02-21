@@ -58,6 +58,7 @@ impl_display! { LayoutWrapParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutWrapParseErrorOwned {
     InvalidValue(String),
 }
@@ -156,6 +157,7 @@ impl_display! { LayoutWritingModeParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutWritingModeParseErrorOwned {
     InvalidValue(String),
 }
@@ -251,6 +253,7 @@ impl_display! { LayoutClearParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutClearParseErrorOwned {
     InvalidValue(String),
 }

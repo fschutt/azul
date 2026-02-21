@@ -469,6 +469,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleTextColorParseErrorOwned {
     ColorParseError(CssColorParseErrorOwned),
 }
@@ -516,6 +517,7 @@ impl_from!(InvalidValueErr<'a>, StyleTextAlignParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleTextAlignParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -572,6 +574,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleLetterSpacingParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -654,6 +657,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleTextIndentParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -725,6 +729,7 @@ impl_display! { StyleInitialLetterParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleInitialLetterParseErrorOwned {
     InvalidFormat(String),
     InvalidSize(String),
@@ -848,6 +853,7 @@ impl_display! { StyleLineClampParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleLineClampParseErrorOwned {
     InvalidValue(String),
     ZeroValue,
@@ -946,6 +952,7 @@ impl_display! { StyleHangingPunctuationParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleHangingPunctuationParseErrorOwned {
     InvalidValue(String),
 }
@@ -1042,6 +1049,7 @@ impl_display! { StyleTextCombineUprightParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleTextCombineUprightParseErrorOwned {
     InvalidValue(String),
     InvalidDigits(String),
@@ -1133,6 +1141,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleWordSpacingParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -1166,6 +1175,7 @@ pub fn parse_style_word_spacing(
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleLineHeightParseError {
     Percentage(PercentageParseError),
 }
@@ -1228,6 +1238,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleTabSizeParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -1279,6 +1290,7 @@ impl_from!(InvalidValueErr<'a>, StyleWhiteSpaceParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleWhiteSpaceParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -1332,6 +1344,7 @@ impl_from!(InvalidValueErr<'a>, StyleHyphensParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleHyphensParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -1379,6 +1392,7 @@ impl_from!(InvalidValueErr<'a>, StyleDirectionParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleDirectionParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -1428,6 +1442,7 @@ impl_from!(InvalidValueErr<'a>, StyleUserSelectParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleUserSelectParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -1482,6 +1497,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleTextDecorationParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
@@ -1540,6 +1556,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum StyleVerticalAlignParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }

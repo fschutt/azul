@@ -56,6 +56,7 @@ impl<'a> fmt::Display for TextJustifyParseError<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum TextJustifyParseErrorOwned {
     InvalidValue(String),
 }

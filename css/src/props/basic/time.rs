@@ -47,6 +47,7 @@ impl_display! { DurationParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum DurationParseErrorOwned {
     InvalidValue(String),
     ParseFloat(String),

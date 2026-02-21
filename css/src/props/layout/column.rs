@@ -262,6 +262,7 @@ mod parser {
     }}
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum ColumnCountParseErrorOwned {
         InvalidValue(String),
         ParseInt(String),
@@ -314,6 +315,7 @@ mod parser {
     impl_from! { CssPixelValueParseError<'a>, ColumnWidthParseError::PixelValue }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum ColumnWidthParseErrorOwned {
         InvalidValue(String),
         PixelValue(CssPixelValueParseErrorOwned),
@@ -427,6 +429,7 @@ mod parser {
     impl_display! { ColumnRuleWidthParseError<'a>, { Pixel(e) => format!("{}", e) }}
     impl_from! { CssPixelValueParseError<'a>, ColumnRuleWidthParseError::Pixel }
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum ColumnRuleWidthParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
     }
@@ -464,6 +467,7 @@ mod parser {
     impl_display! { ColumnRuleStyleParseError<'a>, { Style(e) => format!("{}", e) }}
     impl_from! { CssBorderStyleParseError<'a>, ColumnRuleStyleParseError::Style }
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum ColumnRuleStyleParseErrorOwned {
         Style(CssBorderStyleParseErrorOwned),
     }
@@ -501,6 +505,7 @@ mod parser {
     impl_display! { ColumnRuleColorParseError<'a>, { Color(e) => format!("{}", e) }}
     impl_from! { CssColorParseError<'a>, ColumnRuleColorParseError::Color }
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum ColumnRuleColorParseErrorOwned {
         Color(CssColorParseErrorOwned),
     }

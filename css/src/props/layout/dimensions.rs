@@ -460,6 +460,7 @@ mod parser {
     impl_from! { CssPixelValueParseError<'a>, LayoutWidthParseError::PixelValue }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum LayoutWidthParseErrorOwned {
         PixelValue(CssPixelValueParseErrorOwned),
         InvalidKeyword(String),
@@ -526,6 +527,7 @@ mod parser {
     impl_from! { CssPixelValueParseError<'a>, LayoutHeightParseError::PixelValue }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum LayoutHeightParseErrorOwned {
         PixelValue(CssPixelValueParseErrorOwned),
         InvalidKeyword(String),
@@ -614,6 +616,7 @@ mod parser {
     }}
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum LayoutBoxSizingParseErrorOwned {
         InvalidValue(String),
     }

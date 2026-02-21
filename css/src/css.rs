@@ -592,6 +592,7 @@ impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum NodeTypeTagParseErrorOwned {
     Invalid(String),
 }

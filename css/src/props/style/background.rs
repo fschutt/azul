@@ -807,6 +807,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssBackgroundParseErrorOwned {
     Error(String),
     InvalidBackground(ParenthesisParseErrorOwned),
@@ -899,6 +900,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssGradientStopParseErrorOwned {
     Error(String),
     Percentage(PercentageParseErrorOwned),
@@ -954,6 +956,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssConicGradientParseErrorOwned {
     Position(CssBackgroundPositionParseErrorOwned),
     Angle(CssAngleValueParseErrorOwned),
@@ -986,6 +989,7 @@ impl_display! {CssShapeParseError<'a>, {
     ShapeErr(e) => format!("\"{}\"", e.0),
 }}
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssShapeParseErrorOwned {
     ShapeErr(InvalidValueErrOwned),
 }
@@ -1019,6 +1023,7 @@ impl_display! {CssBackgroundPositionParseError<'a>, {
     SecondComponentWrong(e) => format!("Failed to parse second component: \"{}\"", e),
 }}
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssBackgroundPositionParseErrorOwned {
     NoPosition(String),
     TooManyComponents(String),

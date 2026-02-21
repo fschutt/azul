@@ -317,6 +317,7 @@ impl_display! { GridParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum GridParseErrorOwned {
     InvalidValue(String),
 }
@@ -563,6 +564,7 @@ impl_display! { GridAutoFlowParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum GridAutoFlowParseErrorOwned {
     InvalidValue(alloc::string::String),
 }
@@ -642,6 +644,7 @@ pub enum JustifySelfParseError<'a> {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum JustifySelfParseErrorOwned {
     InvalidValue(alloc::string::String),
 }
@@ -724,6 +727,7 @@ pub enum JustifyItemsParseError<'a> {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum JustifyItemsParseErrorOwned {
     InvalidValue(alloc::string::String),
 }

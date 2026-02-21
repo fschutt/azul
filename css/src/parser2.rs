@@ -36,6 +36,7 @@ pub struct CssParseError<'a> {
 
 /// Owned version of CssParseError, without references.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct CssParseErrorOwned {
     pub css_string: String,
     pub error: CssParseErrorInnerOwned,
@@ -101,6 +102,7 @@ pub enum CssParseErrorInner<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssParseErrorInnerOwned {
     ParseError(CssSyntaxError),
     UnclosedBlock,
@@ -229,6 +231,7 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssPseudoSelectorParseErrorOwned {
     EmptyNthChild,
     UnknownSelector(String, Option<String>),
@@ -298,6 +301,7 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum DynamicCssParseErrorOwned {
     InvalidBraceContents(String),
     UnexpectedValue(CssParsingErrorOwned),
@@ -439,6 +443,7 @@ fn parse_nth_child_pattern<'a>(
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub struct ErrorLocation {
     pub original_pos: usize,
 }

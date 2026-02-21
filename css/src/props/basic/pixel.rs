@@ -736,6 +736,7 @@ impl_display! { CssPixelValueParseError<'a>, {
 
 /// Owned version of CssPixelValueParseError.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssPixelValueParseErrorOwned {
     EmptyString,
     NoValueGiven(String, SizeMetric),

@@ -301,6 +301,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutPaddingParseErrorOwned {
     PixelValueParseError(CssPixelValueParseErrorOwned),
     TooManyValues,
@@ -429,6 +430,7 @@ impl_from!(
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutMarginParseErrorOwned {
     PixelValueParseError(CssPixelValueParseErrorOwned),
     TooManyValues,

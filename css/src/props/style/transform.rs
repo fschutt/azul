@@ -399,6 +399,7 @@ impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssStyleTransformParseErrorOwned {
     InvalidTransform(String),
     InvalidParenthesis(ParenthesisParseErrorOwned),
@@ -495,6 +496,7 @@ impl_display! { CssStyleTransformOriginParseError<'a>, {
 impl_from! { CssPixelValueParseError<'a>, CssStyleTransformOriginParseError::PixelValueParseError }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssStyleTransformOriginParseErrorOwned {
     WrongNumberOfComponents {
         expected: usize,
@@ -560,6 +562,7 @@ impl_display! { CssStylePerspectiveOriginParseError<'a>, {
 impl_from! { CssPixelValueParseError<'a>, CssStylePerspectiveOriginParseError::PixelValueParseError }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssStylePerspectiveOriginParseErrorOwned {
     WrongNumberOfComponents {
         expected: usize,
@@ -618,6 +621,7 @@ impl_display! { CssBackfaceVisibilityParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssBackfaceVisibilityParseErrorOwned {
     InvalidValue(String),
 }

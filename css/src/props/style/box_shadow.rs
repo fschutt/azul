@@ -144,6 +144,7 @@ impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 /// Owned version of `CssShadowParseError`.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssShadowParseErrorOwned {
     TooManyOrTooFewComponents(String),
     ValueParseErr(CssPixelValueParseErrorOwned),

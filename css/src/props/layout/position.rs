@@ -62,6 +62,7 @@ impl_display! { LayoutPositionParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutPositionParseErrorOwned {
     InvalidValue(String),
 }
@@ -148,6 +149,7 @@ impl_display! { LayoutTopParseError<'a>, { PixelValue(e) => format!("{}", e), }}
 impl_from!(CssPixelValueParseError<'a>, LayoutTopParseError::PixelValue);
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutTopParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -191,6 +193,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutRightParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -234,6 +237,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutInsetBottomParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -279,6 +283,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutLeftParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
@@ -359,6 +364,7 @@ impl_display! { LayoutZIndexParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutZIndexParseErrorOwned {
     InvalidValue(String),
     ParseInt(String, String),

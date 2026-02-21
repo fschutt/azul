@@ -217,6 +217,7 @@ mod parser {
     }}
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum PageBreakParseErrorOwned {
         InvalidValue(String),
     }
@@ -268,6 +269,7 @@ mod parser {
     }}
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum BreakInsideParseErrorOwned {
         InvalidValue(String),
     }
@@ -380,6 +382,7 @@ mod parser {
     }}
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum BoxDecorationBreakParseErrorOwned {
         InvalidValue(String),
     }

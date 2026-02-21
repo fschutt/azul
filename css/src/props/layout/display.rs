@@ -149,6 +149,7 @@ impl_display! { LayoutDisplayParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutDisplayParseErrorOwned {
     InvalidValue(String),
 }
@@ -219,6 +220,7 @@ impl_display! { LayoutFloatParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum LayoutFloatParseErrorOwned {
     InvalidValue(String),
 }

@@ -193,6 +193,7 @@ impl_display! { CssAngleValueParseError<'a>, {
 }}
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssAngleValueParseErrorOwned {
     EmptyString,
     NoValueGiven(String, AngleMetric),

@@ -283,6 +283,7 @@ pub fn parse_float_value(input: &str) -> Result<FloatValue, ParseFloatError> {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[repr(C, u8)]
 pub enum PercentageParseError {
     ValueParseErr(ParseFloatError),
     NoPercentSign,
@@ -299,6 +300,7 @@ impl_display! { PercentageParseError, {
 }}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
 pub enum PercentageParseErrorOwned {
     ValueParseErr(ParseFloatError),
     NoPercentSign,

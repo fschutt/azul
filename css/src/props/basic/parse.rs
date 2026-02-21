@@ -121,6 +121,7 @@ impl_display! { ParenthesisParseError<'a>, {
 
 /// Owned version of ParenthesisParseError.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum ParenthesisParseErrorOwned {
     UnclosedBraces,
     NoOpeningBraceFound,

@@ -980,6 +980,7 @@ impl_from!(
 );
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssColorParseErrorOwned {
     InvalidColor(String),
     InvalidFunctionName(String),

@@ -82,6 +82,7 @@ impl_from!(
 
 /// Owned version of `CssBorderRadiusParseError`.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssBorderRadiusParseErrorOwned {
     TooManyValues(String),
     PixelValue(CssPixelValueParseErrorOwned),

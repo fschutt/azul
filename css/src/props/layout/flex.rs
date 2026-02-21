@@ -79,6 +79,7 @@ impl_display! { FlexGrowParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum FlexGrowParseErrorOwned {
     ParseFloat(ParseFloatError, String),
     NegativeValue(String),
@@ -184,6 +185,7 @@ impl_display! { FlexShrinkParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum FlexShrinkParseErrorOwned {
     ParseFloat(ParseFloatError, String),
     NegativeValue(String),
@@ -312,6 +314,7 @@ impl_display! { FlexDirectionParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum FlexDirectionParseErrorOwned {
     InvalidValue(String),
 }
@@ -391,6 +394,7 @@ impl_display! { FlexWrapParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum FlexWrapParseErrorOwned {
     InvalidValue(String),
 }
@@ -479,6 +483,7 @@ impl_display! { JustifyContentParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum JustifyContentParseErrorOwned {
     InvalidValue(String),
 }
@@ -564,6 +569,7 @@ impl_display! { AlignItemsParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum AlignItemsParseErrorOwned {
     InvalidValue(String),
 }
@@ -650,6 +656,7 @@ impl_display! { AlignContentParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum AlignContentParseErrorOwned {
     InvalidValue(String),
 }
@@ -753,6 +760,7 @@ impl_display! { AlignSelfParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum AlignSelfParseErrorOwned {
     InvalidValue(String),
 }
@@ -838,6 +846,7 @@ impl_display! { FlexBasisParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum FlexBasisParseErrorOwned {
     InvalidValue(String),
 }

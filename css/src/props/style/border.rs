@@ -318,6 +318,7 @@ impl_display! { CssBorderStyleParseError<'a>, {
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssBorderStyleParseErrorOwned {
     InvalidStyle(String),
 }
@@ -391,6 +392,7 @@ impl_from!(CssColorParseError<'a>, CssBorderSideParseError::Color);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum CssBorderSideParseErrorOwned {
     InvalidDeclaration(String),
     Width(CssPixelValueParseErrorOwned),

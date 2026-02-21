@@ -233,6 +233,7 @@ pub mod parsers {
     }}
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum OpacityParseErrorOwned {
         ParsePercentage(PercentageParseError, String),
         OutOfRange(String),
@@ -285,6 +286,7 @@ pub mod parsers {
     impl_from!(InvalidValueErr<'a>, StyleVisibilityParseError::InvalidValue);
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum StyleVisibilityParseErrorOwned {
         InvalidValue(InvalidValueErrOwned),
     }
@@ -332,6 +334,7 @@ pub mod parsers {
     impl_from!(InvalidValueErr<'a>, MixBlendModeParseError::InvalidValue);
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum MixBlendModeParseErrorOwned {
         InvalidValue(InvalidValueErrOwned),
     }
@@ -392,6 +395,7 @@ pub mod parsers {
     impl_from!(InvalidValueErr<'a>, CursorParseError::InvalidValue);
 
     #[derive(Debug, Clone, PartialEq)]
+    #[repr(C, u8)]
     pub enum CursorParseErrorOwned {
         InvalidValue(InvalidValueErrOwned),
     }
