@@ -256,6 +256,19 @@ body {
 .editor-content { flex: 1; overflow: auto; padding: 0; position: relative; }
 
 /* ─── Node Detail Panel ─── */
+.detail-top-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 16px;
+}
+.detail-node-info {
+    flex: 0 0 auto;
+    min-width: 200px;
+}
+.detail-box-model-col {
+    flex: 1;
+    min-width: 280px;
+}
 .detail-section {
     margin-bottom: 16px;
 }
@@ -318,6 +331,28 @@ body {
 .event-type { color: var(--event-color); min-width: 140px; }
 .event-ptr { color: var(--text-muted); cursor: pointer; }
 .event-ptr:hover { color: var(--accent); }
+
+/* ─── Resolved Symbol & Source Links ─── */
+.resolved-symbol {
+    color: var(--event-color);
+    font-weight: 500;
+}
+.source-link {
+    color: var(--accent);
+    text-decoration: none;
+    cursor: pointer;
+    margin-left: 6px;
+    font-size: 11px;
+}
+.source-link:hover {
+    text-decoration: underline;
+    color: #3da8f5;
+}
+.source-lib {
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-left: 6px;
+}
 
 /* ─── Box Model (Chrome-style) ─── */
 .box-model {
@@ -618,3 +653,23 @@ body {
     cursor: pointer;
 }
 .json-group-header:hover { color: var(--text-main); }
+
+.json-value-editable {
+    cursor: pointer;
+    border-bottom: 1px dashed transparent;
+    padding: 0 2px;
+}
+.json-value-editable:hover {
+    border-color: var(--accent);
+    background: rgba(0, 122, 204, 0.1);
+}
+.json-edit-input {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 11px;
+    background: var(--bg-input);
+    color: var(--text-main);
+    border: 1px solid var(--accent);
+    padding: 1px 4px;
+    outline: none;
+    min-width: 60px;
+}

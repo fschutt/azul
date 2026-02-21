@@ -452,6 +452,37 @@ pub enum CallbackChange {
     SetDropEffect {
         effect: azul_core::drag::DropEffect,
     },
+
+    // DOM Mutation (for Debug API)
+    /// Insert a new child node into the DOM tree.
+    /// Creates a minimal StyledDom from the given node_type and appends it
+    /// as a child of parent_node_id. If position is Some, inserts at that
+    /// child index; otherwise appends at the end.
+    InsertChildNode {
+        dom_id: DomId,
+        parent_node_id: NodeId,
+        /// The tag/type of the new node (e.g. "div", "p", "text:Hello")
+        node_type_str: AzString,
+        /// Optional child index to insert at (None = append at end)
+        position: Option<usize>,
+        /// Optional CSS classes for the new node
+        classes: Vec<AzString>,
+        /// Optional ID for the new node
+        id: Option<AzString>,
+    },
+    /// Delete a node from the DOM tree (and all its children).
+    /// The node is "tombstoned" (set to an empty anonymous Div) rather than
+    /// physically removed, to preserve node ID stability.
+    DeleteNode {
+        dom_id: DomId,
+        node_id: NodeId,
+    },
+    /// Set the IDs and classes on an existing node.
+    SetNodeIdsAndClasses {
+        dom_id: DomId,
+        node_id: NodeId,
+        ids_and_classes: azul_core::dom::IdOrClassVec,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -1206,6 +1237,75 @@ impl CallbackInfo {
     /// * `text` - The text to insert at the current cursor position
     pub fn create_text_input(&mut self, text: AzString) {
         self.push_change(CallbackChange::CreateTextInput { text });
+    }
+
+    // DOM Mutation Api (for Debug API)
+
+    /// Insert a new child node into the DOM tree (applied after callback returns)
+    ///
+    /// Creates a new node with the given type string and appends it as a child
+    /// of the specified parent node. The node_type_str can be:
+    /// - A tag name: "div", "p", "span", "button", etc.
+    /// - Text content: "text:Hello World"
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM to modify
+    /// * `parent_node_id` - The parent node to insert under
+    /// * `node_type_str` - The node type (tag name or "text:content")
+    /// * `position` - Optional child index (None = append at end)
+    /// * `classes` - CSS classes for the new node
+    /// * `id` - Optional ID for the new node
+    pub fn insert_child_node(
+        &mut self,
+        dom_id: DomId,
+        parent_node_id: NodeId,
+        node_type_str: AzString,
+        position: Option<usize>,
+        classes: Vec<AzString>,
+        id: Option<AzString>,
+    ) {
+        self.push_change(CallbackChange::InsertChildNode {
+            dom_id,
+            parent_node_id,
+            node_type_str,
+            position,
+            classes,
+            id,
+        });
+    }
+
+    /// Delete a node from the DOM tree (applied after callback returns)
+    ///
+    /// Tombstones the node by setting it to an empty anonymous Div and
+    /// unlinking it from the hierarchy. This preserves node ID stability
+    /// (other node IDs don't shift).
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the node
+    /// * `node_id` - The node to delete
+    pub fn delete_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::DeleteNode { dom_id, node_id });
+    }
+
+    /// Set the IDs and classes on an existing node (applied after callback returns)
+    ///
+    /// Replaces the current IDs and classes of a node with the given set.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the node
+    /// * `node_id` - The node to modify
+    /// * `ids_and_classes` - The new set of IDs and classes
+    pub fn set_node_ids_and_classes(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        ids_and_classes: azul_core::dom::IdOrClassVec,
+    ) {
+        self.push_change(CallbackChange::SetNodeIdsAndClasses {
+            dom_id,
+            node_id,
+            ids_and_classes,
+        });
     }
 
     /// Prevent the default text input from being applied

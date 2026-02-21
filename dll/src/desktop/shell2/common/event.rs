@@ -170,6 +170,71 @@ use rust_fontconfig::FcFontCache;
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 use crate::{log_debug, log_warn};
 
+/// Parse a node type string into a NodeType.
+/// Supports tag names ("div", "p", "span", "button", etc.)
+/// and text content ("text:Hello World").
+fn parse_node_type_from_str(s: &str) -> azul_core::dom::NodeType {
+    use azul_core::dom::NodeType;
+    if let Some(text) = s.strip_prefix("text:") {
+        return NodeType::Text(text.to_string().into());
+    }
+    match s.to_lowercase().as_str() {
+        "html" => NodeType::Html,
+        "head" => NodeType::Head,
+        "body" => NodeType::Body,
+        "div" => NodeType::Div,
+        "p" => NodeType::P,
+        "article" => NodeType::Article,
+        "section" => NodeType::Section,
+        "nav" => NodeType::Nav,
+        "aside" => NodeType::Aside,
+        "header" => NodeType::Header,
+        "footer" => NodeType::Footer,
+        "main" => NodeType::Main,
+        "h1" => NodeType::H1,
+        "h2" => NodeType::H2,
+        "h3" => NodeType::H3,
+        "h4" => NodeType::H4,
+        "h5" => NodeType::H5,
+        "h6" => NodeType::H6,
+        "br" => NodeType::Br,
+        "hr" => NodeType::Hr,
+        "pre" => NodeType::Pre,
+        "blockquote" => NodeType::BlockQuote,
+        "ul" => NodeType::Ul,
+        "ol" => NodeType::Ol,
+        "li" => NodeType::Li,
+        "table" => NodeType::Table,
+        "thead" => NodeType::THead,
+        "tbody" => NodeType::TBody,
+        "tr" => NodeType::Tr,
+        "th" => NodeType::Th,
+        "td" => NodeType::Td,
+        "form" => NodeType::Form,
+        "label" => NodeType::Label,
+        "input" => NodeType::Input,
+        "button" => NodeType::Button,
+        "select" => NodeType::Select,
+        "textarea" => NodeType::TextArea,
+        "span" => NodeType::Span,
+        "a" => NodeType::A,
+        "em" => NodeType::Em,
+        "strong" => NodeType::Strong,
+        "b" => NodeType::B,
+        "i" => NodeType::I,
+        "u" => NodeType::U,
+        "code" => NodeType::Code,
+        "img" | "image" => NodeType::Div, // image needs ImageRef, fallback to div
+        "canvas" => NodeType::Canvas,
+        "svg" => NodeType::Svg,
+        "details" => NodeType::Details,
+        "summary" => NodeType::Summary,
+        "figure" => NodeType::Figure,
+        "figcaption" => NodeType::FigCaption,
+        _ => NodeType::Div, // default to div for unknown tags
+    }
+}
+
 /// Maximum depth for recursive event processing (prevents infinite loops from callbacks)
 // Event Processing Configuration
 
@@ -1680,6 +1745,107 @@ pub trait PlatformWindow {
                     }
                 }
                 ProcessEventResult::DoNothing
+            }
+
+            // === DOM Mutation (Debug API) ===
+
+            CallbackChange::InsertChildNode {
+                dom_id, parent_node_id, node_type_str, position, classes, id,
+            } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let parent_idx = parent_node_id.index();
+                        if parent_idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            // Parse node_type_str into a NodeType
+                            let node_type = parse_node_type_from_str(node_type_str.as_str());
+
+                            // Build a Dom with the correct node type
+                            let mut dom = azul_core::dom::Dom::create_node(node_type);
+
+                            // Set classes and ID on the root
+                            if let Some(id_str) = id {
+                                dom = dom.with_id(id_str.clone());
+                            }
+                            for class in classes.iter() {
+                                dom = dom.with_class(class.clone());
+                            }
+
+                            // Style it (empty CSS = no styles, just creates StyledDom)
+                            let css = azul_css::css::Css::empty();
+                            let styled = azul_core::styled_dom::StyledDom::create(&mut dom, css);
+
+                            // Append to the parent
+                            match position {
+                                Some(pos) => layout_result.styled_dom.append_child_with_index(styled, *pos),
+                                None => layout_result.styled_dom.append_child(styled),
+                            }
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::DeleteNode { dom_id, node_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        let node_count = layout_result.styled_dom.node_data.as_ref().len();
+                        if idx < node_count && idx != 0 {
+                            // Tombstone: set node to empty Div and unlink from hierarchy
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_node_type(azul_core::dom::NodeType::Div);
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_ids_and_classes(Vec::new().into());
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_callbacks(Vec::new().into());
+
+                            // Unlink from hierarchy: connect prev sibling to next sibling
+                            let hierarchy = &mut layout_result.styled_dom.node_hierarchy;
+                            let prev_sib = hierarchy.as_container()[*node_id].previous_sibling_id();
+                            let next_sib = hierarchy.as_container()[*node_id].next_sibling_id();
+                            let parent = hierarchy.as_container()[*node_id].parent_id();
+
+                            // Connect prev → next
+                            if let Some(prev) = prev_sib {
+                                hierarchy.as_container_mut()[prev].next_sibling =
+                                    azul_core::id::NodeId::into_raw(&next_sib);
+                            } else if let Some(p) = parent {
+                                // This node was the first child — update parent's first-child
+                                // (last_child field actually stores first_child pointer in
+                                //  sibling-based encoding... we need to handle this via
+                                //  just tombstoning the hierarchy entry)
+                            }
+                            if let Some(next) = next_sib {
+                                hierarchy.as_container_mut()[next].previous_sibling =
+                                    azul_core::id::NodeId::into_raw(&prev_sib);
+                            } else if let Some(p) = parent {
+                                // This node was the last child — update parent's last_child
+                                hierarchy.as_container_mut()[p].last_child =
+                                    azul_core::id::NodeId::into_raw(&prev_sib);
+                            }
+
+                            // Zero out the deleted node's hierarchy pointers
+                            hierarchy.as_container_mut()[*node_id].parent = 0;
+                            hierarchy.as_container_mut()[*node_id].previous_sibling = 0;
+                            hierarchy.as_container_mut()[*node_id].next_sibling = 0;
+                            hierarchy.as_container_mut()[*node_id].last_child = 0;
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::SetNodeIdsAndClasses { dom_id, node_id, ids_and_classes } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_ids_and_classes(ids_and_classes.clone());
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
             }
         }
     }

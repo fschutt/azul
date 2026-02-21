@@ -548,8 +548,11 @@ const app = {
 
             var html = '';
 
-            // Header
-            html += '<div class="detail-section">';
+            // Top section: Node info + Box Model side by side
+            html += '<div class="detail-top-row">';
+
+            // Left: Node info
+            html += '<div class="detail-node-info">';
             html += '<div class="detail-section-header">Node #' + node.index + '</div>';
             html += '<div class="detail-row"><span class="detail-key">type</span><span class="detail-value">' + esc(node.type) + '</span></div>';
             if (node.tag) html += '<div class="detail-row"><span class="detail-key">tag</span><span class="detail-value">' + esc(node.tag) + '</span></div>';
@@ -560,11 +563,13 @@ const app = {
             if (node.contenteditable) html += '<div class="detail-row"><span class="detail-key">contenteditable</span><span class="detail-value">true</span></div>';
             html += '</div>';
 
-            // Box Model (Chrome-style) — placeholder, filled by async fetch
-            html += '<div id="node-box-model" class="detail-section">';
+            // Right: Box Model (Chrome-style) — placeholder, filled by async fetch
+            html += '<div id="node-box-model" class="detail-box-model-col">';
             html += '<div class="detail-section-header">Layout</div>';
             html += '<div class="placeholder-text">Loading...</div>';
             html += '</div>';
+
+            html += '</div>'; // detail-top-row
 
             // Events
             if (node.events && node.events.length) {
@@ -573,7 +578,7 @@ const app = {
                 node.events.forEach(function(ev) {
                     html += '<div class="event-row">';
                     html += '<span class="event-type">' + esc(ev.event) + '</span>';
-                    html += '<span class="event-ptr" title="Click to resolve" onclick="app.handlers.resolvePtr(\'' + esc(ev.callback_ptr) + '\')">' + esc(ev.callback_ptr) + '</span>';
+                    html += '<span class="event-ptr" title="Click to resolve" data-addr="' + esc(ev.callback_ptr) + '" onclick="app.handlers.resolvePtr(this)">' + esc(ev.callback_ptr) + '</span>';
                     html += '</div>';
                 });
                 html += '</div>';
@@ -933,36 +938,6 @@ const app = {
             }
             var node = app.state.hierarchy ? app.state.hierarchy.find(function(n) { return n.index === nodeId; }) : null;
             app.ui.renderNodeDetail(node);
-            this._renderPropertiesSidebar(node);
-        },
-
-        _renderPropertiesSidebar: async function(node) {
-            var container = document.getElementById('details-content');
-            if (!node) {
-                container.innerHTML = '<div class="placeholder-text">No node selected.</div>';
-                return;
-            }
-            var tag = (node.tag || node.type).toLowerCase();
-            var html = '<h4 style="margin-bottom:8px">Node #' + node.index + ' ' + esc(tag) + '</h4>';
-
-            if (node.rect) {
-                html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' +
-                    round(node.rect.width) + ' × ' + round(node.rect.height) + ' @ (' + round(node.rect.x) + ', ' + round(node.rect.y) + ')</div>';
-            }
-
-            html += '<div style="font-size:11px;margin-bottom:8px">' + (node.children ? node.children.length : 0) + ' children';
-            if (node.events && node.events.length) html += ', ' + node.events.length + ' event handler(s)';
-            html += '</div>';
-
-            if (node.events && node.events.length) {
-                html += '<div class="detail-section"><div class="detail-section-header">Events</div>';
-                node.events.forEach(function(ev) {
-                    html += '<div class="event-row"><span class="event-type">' + esc(ev.event) + '</span><span class="event-ptr" onclick="app.handlers.resolvePtr(\'' + esc(ev.callback_ptr) + '\')">' + esc(ev.callback_ptr) + '</span></div>';
-                });
-                html += '</div>';
-            }
-
-            container.innerHTML = html;
         },
 
         /* ── CSS editing (inline edit + add override) ── */
@@ -1023,11 +998,28 @@ const app = {
         },
 
         /* ── Resolve function pointer ── */
-        resolvePtr: async function(addr) {
+        resolvePtr: async function(el) {
+            var addr = el.dataset.addr || el.textContent;
             try {
                 var res = await app.api.post({ op: 'resolve_function_pointers', addresses: [addr] });
                 var resolved = (res.data && res.data.value) ? res.data.value : res.data;
-                app.log('Resolved ' + addr + ': ' + JSON.stringify(resolved), 'info');
+                var info = (resolved && resolved.resolved && resolved.resolved.length) ? resolved.resolved[0] : null;
+                if (info && info.symbol_name) {
+                    var displayName = info.symbol_name;
+                    var html = '<span class="resolved-symbol">' + esc(displayName) + '</span>';
+                    if (info.file_name) {
+                        var shortLib = info.file_name.split('/').pop();
+                        html += ' <span class="source-lib">(' + esc(shortLib) + ')</span>';
+                    }
+                    el.innerHTML = html;
+                    el.onclick = null; // Don't re-resolve
+                    el.title = JSON.stringify(info, null, 2);
+                    app.log('Resolved ' + addr + ' → ' + displayName, 'info');
+                } else {
+                    el.textContent = addr + ' (unresolved)';
+                    el.onclick = null;
+                    app.log('Could not resolve ' + addr, 'warning');
+                }
             } catch(e) {
                 app.log('Resolve failed: ' + e.message, 'error');
             }
@@ -1072,14 +1064,25 @@ const app = {
             }
         },
 
-        saveAppState: async function() {
-            if (app.state.appStateJson == null) {
-                app.log('No app state loaded. Click refresh first.', 'warning');
-                return;
-            }
+        /* Auto-save app state (called when user edits a value) */
+        _autoSaveAppState: async function() {
+            if (app.state.appStateJson == null) return;
             try {
                 var res = await app.api.post({ op: 'set_app_state', state: app.state.appStateJson });
-                app.log('App state saved: ' + res.status, res.status === 'ok' ? 'info' : 'error');
+                if (res.status === 'ok') {
+                    app.log('App state saved', 'info');
+                    // Refresh DOM + app state after state change
+                    setTimeout(function() {
+                        app.handlers.refreshSidebar();
+                        app.handlers.loadAppState();
+                        // Re-select current node if any
+                        if (app.state.selectedNodeId != null) {
+                            setTimeout(function() { app.handlers.nodeSelected(app.state.selectedNodeId); }, 200);
+                        }
+                    }, 100);
+                } else {
+                    app.log('App state save failed: ' + (res.message || JSON.stringify(res.data)), 'error');
+                }
             } catch(e) {
                 app.log('Save app state failed: ' + e.message, 'error');
             }
@@ -1258,13 +1261,13 @@ const app = {
             var fullPath = path ? (path + '.' + key) : key;
 
             if (value === null || value === undefined) {
-                this._addLeaf(container, key, '<span class="json-null">null</span>', depth);
+                this._addLeaf(container, key, '<span class="json-null">null</span>', depth, fullPath, 'null');
             } else if (typeof value === 'boolean') {
-                this._addLeaf(container, key, '<span class="json-bool">' + value + '</span>', depth);
+                this._addLeaf(container, key, '<span class="json-bool">' + value + '</span>', depth, fullPath, 'bool');
             } else if (typeof value === 'number') {
-                this._addLeaf(container, key, '<span class="json-number">' + value + '</span>', depth);
+                this._addLeaf(container, key, '<span class="json-number">' + value + '</span>', depth, fullPath, 'number');
             } else if (typeof value === 'string') {
-                this._addLeaf(container, key, '<span class="json-string">"' + esc(value) + '"</span>', depth);
+                this._addLeaf(container, key, '<span class="json-string">"' + esc(value) + '"</span>', depth, fullPath, 'string');
             } else if (Array.isArray(value)) {
                 this._addCollapsible(container, key, value, depth, fullPath, true);
             } else if (typeof value === 'object') {
@@ -1272,13 +1275,98 @@ const app = {
             }
         },
 
-        _addLeaf: function(container, key, valueHtml, depth) {
+        _addLeaf: function(container, key, valueHtml, depth, fullPath, valueType) {
             var row = document.createElement('div');
             row.className = 'json-row';
             row.style.paddingLeft = (depth * 14 + 8) + 'px';
             var keyHtml = key !== '' ? '<span class="json-key">' + esc(key) + '</span>: ' : '';
-            row.innerHTML = '<span class="json-toggle-icon">&nbsp;</span>' + keyHtml + valueHtml;
+
+            var valueSpan = document.createElement('span');
+            valueSpan.className = 'json-value-editable';
+            valueSpan.innerHTML = valueHtml;
+            valueSpan.title = 'Click to edit';
+            valueSpan.dataset.path = fullPath;
+            valueSpan.dataset.type = valueType;
+            valueSpan.addEventListener('click', function() {
+                app.json._startEdit(valueSpan, fullPath, valueType);
+            });
+
+            var rowInner = document.createElement('span');
+            rowInner.innerHTML = '<span class="json-toggle-icon">&nbsp;</span>' + keyHtml;
+            row.appendChild(rowInner);
+            row.appendChild(valueSpan);
             container.appendChild(row);
+        },
+
+        _startEdit: function(el, path, valueType) {
+            // Get current raw value from the app state JSON
+            var rawValue = this._getValueAtPath(app.state.appStateJson, path);
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'json-edit-input';
+            input.value = valueType === 'string' ? rawValue : JSON.stringify(rawValue);
+
+            el.innerHTML = '';
+            el.appendChild(input);
+            input.focus();
+            input.select();
+
+            var self = this;
+            var commit = function() {
+                var newValStr = input.value.trim();
+                var newVal;
+                if (valueType === 'string') {
+                    newVal = newValStr;
+                } else if (valueType === 'number') {
+                    newVal = parseFloat(newValStr);
+                    if (isNaN(newVal)) newVal = 0;
+                } else if (valueType === 'bool') {
+                    newVal = newValStr === 'true';
+                } else if (valueType === 'null') {
+                    newVal = newValStr === 'null' ? null : newValStr;
+                } else {
+                    try { newVal = JSON.parse(newValStr); } catch(e) { newVal = newValStr; }
+                }
+
+                // Update the app state JSON in memory
+                self._setValueAtPath(app.state.appStateJson, path, newVal);
+                // Re-render the tree
+                self.render('app-state-tree', app.state.appStateJson);
+                // Auto-save to server
+                app.handlers._autoSaveAppState();
+            };
+
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { commit(); }
+                if (e.key === 'Escape') {
+                    self.render('app-state-tree', app.state.appStateJson);
+                }
+            });
+        },
+
+        _getValueAtPath: function(obj, path) {
+            if (!path) return obj;
+            var parts = path.split('.');
+            var current = obj;
+            for (var i = 0; i < parts.length; i++) {
+                if (current == null) return undefined;
+                current = current[parts[i]];
+            }
+            return current;
+        },
+
+        _setValueAtPath: function(obj, path, value) {
+            if (!path) return;
+            var parts = path.split('.');
+            var current = obj;
+            for (var i = 0; i < parts.length - 1; i++) {
+                if (current == null) return;
+                current = current[parts[i]];
+            }
+            if (current != null) {
+                current[parts[parts.length - 1]] = value;
+            }
         },
 
         _addCollapsible: function(container, key, value, depth, path, isArray) {

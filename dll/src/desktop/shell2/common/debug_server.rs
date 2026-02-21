@@ -199,10 +199,6 @@ pub struct ResolvedFunctionPointer {
     pub symbol_name: Option<String>,
     /// The shared library / binary file that contains this symbol
     pub file_name: Option<String>,
-    /// Source file path (if debug info available)
-    pub source_file: Option<String>,
-    /// Source line number (if debug info available)
-    pub source_line: Option<u32>,
 }
 
 /// Response for GetComponentRegistry
@@ -3203,49 +3199,26 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
 struct ResolvedSymbolInfo {
     symbol_name: Option<String>,
     file_name: Option<String>,
-    source_file: Option<String>,
-    source_line: Option<u32>,
 }
 
-/// Resolve a function pointer address to a symbol name, library file,
-/// and source location (file + line) using the `backtrace` crate.
+/// Resolve a function pointer address to a symbol name and containing
+/// library/binary using `dladdr` (macOS/Linux) or Windows APIs.
 ///
-/// This is pure Rust and works on macOS, Linux, and Windows.
-/// Falls back gracefully: if debug info is unavailable, only symbol name
-/// and/or library file are returned. If nothing can be resolved, all
-/// fields are None.
+/// This runs inside the process so ASLR is not an issue — the runtime
+/// address is exactly what `dladdr` expects. No filesystem scanning,
+/// no `backtrace` crate — just a single syscall that returns instantly.
 #[cfg(feature = "std")]
 fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     if address == 0 {
         return ResolvedSymbolInfo {
             symbol_name: None,
             file_name: None,
-            source_file: None,
-            source_line: None,
         };
     }
 
     let mut symbol_name: Option<String> = None;
     let mut file_name: Option<String> = None;
-    let mut source_file: Option<String> = None;
-    let mut source_line: Option<u32> = None;
 
-    // Use backtrace crate to resolve symbol + source info
-    backtrace::resolve(address as *mut std::os::raw::c_void, |symbol| {
-        if let Some(name) = symbol.name() {
-            symbol_name = Some(format!("{}", name));
-        }
-        if let Some(filename) = symbol.filename() {
-            source_file = Some(filename.display().to_string());
-        }
-        if let Some(lineno) = symbol.lineno() {
-            source_line = Some(lineno);
-        }
-    });
-
-    // Also try to get the containing binary/library name via backtrace::Frame.
-    // The backtrace::resolve above doesn't give us the library file,
-    // so we fall back to dladdr / platform API for that.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use std::ffi::CStr;
@@ -3269,9 +3242,13 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
                 if !info.dli_fname.is_null() {
                     file_name = Some(CStr::from_ptr(info.dli_fname).to_string_lossy().into_owned());
                 }
-                // If backtrace didn't resolve the symbol, try dladdr's symbol
-                if symbol_name.is_none() && !info.dli_sname.is_null() {
-                    symbol_name = Some(CStr::from_ptr(info.dli_sname).to_string_lossy().into_owned());
+                if !info.dli_sname.is_null() {
+                    let raw = CStr::from_ptr(info.dli_sname).to_string_lossy().into_owned();
+                    // Strip leading underscore (macOS C name-mangling convention)
+                    let clean = raw.strip_prefix('_')
+                        .unwrap_or(&raw)
+                        .to_string();
+                    symbol_name = Some(clean);
                 }
             }
         }
@@ -3279,7 +3256,6 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
 
     #[cfg(target_os = "windows")]
     {
-        // On Windows, try to get module name for the address
         use std::ffi::OsString;
         use std::os::windows::ffi::OsStringExt;
 
@@ -3296,16 +3272,12 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
             ) -> u32;
         }
 
+        // Windows: SymFromAddr would resolve the symbol name but requires
+        // dbghelp.dll + SymInitialize. For now just get the module name.
         unsafe {
             let mut module = std::ptr::null_mut();
-            // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = 0x04
-            // GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT = 0x02
-            let flags = 0x04 | 0x02;
-            let ret = GetModuleHandleExW(
-                flags,
-                address as *const u16,
-                &mut module,
-            );
+            let flags = 0x04 | 0x02; // FROM_ADDRESS | UNCHANGED_REFCOUNT
+            let ret = GetModuleHandleExW(flags, address as *const u16, &mut module);
             if ret != 0 && !module.is_null() {
                 let mut buf = [0u16; 260];
                 let len = GetModuleFileNameW(module, buf.as_mut_ptr(), 260);
@@ -3323,8 +3295,6 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     ResolvedSymbolInfo {
         symbol_name,
         file_name,
-        source_file,
-        source_line,
     }
 }
 
@@ -4104,7 +4074,7 @@ fn process_debug_event(
             for prop_type in CssPropertyType::iter() {
                 if let Some(prop) = callback_info.get_computed_css_property(dom_node_id, prop_type)
                 {
-                    props.push(format!("{}: {:?}", prop_type.to_str(), prop));
+                    props.push(format!("{}: {}", prop.key(), prop.value()));
                 }
             }
 
@@ -6519,8 +6489,6 @@ fn process_debug_event(
                     address: addr_str.clone(),
                     symbol_name: info.symbol_name,
                     file_name: info.file_name,
-                    source_file: info.source_file,
-                    source_line: info.source_line,
                 });
             }
 

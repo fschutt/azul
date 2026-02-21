@@ -68,7 +68,6 @@
             <div class="sidebar-header">
                 <span>App State</span>
                 <div style="display:flex;gap:4px;align-items:center">
-                    <span class="material-icons clickable" style="font-size:14px" onclick="app.handlers.saveAppState()" title="Save to app">save</span>
                     <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.loadAppState()" title="Refresh">refresh</span>
                 </div>
             </div>
@@ -141,8 +140,13 @@
                         <button class="icon-btn" title="Step" onclick="app.runner.step()"><span class="material-icons">redo</span></button>
                         <button class="icon-btn danger" title="Reset" onclick="app.runner.reset()"><span class="material-icons">stop</span></button>
                     </div>
-                    <div id="steps-container" class="step-list">
-                        <div class="placeholder-text">No test selected.</div>
+                    <div style="display:flex; flex:1; overflow:hidden;">
+                        <div id="steps-container" class="step-list" style="flex:1; overflow:auto;">
+                            <div class="placeholder-text">No test selected.</div>
+                        </div>
+                        <div id="details-content" style="width:280px; overflow:auto; padding:10px; border-left:1px solid var(--border);">
+                            <div class="placeholder-text">Select a step to see details.</div>
+                        </div>
                     </div>
                     <div style="padding:10px; border-top:1px solid var(--border); flex-shrink:0;">
                         <button class="btn-primary" style="width:auto;" onclick="app.ui.showAddStepForm()">+ Add Step</button>
@@ -175,17 +179,7 @@
                 </div>
             </div>
         </div>
-        <div class="resizer" data-target="secondary-sidebar" data-min="150" data-max="500" data-side="right"></div>
 
-        <!-- Secondary Sidebar (Properties) -->
-        <div class="panel-col secondary-sidebar" id="secondary-sidebar" style="width:300px">
-            <div class="sidebar-header">Properties</div>
-            <div id="prop-panel" class="sidebar-content">
-                <div id="details-content" style="padding:10px;">
-                    <div class="placeholder-text">Select a node or test step.</div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Context Menu -->
