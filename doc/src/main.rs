@@ -5,6 +5,7 @@ use std::{env, fs, path::PathBuf};
 use anyhow::Context;
 use dllgen::deploy::Config;
 use reftest::RunRefTestsConfig;
+use serde::Serialize;
 
 pub mod api;
 pub mod autofix;
@@ -16,6 +17,16 @@ pub mod print;
 pub mod reftest;
 pub mod spec;
 pub mod utils;
+
+/// Serialize to pretty JSON with 4-space indentation (matching the original api.json format).
+fn to_json_pretty_4space<T: serde::Serialize>(value: &T) -> serde_json::Result<String> {
+    let mut buf = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+    value.serialize(&mut ser)?;
+    // serde_json always produces valid UTF-8
+    Ok(String::from_utf8(buf).unwrap())
+}
 
 fn main() -> anyhow::Result<()> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -56,7 +67,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
-            let api_json = serde_json::to_string_pretty(&api_data)?;
+            let api_json = to_json_pretty_4space(&api_data)?;
 
             // Only write if content actually changed
             if api_json != original_content {
@@ -72,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             let mut api_data = load_api_json(&api_path)?;
             let removed = patch::remove_duplicate_types(&mut api_data);
             if removed > 0 {
-                let api_json = serde_json::to_string_pretty(&api_data)?;
+                let api_json = to_json_pretty_4space(&api_data)?;
                 fs::write(&api_path, api_json)?;
                 println!("\n[OK] Removed {} duplicate types", removed);
                 println!("[SAVE] Saved updated api.json\n");
@@ -846,7 +857,7 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 // Save updated api.json
-                let api_json = serde_json::to_string_pretty(&api_data)?;
+                let api_json = to_json_pretty_4space(&api_data)?;
                 fs::write(&api_path, api_json)?;
                 println!("\n[SAVE] Saved updated api.json");
             }
@@ -895,7 +906,7 @@ fn main() -> anyhow::Result<()> {
 
             // Save updated api.json if any changes
             if stats.successful > 0 || stats.total_changes > 0 || az_renamed > 0 {
-                let api_json = serde_json::to_string_pretty(&api_data)?;
+                let api_json = to_json_pretty_4space(&api_data)?;
                 fs::write(&api_path, api_json)?;
                 println!("\n[SAVE] Saved updated api.json");
             }
@@ -907,7 +918,7 @@ fn main() -> anyhow::Result<()> {
 
             if empty_modules_removed > 0 {
                 println!("[OK] Removed {} empty modules", empty_modules_removed);
-                let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
+                let api_json = to_json_pretty_4space(&fresh_api_data)?;
                 fs::write(&api_path, api_json)?;
                 println!("\n[SAVE] Saved updated api.json");
             }
@@ -970,7 +981,7 @@ fn main() -> anyhow::Result<()> {
 
                 // Save updated api.json if any changes
                 if stats.successful > 0 || stats.total_changes > 0 || az_renamed > 0 {
-                    let api_json = serde_json::to_string_pretty(&api_data)?;
+                    let api_json = to_json_pretty_4space(&api_data)?;
                     fs::write(&api_path, api_json)?;
                     println!("\n[SAVE] Saved updated api.json");
                 }
@@ -988,7 +999,7 @@ fn main() -> anyhow::Result<()> {
 
                 if empty_modules_removed > 0 {
                     println!("[OK] Removed {} empty modules", empty_modules_removed);
-                    let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
+                    let api_json = to_json_pretty_4space(&fresh_api_data)?;
                     fs::write(&api_path, api_json)?;
                     println!("\n[SAVE] Saved updated api.json");
                 }
@@ -1032,7 +1043,7 @@ fn main() -> anyhow::Result<()> {
                         }
 
                         // Save updated api.json
-                        let api_json = serde_json::to_string_pretty(&api_data)?;
+                        let api_json = to_json_pretty_4space(&api_data)?;
                         fs::write(&api_path, api_json)?;
                         println!("[SAVE] Saved updated api.json\n");
 
@@ -1686,7 +1697,7 @@ fn generate_release_pages(
 
         // Generate api.json for this version
         if let Some(version_data) = api_data.get_version(version) {
-            let api_json = serde_json::to_string_pretty(&version_data)?;
+            let api_json = to_json_pretty_4space(&version_data)?;
             fs::write(version_dir.join("api.json"), &api_json)?;
             println!("  [OK] Generated: release/{}/api.json", version);
         }
