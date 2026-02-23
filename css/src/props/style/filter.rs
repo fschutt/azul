@@ -444,7 +444,7 @@ pub mod parser {
                 } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                     expected: *expected,
                     got: *got,
-                    input: input.to_string(),
+                    input: input.to_string().into(),
                 }),
             }
         }
@@ -457,7 +457,7 @@ pub mod parser {
                 Self::WrongNumberOfComponents(e) => CssStyleColorMatrixParseError::WrongNumberOfComponents {
                     expected: e.expected,
                     got: e.got,
-                    input: &e.input,
+                    input: e.input.as_str(),
                 },
             }
         }
@@ -501,7 +501,7 @@ pub mod parser {
                 } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                     expected: *expected,
                     got: *got,
-                    input: input.to_string(),
+                    input: input.to_string().into(),
                 }),
             }
         }
@@ -514,7 +514,7 @@ pub mod parser {
                 Self::WrongNumberOfComponents(e) => CssStyleFilterOffsetParseError::WrongNumberOfComponents {
                     expected: e.expected,
                     got: e.got,
-                    input: &e.input,
+                    input: e.input.as_str(),
                 },
             }
         }
@@ -569,7 +569,7 @@ pub mod parser {
                 } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                     expected: *expected,
                     got: *got,
-                    input: input.to_string(),
+                    input: input.to_string().into(),
                 }),
             }
         }
@@ -583,7 +583,7 @@ pub mod parser {
                 Self::WrongNumberOfComponents(e) => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
                     expected: e.expected,
                     got: e.got,
-                    input: &e.input,
+                    input: e.input.as_str(),
                 },
             }
         }

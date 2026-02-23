@@ -428,7 +428,7 @@ impl<'a> CssStyleTransformParseError<'a> {
             } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
-                input: input.to_string(),
+                input: input.to_string().into(),
             }),
             Self::NumberParseError(e) => {
                 CssStyleTransformParseErrorOwned::NumberParseError(e.clone().into())
@@ -456,7 +456,7 @@ impl CssStyleTransformParseErrorOwned {
             Self::WrongNumberOfComponents(e) => CssStyleTransformParseError::WrongNumberOfComponents {
                 expected: e.expected,
                 got: e.got,
-                input: &e.input,
+                input: e.input.as_str(),
             },
             Self::NumberParseError(e) => CssStyleTransformParseError::NumberParseError(e.to_std()),
             Self::PixelValueParseError(e) => {
@@ -506,7 +506,7 @@ impl<'a> CssStyleTransformOriginParseError<'a> {
             } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
-                input: input.to_string(),
+                input: input.to_string().into(),
             }),
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained())
@@ -521,7 +521,7 @@ impl CssStyleTransformOriginParseErrorOwned {
             Self::WrongNumberOfComponents(e) => CssStyleTransformOriginParseError::WrongNumberOfComponents {
                 expected: e.expected,
                 got: e.got,
-                input: &e.input,
+                input: e.input.as_str(),
             },
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseError::PixelValueParseError(e.to_shared())
@@ -564,7 +564,7 @@ impl<'a> CssStylePerspectiveOriginParseError<'a> {
             } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
-                input: input.to_string(),
+                input: input.to_string().into(),
             }),
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained())
@@ -579,7 +579,7 @@ impl CssStylePerspectiveOriginParseErrorOwned {
             Self::WrongNumberOfComponents(e) => CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
                 expected: e.expected,
                 got: e.got,
-                input: &e.input,
+                input: e.input.as_str(),
             },
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseError::PixelValueParseError(e.to_shared())

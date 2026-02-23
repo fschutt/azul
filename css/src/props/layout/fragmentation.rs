@@ -204,6 +204,7 @@ impl crate::format_rust_code::FormatAsRustCode for BoxDecorationBreak {
 pub mod parser {
     use super::*;
     use crate::corety::AzString;
+    use crate::props::layout::position::ParseIntErrorWithInput;
 
     // -- PageBreak parser (`break-before`, `break-after`)
 
@@ -320,15 +321,16 @@ pub mod parser {
             }}
 
             #[derive(Debug, Clone, PartialEq)]
+            #[repr(C, u8)]
             pub enum $error_owned_name {
-                ParseInt(AzString, AzString),
+                ParseInt(ParseIntErrorWithInput),
                 NegativeValue(AzString),
             }
 
             impl<'a> $error_name<'a> {
                 pub fn to_contained(&self) -> $error_owned_name {
                     match self {
-                        Self::ParseInt(e, s) => $error_owned_name::ParseInt(e.to_string().into(), s.to_string().into()),
+                        Self::ParseInt(e, s) => $error_owned_name::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() }),
                         Self::NegativeValue(s) => $error_owned_name::NegativeValue(s.to_string().into()),
                     }
                 }
@@ -338,7 +340,7 @@ pub mod parser {
                 pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
                      match self {
                         // Can't reconstruct ParseIntError
-                        Self::ParseInt(_e, s) => $error_name::NegativeValue(s),
+                        Self::ParseInt(e) => $error_name::NegativeValue(e.input.as_str()),
                         Self::NegativeValue(s) => $error_name::NegativeValue(s),
                     }
                 }

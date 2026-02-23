@@ -103,6 +103,7 @@ pub mod parser {
             }}
 
             #[derive(Debug, Clone, PartialEq)]
+            #[repr(C, u8)]
             pub enum $error_owned_name {
                 InvalidValue(AzString),
             }

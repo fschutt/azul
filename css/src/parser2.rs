@@ -2,12 +2,56 @@
 use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
 use core::{fmt, num::ParseIntError};
 
-pub use azul_simplecss::Error as CssSyntaxError;
+pub use azul_simplecss::Error as SimplecssError;
 use azul_simplecss::Tokenizer;
+
+/// FFI-safe position of a CSS syntax error.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct CssSyntaxErrorPos {
+    pub row: usize,
+    pub col: usize,
+}
+
+impl From<azul_simplecss::ErrorPos> for CssSyntaxErrorPos {
+    fn from(p: azul_simplecss::ErrorPos) -> Self {
+        CssSyntaxErrorPos { row: p.row, col: p.col }
+    }
+}
+
+/// FFI-safe wrapper for invalid advance details in CSS syntax errors.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct CssSyntaxInvalidAdvance {
+    pub expected: isize,
+    pub total: usize,
+    pub pos: CssSyntaxErrorPos,
+}
+
+/// FFI-safe CSS syntax error type, mirrors azul_simplecss::Error.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C, u8)]
+pub enum CssSyntaxError {
+    UnexpectedEndOfStream(CssSyntaxErrorPos),
+    InvalidAdvance(CssSyntaxInvalidAdvance),
+    UnsupportedToken(CssSyntaxErrorPos),
+    UnknownToken(CssSyntaxErrorPos),
+}
+
+impl From<SimplecssError> for CssSyntaxError {
+    fn from(e: SimplecssError) -> Self {
+        match e {
+            SimplecssError::UnexpectedEndOfStream(pos) => CssSyntaxError::UnexpectedEndOfStream(pos.into()),
+            SimplecssError::InvalidAdvance { expected, total, pos } => CssSyntaxError::InvalidAdvance(CssSyntaxInvalidAdvance { expected, total, pos: pos.into() }),
+            SimplecssError::UnsupportedToken(pos) => CssSyntaxError::UnsupportedToken(pos.into()),
+            SimplecssError::UnknownToken(pos) => CssSyntaxError::UnknownToken(pos.into()),
+        }
+    }
+}
 
 pub use crate::props::property::CssParsingError;
 use crate::{
-    corety::AzString,
+    corety::{AzString, OptionAzString},
     css::{
         Css, CssDeclaration, CssNthChildSelector, CssPath, CssPathPseudoSelector, CssPathSelector,
         CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
@@ -38,7 +82,7 @@ pub struct CssParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct CssParseErrorOwned {
-    pub css_string: String,
+    pub css_string: AzString,
     pub error: CssParseErrorInnerOwned,
     pub location: (ErrorLocation, ErrorLocation),
 }
@@ -46,7 +90,7 @@ pub struct CssParseErrorOwned {
 impl<'a> CssParseError<'a> {
     pub fn to_contained(&self) -> CssParseErrorOwned {
         CssParseErrorOwned {
-            css_string: self.css_string.to_string(),
+            css_string: self.css_string.to_string().into(),
             error: self.error.to_contained(),
             location: self.location.clone(),
         }
@@ -56,7 +100,7 @@ impl<'a> CssParseError<'a> {
 impl CssParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssParseError<'a> {
         CssParseError {
-            css_string: &self.css_string,
+            css_string: self.css_string.as_str(),
             error: self.error.to_shared(),
             location: self.location.clone(),
         }
@@ -105,8 +149,8 @@ pub enum CssParseErrorInner<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct UnknownPropertyKeyError {
-    pub key: String,
-    pub value: String,
+    pub key: AzString,
+    pub value: AzString,
 }
 
 /// Wrapper for VarOnShorthandProperty error.
@@ -114,7 +158,7 @@ pub struct UnknownPropertyKeyError {
 #[repr(C)]
 pub struct VarOnShorthandPropertyError {
     pub key: CombinedCssPropertyType,
-    pub value: String,
+    pub value: AzString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,12 +190,12 @@ impl<'a> CssParseErrorInner<'a> {
                 CssParseErrorInnerOwned::NodeTypeTag(e.to_contained())
             }
             CssParseErrorInner::UnknownPropertyKey(a, b) => {
-                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError { key: a.to_string(), value: b.to_string() })
+                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError { key: a.to_string().into(), value: b.to_string().into() })
             }
             CssParseErrorInner::VarOnShorthandProperty { key, value } => {
                 CssParseErrorInnerOwned::VarOnShorthandProperty(VarOnShorthandPropertyError {
                     key: key.clone(),
-                    value: value.to_string(),
+                    value: value.to_string().into(),
                 })
             }
         }
@@ -174,12 +218,12 @@ impl CssParseErrorInnerOwned {
                 CssParseErrorInner::NodeTypeTag(e.to_shared())
             }
             CssParseErrorInnerOwned::UnknownPropertyKey(e) => {
-                CssParseErrorInner::UnknownPropertyKey(&e.key, &e.value)
+                CssParseErrorInner::UnknownPropertyKey(e.key.as_str(), e.value.as_str())
             }
             CssParseErrorInnerOwned::VarOnShorthandProperty(e) => {
                 CssParseErrorInner::VarOnShorthandProperty {
                     key: e.key.clone(),
-                    value: &e.value,
+                    value: e.value.as_str(),
                 }
             }
         }
@@ -203,6 +247,12 @@ impl_display! { CssParseErrorInner<'a>, {
 impl<'a> From<CssSyntaxError> for CssParseErrorInner<'a> {
     fn from(e: CssSyntaxError) -> Self {
         CssParseErrorInner::ParseError(e)
+    }
+}
+
+impl<'a> From<SimplecssError> for CssParseErrorInner<'a> {
+    fn from(e: SimplecssError) -> Self {
+        CssParseErrorInner::ParseError(CssSyntaxError::from(e))
     }
 }
 
@@ -247,8 +297,8 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct UnknownSelectorError {
-    pub selector: String,
-    pub suggestion: Option<String>,
+    pub selector: AzString,
+    pub suggestion: OptionAzString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,8 +318,8 @@ impl<'a> CssPseudoSelectorParseError<'a> {
             }
             CssPseudoSelectorParseError::UnknownSelector(a, b) => {
                 CssPseudoSelectorParseErrorOwned::UnknownSelector(UnknownSelectorError {
-                    selector: a.to_string(),
-                    suggestion: b.map(|s| s.to_string()),
+                    selector: a.to_string().into(),
+                    suggestion: b.map(|s| AzString::from(s.to_string())).into(),
                 })
             }
             CssPseudoSelectorParseError::InvalidNthChildPattern(s) => {
@@ -289,7 +339,7 @@ impl CssPseudoSelectorParseErrorOwned {
                 CssPseudoSelectorParseError::EmptyNthChild
             }
             CssPseudoSelectorParseErrorOwned::UnknownSelector(e) => {
-                CssPseudoSelectorParseError::UnknownSelector(&e.selector, e.suggestion.as_deref())
+                CssPseudoSelectorParseError::UnknownSelector(e.selector.as_str(), e.suggestion.as_ref().map(|s| s.as_str()))
             }
             CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s) => {
                 CssPseudoSelectorParseError::InvalidNthChildPattern(s)
@@ -552,6 +602,12 @@ impl_from! { CssPseudoSelectorParseError<'a>, CssPathParseError::PseudoSelectorP
 impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
     fn from(e: CssSyntaxError) -> Self {
         CssPathParseError::SyntaxError(e)
+    }
+}
+
+impl<'a> From<SimplecssError> for CssPathParseError<'a> {
+    fn from(e: SimplecssError) -> Self {
+        CssPathParseError::SyntaxError(CssSyntaxError::from(e))
     }
 }
 

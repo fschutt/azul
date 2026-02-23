@@ -368,8 +368,8 @@ impl_display! { LayoutZIndexParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ParseIntErrorWithInput {
-    pub error: String,
-    pub input: String,
+    pub error: AzString,
+    pub input: AzString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -386,7 +386,7 @@ impl<'a> LayoutZIndexParseError<'a> {
                 LayoutZIndexParseErrorOwned::InvalidValue(s.to_string().into())
             }
             LayoutZIndexParseError::ParseInt(e, s) => {
-                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string(), input: s.to_string() })
+                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() })
             }
         }
     }

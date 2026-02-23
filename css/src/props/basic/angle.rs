@@ -199,7 +199,7 @@ impl_display! { CssAngleValueParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct AngleNoValueGivenError {
-    pub value: String,
+    pub value: AzString,
     pub metric: AngleMetric,
 }
 
@@ -217,10 +217,10 @@ impl<'a> CssAngleValueParseError<'a> {
         match self {
             CssAngleValueParseError::EmptyString => CssAngleValueParseErrorOwned::EmptyString,
             CssAngleValueParseError::NoValueGiven(s, metric) => {
-                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: s.to_string(), metric: *metric })
+                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: s.to_string().into(), metric: *metric })
             }
             CssAngleValueParseError::ValueParseErr(err, s) => {
-                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string() })
+                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string().into() })
             }
             CssAngleValueParseError::InvalidAngle(s) => {
                 CssAngleValueParseErrorOwned::InvalidAngle(s.to_string().into())

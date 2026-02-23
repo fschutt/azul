@@ -94,7 +94,7 @@ impl<'a> FlexGrowParseError<'a> {
     pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
         match self {
             FlexGrowParseError::ParseFloat(e, s) => {
-                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string() })
+                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string().into() })
             }
             FlexGrowParseError::NegativeValue(s) => {
                 FlexGrowParseErrorOwned::NegativeValue(s.to_string().into())
@@ -200,7 +200,7 @@ impl<'a> FlexShrinkParseError<'a> {
     pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
         match self {
             FlexShrinkParseError::ParseFloat(e, s) => {
-                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string() })
+                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string().into() })
             }
             FlexShrinkParseError::NegativeValue(s) => {
                 FlexShrinkParseErrorOwned::NegativeValue(s.to_string().into())

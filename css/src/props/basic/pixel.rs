@@ -739,7 +739,7 @@ impl_display! { CssPixelValueParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct PixelNoValueGivenError {
-    pub value: String,
+    pub value: AzString,
     pub metric: SizeMetric,
 }
 
@@ -758,10 +758,10 @@ impl<'a> CssPixelValueParseError<'a> {
         match self {
             CssPixelValueParseError::EmptyString => CssPixelValueParseErrorOwned::EmptyString,
             CssPixelValueParseError::NoValueGiven(s, metric) => {
-                CssPixelValueParseErrorOwned::NoValueGiven(PixelNoValueGivenError { value: s.to_string(), metric: *metric })
+                CssPixelValueParseErrorOwned::NoValueGiven(PixelNoValueGivenError { value: s.to_string().into(), metric: *metric })
             }
             CssPixelValueParseError::ValueParseErr(err, s) => {
-                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string() })
+                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string().into() })
             }
             CssPixelValueParseError::InvalidPixelValue(s) => {
                 CssPixelValueParseErrorOwned::InvalidPixelValue(s.to_string().into())

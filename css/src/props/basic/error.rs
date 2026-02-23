@@ -1,12 +1,14 @@
+use crate::corety::AzString;
+
 /// Simple "invalid value" error, used for basic parsing failures
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
-/// Owned version of InvalidValueErr with String.
+/// Owned version of InvalidValueErr with AzString.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct InvalidValueErrOwned {
-    pub value: String,
+    pub value: AzString,
 }
 
 /// C-compatible enum mirroring `core::num::ParseFloatError` internals.
@@ -132,7 +134,7 @@ impl From<core::num::ParseIntError> for ParseIntError {
 #[repr(C)]
 pub struct ParseFloatErrorWithInput {
     pub error: ParseFloatError,
-    pub input: String,
+    pub input: AzString,
 }
 
 /// Wrapper for WrongNumberOfComponents errors in CSS filter/transform parsing.
@@ -141,17 +143,17 @@ pub struct ParseFloatErrorWithInput {
 pub struct WrongComponentCountError {
     pub expected: usize,
     pub got: usize,
-    pub input: String,
+    pub input: AzString,
 }
 
 impl<'a> InvalidValueErr<'a> {
     pub fn to_contained(&self) -> InvalidValueErrOwned {
-        InvalidValueErrOwned { value: self.0.to_string() }
+        InvalidValueErrOwned { value: self.0.to_string().into() }
     }
 }
 
 impl InvalidValueErrOwned {
     pub fn to_shared<'a>(&'a self) -> InvalidValueErr<'a> {
-        InvalidValueErr(&self.value)
+        InvalidValueErr(self.value.as_str())
     }
 }

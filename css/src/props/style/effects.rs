@@ -238,7 +238,7 @@ pub mod parsers {
     #[repr(C)]
     pub struct PercentageParseErrorWithInput {
         pub error: PercentageParseError,
-        pub input: String,
+        pub input: AzString,
     }
 
     #[derive(Debug, Clone, PartialEq)]
@@ -252,7 +252,7 @@ pub mod parsers {
         pub fn to_contained(&self) -> OpacityParseErrorOwned {
             match self {
                 Self::ParsePercentage(err, s) => {
-                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: s.to_string() })
+                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: s.to_string().into() })
                 }
                 Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange(s.to_string().into()),
             }

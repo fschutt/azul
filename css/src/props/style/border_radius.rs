@@ -134,6 +134,7 @@ macro_rules! define_border_radius_parse_error {
         impl_from!(CssPixelValueParseError<'a>, $error_name::PixelValue);
 
         #[derive(Debug, Clone, PartialEq)]
+        #[repr(C, u8)]
         pub enum $error_name_owned {
             PixelValue(CssPixelValueParseErrorOwned),
         }

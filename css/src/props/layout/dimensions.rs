@@ -414,6 +414,7 @@ pub mod parser {
             impl_from! { CssPixelValueParseError<'a>, $error_name::PixelValue }
 
             #[derive(Debug, Clone, PartialEq)]
+            #[repr(C, u8)]
             pub enum $error_owned_name {
                 PixelValue(CssPixelValueParseErrorOwned),
             }
