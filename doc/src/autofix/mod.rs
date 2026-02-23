@@ -1290,6 +1290,18 @@ pub enum FfiSafetyWarningKind {
         /// The type name that is referenced but not defined
         referenced_type: String,
     },
+    /// Type alias uses generic_args (e.g. `Vec<ComponentArgument>`) which is not FFI-safe
+    /// unless both the target type and all generic args are defined in api.json.
+    /// If the target (e.g. `CssPropertyValue`) and all args are in api.json, this is
+    /// informational only. Otherwise, use the concrete type from impl_vec!/impl_option!.
+    GenericTypeAlias {
+        target: String,
+        generic_args: Vec<String>,
+        /// Whether the target type (e.g. CssPropertyValue) is defined in api.json
+        target_in_api: bool,
+        /// Whether all generic_args types are defined in api.json
+        all_args_in_api: bool,
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -1330,6 +1342,12 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::AngleBracketInType { .. } => true,
             // Critical - referenced type not defined in api.json
             FfiSafetyWarningKind::UndefinedTypeReference { .. } => true,
+            // Generic type aliases are only critical if the target or args are NOT in api.json.
+            // e.g. Vec<ComponentArgument> is critical (Vec not in api.json),
+            // but CssPropertyValue<StyleBackgroundContent> is fine (both in api.json).
+            FfiSafetyWarningKind::GenericTypeAlias { target_in_api, all_args_in_api, .. } => {
+                !target_in_api || !all_args_in_api
+            }
         }
     }
 }
@@ -1859,6 +1877,30 @@ pub fn check_ffi_safety(
 
                 // --- Type alias checks ---
                 if let Some(ta) = &class_def.type_alias {
+                    // Check: generic_args should not be used - type aliases
+                    // with generic args produce invalid types like AzVec<T>.
+                    // Use the concrete type from impl_vec!/impl_option! instead.
+                    if !ta.generic_args.is_empty() {
+                        let target_in_api = api_types.contains(&ta.target);
+                        let is_known_type = |t: &str| -> bool {
+                            api_types.contains(t) || matches!(t,
+                                "u8" | "u16" | "u32" | "u64" | "u128" |
+                                "i8" | "i16" | "i32" | "i64" | "i128" |
+                                "f32" | "f64" | "bool" | "usize" | "isize"
+                            )
+                        };
+                        let all_args_in_api = ta.generic_args.iter().all(|arg| is_known_type(arg));
+                        warnings.push(FfiSafetyWarning {
+                            type_name: class_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::GenericTypeAlias {
+                                target: ta.target.clone(),
+                                generic_args: ta.generic_args.clone(),
+                                target_in_api,
+                                all_args_in_api,
+                            },
+                        });
+                    }
                     // Check target type for angle brackets
                     if ta.target.contains('<') {
                         warnings.push(FfiSafetyWarning {
@@ -2268,6 +2310,39 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 "FIX:".cyan(),
                 referenced_type
             );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::GenericTypeAlias { target, generic_args, target_in_api, all_args_in_api } => {
+            let display = format!("{}<{}>", target, generic_args.join(", "));
+            if *target_in_api && *all_args_in_api {
+                // Non-critical: both target and args are in api.json
+                println!("  {} {}", "⚠".yellow(), warning.type_name.white());
+                println!(
+                    "    {} type_alias uses generic type: {} (target and args in api.json - OK)",
+                    "→".dimmed(),
+                    display.yellow()
+                );
+            } else {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!(
+                    "    {} type_alias uses generic type: {}",
+                    "→".dimmed(),
+                    display.yellow()
+                );
+                if !target_in_api {
+                    println!(
+                        "    {} Target type '{}' is not defined in api.json. Use impl_vec!/impl_option! to generate a concrete type.",
+                        "FIX:".cyan(),
+                        target
+                    );
+                }
+                if !all_args_in_api {
+                    println!(
+                        "    {} Some generic args are not defined in api.json. Ensure all arg types are in api.json or use concrete types.",
+                        "FIX:".cyan()
+                    );
+                }
+            }
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
     }
