@@ -429,14 +429,14 @@ pub mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum CssStyleColorMatrixParseErrorOwned {
-        Float(ParseFloatError),
+        Float(crate::props::basic::error::ParseFloatError),
         WrongNumberOfComponents(WrongComponentCountError),
     }
 
     impl<'a> CssStyleColorMatrixParseError<'a> {
         pub fn to_contained(&self) -> CssStyleColorMatrixParseErrorOwned {
             match self {
-                Self::Float(e) => CssStyleColorMatrixParseErrorOwned::Float(e.clone()),
+                Self::Float(e) => CssStyleColorMatrixParseErrorOwned::Float(e.clone().into()),
                 Self::WrongNumberOfComponents {
                     expected,
                     got,
@@ -453,7 +453,7 @@ pub mod parser {
     impl CssStyleColorMatrixParseErrorOwned {
         pub fn to_shared<'a>(&'a self) -> CssStyleColorMatrixParseError<'a> {
             match self {
-                Self::Float(e) => CssStyleColorMatrixParseError::Float(e.clone()),
+                Self::Float(e) => CssStyleColorMatrixParseError::Float(e.to_std()),
                 Self::WrongNumberOfComponents(e) => CssStyleColorMatrixParseError::WrongNumberOfComponents {
                     expected: e.expected,
                     got: e.got,
@@ -551,7 +551,7 @@ pub mod parser {
     #[repr(C, u8)]
     pub enum CssStyleCompositeFilterParseErrorOwned {
         Invalid(InvalidValueErrOwned),
-        Float(ParseFloatError),
+        Float(crate::props::basic::error::ParseFloatError),
         WrongNumberOfComponents(WrongComponentCountError),
     }
 
@@ -561,7 +561,7 @@ pub mod parser {
                 Self::Invalid(e) => {
                     CssStyleCompositeFilterParseErrorOwned::Invalid(e.to_contained())
                 }
-                Self::Float(e) => CssStyleCompositeFilterParseErrorOwned::Float(e.clone()),
+                Self::Float(e) => CssStyleCompositeFilterParseErrorOwned::Float(e.clone().into()),
                 Self::WrongNumberOfComponents {
                     expected,
                     got,
@@ -579,7 +579,7 @@ pub mod parser {
         pub fn to_shared<'a>(&'a self) -> CssStyleCompositeFilterParseError<'a> {
             match self {
                 Self::Invalid(e) => CssStyleCompositeFilterParseError::Invalid(e.to_shared()),
-                Self::Float(e) => CssStyleCompositeFilterParseError::Float(e.clone()),
+                Self::Float(e) => CssStyleCompositeFilterParseError::Float(e.to_std()),
                 Self::WrongNumberOfComponents(e) => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
                     expected: e.expected,
                     got: e.got,

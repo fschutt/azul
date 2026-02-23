@@ -285,13 +285,18 @@ pub fn parse_float_value(input: &str) -> Result<FloatValue, ParseFloatError> {
 #[derive(Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PercentageParseError {
-    ValueParseErr(ParseFloatError),
+    ValueParseErr(crate::props::basic::error::ParseFloatError),
     NoPercentSign,
     InvalidUnit(AzString),
 }
 
 impl_debug_as_display!(PercentageParseError);
-impl_from!(ParseFloatError, PercentageParseError::ValueParseErr);
+
+impl From<ParseFloatError> for PercentageParseError {
+    fn from(e: ParseFloatError) -> Self {
+        PercentageParseError::ValueParseErr(crate::props::basic::error::ParseFloatError::from(e))
+    }
+}
 
 impl_display! { PercentageParseError, {
     ValueParseErr(e) => format!("\"{}\"", e),
@@ -302,7 +307,7 @@ impl_display! { PercentageParseError, {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PercentageParseErrorOwned {
-    ValueParseErr(ParseFloatError),
+    ValueParseErr(crate::props::basic::error::ParseFloatError),
     NoPercentSign,
     InvalidUnit(AzString),
 }
@@ -310,7 +315,7 @@ pub enum PercentageParseErrorOwned {
 impl PercentageParseError {
     pub fn to_contained(&self) -> PercentageParseErrorOwned {
         match self {
-            Self::ValueParseErr(e) => PercentageParseErrorOwned::ValueParseErr(e.clone()),
+            Self::ValueParseErr(e) => PercentageParseErrorOwned::ValueParseErr(*e),
             Self::NoPercentSign => PercentageParseErrorOwned::NoPercentSign,
             Self::InvalidUnit(u) => PercentageParseErrorOwned::InvalidUnit(u.clone()),
         }
@@ -320,7 +325,7 @@ impl PercentageParseError {
 impl PercentageParseErrorOwned {
     pub fn to_shared(&self) -> PercentageParseError {
         match self {
-            Self::ValueParseErr(e) => PercentageParseError::ValueParseErr(e.clone()),
+            Self::ValueParseErr(e) => PercentageParseError::ValueParseErr(*e),
             Self::NoPercentSign => PercentageParseError::NoPercentSign,
             Self::InvalidUnit(u) => PercentageParseError::InvalidUnit(u.clone()),
         }
@@ -333,7 +338,7 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
 
     if input.is_empty() {
         return Err(PercentageParseError::ValueParseErr(
-            "empty string".parse::<f32>().unwrap_err(),
+            crate::props::basic::error::ParseFloatError::from("empty string".parse::<f32>().unwrap_err()),
         ));
     }
 
@@ -348,7 +353,7 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
 
     if !found_numeric {
         return Err(PercentageParseError::ValueParseErr(
-            "no numeric value".parse::<f32>().unwrap_err(),
+            crate::props::basic::error::ParseFloatError::from("no numeric value".parse::<f32>().unwrap_err()),
         ));
     }
 
@@ -358,7 +363,7 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
     let mut number = input[..split_pos]
         .trim()
         .parse::<f32>()
-        .map_err(|e| PercentageParseError::ValueParseErr(e))?;
+        .map_err(|e| PercentageParseError::ValueParseErr(crate::props::basic::error::ParseFloatError::from(e)))?;
 
     match unit {
         "" => {

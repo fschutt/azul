@@ -761,7 +761,7 @@ impl<'a> CssPixelValueParseError<'a> {
                 CssPixelValueParseErrorOwned::NoValueGiven(PixelNoValueGivenError { value: s.to_string(), metric: *metric })
             }
             CssPixelValueParseError::ValueParseErr(err, s) => {
-                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone(), input: s.to_string() })
+                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string() })
             }
             CssPixelValueParseError::InvalidPixelValue(s) => {
                 CssPixelValueParseErrorOwned::InvalidPixelValue(s.to_string().into())
@@ -778,7 +778,7 @@ impl CssPixelValueParseErrorOwned {
                 CssPixelValueParseError::NoValueGiven(e.value.as_str(), e.metric)
             }
             CssPixelValueParseErrorOwned::ValueParseErr(e) => {
-                CssPixelValueParseError::ValueParseErr(e.error.clone(), e.input.as_str())
+                CssPixelValueParseError::ValueParseErr(e.error.to_std(), e.input.as_str())
             }
             CssPixelValueParseErrorOwned::InvalidPixelValue(s) => {
                 CssPixelValueParseError::InvalidPixelValue(s.as_str())

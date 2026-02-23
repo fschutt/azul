@@ -257,7 +257,7 @@ pub enum CssPseudoSelectorParseErrorOwned {
     EmptyNthChild,
     UnknownSelector(UnknownSelectorError),
     InvalidNthChildPattern(AzString),
-    InvalidNthChild(ParseIntError),
+    InvalidNthChild(crate::props::basic::error::ParseIntError),
 }
 
 impl<'a> CssPseudoSelectorParseError<'a> {
@@ -276,7 +276,7 @@ impl<'a> CssPseudoSelectorParseError<'a> {
                 CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string().into())
             }
             CssPseudoSelectorParseError::InvalidNthChild(e) => {
-                CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone())
+                CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone().into())
             }
         }
     }
@@ -295,7 +295,7 @@ impl CssPseudoSelectorParseErrorOwned {
                 CssPseudoSelectorParseError::InvalidNthChildPattern(s)
             }
             CssPseudoSelectorParseErrorOwned::InvalidNthChild(e) => {
-                CssPseudoSelectorParseError::InvalidNthChild(e.clone())
+                CssPseudoSelectorParseError::InvalidNthChild(e.to_std())
             }
         }
     }

@@ -94,7 +94,7 @@ impl<'a> FlexGrowParseError<'a> {
     pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
         match self {
             FlexGrowParseError::ParseFloat(e, s) => {
-                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone(), input: s.to_string() })
+                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string() })
             }
             FlexGrowParseError::NegativeValue(s) => {
                 FlexGrowParseErrorOwned::NegativeValue(s.to_string().into())
@@ -108,7 +108,7 @@ impl FlexGrowParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> FlexGrowParseError<'a> {
         match self {
             FlexGrowParseErrorOwned::ParseFloat(e) => {
-                FlexGrowParseError::ParseFloat(e.error.clone(), e.input.as_str())
+                FlexGrowParseError::ParseFloat(e.error.to_std(), e.input.as_str())
             }
             FlexGrowParseErrorOwned::NegativeValue(s) => {
                 FlexGrowParseError::NegativeValue(s.as_str())
@@ -200,7 +200,7 @@ impl<'a> FlexShrinkParseError<'a> {
     pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
         match self {
             FlexShrinkParseError::ParseFloat(e, s) => {
-                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone(), input: s.to_string() })
+                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string() })
             }
             FlexShrinkParseError::NegativeValue(s) => {
                 FlexShrinkParseErrorOwned::NegativeValue(s.to_string().into())
@@ -214,7 +214,7 @@ impl FlexShrinkParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> FlexShrinkParseError<'a> {
         match self {
             FlexShrinkParseErrorOwned::ParseFloat(e) => {
-                FlexShrinkParseError::ParseFloat(e.error.clone(), e.input.as_str())
+                FlexShrinkParseError::ParseFloat(e.error.to_std(), e.input.as_str())
             }
             FlexShrinkParseErrorOwned::NegativeValue(s) => {
                 FlexShrinkParseError::NegativeValue(s.as_str())

@@ -15506,6 +15506,49 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ParseFloatError": {
+                        "external": "azul_css::props::basic::error::ParseFloatError",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Empty": {},
+                                "Invalid": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ParseIntError": {
+                        "external": "azul_css::props::basic::error::ParseIntError",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Empty": {},
+                                "InvalidDigit": {},
+                                "PosOverflow": {},
+                                "NegOverflow": {},
+                                "Zero": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -31253,10 +31296,7 @@
                     },
                     "CssStyleBorderRadiusParseErrorOwned": {
                         "external": "azul_css::props::style::border_radius::CssStyleBorderRadiusParseErrorOwned",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "CssBorderRadiusParseErrorOwned"
-                        }
+                        "repr": "C"
                     },
                     "AlignContentParseErrorOwned": {
                         "external": "azul_css::props::layout::flex::AlignContentParseErrorOwned",
@@ -32713,10 +32753,7 @@
                     },
                     "CssBorderParseErrorOwned": {
                         "external": "azul_css::props::style::border::CssBorderParseErrorOwned",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "CssBorderSideParseErrorOwned"
-                        }
+                        "repr": "C"
                     }
                 }
             },
@@ -82491,10 +82528,7 @@
                     },
                     "ComponentArgumentType": {
                         "external": "azul_core::xml::ComponentArgumentType",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "String"
-                        }
+                        "repr": "C"
                     },
                     "ComponentDataModel": {
                         "external": "azul_core::xml::ComponentDataModel",
@@ -82552,10 +82586,7 @@
                     },
                     "ComponentArgumentName": {
                         "external": "azul_core::xml::ComponentArgumentName",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "String"
-                        }
+                        "repr": "C"
                     },
                     "CssColorComponent": {
                         "external": "azul_css::props::basic::color::CssColorComponent",
@@ -82716,9 +82747,6 @@
                                 "types": {
                                     "type": "ComponentArgumentTypes"
                                 },
-                                "values": {
-                                    "type": "BTreeMap<String, String>"
-                                },
                                 "accepts_text": {
                                     "type": "bool"
                                 }
@@ -82781,11 +82809,7 @@
                             "Default"
                         ],
                         "struct_fields": [
-                            {
-                                "components": {
-                                    "type": "BTreeMap<String, XmlComponent>"
-                                }
-                            }
+                            {}
                         ],
                         "repr": "C"
                     },

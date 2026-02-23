@@ -1,11 +1,9 @@
 //! CSS property types for color.
 
 use alloc::string::{String, ToString};
-use core::{
-    fmt,
-    num::{ParseFloatError, ParseIntError},
-};
+use core::fmt;
 use crate::corety::AzString;
+use crate::props::basic::error::{ParseFloatError, ParseIntError};
 
 use crate::{
     impl_option,
@@ -976,6 +974,16 @@ impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
         CssColorParseError::FloatValueParseErr(e)
     }
 }
+impl<'a> From<core::num::ParseIntError> for CssColorParseError<'a> {
+    fn from(e: core::num::ParseIntError) -> Self {
+        CssColorParseError::IntValueParseErr(ParseIntError::from(e))
+    }
+}
+impl<'a> From<core::num::ParseFloatError> for CssColorParseError<'a> {
+    fn from(e: core::num::ParseFloatError) -> Self {
+        CssColorParseError::FloatValueParseErr(ParseFloatError::from(e))
+    }
+}
 impl_from!(
     CssDirectionParseError<'a>,
     CssColorParseError::DirectionParseError
@@ -1012,10 +1020,10 @@ impl<'a> CssColorParseError<'a> {
                 CssColorParseErrorOwned::InvalidColorComponent(*n)
             }
             CssColorParseError::IntValueParseErr(e) => {
-                CssColorParseErrorOwned::IntValueParseErr(e.clone())
+                CssColorParseErrorOwned::IntValueParseErr(e.clone().into())
             }
             CssColorParseError::FloatValueParseErr(e) => {
-                CssColorParseErrorOwned::FloatValueParseErr(e.clone())
+                CssColorParseErrorOwned::FloatValueParseErr(e.clone().into())
             }
             CssColorParseError::FloatValueOutOfRange(n) => {
                 CssColorParseErrorOwned::FloatValueOutOfRange(*n)

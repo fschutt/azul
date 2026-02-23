@@ -255,7 +255,7 @@ impl_from! { CssAngleValueParseError<'a>, CssDirectionParseError::AngleError }
 pub enum CssDirectionParseErrorOwned {
     Error(AzString),
     InvalidArguments(AzString),
-    ParseFloat(ParseFloatError),
+    ParseFloat(crate::props::basic::error::ParseFloatError),
     CornerError(CssDirectionCornerParseErrorOwned),
     AngleError(CssAngleValueParseErrorOwned),
 }
@@ -268,7 +268,7 @@ impl<'a> CssDirectionParseError<'a> {
                 CssDirectionParseErrorOwned::InvalidArguments(s.to_string().into())
             }
             CssDirectionParseError::ParseFloat(e) => {
-                CssDirectionParseErrorOwned::ParseFloat(e.clone())
+                CssDirectionParseErrorOwned::ParseFloat(e.clone().into())
             }
             CssDirectionParseError::CornerError(e) => {
                 CssDirectionParseErrorOwned::CornerError(e.to_contained())
@@ -288,7 +288,7 @@ impl CssDirectionParseErrorOwned {
                 CssDirectionParseError::InvalidArguments(s.as_str())
             }
             CssDirectionParseErrorOwned::ParseFloat(e) => {
-                CssDirectionParseError::ParseFloat(e.clone())
+                CssDirectionParseError::ParseFloat(e.to_std())
             }
             CssDirectionParseErrorOwned::CornerError(e) => {
                 CssDirectionParseError::CornerError(e.to_shared())

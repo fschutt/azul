@@ -406,7 +406,7 @@ pub enum CssStyleTransformParseErrorOwned {
     InvalidTransform(AzString),
     InvalidParenthesis(ParenthesisParseErrorOwned),
     WrongNumberOfComponents(WrongComponentCountError),
-    NumberParseError(core::num::ParseFloatError),
+    NumberParseError(crate::props::basic::error::ParseFloatError),
     PixelValueParseError(CssPixelValueParseErrorOwned),
     AngleValueParseError(CssAngleValueParseErrorOwned),
     PercentageValueParseError(PercentageParseError),
@@ -431,7 +431,7 @@ impl<'a> CssStyleTransformParseError<'a> {
                 input: input.to_string(),
             }),
             Self::NumberParseError(e) => {
-                CssStyleTransformParseErrorOwned::NumberParseError(e.clone())
+                CssStyleTransformParseErrorOwned::NumberParseError(e.clone().into())
             }
             Self::PixelValueParseError(e) => {
                 CssStyleTransformParseErrorOwned::PixelValueParseError(e.to_contained())
@@ -458,7 +458,7 @@ impl CssStyleTransformParseErrorOwned {
                 got: e.got,
                 input: &e.input,
             },
-            Self::NumberParseError(e) => CssStyleTransformParseError::NumberParseError(e.clone()),
+            Self::NumberParseError(e) => CssStyleTransformParseError::NumberParseError(e.to_std()),
             Self::PixelValueParseError(e) => {
                 CssStyleTransformParseError::PixelValueParseError(e.to_shared())
             }

@@ -220,7 +220,7 @@ impl<'a> CssAngleValueParseError<'a> {
                 CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: s.to_string(), metric: *metric })
             }
             CssAngleValueParseError::ValueParseErr(err, s) => {
-                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone(), input: s.to_string() })
+                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string() })
             }
             CssAngleValueParseError::InvalidAngle(s) => {
                 CssAngleValueParseErrorOwned::InvalidAngle(s.to_string().into())
@@ -237,7 +237,7 @@ impl CssAngleValueParseErrorOwned {
                 CssAngleValueParseError::NoValueGiven(e.value.as_str(), e.metric)
             }
             CssAngleValueParseErrorOwned::ValueParseErr(e) => {
-                CssAngleValueParseError::ValueParseErr(e.error.clone(), e.input.as_str())
+                CssAngleValueParseError::ValueParseErr(e.error.to_std(), e.input.as_str())
             }
             CssAngleValueParseErrorOwned::InvalidAngle(s) => {
                 CssAngleValueParseError::InvalidAngle(s.as_str())

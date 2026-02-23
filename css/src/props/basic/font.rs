@@ -424,14 +424,14 @@ impl<'a> From<ParseIntError> for CssFontWeightParseError<'a> {
 #[repr(C, u8)]
 pub enum CssFontWeightParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
-    InvalidNumber(ParseIntError),
+    InvalidNumber(crate::props::basic::error::ParseIntError),
 }
 
 impl<'a> CssFontWeightParseError<'a> {
     pub fn to_contained(&self) -> CssFontWeightParseErrorOwned {
         match self {
             Self::InvalidValue(e) => CssFontWeightParseErrorOwned::InvalidValue(e.to_contained()),
-            Self::InvalidNumber(e) => CssFontWeightParseErrorOwned::InvalidNumber(e.clone()),
+            Self::InvalidNumber(e) => CssFontWeightParseErrorOwned::InvalidNumber(e.clone().into()),
         }
     }
 }
@@ -440,7 +440,7 @@ impl CssFontWeightParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssFontWeightParseError<'a> {
         match self {
             Self::InvalidValue(e) => CssFontWeightParseError::InvalidValue(e.to_shared()),
-            Self::InvalidNumber(e) => CssFontWeightParseError::InvalidNumber(e.clone()),
+            Self::InvalidNumber(e) => CssFontWeightParseError::InvalidNumber(e.to_std()),
         }
     }
 }
