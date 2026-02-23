@@ -1611,57 +1611,21 @@ pub enum CompileTarget {
     Python,
 }
 
-/// FFI-safe result type for `Result<StyledDom, RenderDomError>`.
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum ResultStyledDomRenderDomError {
-    Ok(StyledDom),
-    Err(RenderDomError),
-}
+impl_result!(
+    StyledDom,
+    RenderDomError,
+    ResultStyledDomRenderDomError,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
-impl From<Result<StyledDom, RenderDomError>> for ResultStyledDomRenderDomError {
-    fn from(r: Result<StyledDom, RenderDomError>) -> Self {
-        match r {
-            Ok(v) => ResultStyledDomRenderDomError::Ok(v),
-            Err(e) => ResultStyledDomRenderDomError::Err(e),
-        }
-    }
-}
-
-impl Into<Result<StyledDom, RenderDomError>> for ResultStyledDomRenderDomError {
-    fn into(self) -> Result<StyledDom, RenderDomError> {
-        match self {
-            ResultStyledDomRenderDomError::Ok(v) => Ok(v),
-            ResultStyledDomRenderDomError::Err(e) => Err(e),
-        }
-    }
-}
-
-/// FFI-safe result type for `Result<String, CompileError>`.
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum ResultStringCompileError {
-    Ok(String),
-    Err(CompileError),
-}
-
-impl From<Result<String, CompileError>> for ResultStringCompileError {
-    fn from(r: Result<String, CompileError>) -> Self {
-        match r {
-            Ok(v) => ResultStringCompileError::Ok(v),
-            Err(e) => ResultStringCompileError::Err(e),
-        }
-    }
-}
-
-impl Into<Result<String, CompileError>> for ResultStringCompileError {
-    fn into(self) -> Result<String, CompileError> {
-        match self {
-            ResultStringCompileError::Ok(v) => Ok(v),
-            ResultStringCompileError::Err(e) => Err(e),
-        }
-    }
-}
+impl_result!(
+    AzString,
+    CompileError,
+    ResultStringCompileError,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Render function type: takes component definition + arguments, returns StyledDom
 pub type ComponentRenderFn = fn(
@@ -1669,7 +1633,7 @@ pub type ComponentRenderFn = fn(
     &XmlComponentMap,
     &FilteredComponentArguments,
     &OptionString,
-) -> Result<StyledDom, RenderDomError>;
+) -> ResultStyledDomRenderDomError;
 
 /// Compile function type: takes component definition + target language + context, returns source code
 pub type ComponentCompileFn = fn(
@@ -1679,7 +1643,7 @@ pub type ComponentCompileFn = fn(
     &FilteredComponentArguments,
     &OptionString,
     indent: usize,
-) -> Result<String, CompileError>;
+) -> ResultStringCompileError;
 
 /// Raw function pointer type that returns a single ComponentDef when called.
 /// Used as the `cb` field in `RegisterComponentFn`.
@@ -1866,7 +1830,7 @@ fn builtin_render_fn(
     _components: &XmlComponentMap,
     _args: &FilteredComponentArguments,
     text: &OptionString,
-) -> Result<StyledDom, RenderDomError> {
+) -> ResultStyledDomRenderDomError {
     let node_type: NodeType = Option::from(def.node_type.clone()).unwrap_or(NodeType::Div);
     let mut dom = Dom::create_node(node_type);
     if let Some(text_str) = text.as_ref() {
@@ -1875,7 +1839,8 @@ fn builtin_render_fn(
             dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
         }
     }
-    Ok(dom.style(Css::empty()))
+    let r: Result<StyledDom, RenderDomError> = Ok(dom.style(Css::empty()));
+    r.into()
 }
 
 /// Default compile function for builtin HTML elements.
@@ -1887,20 +1852,20 @@ fn builtin_compile_fn(
     _args: &FilteredComponentArguments,
     text: &OptionString,
     indent: usize,
-) -> Result<String, CompileError> {
+) -> ResultStringCompileError {
     let node_type: NodeType = Option::from(def.node_type.clone()).unwrap_or(NodeType::Div);
     let type_name = format!("{:?}", node_type); // "Div", "Body", "P", etc.
 
-    match target {
+    let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
             if let Some(text_str) = text.as_ref() {
                 Ok(format!(
                     "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
                     type_name,
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ))
+                ).into())
             } else {
-                Ok(format!("Dom::create_node(NodeType::{})", type_name))
+                Ok(format!("Dom::create_node(NodeType::{})", type_name).into())
             }
         }
         CompileTarget::C => {
@@ -1908,18 +1873,19 @@ fn builtin_compile_fn(
                 Ok(format!(
                     "AzDom_createText(AzString_fromConstStr(\"{}\"))",
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ))
+                ).into())
             } else {
-                Ok(format!("AzDom_create{}()", type_name))
+                Ok(format!("AzDom_create{}()", type_name).into())
             }
         }
         CompileTarget::Cpp => {
-            Ok(format!("Dom::create_{}()", type_name.to_lowercase()))
+            Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into())
         }
         CompileTarget::Python => {
-            Ok(format!("Dom.{}()", type_name.to_lowercase()))
+            Ok(format!("Dom.{}()", type_name.to_lowercase()).into())
         }
-    }
+    };
+    r.into()
 }
 
 /// Default render function for user-defined (JSON-imported) components.
@@ -1929,7 +1895,7 @@ pub fn user_defined_render_fn(
     _components: &XmlComponentMap,
     _args: &FilteredComponentArguments,
     text: &OptionString,
-) -> Result<StyledDom, RenderDomError> {
+) -> ResultStyledDomRenderDomError {
     let mut dom = Dom::create_node(NodeType::Div);
     if let Some(text_str) = text.as_ref() {
         let prepared = prepare_string(text_str);
@@ -1937,7 +1903,8 @@ pub fn user_defined_render_fn(
             dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
         }
     }
-    Ok(dom.style(Css::empty()))
+    let r: Result<StyledDom, RenderDomError> = Ok(dom.style(Css::empty()));
+    r.into()
 }
 
 /// Default compile function for user-defined (JSON-imported) components.
@@ -1949,17 +1916,17 @@ pub fn user_defined_compile_fn(
     _args: &FilteredComponentArguments,
     text: &OptionString,
     indent: usize,
-) -> Result<String, CompileError> {
+) -> ResultStringCompileError {
     let tag = def.id.name.as_str();
-    match target {
+    let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
             if let Some(text_str) = text.as_ref() {
                 Ok(format!(
                     "Dom::create_node(NodeType::Div).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ))
+                ).into())
             } else {
-                Ok(format!("Dom::create_node(NodeType::Div) /* {} */", tag))
+                Ok(format!("Dom::create_node(NodeType::Div) /* {} */", tag).into())
             }
         }
         CompileTarget::C => {
@@ -1967,18 +1934,19 @@ pub fn user_defined_compile_fn(
                 Ok(format!(
                     "AzDom_createText(AzString_fromConstStr(\"{}\"))",
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ))
+                ).into())
             } else {
-                Ok(format!("AzDom_createDiv() /* {} */", tag))
+                Ok(format!("AzDom_createDiv() /* {} */", tag).into())
             }
         }
         CompileTarget::Cpp => {
-            Ok(format!("Dom::create_div() /* {} */", tag))
+            Ok(format!("Dom::create_div() /* {} */", tag).into())
         }
         CompileTarget::Python => {
-            Ok(format!("Dom.div() # {}", tag))
+            Ok(format!("Dom.div() # {}", tag).into())
         }
-    }
+    };
+    r.into()
 }
 
 /// Create a ComponentDef for a builtin HTML element
