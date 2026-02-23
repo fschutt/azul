@@ -130,7 +130,6 @@ pub struct ComponentArgument {
 }
 
 pub type ComponentArgumentTypes = Vec<ComponentArgument>;
-pub type XmlComponentVec = Vec<XmlComponent>;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
 
@@ -2186,6 +2185,10 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
 
 /// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponentTrait {
+    /// Clone this trait object into a new Box.
+    /// Required so that `XmlComponent` (and by extension `XmlComponentVec`) can be `Clone`.
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait>;
+
     /// Returns the type ID of this component, default = `div`
     fn get_type_id(&self) -> String {
         "div".to_string()
@@ -2443,6 +2446,16 @@ pub struct XmlComponent {
     pub inherit_vars: bool,
 }
 
+impl Clone for XmlComponent {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            renderer: self.renderer.clone_box(),
+            inherit_vars: self.inherit_vars,
+        }
+    }
+}
+
 impl core::fmt::Debug for XmlComponent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("XmlComponent")
@@ -2452,6 +2465,12 @@ impl core::fmt::Debug for XmlComponent {
             .finish()
     }
 }
+
+impl_option!(XmlComponent, OptionXmlComponent, copy = false, clone = false, [Debug]);
+impl_vec!(XmlComponent, XmlComponentVec, XmlComponentVecDestructor, XmlComponentVecDestructorType, XmlComponentVecSlice, OptionXmlComponent);
+impl_vec_clone!(XmlComponent, XmlComponentVec, XmlComponentVecDestructor);
+impl_vec_mut!(XmlComponent, XmlComponentVec);
+impl_vec_debug!(XmlComponent, XmlComponentVec);
 
 /// Holds all XML components - builtin components
 #[repr(C)]
@@ -2464,7 +2483,7 @@ pub struct XmlComponentMap {
 impl Default for XmlComponentMap {
     fn default() -> Self {
         let mut map = Self {
-            components: Vec::new(),
+            components: XmlComponentVec::new(),
         };
 
         // Structural elements
@@ -3068,6 +3087,10 @@ macro_rules! html_component {
         }
 
         impl XmlComponentTrait for $name {
+            fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+                Box::new(self.clone())
+            }
+
             fn get_available_arguments(&self) -> ComponentArguments {
                 ComponentArguments {
                     args: ComponentArgumentTypes::default(),
@@ -3177,6 +3200,10 @@ impl DivRenderer {
 }
 
 impl XmlComponentTrait for DivRenderer {
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+        Box::new(self.clone())
+    }
+
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
@@ -3219,6 +3246,10 @@ impl BodyRenderer {
 }
 
 impl XmlComponentTrait for BodyRenderer {
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+        Box::new(self.clone())
+    }
+
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
@@ -3261,6 +3292,10 @@ impl BrRenderer {
 }
 
 impl XmlComponentTrait for BrRenderer {
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+        Box::new(self.clone())
+    }
+
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
@@ -3312,6 +3347,10 @@ impl IconRenderer {
 }
 
 impl XmlComponentTrait for IconRenderer {
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+        Box::new(self.clone())
+    }
+
     fn get_available_arguments(&self) -> ComponentArguments {
         let mut args = ComponentArgumentTypes::default();
         args.push(ComponentArgument { name: "name".to_string(), arg_type: "String".to_string() });
@@ -3371,6 +3410,10 @@ impl TextRenderer {
 }
 
 impl XmlComponentTrait for TextRenderer {
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+        Box::new(self.clone())
+    }
+
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments {
             args: ComponentArgumentTypes::default(),
@@ -5573,6 +5616,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
 /// Component that was created from a XML node (instead of being registered from Rust code).
 /// Necessary to
+#[derive(Clone)]
 pub struct DynamicXmlComponent {
     /// What the name of this component is, i.e. "test" for `<component name="test" />`
     pub name: String,
@@ -5616,6 +5660,10 @@ impl DynamicXmlComponent {
 }
 
 impl XmlComponentTrait for DynamicXmlComponent {
+    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
+        Box::new(self.clone())
+    }
+
     fn get_available_arguments(&self) -> ComponentArguments {
         self.arguments.clone()
     }

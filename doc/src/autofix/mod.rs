@@ -1252,6 +1252,35 @@ pub enum FfiSafetyWarningKind {
         location: String,       // e.g., "return type" or "field 'foo'"
         full_type: String,      // e.g., "Result<(), Error>"
     },
+    /// Field uses BTreeMap or HashMap which is not FFI-safe.
+    /// Replace with Vec-based pair type (e.g., StringPairVec).
+    BTreeMapOrHashMapField {
+        field_name: String,
+        map_type: String,
+    },
+    /// struct_fields is empty `[{}]` — struct has no fields exposed to FFI.
+    /// Either add fields or remove from api.json.
+    EmptyStructFields,
+    /// Type reference uses `Result<T, E>` which is not repr(C).
+    /// Create a custom `ResultTE` enum instead.
+    ResultTypeReference {
+        location: String,
+        result_type: String,
+    },
+    /// Type reference uses a tuple `(A, B)` which has no stable ABI.
+    /// Create a wrapper struct instead.
+    TupleTypeReference {
+        location: String,
+        tuple_type: String,
+    },
+    /// Type name contains `<` — raw generic syntax like `Vec<T>` or `Option<T>`
+    /// is not allowed. Use `impl_vec!` / `impl_option!` macros and reference
+    /// the generated wrapper type instead. Generic args go in the `generic_args`
+    /// field of `type_alias` in api.json.
+    AngleBracketInType {
+        location: String,
+        raw_type: String,
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -1280,6 +1309,16 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::TupleStruct => true,
             // Critical - () is not FFI-safe, use Void instead
             FfiSafetyWarningKind::UnitTypeInSignature { .. } => true,
+            // Critical - BTreeMap/HashMap not repr(C)
+            FfiSafetyWarningKind::BTreeMapOrHashMapField { .. } => true,
+            // Critical - empty struct_fields means broken type
+            FfiSafetyWarningKind::EmptyStructFields => true,
+            // Critical - Result<T, E> not repr(C)
+            FfiSafetyWarningKind::ResultTypeReference { .. } => true,
+            // Critical - tuples have no stable ABI
+            FfiSafetyWarningKind::TupleTypeReference { .. } => true,
+            // Critical - raw generics like Vec<T> not allowed, use impl_vec!/impl_option!
+            FfiSafetyWarningKind::AngleBracketInType { .. } => true,
         }
     }
 }
@@ -1697,6 +1736,161 @@ pub fn check_ffi_safety(
                             },
                         });
                     }
+
+                    // Check 2: Empty struct_fields [{}] — broken type with no fields
+                    let all_empty = struct_fields.iter().all(|m| m.is_empty());
+                    if all_empty && !struct_fields.is_empty() {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: class_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::EmptyStructFields,
+                        });
+                    }
+
+                    // Check 3: Fields using BTreeMap/HashMap, Result<>, or tuple types
+                    for field_map in struct_fields {
+                        for (field_name, field_data) in field_map {
+                            let ty = &field_data.r#type;
+                            if ty.contains("BTreeMap") || ty.contains("HashMap") {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::BTreeMapOrHashMapField {
+                                        field_name: field_name.clone(),
+                                        map_type: ty.clone(),
+                                    },
+                                });
+                            }
+                            if ty.starts_with("Result<") {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::ResultTypeReference {
+                                        location: format!("field '{}'", field_name),
+                                        result_type: ty.clone(),
+                                    },
+                                });
+                            }
+                            if ty.starts_with('(') && ty.ends_with(')') && ty.contains(',') {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::TupleTypeReference {
+                                        location: format!("field '{}'", field_name),
+                                        tuple_type: ty.clone(),
+                                    },
+                                });
+                            }
+                            if ty.contains('<') {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::AngleBracketInType {
+                                        location: format!("field '{}'", field_name),
+                                        raw_type: ty.clone(),
+                                    },
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // --- Callback typedef checks ---
+                if let Some(cb) = &class_def.callback_typedef {
+                    if let Some(ret) = &cb.returns {
+                        let ty = &ret.r#type;
+                        if ty.starts_with("Result<") {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::ResultTypeReference {
+                                    location: "callback return type".to_string(),
+                                    result_type: ty.clone(),
+                                },
+                            });
+                        }
+                        if ty.starts_with('(') && ty.ends_with(')') && ty.contains(',') {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::TupleTypeReference {
+                                    location: "callback return type".to_string(),
+                                    tuple_type: ty.clone(),
+                                },
+                            });
+                        }
+                        if ty.contains('<') {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::AngleBracketInType {
+                                    location: "callback return type".to_string(),
+                                    raw_type: ty.clone(),
+                                },
+                            });
+                        }
+                    }
+                    // Check callback arg types for angle brackets
+                    for arg in &cb.fn_args {
+                        let aty = &arg.r#type;
+                        if aty.contains('<') {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::AngleBracketInType {
+                                    location: format!("callback arg '{}'", aty),
+                                    raw_type: aty.clone(),
+                                },
+                            });
+                        }
+                    }
+                }
+
+                // --- Type alias checks ---
+                if let Some(ta) = &class_def.type_alias {
+                    // Check target type for angle brackets
+                    if ta.target.contains('<') {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: class_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::AngleBracketInType {
+                                location: "type_alias target".to_string(),
+                                raw_type: ta.target.clone(),
+                            },
+                        });
+                    }
+                    for arg in &ta.generic_args {
+                        if arg.starts_with('(') && arg.ends_with(')') && arg.contains(',') {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::TupleTypeReference {
+                                    location: "type_alias generic_arg".to_string(),
+                                    tuple_type: arg.clone(),
+                                },
+                            });
+                        }
+                        if arg.contains("BTreeMap") || arg.contains("HashMap") {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::BTreeMapOrHashMapField {
+                                    field_name: "generic_arg".to_string(),
+                                    map_type: arg.clone(),
+                                },
+                            });
+                        }
+                        if arg.contains('<') {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::AngleBracketInType {
+                                    location: "type_alias generic_arg".to_string(),
+                                    raw_type: arg.clone(),
+                                },
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -1978,6 +2172,74 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!(
                 "    {} Use 'Void' instead. E.g., `Result<Void, Error>` instead of `Result<(), Error>`.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::BTreeMapOrHashMapField { field_name, map_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} Field '{}' uses map type: {}",
+                "→".dimmed(),
+                field_name.yellow(),
+                map_type.yellow()
+            );
+            println!(
+                "    {} BTreeMap/HashMap is not repr(C). Replace with Vec-based pair type.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::EmptyStructFields => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} Struct has empty struct_fields [{{}}] — no fields exposed to FFI.",
+                "→".dimmed()
+            );
+            println!(
+                "    {} Add fields or remove the type from api.json.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::ResultTypeReference { location, result_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} uses Result type: {}",
+                "→".dimmed(),
+                location.cyan(),
+                result_type.yellow()
+            );
+            println!(
+                "    {} Result<T,E> is not repr(C). Create a custom ResultTE enum.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::TupleTypeReference { location, tuple_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} uses tuple type: {}",
+                "→".dimmed(),
+                location.cyan(),
+                tuple_type.yellow()
+            );
+            println!(
+                "    {} Tuples have no stable ABI. Create a wrapper struct with named fields.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::AngleBracketInType { location, raw_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} uses raw generic type: {}",
+                "→".dimmed(),
+                location.cyan(),
+                raw_type.yellow()
+            );
+            println!(
+                "    {} Types with '<' are not FFI-safe. Use impl_vec!/impl_option! and put generic args in the 'generic_args' field.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
