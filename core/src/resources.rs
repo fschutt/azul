@@ -415,6 +415,7 @@ impl AppConfig {
                 exportable: true,
                 modifiable: true,
                 data_models: crate::xml::ComponentDataModelVec::from_const_slice(&[]),
+                enum_models: crate::xml::ComponentEnumModelVec::from_const_slice(&[]),
             });
         }
 

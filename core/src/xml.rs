@@ -34,7 +34,7 @@ use azul_css::{
     format_rust_code::VecContents,
     parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
-        basic::StyleFontFamilyVec,
+        basic::{ColorU, StyleFontFamilyVec},
         property::CssProperty,
         style::{
             NormalizedLinearColorStopVec, NormalizedRadialColorStopVec, StyleBackgroundContentVec,
@@ -1193,27 +1193,332 @@ impl_vec_debug!(ComponentCallbackSlot, ComponentCallbackSlotVec);
 impl_vec_partialeq!(ComponentCallbackSlot, ComponentCallbackSlotVec);
 impl_vec_clone!(ComponentCallbackSlot, ComponentCallbackSlotVec, ComponentCallbackSlotVecDestructor);
 
-/// A field in the component's internal data model.
+// ============================================================================
+// Component type system — rich type descriptors for component fields
+// ============================================================================
+
+/// A single argument in a callback signature.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentCallbackArg {
+    /// Argument name, e.g. "button_id"
+    pub name: AzString,
+    /// Argument type
+    pub arg_type: ComponentFieldType,
+}
+
+impl_vec!(ComponentCallbackArg, ComponentCallbackArgVec, ComponentCallbackArgVecDestructor, ComponentCallbackArgVecDestructorType, ComponentCallbackArgVecSlice, OptionComponentCallbackArg);
+impl_option!(ComponentCallbackArg, OptionComponentCallbackArg, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec_debug!(ComponentCallbackArg, ComponentCallbackArgVec);
+impl_vec_partialeq!(ComponentCallbackArg, ComponentCallbackArgVec);
+impl_vec_eq!(ComponentCallbackArg, ComponentCallbackArgVec);
+impl_vec_partialord!(ComponentCallbackArg, ComponentCallbackArgVec);
+impl_vec_ord!(ComponentCallbackArg, ComponentCallbackArgVec);
+impl_vec_hash!(ComponentCallbackArg, ComponentCallbackArgVec);
+impl_vec_clone!(ComponentCallbackArg, ComponentCallbackArgVec, ComponentCallbackArgVecDestructor);
+
+/// Callback signature: return type + argument list.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentCallbackSignature {
+    /// Return type name, e.g. "Update"
+    pub return_type: AzString,
+    /// Callback arguments (excluding the implicit `&mut RefAny` and `&mut CallbackInfo`)
+    pub args: ComponentCallbackArgVec,
+}
+
+/// Heap-allocated box for recursive `ComponentFieldType` (e.g. `Option<String>`).
+/// Uses raw pointer indirection to break the infinite size.
+#[repr(C)]
+pub struct ComponentFieldTypeBox {
+    pub ptr: *mut ComponentFieldType,
+}
+
+impl ComponentFieldTypeBox {
+    pub fn new(t: ComponentFieldType) -> Self {
+        Self { ptr: Box::into_raw(Box::new(t)) }
+    }
+
+    pub fn as_ref(&self) -> &ComponentFieldType {
+        unsafe { &*self.ptr }
+    }
+}
+
+impl Clone for ComponentFieldTypeBox {
+    fn clone(&self) -> Self {
+        Self::new(unsafe { (*self.ptr).clone() })
+    }
+}
+
+impl Drop for ComponentFieldTypeBox {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe { let _ = Box::from_raw(self.ptr); }
+        }
+    }
+}
+
+impl fmt::Debug for ComponentFieldTypeBox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.ptr.is_null() {
+            write!(f, "ComponentFieldTypeBox(null)")
+        } else {
+            write!(f, "ComponentFieldTypeBox({:?})", unsafe { &*self.ptr })
+        }
+    }
+}
+
+impl PartialEq for ComponentFieldTypeBox {
+    fn eq(&self, other: &Self) -> bool {
+        if self.ptr.is_null() && other.ptr.is_null() { return true; }
+        if self.ptr.is_null() || other.ptr.is_null() { return false; }
+        unsafe { *self.ptr == *other.ptr }
+    }
+}
+
+impl Eq for ComponentFieldTypeBox {}
+
+impl PartialOrd for ComponentFieldTypeBox {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ComponentFieldTypeBox {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self.ptr.is_null(), other.ptr.is_null()) {
+            (true, true) => core::cmp::Ordering::Equal,
+            (true, false) => core::cmp::Ordering::Less,
+            (false, true) => core::cmp::Ordering::Greater,
+            (false, false) => unsafe { (*self.ptr).cmp(&*other.ptr) },
+        }
+    }
+}
+
+impl core::hash::Hash for ComponentFieldTypeBox {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        if !self.ptr.is_null() {
+            unsafe { (*self.ptr).hash(state); }
+        }
+    }
+}
+
+/// Rich type descriptor for a component field.
+/// Replaces the old `AzString` type names ("String", "bool", etc.) with
+/// a structured enum that the debugger can use for type-aware editing.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum ComponentFieldType {
+    String,
+    Bool,
+    I32,
+    I64,
+    U32,
+    U64,
+    Usize,
+    F32,
+    F64,
+    ColorU,
+    CssProperty,
+    ImageRef,
+    FontRef,
+    /// StyledDom slot — field name = slot name
+    StyledDom,
+    /// Callback with typed signature
+    Callback { signature: ComponentCallbackSignature },
+    /// RefAny data binding with type hint
+    RefAny { type_hint: AzString },
+    /// Optional value (recursive via Box)
+    OptionType { inner: ComponentFieldTypeBox },
+    /// Vec of values (recursive via Box)
+    VecType { inner: ComponentFieldTypeBox },
+    /// Reference to a struct defined in the same library
+    StructRef { name: AzString },
+    /// Reference to an enum defined in the same library
+    EnumRef { name: AzString },
+}
+
+/// A single variant in a component enum model.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ComponentEnumVariant {
+    /// Variant name, e.g. "Admin", "Editor", "Viewer"
+    pub name: AzString,
+    /// Optional associated fields for this variant
+    pub fields: ComponentDataFieldVec,
+}
+
+impl_vec!(ComponentEnumVariant, ComponentEnumVariantVec, ComponentEnumVariantVecDestructor, ComponentEnumVariantVecDestructorType, ComponentEnumVariantVecSlice, OptionComponentEnumVariant);
+impl_option!(ComponentEnumVariant, OptionComponentEnumVariant, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_vec_debug!(ComponentEnumVariant, ComponentEnumVariantVec);
+impl_vec_partialeq!(ComponentEnumVariant, ComponentEnumVariantVec);
+impl_vec_partialord!(ComponentEnumVariant, ComponentEnumVariantVec);
+impl_vec_clone!(ComponentEnumVariant, ComponentEnumVariantVec, ComponentEnumVariantVecDestructor);
+
+/// A named enum model for code generation.
+/// Stored in `ComponentLibrary::enum_models`.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ComponentEnumModel {
+    /// Enum name, e.g. "UserRole"
+    pub name: AzString,
+    /// Human-readable description
+    pub description: AzString,
+    /// Variants
+    pub variants: ComponentEnumVariantVec,
+}
+
+impl_vec!(ComponentEnumModel, ComponentEnumModelVec, ComponentEnumModelVecDestructor, ComponentEnumModelVecDestructorType, ComponentEnumModelVecSlice, OptionComponentEnumModel);
+impl_option!(ComponentEnumModel, OptionComponentEnumModel, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_vec_debug!(ComponentEnumModel, ComponentEnumModelVec);
+impl_vec_partialeq!(ComponentEnumModel, ComponentEnumModelVec);
+impl_vec_partialord!(ComponentEnumModel, ComponentEnumModelVec);
+impl_vec_clone!(ComponentEnumModel, ComponentEnumModelVec, ComponentEnumModelVecDestructor);
+
+/// Default value for a component field.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum ComponentDefaultValue {
+    /// No default value (field is required)
+    None,
+    /// String literal default
+    String(AzString),
+    /// Boolean default
+    Bool(bool),
+    /// i32 default
+    I32(i32),
+    /// i64 default
+    I64(i64),
+    /// u32 default
+    U32(u32),
+    /// u64 default
+    U64(u64),
+    /// usize default
+    Usize(usize),
+    /// f32 default
+    F32(f32),
+    /// f64 default
+    F64(f64),
+    /// ColorU default
+    ColorU(ColorU),
+    /// Default is an instance of another component
+    ComponentInstance(ComponentInstanceDefault),
+    /// Default callback function pointer name
+    CallbackFnPointer(AzString),
+}
+
+impl_option!(ComponentDefaultValue, OptionComponentDefaultValue, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+
+/// Default component instance for a StyledDom slot.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentInstanceDefault {
+    /// Library name, e.g. "builtin"
+    pub library: AzString,
+    /// Component tag, e.g. "a"
+    pub component: AzString,
+    /// Field overrides for this instance
+    pub field_overrides: ComponentFieldOverrideVec,
+}
+
+/// An override for a single field in a component instance.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentFieldOverride {
+    /// Field name to override
+    pub field_name: AzString,
+    /// Value source for this override
+    pub source: ComponentFieldValueSource,
+}
+
+impl_vec!(ComponentFieldOverride, ComponentFieldOverrideVec, ComponentFieldOverrideVecDestructor, ComponentFieldOverrideVecDestructorType, ComponentFieldOverrideVecSlice, OptionComponentFieldOverride);
+impl_option!(ComponentFieldOverride, OptionComponentFieldOverride, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec_debug!(ComponentFieldOverride, ComponentFieldOverrideVec);
+impl_vec_partialeq!(ComponentFieldOverride, ComponentFieldOverrideVec);
+impl_vec_eq!(ComponentFieldOverride, ComponentFieldOverrideVec);
+impl_vec_partialord!(ComponentFieldOverride, ComponentFieldOverrideVec);
+impl_vec_ord!(ComponentFieldOverride, ComponentFieldOverrideVec);
+impl_vec_hash!(ComponentFieldOverride, ComponentFieldOverrideVec);
+impl_vec_clone!(ComponentFieldOverride, ComponentFieldOverrideVec, ComponentFieldOverrideVecDestructor);
+
+/// How a field value is sourced at the instance level.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum ComponentFieldValueSource {
+    /// Use the component's default value
+    Default,
+    /// Hardcoded literal value
+    Literal(AzString),
+    /// Bound to an app state path (e.g. "app_state.user.name")
+    Binding(AzString),
+}
+
+/// Runtime value for a component field — the "instance" counterpart
+/// to `ComponentFieldType` (which is the "class" / type descriptor).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ComponentFieldValue {
+    String(AzString),
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    U32(u32),
+    U64(u64),
+    Usize(usize),
+    F32(f32),
+    F64(f64),
+    ColorU(ColorU),
+    /// Option<T> with no value
+    None,
+    /// StyledDom slot content
+    StyledDom(StyledDom),
+    /// Struct fields, in order
+    Struct(ComponentFieldNamedValueVec),
+    /// Enum variant
+    Enum { variant: AzString, fields: ComponentFieldNamedValueVec },
+}
+
+/// Named field value: (field_name, value) pair.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct ComponentFieldNamedValue {
+    pub name: AzString,
+    pub value: ComponentFieldValue,
+}
+
+impl_vec!(ComponentFieldNamedValue, ComponentFieldNamedValueVec, ComponentFieldNamedValueVecDestructor, ComponentFieldNamedValueVecDestructorType, ComponentFieldNamedValueVecSlice, OptionComponentFieldNamedValue);
+impl_option!(ComponentFieldNamedValue, OptionComponentFieldNamedValue, copy = false, [Debug, Clone, PartialEq]);
+impl_vec_debug!(ComponentFieldNamedValue, ComponentFieldNamedValueVec);
+impl_vec_partialeq!(ComponentFieldNamedValue, ComponentFieldNamedValueVec);
+impl_vec_clone!(ComponentFieldNamedValue, ComponentFieldNamedValueVec, ComponentFieldNamedValueVecDestructor);
+
+impl_vec!(ComponentFieldValue, ComponentFieldValueVec, ComponentFieldValueVecDestructor, ComponentFieldValueVecDestructorType, ComponentFieldValueVecSlice, OptionComponentFieldValue);
+impl_option!(ComponentFieldValue, OptionComponentFieldValue, copy = false, [Debug, Clone, PartialEq]);
+impl_vec_debug!(ComponentFieldValue, ComponentFieldValueVec);
+impl_vec_partialeq!(ComponentFieldValue, ComponentFieldValueVec);
+impl_vec_clone!(ComponentFieldValue, ComponentFieldValueVec, ComponentFieldValueVecDestructor);
+
+/// A field in the component's internal data model.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ComponentDataField {
     /// Field name, e.g. "counter", "text", "number"
     pub name: AzString,
-    /// Type name — can be a primitive ("String", "bool", "i32", "f32", "u32"),
-    /// a built-in complex type ("RefAny", "OptionString"), a callback type
-    /// ("ButtonOnClickCallbackType"), or a user-defined struct name
-    /// ("UserProfile") referencing a ComponentDataModel in the same library.
-    pub field_type: AzString,
-    /// Default value (JSON-encoded), or None
-    pub default_value: OptionString,
+    /// Rich type descriptor for this field
+    pub field_type: ComponentFieldType,
+    /// Typed default value, or None if the field is required
+    pub default_value: OptionComponentDefaultValue,
+    /// Whether this field is required (must be provided by the parent)
+    pub required: bool,
     /// Human-readable description
     pub description: AzString,
 }
 
 impl_vec!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor, ComponentDataFieldVecDestructorType, ComponentDataFieldVecSlice, OptionComponentDataField);
-impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 impl_vec_debug!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_partialeq!(ComponentDataField, ComponentDataFieldVec);
+impl_vec_partialord!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_clone!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor);
 
 /// A named data model (struct definition) for code generation.
@@ -1370,8 +1675,6 @@ pub struct ComponentDef {
     pub display_name: AzString,
     /// Markdown documentation for the component
     pub description: AzString,
-    /// Parameters this component accepts (for GUI builder inspector)
-    pub parameters: ComponentParamVec,
     /// Whether this component accepts text content
     pub accepts_text: bool,
     /// Child policy (no children, any, text only)
@@ -1382,10 +1685,10 @@ pub struct ComponentDef {
     pub example_xml: AzString,
     /// Where this component was defined (determines exportability)
     pub source: ComponentSource,
-    /// Internal data model fields (for code export struct generation)
-    pub data_model: ComponentDataFieldVec,
-    /// Callback slots (for wiring in the GUI builder)
-    pub callback_slots: ComponentCallbackSlotVec,
+    /// Unified data model: all value fields, callback slots, and child slots
+    /// in a single named struct. Code gen uses `data_model.name` as the
+    /// input struct type name (e.g. "ButtonData").
+    pub data_model: ComponentDataModel,
     /// XML/HTML template body for user-defined components.
     /// Used by the template-based render_fn/compile_fn.
     /// Empty for builtin components (they render via node_type).
@@ -1405,8 +1708,7 @@ impl fmt::Debug for ComponentDef {
             .field("display_name", &self.display_name)
             .field("source", &self.source)
             .field("accepts_text", &self.accepts_text)
-            .field("parameters", &self.parameters.len())
-            .field("callback_slots", &self.callback_slots.len())
+            .field("data_model", &self.data_model.name)
             .finish()
     }
 }
@@ -1437,6 +1739,9 @@ pub struct ComponentLibrary {
     /// Named data model types defined by this library.
     /// Components reference these by name in their `field_type`.
     pub data_models: ComponentDataModelVec,
+    /// Named enum types defined by this library.
+    /// Components reference these via `ComponentFieldType::EnumRef { name }`.
+    pub enum_models: ComponentEnumModelVec,
 }
 
 impl_vec!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor, ComponentLibraryVecDestructorType, ComponentLibraryVecSlice, OptionComponentLibrary);
@@ -1617,19 +1922,22 @@ pub fn user_defined_compile_fn(
 
 /// Create a ComponentDef for a builtin HTML element
 fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, accepts_text: bool, child_policy: ChildPolicy) -> ComponentDef {
-    let data_model = builtin_data_model(tag);
+    let fields = builtin_data_model(tag);
+    let model_name = format!("{}Data", display_name);
     ComponentDef {
         id: ComponentId::builtin(tag),
         display_name: AzString::from(display_name),
         description: AzString::from(format!("HTML <{}> element", tag).as_str()),
-        parameters: Vec::new().into(),
         accepts_text,
         child_policy,
         scoped_css: AzString::from_const_str(""),
         example_xml: AzString::from(format!("<{}>content</{}>", tag, tag).as_str()),
         source: ComponentSource::Builtin,
-        data_model: data_model.into(),
-        callback_slots: Vec::new().into(),
+        data_model: ComponentDataModel {
+            name: AzString::from(model_name.as_str()),
+            description: AzString::from(format!("Data model for <{}>", tag).as_str()),
+            fields: fields.into(),
+        },
         template: AzString::from_const_str(""),
         render_fn: builtin_render_fn,
         compile_fn: builtin_compile_fn,
@@ -1637,12 +1945,17 @@ fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, acc
     }
 }
 
-/// Helper to create a ComponentDataField
-fn data_field(name: &str, field_type: &str, default: &str, description: &str) -> ComponentDataField {
+/// Helper to create a ComponentDataField with a rich type
+fn data_field(name: &str, ft: ComponentFieldType, default: Option<ComponentDefaultValue>, description: &str) -> ComponentDataField {
+    let required = default.is_none();
     ComponentDataField {
         name: AzString::from(name),
-        field_type: AzString::from(field_type),
-        default_value: if default.is_empty() { OptionString::None } else { OptionString::Some(AzString::from(default)) },
+        field_type: ft,
+        default_value: match default {
+            Some(d) => OptionComponentDefaultValue::Some(d),
+            None => OptionComponentDefaultValue::None,
+        },
+        required,
         description: AzString::from(description),
     }
 }
@@ -1653,39 +1966,41 @@ fn data_field(name: &str, field_type: &str, default: &str, description: &str) ->
 /// `src` for `<img>`). Universal HTML attributes (id, class, style, etc.)
 /// are NOT included here — they are added separately by the debug server.
 fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
+    use ComponentFieldType::*;
+    use ComponentDefaultValue as D;
     match tag {
         "a" => alloc::vec![
-            data_field("href", "String", "", "URL the link points to"),
-            data_field("target", "String", "", "Where to open the linked document (_blank, _self, _parent, _top)"),
-            data_field("rel", "String", "", "Relationship between current and linked document"),
+            data_field("href", String, Some(D::String(AzString::from_const_str(""))), "URL the link points to"),
+            data_field("target", String, Some(D::String(AzString::from_const_str(""))), "Where to open the linked document (_blank, _self, _parent, _top)"),
+            data_field("rel", String, Some(D::String(AzString::from_const_str(""))), "Relationship between current and linked document"),
         ],
         "img" | "image" => alloc::vec![
-            data_field("src", "String", "", "URL of the image"),
-            data_field("alt", "String", "", "Alternative text for the image"),
-            data_field("width", "String", "", "Width of the image"),
-            data_field("height", "String", "", "Height of the image"),
+            data_field("src", String, None, "URL of the image"),
+            data_field("alt", String, Some(D::String(AzString::from_const_str(""))), "Alternative text for the image"),
+            data_field("width", String, Some(D::String(AzString::from_const_str(""))), "Width of the image"),
+            data_field("height", String, Some(D::String(AzString::from_const_str(""))), "Height of the image"),
         ],
         "form" => alloc::vec![
-            data_field("action", "String", "", "URL where form data is submitted"),
-            data_field("method", "String", "GET", "HTTP method for form submission (GET or POST)"),
+            data_field("action", String, Some(D::String(AzString::from_const_str(""))), "URL where form data is submitted"),
+            data_field("method", String, Some(D::String(AzString::from_const_str("GET"))), "HTTP method for form submission (GET or POST)"),
         ],
         "label" => alloc::vec![
-            data_field("for", "String", "", "ID of the form element this label is for"),
+            data_field("for", String, Some(D::String(AzString::from_const_str(""))), "ID of the form element this label is for"),
         ],
         "button" => alloc::vec![
-            data_field("type", "String", "button", "Button type (button, submit, reset)"),
-            data_field("disabled", "bool", "false", "Whether the button is disabled"),
+            data_field("type", String, Some(D::String(AzString::from_const_str("button"))), "Button type (button, submit, reset)"),
+            data_field("disabled", Bool, Some(D::Bool(false)), "Whether the button is disabled"),
         ],
         "td" | "th" => alloc::vec![
-            data_field("colspan", "i32", "1", "Number of columns the cell spans"),
-            data_field("rowspan", "i32", "1", "Number of rows the cell spans"),
+            data_field("colspan", I32, Some(D::I32(1)), "Number of columns the cell spans"),
+            data_field("rowspan", I32, Some(D::I32(1)), "Number of rows the cell spans"),
         ],
         "icon" => alloc::vec![
-            data_field("name", "String", "", "Icon name"),
+            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Icon name"),
         ],
         "ol" => alloc::vec![
-            data_field("start", "i32", "1", "Start value for the ordered list"),
-            data_field("type", "String", "1", "Numbering type (1, A, a, I, i)"),
+            data_field("start", I32, Some(D::I32(1)), "Start value for the ordered list"),
+            data_field("type", String, Some(D::String(AzString::from_const_str("1"))), "Numbering type (1, A, a, I, i)"),
         ],
         _ => alloc::vec![],
     }
@@ -1737,6 +2052,7 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
         exportable: false,
         modifiable: false,
         data_models: Vec::new().into(),
+        enum_models: Vec::new().into(),
         components: alloc::vec![
             // Structural
             builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),

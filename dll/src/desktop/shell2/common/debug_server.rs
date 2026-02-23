@@ -3756,11 +3756,12 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
             let tag = def.id.name.as_str();
 
             // --- data model (component-specific attributes) ---
-            let mut data_model: Vec<ComponentDataFieldInfo> = def.data_model.as_ref().iter()
+            let mut data_model: Vec<ComponentDataFieldInfo> = def.data_model.fields.as_ref().iter()
+                .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback { .. }))
                 .map(|f| ComponentDataFieldInfo {
                     name: f.name.as_str().to_string(),
-                    field_type: f.field_type.as_str().to_string(),
-                    default: f.default_value.as_ref().map(|s| s.as_str().to_string()),
+                    field_type: field_type_to_string(&f.field_type),
+                    default: default_value_to_opt_string(&f.default_value),
                     description: f.description.as_str().to_string(),
                 })
                 .collect();
@@ -3792,12 +3793,18 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 Vec::new()
             };
 
-            // --- callback slots ---
-            let callback_slots: Vec<ComponentCallbackSlotInfo> = def.callback_slots.as_ref().iter()
-                .map(|s| ComponentCallbackSlotInfo {
-                    name: s.name.as_str().to_string(),
-                    callback_type: s.callback_type.as_str().to_string(),
-                    description: s.description.as_str().to_string(),
+            // --- callback slots (extracted from data_model.fields with Callback type) ---
+            let callback_slots: Vec<ComponentCallbackSlotInfo> = def.data_model.fields.as_ref().iter()
+                .filter_map(|f| {
+                    if let azul_core::xml::ComponentFieldType::Callback { ref signature } = f.field_type {
+                        Some(ComponentCallbackSlotInfo {
+                            name: f.name.as_str().to_string(),
+                            callback_type: format!("Callback({})", signature.return_type.as_str()),
+                            description: f.description.as_str().to_string(),
+                        })
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -3841,8 +3848,8 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 fields: dm.fields.as_ref().iter()
                     .map(|f| ComponentDataFieldInfo {
                         name: f.name.as_str().to_string(),
-                        field_type: f.field_type.as_str().to_string(),
-                        default: f.default_value.as_ref().map(|s| s.as_str().to_string()),
+                        field_type: field_type_to_string(&f.field_type),
+                        default: default_value_to_opt_string(&f.default_value),
                         description: f.description.as_str().to_string(),
                     })
                     .collect(),
@@ -3914,20 +3921,25 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
                 name: def.id.name.as_str().to_string(),
                 display_name: def.display_name.as_str().to_string(),
                 compiled_code,
-                data_fields: def.data_model.iter().map(|f| (
-                    f.name.as_str().to_string(),
-                    f.field_type.as_str().to_string(),
-                    f.default_value.as_ref().map(|d| d.as_str().to_string()),
-                )).collect(),
-                callback_slots: def.callback_slots.iter().map(|s| (
-                    s.name.as_str().to_string(),
-                    s.callback_type.as_str().to_string(),
-                )).collect(),
-                parameters: def.parameters.iter().map(|p| (
-                    p.name.as_str().to_string(),
-                    p.param_type.as_str().to_string(),
-                    p.default_value.as_ref().map(|d| d.as_str().to_string()),
-                )).collect(),
+                data_fields: def.data_model.fields.as_ref().iter()
+                    .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback { .. }))
+                    .map(|f| (
+                        f.name.as_str().to_string(),
+                        field_type_to_string(&f.field_type),
+                        default_value_to_opt_string(&f.default_value),
+                    )).collect(),
+                callback_slots: def.data_model.fields.as_ref().iter()
+                    .filter_map(|f| {
+                        if let azul_core::xml::ComponentFieldType::Callback { ref signature } = f.field_type {
+                            Some((
+                                f.name.as_str().to_string(),
+                                format!("Callback({})", signature.return_type.as_str()),
+                            ))
+                        } else {
+                            None
+                        }
+                    }).collect(),
+                parameters: Vec::new(),
             });
         }
     }
@@ -3957,6 +3969,111 @@ struct ScaffoldComponentInfo {
     data_fields: Vec<(String, String, Option<String>)>,    // (name, type, default)
     callback_slots: Vec<(String, String)>,                  // (name, callback_type)
     parameters: Vec<(String, String, Option<String>)>,      // (name, type, default)
+}
+
+/// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol.
+#[cfg(feature = "std")]
+fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
+    use azul_core::xml::ComponentFieldType;
+    match ft {
+        ComponentFieldType::String => "String".to_string(),
+        ComponentFieldType::Bool => "bool".to_string(),
+        ComponentFieldType::I32 => "i32".to_string(),
+        ComponentFieldType::I64 => "i64".to_string(),
+        ComponentFieldType::U32 => "u32".to_string(),
+        ComponentFieldType::U64 => "u64".to_string(),
+        ComponentFieldType::Usize => "usize".to_string(),
+        ComponentFieldType::F32 => "f32".to_string(),
+        ComponentFieldType::F64 => "f64".to_string(),
+        ComponentFieldType::ColorU => "ColorU".to_string(),
+        ComponentFieldType::CssProperty => "CssProperty".to_string(),
+        ComponentFieldType::ImageRef => "ImageRef".to_string(),
+        ComponentFieldType::FontRef => "FontRef".to_string(),
+        ComponentFieldType::StyledDom => "StyledDom".to_string(),
+        ComponentFieldType::Callback { signature } => format!("Callback({})", signature.return_type.as_str()),
+        ComponentFieldType::RefAny { type_hint } => format!("RefAny({})", type_hint.as_str()),
+        ComponentFieldType::OptionType { inner } => format!("Option<{}>", field_type_to_string(&inner.inner)),
+        ComponentFieldType::VecType { inner } => format!("Vec<{}>", field_type_to_string(&inner.inner)),
+        ComponentFieldType::StructRef { name } => format!("struct:{}", name.as_str()),
+        ComponentFieldType::EnumRef { name } => format!("enum:{}", name.as_str()),
+    }
+}
+
+/// Convert `OptionComponentDefaultValue` to `Option<String>` for JSON serialization.
+#[cfg(feature = "std")]
+fn default_value_to_opt_string(dv: &azul_core::xml::OptionComponentDefaultValue) -> Option<String> {
+    use azul_core::xml::{ComponentDefaultValue, OptionComponentDefaultValue};
+    match dv {
+        OptionComponentDefaultValue::None => None,
+        OptionComponentDefaultValue::Some(v) => Some(match v {
+            ComponentDefaultValue::None => return None,
+            ComponentDefaultValue::String(s) => s.as_str().to_string(),
+            ComponentDefaultValue::Bool(b) => b.to_string(),
+            ComponentDefaultValue::I32(i) => i.to_string(),
+            ComponentDefaultValue::I64(i) => i.to_string(),
+            ComponentDefaultValue::U32(u) => u.to_string(),
+            ComponentDefaultValue::U64(u) => u.to_string(),
+            ComponentDefaultValue::Usize(u) => u.to_string(),
+            ComponentDefaultValue::F32(f) => f.to_string(),
+            ComponentDefaultValue::F64(f) => f.to_string(),
+            ComponentDefaultValue::ColorU(c) => format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a),
+            ComponentDefaultValue::ComponentInstance(ci) => format!("instance:{}", ci.component.as_str()),
+            ComponentDefaultValue::CallbackFnPointer(s) => format!("fn:{}", s.as_str()),
+        }),
+    }
+}
+
+/// Parse a JSON-friendly type string into a `ComponentFieldType`.
+#[cfg(feature = "std")]
+fn parse_field_type_from_string(s: &str) -> azul_core::xml::ComponentFieldType {
+    use azul_core::xml::{ComponentFieldType, ComponentCallbackSignature, ComponentCallbackArgVec, ComponentFieldTypeBox};
+    use azul_css::corety::AzString;
+    match s {
+        "String" | "string" => ComponentFieldType::String,
+        "bool" | "Bool" | "boolean" => ComponentFieldType::Bool,
+        "i32" | "I32" | "int" => ComponentFieldType::I32,
+        "i64" | "I64" => ComponentFieldType::I64,
+        "u32" | "U32" => ComponentFieldType::U32,
+        "u64" | "U64" => ComponentFieldType::U64,
+        "usize" | "Usize" => ComponentFieldType::Usize,
+        "f32" | "F32" | "float" => ComponentFieldType::F32,
+        "f64" | "F64" | "double" => ComponentFieldType::F64,
+        "ColorU" | "color" | "Color" => ComponentFieldType::ColorU,
+        "CssProperty" => ComponentFieldType::CssProperty,
+        "ImageRef" | "image" => ComponentFieldType::ImageRef,
+        "FontRef" | "font" => ComponentFieldType::FontRef,
+        "StyledDom" | "dom" | "Dom" => ComponentFieldType::StyledDom,
+        other => {
+            if other.starts_with("Callback") {
+                ComponentFieldType::Callback {
+                    signature: ComponentCallbackSignature {
+                        return_type: AzString::from("Update"),
+                        args: ComponentCallbackArgVec::from_const_slice(&[]),
+                    },
+                }
+            } else if other.starts_with("RefAny") {
+                let hint = other.strip_prefix("RefAny(").and_then(|s| s.strip_suffix(")")).unwrap_or("Any");
+                ComponentFieldType::RefAny { type_hint: AzString::from(hint) }
+            } else if other.starts_with("Option<") {
+                let inner = other.strip_prefix("Option<").and_then(|s| s.strip_suffix(">")).unwrap_or("String");
+                ComponentFieldType::OptionType {
+                    inner: ComponentFieldTypeBox { inner: Box::new(parse_field_type_from_string(inner)) },
+                }
+            } else if other.starts_with("Vec<") {
+                let inner = other.strip_prefix("Vec<").and_then(|s| s.strip_suffix(">")).unwrap_or("String");
+                ComponentFieldType::VecType {
+                    inner: ComponentFieldTypeBox { inner: Box::new(parse_field_type_from_string(inner)) },
+                }
+            } else if other.starts_with("struct:") {
+                ComponentFieldType::StructRef { name: AzString::from(&other[7..]) }
+            } else if other.starts_with("enum:") {
+                ComponentFieldType::EnumRef { name: AzString::from(&other[5..]) }
+            } else {
+                // Fall back to String for unknown types
+                ComponentFieldType::String
+            }
+        }
+    }
 }
 
 /// Convert a snake_case or kebab-case name to PascalCase
@@ -7797,11 +7914,13 @@ fn process_debug_event(
 
         DebugEvent::ImportComponentLibrary { library: lib_json } => {
             use azul_core::xml::{
-                ComponentDef, ComponentId, ComponentParam, ComponentDataField,
-                ComponentCallbackSlot, ComponentLibrary, ChildPolicy,
+                ComponentDef, ComponentId, ComponentDataField, ComponentDataModel,
+                ComponentFieldType, ComponentCallbackSignature, ComponentCallbackArgVec,
+                ComponentLibrary, ChildPolicy,
                 ComponentSource, ComponentDefVec, ComponentLibraryVec,
+                ComponentDataFieldVec, OptionComponentDefaultValue,
             };
-            use azul_css::corety::{OptionString, AzString};
+            use azul_css::corety::AzString;
 
             let lib_name = lib_json.name.clone();
             let component_count = lib_json.components.len();
@@ -7814,36 +7933,48 @@ fn process_debug_event(
                     "text_only" => ChildPolicy::TextOnly,
                     _ => ChildPolicy::AnyChildren,
                 };
-                let params: Vec<ComponentParam> = c.parameters.iter().map(|p| ComponentParam {
-                    name: AzString::from(p.name.as_str()),
-                    param_type: AzString::from(p.param_type.as_str()),
-                    default_value: p.default.as_ref().map(|d| OptionString::Some(AzString::from(d.as_str()))).unwrap_or(OptionString::None),
-                    description: AzString::from(p.description.as_str()),
-                }).collect();
-                let data_fields: Vec<ComponentDataField> = c.data_fields.iter().map(|f| ComponentDataField {
+                // Merge data_fields + callback_slots into unified fields
+                let mut all_fields: Vec<ComponentDataField> = c.data_fields.iter().map(|f| ComponentDataField {
                     name: AzString::from(f.name.as_str()),
-                    field_type: AzString::from(f.field_type.as_str()),
-                    default_value: f.default.as_ref().map(|d| OptionString::Some(AzString::from(d.as_str()))).unwrap_or(OptionString::None),
+                    field_type: parse_field_type_from_string(&f.field_type),
+                    default_value: f.default.as_ref()
+                        .map(|d| OptionComponentDefaultValue::Some(
+                            azul_core::xml::ComponentDefaultValue::String(AzString::from(d.as_str()))
+                        ))
+                        .unwrap_or(OptionComponentDefaultValue::None),
+                    required: f.default.is_none(),
                     description: AzString::from(f.description.as_str()),
                 }).collect();
-                let callback_slots: Vec<ComponentCallbackSlot> = c.callback_slots.iter().map(|s| ComponentCallbackSlot {
-                    name: AzString::from(s.name.as_str()),
-                    callback_type: AzString::from(s.callback_type.as_str()),
-                    description: AzString::from(s.description.as_str()),
-                }).collect();
+                for s in &c.callback_slots {
+                    all_fields.push(ComponentDataField {
+                        name: AzString::from(s.name.as_str()),
+                        field_type: ComponentFieldType::Callback {
+                            signature: ComponentCallbackSignature {
+                                return_type: AzString::from("Update"),
+                                args: ComponentCallbackArgVec::from_const_slice(&[]),
+                            },
+                        },
+                        default_value: OptionComponentDefaultValue::None,
+                        required: false,
+                        description: AzString::from(s.description.as_str()),
+                    });
+                }
 
+                let display_name_str = if c.display_name.is_empty() { &c.name } else { &c.display_name };
                 defs.push(ComponentDef {
                     id: ComponentId::new(&lib_name, &c.name),
-                    display_name: AzString::from(c.display_name.as_str()),
+                    display_name: AzString::from(display_name_str.as_str()),
                     description: AzString::from(c.description.as_str()),
-                    parameters: params.into(),
                     accepts_text: c.accepts_text,
                     child_policy,
                     scoped_css: AzString::from(c.scoped_css.as_str()),
                     example_xml: AzString::from(c.example_xml.as_str()),
                     source: ComponentSource::UserDefined,
-                    data_model: data_fields.into(),
-                    callback_slots: callback_slots.into(),
+                    data_model: ComponentDataModel {
+                        name: AzString::from(format!("{}Data", display_name_str).as_str()),
+                        description: AzString::from(c.description.as_str()),
+                        fields: ComponentDataFieldVec::from_vec(all_fields),
+                    },
                     template: AzString::from(c.template.as_str()),
                     render_fn: azul_core::xml::user_defined_render_fn,
                     compile_fn: azul_core::xml::user_defined_compile_fn,
@@ -7859,6 +7990,7 @@ fn process_debug_event(
                 exportable: true,
                 modifiable: true,
                 data_models: azul_core::xml::ComponentDataModelVec::from_const_slice(&[]),
+                enum_models: azul_core::xml::ComponentEnumModelVec::from_const_slice(&[]),
             };
 
             // Insert or replace in the component map
@@ -7958,6 +8090,7 @@ fn process_debug_event(
                     exportable: true,
                     modifiable: true,
                     data_models: ComponentDataModelVec::from_const_slice(&[]),
+                    enum_models: azul_core::xml::ComponentEnumModelVec::from_const_slice(&[]),
                 };
                 let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
                 let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -7996,7 +8129,7 @@ fn process_debug_event(
         }
 
         DebugEvent::CreateComponent { library, name, display_name } => {
-            use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ChildPolicy, ComponentLibraryVec};
+            use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ChildPolicy, ComponentLibraryVec, ComponentDataModel, ComponentDataFieldVec};
             use azul_css::corety::AzString;
 
             let mut map_guard = component_map.lock().unwrap();
@@ -8014,14 +8147,16 @@ fn process_debug_event(
                         id: ComponentId::new(library.as_str(), name.as_str()),
                         display_name: AzString::from(display),
                         description: AzString::from_const_str(""),
-                        parameters: Vec::new().into(),
                         accepts_text: false,
                         child_policy: ChildPolicy::AnyChildren,
                         scoped_css: AzString::from_const_str(""),
                         example_xml: AzString::from(format!("<{} />", name).as_str()),
                         source: ComponentSource::UserDefined,
-                        data_model: Vec::new().into(),
-                        callback_slots: Vec::new().into(),
+                        data_model: ComponentDataModel {
+                            name: AzString::from(format!("{}Data", display).as_str()),
+                            description: AzString::from_const_str(""),
+                            fields: ComponentDataFieldVec::from_const_slice(&[]),
+                        },
                         template: AzString::from_const_str(""),
                         render_fn: azul_core::xml::user_defined_render_fn,
                         compile_fn: azul_core::xml::user_defined_compile_fn,
@@ -8069,8 +8204,8 @@ fn process_debug_event(
         }
 
         DebugEvent::UpdateComponent { library, name, template, scoped_css, description, display_name, data_model, callback_slots } => {
-            use azul_core::xml::{ComponentLibraryVec, ComponentDataField, ComponentCallbackSlot};
-            use azul_css::corety::{AzString, OptionString};
+            use azul_core::xml::{ComponentLibraryVec, ComponentDataField, ComponentFieldType, ComponentCallbackSignature, ComponentCallbackArgVec, OptionComponentDefaultValue};
+            use azul_css::corety::AzString;
 
             let mut map_guard = component_map.lock().unwrap();
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
@@ -8096,24 +8231,51 @@ fn process_debug_event(
                         if let Some(dn) = display_name {
                             comp.display_name = AzString::from(dn.as_str());
                         }
-                        if let Some(dm) = data_model {
-                            let fields: Vec<ComponentDataField> = dm.iter().map(|f| ComponentDataField {
-                                name: AzString::from(f.name.as_str()),
-                                field_type: AzString::from(f.field_type.as_str()),
-                                default_value: f.default.as_ref()
-                                    .map(|d| OptionString::Some(AzString::from(d.as_str())))
-                                    .unwrap_or(OptionString::None),
-                                description: AzString::from(f.description.as_str()),
-                            }).collect();
-                            comp.data_model = fields.into();
-                        }
-                        if let Some(cbs) = callback_slots {
-                            let slots: Vec<ComponentCallbackSlot> = cbs.iter().map(|s| ComponentCallbackSlot {
-                                name: AzString::from(s.name.as_str()),
-                                callback_type: AzString::from(s.callback_type.as_str()),
-                                description: AzString::from(s.description.as_str()),
-                            }).collect();
-                            comp.callback_slots = slots.into();
+                        // Rebuild data_model.fields from data_model + callback_slots updates.
+                        // Preserve existing callback fields if only data_model is updated, and vice versa.
+                        let dm_changed = data_model.is_some();
+                        let cbs_changed = callback_slots.is_some();
+                        if dm_changed || cbs_changed {
+                            let existing_fields: Vec<ComponentDataField> = comp.data_model.fields.as_ref().to_vec();
+                            let (existing_data, existing_cbs): (Vec<_>, Vec<_>) = existing_fields.into_iter()
+                                .partition(|f| !matches!(f.field_type, ComponentFieldType::Callback { .. }));
+
+                            let new_data_fields: Vec<ComponentDataField> = if let Some(dm) = data_model {
+                                dm.iter().map(|f| ComponentDataField {
+                                    name: AzString::from(f.name.as_str()),
+                                    field_type: parse_field_type_from_string(&f.field_type),
+                                    default_value: f.default.as_ref()
+                                        .map(|d| OptionComponentDefaultValue::Some(
+                                            azul_core::xml::ComponentDefaultValue::String(AzString::from(d.as_str()))
+                                        ))
+                                        .unwrap_or(OptionComponentDefaultValue::None),
+                                    required: f.default.is_none(),
+                                    description: AzString::from(f.description.as_str()),
+                                }).collect()
+                            } else {
+                                existing_data
+                            };
+
+                            let new_cb_fields: Vec<ComponentDataField> = if let Some(cbs) = callback_slots {
+                                cbs.iter().map(|s| ComponentDataField {
+                                    name: AzString::from(s.name.as_str()),
+                                    field_type: ComponentFieldType::Callback {
+                                        signature: ComponentCallbackSignature {
+                                            return_type: AzString::from("Update"),
+                                            args: ComponentCallbackArgVec::from_const_slice(&[]),
+                                        },
+                                    },
+                                    default_value: OptionComponentDefaultValue::None,
+                                    required: false,
+                                    description: AzString::from(s.description.as_str()),
+                                }).collect()
+                            } else {
+                                existing_cbs
+                            };
+
+                            let mut all_fields = new_data_fields;
+                            all_fields.extend(new_cb_fields);
+                            comp.data_model.fields = all_fields.into();
                         }
                         lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                         map_guard.libraries = ComponentLibraryVec::from_vec(libs);

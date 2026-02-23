@@ -31162,6 +31162,9 @@
                     },
                     "StyleInitialLetterParseErrorOwned": {
                         "external": "azul_css::props::style::text::StyleInitialLetterParseErrorOwned",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -31250,7 +31253,10 @@
                     },
                     "CssStyleBorderRadiusParseErrorOwned": {
                         "external": "azul_css::props::style::border_radius::CssStyleBorderRadiusParseErrorOwned",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssBorderRadiusParseErrorOwned"
+                        }
                     },
                     "AlignContentParseErrorOwned": {
                         "external": "azul_css::props::layout::flex::AlignContentParseErrorOwned",
@@ -31737,6 +31743,9 @@
                     },
                     "StyleTextCombineUprightParseErrorOwned": {
                         "external": "azul_css::props::style::text::StyleTextCombineUprightParseErrorOwned",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -32077,6 +32086,9 @@
                     },
                     "CombinedCssPropertyType": {
                         "external": "azul_css::props::property::CombinedCssPropertyType",
+                        "custom_impls": [
+                            "Display"
+                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32380,6 +32392,9 @@
                     },
                     "StyleLineClampParseErrorOwned": {
                         "external": "azul_css::props::style::text::StyleLineClampParseErrorOwned",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -32619,6 +32634,9 @@
                     },
                     "StyleHangingPunctuationParseErrorOwned": {
                         "external": "azul_css::props::style::text::StyleHangingPunctuationParseErrorOwned",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -32695,7 +32713,10 @@
                     },
                     "CssBorderParseErrorOwned": {
                         "external": "azul_css::props::style::border::CssBorderParseErrorOwned",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssBorderSideParseErrorOwned"
+                        }
                     }
                 }
             },
@@ -70217,6 +70238,57 @@
                                     "type": "ComponentParamVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentParam"
+                                },
+                                "fn_body": "component_param_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentParamVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentParamVecSlice"
+                                },
+                                "fn_body": "component_param_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentParamVecSlice"
+                                },
+                                "fn_body": "component_param_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -70238,7 +70310,8 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
-                            "PartialEq"
+                            "PartialEq",
+                            "PartialOrd"
                         ],
                         "derive": [
                             "Debug"
@@ -70360,6 +70433,57 @@
                                     "type": "ComponentDataFieldVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentDataField"
+                                },
+                                "fn_body": "component_data_field_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentDataFieldVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataFieldVecSlice"
+                                },
+                                "fn_body": "component_data_field_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataFieldVecSlice"
+                                },
+                                "fn_body": "component_data_field_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -70491,6 +70615,57 @@
                                     "type": "ComponentCallbackSlotVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentCallbackSlot"
+                                },
+                                "fn_body": "component_callback_slot_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentCallbackSlotVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackSlotVecSlice"
+                                },
+                                "fn_body": "component_callback_slot_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackSlotVecSlice"
+                                },
+                                "fn_body": "component_callback_slot_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -70705,6 +70880,57 @@
                                     "type": "ComponentDefVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentDef"
+                                },
+                                "fn_body": "component_def_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentDefVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDefVecSlice"
+                                },
+                                "fn_body": "component_def_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDefVecSlice"
+                                },
+                                "fn_body": "component_def_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -70835,6 +71061,57 @@
                                     "type": "ComponentLibraryVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentLibrary"
+                                },
+                                "fn_body": "component_library_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentLibraryVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentLibraryVecSlice"
+                                },
+                                "fn_body": "component_library_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentLibraryVecSlice"
+                                },
+                                "fn_body": "component_library_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -70867,32 +71144,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "ComponentDefVecSlice": {
-                        "external": "azul_css::ComponentDefVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "ComponentDef",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ComponentDataModelVecDestructorType": {
                         "external": "azul_core::xml::ComponentDataModelVecDestructorType",
                         "callback_typedef": {
@@ -70904,32 +71155,6 @@
                             ],
                             "returns": null
                         },
-                        "repr": "C"
-                    },
-                    "ComponentLibraryVecSlice": {
-                        "external": "azul_css::ComponentLibraryVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "ComponentLibrary",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
                         "repr": "C"
                     },
                     "ComponentDataModelVecDestructor": {
@@ -70948,34 +71173,12 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "ComponentCallbackSlotVecSlice": {
-                        "external": "azul_css::ComponentCallbackSlotVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "ComponentCallbackSlot",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ComponentDataModelVec": {
                         "external": "azul_core::xml::ComponentDataModelVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -70999,55 +71202,689 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentDataModelVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentDataModelVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentDataModelVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataModelVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_data_model_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_data_model_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_data_model_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentDataModelVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentDataModel"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataModelVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentDataModelVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentDataModel"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataModelVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentDataModel"
+                                },
+                                "fn_body": "component_data_model_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentDataModelVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataModelVecSlice"
+                                },
+                                "fn_body": "component_data_model_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentDataModelVecSlice"
+                                },
+                                "fn_body": "component_data_model_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
-                    "ComponentDataFieldVecSlice": {
-                        "external": "azul_css::ComponentDataFieldVecSlice",
+                    "ComponentEnumModelVecDestructorType": {
+                        "external": "azul_core::xml::ComponentEnumModelVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentEnumModelVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentEnumVariantVecDestructor": {
+                        "external": "azul_core::xml::ComponentEnumVariantVecDestructor",
                         "derive": [
-                            "Debug",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ComponentEnumVariantVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ComponentEnumModelVec": {
+                        "external": "azul_core::xml::ComponentEnumModelVec",
+                        "custom_impls": [
                             "Clone",
-                            "Copy"
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
                         ],
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "ComponentDataField",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
+                                    "type": "ComponentEnumModel",
+                                    "ref_kind": "constptr"
                                 },
                                 "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ComponentEnumModelVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentEnumModelVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentEnumModelVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentEnumModelVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumModelVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_enum_model_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_enum_model_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_enum_model_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentEnumModelVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentEnumModel"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumModelVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentEnumModelVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentEnumModel"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumModelVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentEnumModel"
+                                },
+                                "fn_body": "component_enum_model_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentEnumModelVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumModelVecSlice"
+                                },
+                                "fn_body": "component_enum_model_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumModelVecSlice"
+                                },
+                                "fn_body": "component_enum_model_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentEnumModelVecDestructor": {
+                        "external": "azul_core::xml::ComponentEnumModelVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ComponentEnumModelVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ComponentEnumVariantVecDestructorType": {
+                        "external": "azul_core::xml::ComponentEnumVariantVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentEnumVariantVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentEnumVariantVec": {
+                        "external": "azul_core::xml::ComponentEnumVariantVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentEnumVariant",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ComponentEnumVariantVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentEnumVariantVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentEnumVariantVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentEnumVariantVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumVariantVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_enum_variant_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_enum_variant_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_enum_variant_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentEnumVariantVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentEnumVariant"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumVariantVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentEnumVariantVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentEnumVariant"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumVariantVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentEnumVariant"
+                                },
+                                "fn_body": "component_enum_variant_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentEnumVariantVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumVariantVecSlice"
+                                },
+                                "fn_body": "component_enum_variant_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentEnumVariantVecSlice"
+                                },
+                                "fn_body": "component_enum_variant_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentCallbackArgVecDestructorType": {
+                        "external": "azul_core::xml::ComponentCallbackArgVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentCallbackArgVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentFieldOverrideVecDestructorType": {
+                        "external": "azul_core::xml::ComponentFieldOverrideVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "ComponentFieldOverrideVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentCallbackArgVec": {
+                        "external": "azul_core::xml::ComponentCallbackArgVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentCallbackArg",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ComponentCallbackArgVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
                                 }
                             }
                         ],
                         "repr": "C"
                     },
-                    "ComponentParamVecSlice": {
-                        "external": "azul_css::ComponentParamVecSlice",
+                    "ComponentFieldOverrideVecDestructor": {
+                        "external": "azul_core::xml::ComponentFieldOverrideVecDestructor",
                         "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ComponentFieldOverrideVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentFieldOverrideVec": {
+                        "external": "azul_core::xml::ComponentFieldOverrideVec",
+                        "derive": [
+                            "Debug"
                         ],
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "ComponentParam",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
+                                    "type": "ComponentFieldOverride",
+                                    "ref_kind": "constptr"
                                 },
                                 "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ComponentFieldOverrideVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentCallbackArgVecDestructor": {
+                        "external": "azul_core::xml::ComponentCallbackArgVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ComponentCallbackArgVecDestructorType"
                                 }
                             }
                         ],
@@ -74677,9 +75514,8 @@
                         "repr": "C, u8"
                     },
                     "OptionComponentDef": {
-                        "external": "azul_core::option::OptionComponentDef",
+                        "external": "azul_core::xml::OptionComponentDef",
                         "derive": [
-                            "Debug",
                             "Clone"
                         ],
                         "enum_fields": [
@@ -74700,7 +75536,7 @@
                         "repr": "C, u8"
                     },
                     "OptionComponentLibrary": {
-                        "external": "azul_core::option::OptionComponentLibrary",
+                        "external": "azul_core::xml::OptionComponentLibrary",
                         "derive": [
                             "Debug",
                             "Clone"
@@ -74723,10 +75559,15 @@
                         "repr": "C, u8"
                     },
                     "OptionComponentCallbackSlot": {
-                        "external": "azul_core::option::OptionComponentCallbackSlot",
+                        "external": "azul_core::xml::OptionComponentCallbackSlot",
                         "derive": [
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
                         ],
                         "enum_fields": [
                             {
@@ -74746,10 +75587,12 @@
                         "repr": "C, u8"
                     },
                     "OptionComponentDataField": {
-                        "external": "azul_core::option::OptionComponentDataField",
+                        "external": "azul_core::xml::OptionComponentDataField",
                         "derive": [
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
                         ],
                         "enum_fields": [
                             {
@@ -74769,10 +75612,15 @@
                         "repr": "C, u8"
                     },
                     "OptionComponentParam": {
-                        "external": "azul_core::option::OptionComponentParam",
+                        "external": "azul_core::xml::OptionComponentParam",
                         "derive": [
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
                         ],
                         "enum_fields": [
                             {
@@ -74790,6 +75638,97 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionComponentDataModel": {
+                        "external": "azul_core::xml::OptionComponentDataModel",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentDataModel",
+                                    "doc": [
+                                        "Some value of type ComponentDataModel"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentEnumModel": {
+                        "external": "azul_core::xml::OptionComponentEnumModel",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentEnumModel",
+                                    "doc": [
+                                        "Some value of type ComponentEnumModel"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentEnumVariant": {
+                        "external": "azul_core::xml::OptionComponentEnumVariant",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentEnumVariant",
+                                    "doc": [
+                                        "Some value of type ComponentEnumVariant"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentDefaultValue": {
+                        "external": "azul_core::xml::OptionComponentDefaultValue",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ComponentDefaultValue"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -76272,6 +77211,10 @@
                     },
                     "RenderDomError": {
                         "external": "azul_core::xml::RenderDomError",
+                        "custom_impls": [
+                            "Display",
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -76291,6 +77234,10 @@
                     },
                     "DomXmlParseError": {
                         "external": "azul_core::xml::DomXmlParseError",
+                        "custom_impls": [
+                            "Display",
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -76463,6 +77410,10 @@
                     },
                     "CompileError": {
                         "external": "azul_core::xml::CompileError",
+                        "custom_impls": [
+                            "Display",
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -76552,6 +77503,9 @@
                     },
                     "ComponentError": {
                         "external": "azul_core::xml::ComponentError",
+                        "custom_impls": [
+                            "Display"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -76609,6 +77563,9 @@
                     },
                     "ComponentParseError": {
                         "external": "azul_core::xml::ComponentParseError",
+                        "custom_impls": [
+                            "Display"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -80851,10 +81808,7 @@
                             "Debug",
                             "Clone",
                             "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
+                            "PartialOrd"
                         ],
                         "struct_fields": [
                             {
@@ -80862,10 +81816,13 @@
                                     "type": "String"
                                 },
                                 "field_type": {
-                                    "type": "String"
+                                    "type": "ComponentFieldType"
                                 },
                                 "default_value": {
-                                    "type": "OptionString"
+                                    "type": "OptionComponentDefaultValue"
+                                },
+                                "required": {
+                                    "type": "bool"
                                 },
                                 "description": {
                                     "type": "String"
@@ -80973,9 +81930,6 @@
                                 "description": {
                                     "type": "String"
                                 },
-                                "parameters": {
-                                    "type": "ComponentParamVec"
-                                },
                                 "accepts_text": {
                                     "type": "bool"
                                 },
@@ -80992,10 +81946,7 @@
                                     "type": "ComponentSource"
                                 },
                                 "data_model": {
-                                    "type": "ComponentDataFieldVec"
-                                },
-                                "callback_slots": {
-                                    "type": "ComponentCallbackSlotVec"
+                                    "type": "ComponentDataModel"
                                 },
                                 "template": {
                                     "type": "String"
@@ -81041,10 +81992,12 @@
                                     "ref_kind": "ref"
                                 },
                                 {
-                                    "type": "usize"
+                                    "type": "XmlComponentMap",
+                                    "ref_kind": "ref"
                                 },
                                 {
-                                    "type": "usize"
+                                    "type": "FilteredComponentArguments",
+                                    "ref_kind": "ref"
                                 },
                                 {
                                     "type": "OptionString",
@@ -81083,10 +82036,12 @@
                                     "ref_kind": "ref"
                                 },
                                 {
-                                    "type": "usize"
+                                    "type": "XmlComponentMap",
+                                    "ref_kind": "ref"
                                 },
                                 {
-                                    "type": "usize"
+                                    "type": "FilteredComponentArguments",
+                                    "ref_kind": "ref"
                                 },
                                 {
                                     "type": "OptionString",
@@ -81127,6 +82082,9 @@
                                 },
                                 "data_models": {
                                     "type": "ComponentDataModelVec"
+                                },
+                                "enum_models": {
+                                    "type": "ComponentEnumModelVec"
                                 }
                             }
                         ],
@@ -81159,7 +82117,10 @@
                     },
                     "ComponentArgumentType": {
                         "external": "azul_core::xml::ComponentArgumentType",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "String"
+                        }
                     },
                     "ComponentDataModel": {
                         "external": "azul_core::xml::ComponentDataModel",
@@ -81207,11 +82168,20 @@
                     },
                     "ComponentArgumentTypes": {
                         "external": "azul_core::xml::ComponentArgumentTypes",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "Vec",
+                            "generic_args": [
+                                "(ComponentArgumentName, ComponentArgumentType)"
+                            ]
+                        }
                     },
                     "ComponentArgumentName": {
                         "external": "azul_core::xml::ComponentArgumentName",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "String"
+                        }
                     },
                     "CssColorComponent": {
                         "external": "azul_css::props::basic::color::CssColorComponent",
@@ -81236,6 +82206,9 @@
                     },
                     "XmlComponent": {
                         "external": "azul_core::xml::XmlComponent",
+                        "custom_impls": [
+                            "Debug"
+                        ],
                         "struct_fields": [
                             {
                                 "id": {
@@ -81247,6 +82220,531 @@
                                 },
                                 "inherit_vars": {
                                     "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentEnumVariant": {
+                        "external": "azul_core::xml::ComponentEnumVariant",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "fields": {
+                                    "type": "ComponentDataFieldVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentCallbackSlotVecSlice": {
+                        "external": "azul_core::xml::ComponentCallbackSlotVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentCallbackSlot",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentParamVecSlice": {
+                        "external": "azul_core::xml::ComponentParamVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentParam",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDataFieldVecSlice": {
+                        "external": "azul_core::xml::ComponentDataFieldVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentDataField",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FilteredComponentArguments": {
+                        "external": "azul_core::xml::FilteredComponentArguments",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "types": {
+                                    "type": "ComponentArgumentTypes"
+                                },
+                                "values": {
+                                    "type": "BTreeMap<String, String>"
+                                },
+                                "accepts_text": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentLibraryVecSlice": {
+                        "external": "azul_core::xml::ComponentLibraryVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentLibrary",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentEnumModel": {
+                        "external": "azul_core::xml::ComponentEnumModel",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "description": {
+                                    "type": "String"
+                                },
+                                "variants": {
+                                    "type": "ComponentEnumVariantVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "XmlComponentMap": {
+                        "external": "azul_core::xml::XmlComponentMap",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "components": {
+                                    "type": "BTreeMap<String, XmlComponent>"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDefVecSlice": {
+                        "external": "azul_core::xml::ComponentDefVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentDef",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDataModelVecSlice": {
+                        "external": "azul_core::xml::ComponentDataModelVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentDataModel",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentEnumVariantVecSlice": {
+                        "external": "azul_css::ComponentEnumVariantVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentEnumVariant",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentFieldType": {
+                        "external": "azul_core::xml::ComponentFieldType",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "String": {},
+                                "Bool": {},
+                                "I32": {},
+                                "I64": {},
+                                "U32": {},
+                                "U64": {},
+                                "Usize": {},
+                                "F32": {},
+                                "F64": {},
+                                "ColorU": {},
+                                "CssProperty": {},
+                                "ImageRef": {},
+                                "FontRef": {},
+                                "StyledDom": {},
+                                "Callback": {
+                                    "type": "ComponentCallbackSignature"
+                                },
+                                "RefAny": {
+                                    "type": "String"
+                                },
+                                "OptionType": {
+                                    "type": "ComponentFieldTypeBox"
+                                },
+                                "VecType": {
+                                    "type": "ComponentFieldTypeBox"
+                                },
+                                "StructRef": {
+                                    "type": "String"
+                                },
+                                "EnumRef": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentFieldTypeBox": {
+                        "external": "azul_core::xml::ComponentFieldTypeBox",
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentEnumModelVecSlice": {
+                        "external": "azul_css::ComponentEnumModelVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentEnumModel",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentFieldOverride": {
+                        "external": "azul_core::xml::ComponentFieldOverride",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "field_name": {
+                                    "type": "String"
+                                },
+                                "source": {
+                                    "type": "ComponentFieldValueSource"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentInstanceDefault": {
+                        "external": "azul_core::xml::ComponentInstanceDefault",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "library": {
+                                    "type": "String"
+                                },
+                                "component": {
+                                    "type": "String"
+                                },
+                                "field_overrides": {
+                                    "type": "ComponentFieldOverrideVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentCallbackSignature": {
+                        "external": "azul_core::xml::ComponentCallbackSignature",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "return_type": {
+                                    "type": "String"
+                                },
+                                "args": {
+                                    "type": "ComponentCallbackArgVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentCallbackArg": {
+                        "external": "azul_core::xml::ComponentCallbackArg",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "arg_type": {
+                                    "type": "ComponentFieldType"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentDefaultValue": {
+                        "external": "azul_core::xml::ComponentDefaultValue",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "String": {
+                                    "type": "String"
+                                },
+                                "Bool": {
+                                    "type": "bool"
+                                },
+                                "I32": {
+                                    "type": "i32"
+                                },
+                                "I64": {
+                                    "type": "i64"
+                                },
+                                "U32": {
+                                    "type": "u32"
+                                },
+                                "U64": {
+                                    "type": "u64"
+                                },
+                                "Usize": {
+                                    "type": "usize"
+                                },
+                                "F32": {
+                                    "type": "f32"
+                                },
+                                "F64": {
+                                    "type": "f64"
+                                },
+                                "ColorU": {
+                                    "type": "ColorU"
+                                },
+                                "ComponentInstance": {
+                                    "type": "ComponentInstanceDefault"
+                                },
+                                "CallbackFnPointer": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentFieldValueSource": {
+                        "external": "azul_core::xml::ComponentFieldValueSource",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Default": {},
+                                "Literal": {
+                                    "type": "String"
+                                },
+                                "Binding": {
+                                    "type": "String"
                                 }
                             }
                         ],
