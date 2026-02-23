@@ -125,11 +125,22 @@ pub type ComponentArgumentOrder = usize;
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ComponentArgument {
-    pub name: String,
-    pub arg_type: String,
+    pub name: AzString,
+    pub arg_type: AzString,
 }
 
-pub type ComponentArgumentTypes = Vec<ComponentArgument>;
+impl_vec!(ComponentArgument, ComponentArgumentVec, ComponentArgumentVecDestructor, ComponentArgumentVecDestructorType, ComponentArgumentVecSlice, OptionComponentArgument);
+impl_option!(ComponentArgument, OptionComponentArgument, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec_debug!(ComponentArgument, ComponentArgumentVec);
+impl_vec_partialeq!(ComponentArgument, ComponentArgumentVec);
+impl_vec_eq!(ComponentArgument, ComponentArgumentVec);
+impl_vec_partialord!(ComponentArgument, ComponentArgumentVec);
+impl_vec_ord!(ComponentArgument, ComponentArgumentVec);
+impl_vec_hash!(ComponentArgument, ComponentArgumentVec);
+impl_vec_clone!(ComponentArgument, ComponentArgumentVec, ComponentArgumentVecDestructor);
+impl_vec_mut!(ComponentArgument, ComponentArgumentVec);
+
+pub type ComponentArgumentTypes = ComponentArgumentVec;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
 
@@ -1085,7 +1096,7 @@ pub struct ComponentArguments {
 impl Default for ComponentArguments {
     fn default() -> Self {
         Self {
-            args: ComponentArgumentTypes::default(),
+            args: ComponentArgumentVec::new(),
             accepts_text: false,
         }
     }
@@ -1112,7 +1123,7 @@ pub struct FilteredComponentArguments {
 impl Default for FilteredComponentArguments {
     fn default() -> Self {
         Self {
-            types: Vec::new(),
+            types: ComponentArgumentVec::new(),
             values: Vec::new().into(),
             accepts_text: false,
         }
@@ -3061,7 +3072,7 @@ macro_rules! html_component {
 
             fn get_available_arguments(&self) -> ComponentArguments {
                 ComponentArguments {
-                    args: ComponentArgumentTypes::default(),
+                    args: ComponentArgumentVec::new(),
                     accepts_text: true,
                 }
             }
@@ -3320,8 +3331,8 @@ impl XmlComponentTrait for IconRenderer {
     }
 
     fn get_available_arguments(&self) -> ComponentArguments {
-        let mut args = ComponentArgumentTypes::default();
-        args.push(ComponentArgument { name: "name".to_string(), arg_type: "String".to_string() });
+        let mut args = ComponentArgumentVec::new();
+        args.push(ComponentArgument { name: "name".into(), arg_type: "String".into() });
         ComponentArguments {
             args,
             accepts_text: true, // Allow <icon>name</icon> syntax
@@ -3350,7 +3361,7 @@ impl XmlComponentTrait for IconRenderer {
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         let icon_name = args.args.iter()
-            .find(|a| a.name == "name")
+            .find(|a| a.name.as_str() == "name")
             .map(|a| a.arg_type.to_string())
             .or_else(|| content.as_ref().map(|s| s.to_string()))
             .unwrap_or_else(|| "invalid-icon".to_string());
@@ -3384,7 +3395,7 @@ impl XmlComponentTrait for TextRenderer {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments {
-            args: ComponentArgumentTypes::default(),
+            args: ComponentArgumentVec::new(),
             accepts_text: true, // important!
         }
     }
@@ -3426,7 +3437,7 @@ pub fn parse_component_arguments<'a>(
 ) -> Result<ComponentArgumentTypes, ComponentParseError> {
     use self::ComponentParseError::*;
 
-    let mut args = ComponentArgumentTypes::default();
+    let mut args = ComponentArgumentVec::new();
 
     for (arg_idx, arg) in input.split(",").enumerate() {
         let mut colon_iterator = arg.split(":");
@@ -3461,7 +3472,7 @@ pub fn parse_component_arguments<'a>(
         let arg_name = normalize_casing(arg_name);
         let arg_type = arg_type.to_string();
 
-        args.push(ComponentArgument { name: arg_name, arg_type });
+        args.push(ComponentArgument { name: arg_name.into(), arg_type: arg_type.into() });
     }
 
     Ok(args)
@@ -3478,7 +3489,7 @@ pub fn validate_and_filter_component_args(
     valid_args: &ComponentArguments,
 ) -> Result<FilteredComponentArguments, ComponentError> {
     let mut map = FilteredComponentArguments {
-        types: ComponentArgumentTypes::default(),
+        types: ComponentArgumentVec::new(),
         values: StringPairVec::from_const_slice(&[]),
         accepts_text: valid_args.accepts_text,
     };
@@ -3489,7 +3500,7 @@ pub fn validate_and_filter_component_args(
         if let Some(valid_arg_type) = valid_args
             .args
             .iter()
-            .find(|s| s.name == xml_attribute_name.as_str())
+            .find(|s| s.name.as_str() == xml_attribute_name.as_str())
             .map(|q| &q.arg_type)
         {
             // Validate value against declared type (basic checks)
@@ -3500,7 +3511,7 @@ pub fn validate_and_filter_component_args(
             );
 
             map.types.push(ComponentArgument {
-                name: xml_attribute_name.as_str().to_string(),
+                name: xml_attribute_name.as_str().into(),
                 arg_type: valid_arg_type.clone(),
             });
             map.values.insert_kv(
@@ -3646,7 +3657,7 @@ fn validate_xml_node_recursive(
         for AzStringPair { key, .. } in element.attributes.as_ref().iter() {
             let attr_name = key.as_str();
             if !DEFAULT_ARGS.contains(&attr_name)
-                && !available_args.args.iter().any(|a| a.name == attr_name)
+                && !available_args.args.iter().any(|a| a.name.as_str() == attr_name)
             {
                 #[cfg(feature = "std")]
                 eprintln!(
@@ -4332,7 +4343,7 @@ pub fn render_dom_from_body_node_inner<'a>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.types.iter_mut() {
-        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.types).to_string();
+        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.types).into();
     }
 
     // Don't pass text content to the component renderer - text children will be appended separately
@@ -4672,7 +4683,7 @@ pub fn combine_and_replace_dynamic_items(
                 let variable_name = normalize_casing(name.trim());
                 match variables
                     .iter()
-                    .find(|s| s.name == variable_name)
+                    .find(|s| s.name.as_str() == variable_name)
                     .map(|q| &q.arg_type)
                 {
                     Some(resolved_var) => {
@@ -4827,7 +4838,7 @@ pub fn render_component_inner<'a>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.args.iter_mut() {
-        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).to_string();
+        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).into();
     }
 
     let text_content = xml_node.get_text_content();
@@ -5378,7 +5389,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.types.iter_mut() {
-        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).to_string();
+        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).into();
     }
 
     let instantiated_function_arguments = {
@@ -5616,7 +5627,7 @@ impl DynamicXmlComponent {
 
         let args = match root.attributes.get_key("args") {
             Some(s) => parse_component_arguments(s)?,
-            None => ComponentArgumentTypes::default(),
+            None => ComponentArgumentVec::new(),
         };
 
         Ok(Self {
