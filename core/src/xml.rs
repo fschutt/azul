@@ -130,6 +130,7 @@ pub struct ComponentArgument {
 }
 
 pub type ComponentArgumentTypes = Vec<ComponentArgument>;
+pub type XmlComponentVec = Vec<XmlComponent>;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
 
@@ -1102,8 +1103,8 @@ impl ComponentArguments {
 pub struct FilteredComponentArguments {
     /// The types of the component, i.e. `date => String`, in order
     pub types: ComponentArgumentTypes,
-    /// The types of the component, i.e. `date => "01.01.1998"`
-    pub values: BTreeMap<String, String>,
+    /// The values of the component, i.e. `date => "01.01.1998"`
+    pub values: StringPairVec,
     /// Whether this widget accepts text. Note that this will be passed as the first
     /// argument when rendering the Rust code.
     pub accepts_text: bool,
@@ -1113,7 +1114,7 @@ impl Default for FilteredComponentArguments {
     fn default() -> Self {
         Self {
             types: Vec::new(),
-            values: BTreeMap::default(),
+            values: Vec::new().into(),
             accepts_text: false,
         }
     }
@@ -2456,15 +2457,14 @@ impl core::fmt::Debug for XmlComponent {
 #[repr(C)]
 pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
-    /// Key is the normalized component name (lowercase with underscores)
-    /// + whether this component should inherit variables from the parent scope
-    pub components: BTreeMap<String, XmlComponent>,
+    /// Lookup by normalized component name (lowercase with underscores)
+    pub components: XmlComponentVec,
 }
 
 impl Default for XmlComponentMap {
     fn default() -> Self {
         let mut map = Self {
-            components: BTreeMap::new(),
+            components: Vec::new(),
         };
 
         // Structural elements
@@ -2749,12 +2749,17 @@ impl Default for XmlComponentMap {
 
 impl XmlComponentMap {
     pub fn register_component(&mut self, comp: XmlComponent) {
-        self.components.insert(comp.id.clone(), comp);
+        // Replace existing or push new
+        if let Some(existing) = self.components.iter_mut().find(|c| c.id == comp.id) {
+            *existing = comp;
+        } else {
+            self.components.push(comp);
+        }
     }
     
     /// Get a component by its normalized name
     pub fn get(&self, name: &str) -> Option<&XmlComponent> {
-        self.components.get(name)
+        self.components.iter().find(|c| c.id == name)
     }
 }
 
@@ -3323,8 +3328,8 @@ impl XmlComponentTrait for IconRenderer {
         content: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         // Get icon name from either the 'name' attribute or text content
-        let icon_name = args.values.get("name")
-            .map(|s| s.to_string())
+        let icon_name = args.values.get_key("name")
+            .map(|s| s.as_str().to_string())
             .or_else(|| content.as_ref().map(|s| prepare_string(&s)))
             .unwrap_or_else(|| "invalid-icon".to_string());
         
@@ -3463,7 +3468,7 @@ pub fn validate_and_filter_component_args(
 ) -> Result<FilteredComponentArguments, ComponentError> {
     let mut map = FilteredComponentArguments {
         types: ComponentArgumentTypes::default(),
-        values: BTreeMap::new(),
+        values: StringPairVec::from_const_slice(&[]),
         accepts_text: valid_args.accepts_text,
     };
 
@@ -3487,15 +3492,15 @@ pub fn validate_and_filter_component_args(
                 name: xml_attribute_name.as_str().to_string(),
                 arg_type: valid_arg_type.clone(),
             });
-            map.values.insert(
-                xml_attribute_name.as_str().to_string(),
-                xml_attribute_value.as_str().to_string(),
+            map.values.insert_kv(
+                xml_attribute_name.as_str(),
+                xml_attribute_value.as_str(),
             );
         } else if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
             // no error, but don't insert the attribute name
-            map.values.insert(
-                xml_attribute_name.as_str().to_string(),
-                xml_attribute_value.as_str().to_string(),
+            map.values.insert_kv(
+                xml_attribute_name.as_str(),
+                xml_attribute_value.as_str(),
             );
         } else {
             // key was not expected for this component
@@ -3510,9 +3515,9 @@ pub fn validate_and_filter_component_args(
             );
 
             // Still insert the value so it's available, but don't validate the type
-            map.values.insert(
-                xml_attribute_name.as_str().to_string(),
-                xml_attribute_value.as_str().to_string(),
+            map.values.insert_kv(
+                xml_attribute_name.as_str(),
+                xml_attribute_value.as_str(),
             );
         }
     }
@@ -4903,10 +4908,10 @@ pub fn compile_components_to_rust_code(
 > {
     let mut map = Vec::new();
 
-    for (id, xml_component) in &components.components {
+    for xml_component in components.components.iter() {
         render_component_inner(
             &mut map,
-            id.clone(),
+            xml_component.id.clone(),
             xml_component,
             &components,
             &ComponentArguments::default(),

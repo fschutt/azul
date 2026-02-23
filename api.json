@@ -77940,7 +77940,7 @@
                                     "type": "String"
                                 },
                                 "suggestion": {
-                                    "type": "OptionAzString"
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -78478,6 +78478,52 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ResultStyledDomRenderDomError": {
+                        "external": "azul_core::xml::ResultStyledDomRenderDomError",
+                        "custom_impls": [
+                            "From",
+                            "Into"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "StyledDom"
+                                },
+                                "Err": {
+                                    "type": "RenderDomError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ResultStringCompileError": {
+                        "external": "azul_core::xml::ResultStringCompileError",
+                        "custom_impls": [
+                            "From",
+                            "Into"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "String"
+                                },
+                                "Err": {
+                                    "type": "CompileError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -82536,7 +82582,7 @@
                                 }
                             ],
                             "returns": {
-                                "type": "Result<String, CompileError>"
+                                "type": "ResultStringCompileError"
                             }
                         },
                         "repr": "C"
@@ -82577,7 +82623,7 @@
                                 }
                             ],
                             "returns": {
-                                "type": "Result<StyledDom, RenderDomError>"
+                                "type": "ResultStyledDomRenderDomError"
                             }
                         },
                         "repr": "C"
@@ -82693,7 +82739,7 @@
                         "type_alias": {
                             "target": "Vec",
                             "generic_args": [
-                                "(ComponentArgumentName, ComponentArgumentType)"
+                                "ComponentArgument"
                             ]
                         }
                     },
@@ -82856,9 +82902,6 @@
                                 "types": {
                                     "type": "ComponentArgumentTypes"
                                 },
-                                "values": {
-                                    "type": "BTreeMap<String, String>"
-                                },
                                 "accepts_text": {
                                     "type": "bool"
                                 }
@@ -82921,11 +82964,7 @@
                             "Default"
                         ],
                         "struct_fields": [
-                            {
-                                "components": {
-                                    "type": "BTreeMap<String, XmlComponent>"
-                                }
-                            }
+                            {}
                         ],
                         "repr": "C"
                     },
