@@ -89,8 +89,18 @@ pub enum CssBorderRadiusParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
-// Type alias for compatibility with old code
-pub type CssStyleBorderRadiusParseErrorOwned = CssBorderRadiusParseErrorOwned;
+/// Newtype wrapper around `CssBorderRadiusParseErrorOwned` for the `border-radius` shorthand.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct CssStyleBorderRadiusParseErrorOwned {
+    pub inner: CssBorderRadiusParseErrorOwned,
+}
+
+impl From<CssBorderRadiusParseErrorOwned> for CssStyleBorderRadiusParseErrorOwned {
+    fn from(v: CssBorderRadiusParseErrorOwned) -> Self {
+        Self { inner: v }
+    }
+}
 
 impl<'a> CssBorderRadiusParseError<'a> {
     pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {

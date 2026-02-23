@@ -1943,9 +1943,9 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::SelectionRadius(e) => {
                 CssParsingErrorOwned::SelectionRadius(e.to_contained())
             }
-            CssParsingError::Border(e) => CssParsingErrorOwned::Border(e.to_contained()),
+            CssParsingError::Border(e) => CssParsingErrorOwned::Border(e.to_contained().into()),
             CssParsingError::BorderRadius(e) => {
-                CssParsingErrorOwned::BorderRadius(e.to_contained())
+                CssParsingErrorOwned::BorderRadius(e.to_contained().into())
             }
             CssParsingError::Padding(e) => CssParsingErrorOwned::Padding(e.to_contained()),
             CssParsingError::Margin(e) => CssParsingErrorOwned::Margin(e.to_contained()),
@@ -2158,8 +2158,8 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::SelectionRadius(e) => {
                 CssParsingError::SelectionRadius(e.to_shared())
             }
-            CssParsingErrorOwned::Border(e) => CssParsingError::Border(e.to_shared()),
-            CssParsingErrorOwned::BorderRadius(e) => CssParsingError::BorderRadius(e.to_shared()),
+            CssParsingErrorOwned::Border(e) => CssParsingError::Border(e.inner.to_shared()),
+            CssParsingErrorOwned::BorderRadius(e) => CssParsingError::BorderRadius(e.inner.to_shared()),
             CssParsingErrorOwned::Padding(e) => CssParsingError::Padding(e.to_shared()),
             CssParsingErrorOwned::Margin(e) => CssParsingError::Margin(e.to_shared()),
             CssParsingErrorOwned::Overflow(e) => CssParsingError::Overflow(e.to_shared()),

@@ -438,8 +438,21 @@ impl CssBorderSideParseErrorOwned {
 // Type alias for compatibility with old code
 #[cfg(feature = "parser")]
 pub type CssBorderParseError<'a> = CssBorderSideParseError<'a>;
+
+/// Newtype wrapper around `CssBorderSideParseErrorOwned` for the `border` shorthand.
 #[cfg(feature = "parser")]
-pub type CssBorderParseErrorOwned = CssBorderSideParseErrorOwned;
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct CssBorderParseErrorOwned {
+    pub inner: CssBorderSideParseErrorOwned,
+}
+
+#[cfg(feature = "parser")]
+impl From<CssBorderSideParseErrorOwned> for CssBorderParseErrorOwned {
+    fn from(v: CssBorderSideParseErrorOwned) -> Self {
+        Self { inner: v }
+    }
+}
 
 /// Parses a border shorthand property such as "1px solid red".
 /// Handles any order of components and applies defaults for missing values.

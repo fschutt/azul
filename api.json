@@ -32729,17 +32729,35 @@
                     },
                     "CssStyleBorderRadiusParseErrorOwned": {
                         "external": "azul_css::props::style::border_radius::CssStyleBorderRadiusParseErrorOwned",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "CssBorderRadiusParseErrorOwned"
-                        }
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "CssBorderRadiusParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     },
                     "CssBorderParseErrorOwned": {
                         "external": "azul_css::props::style::border::CssBorderParseErrorOwned",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "CssBorderSideParseErrorOwned"
-                        }
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "CssBorderSideParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -72230,6 +72248,216 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "XmlComponentVec": {
+                        "external": "azul_core::xml::XmlComponentVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "XmlComponent",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "XmlComponentVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `XmlComponentVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "XmlComponentVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `XmlComponentVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "XmlComponentVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "xml_component_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "xml_component_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "xml_component_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `XmlComponentVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "XmlComponent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "XmlComponentVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `XmlComponentVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const XmlComponent"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "XmlComponentVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionXmlComponent"
+                                },
+                                "fn_body": "xml_component_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `XmlComponentVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "XmlComponentVecSlice"
+                                },
+                                "fn_body": "xml_component_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "XmlComponentVecSlice"
+                                },
+                                "fn_body": "xml_component_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "XmlComponentVecDestructorType": {
+                        "external": "azul_core::xml::XmlComponentVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "XmlComponentVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "XmlComponentVecDestructor": {
+                        "external": "azul_core::xml::XmlComponentVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "XmlComponentVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -76121,6 +76349,28 @@
                                     "type": "ComponentCallbackArg",
                                     "doc": [
                                         "Some value of type ComponentCallbackArg"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionXmlComponent": {
+                        "external": "azul_core::xml::OptionXmlComponent",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "XmlComponent",
+                                    "doc": [
+                                        "Some value of type XmlComponent"
                                     ]
                                 }
                             }
@@ -82767,6 +83017,7 @@
                     "XmlComponent": {
                         "external": "azul_core::xml::XmlComponent",
                         "custom_impls": [
+                            "Clone",
                             "Debug"
                         ],
                         "struct_fields": [
@@ -82902,6 +83153,9 @@
                                 "types": {
                                     "type": "ComponentArgumentTypes"
                                 },
+                                "values": {
+                                    "type": "StringPairVec"
+                                },
                                 "accepts_text": {
                                     "type": "bool"
                                 }
@@ -82964,7 +83218,11 @@
                             "Default"
                         ],
                         "struct_fields": [
-                            {}
+                            {
+                                "components": {
+                                    "type": "XmlComponentVec"
+                                }
+                            }
                         ],
                         "repr": "C"
                     },
@@ -83384,6 +83642,32 @@
                                 },
                                 "arg_type": {
                                     "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "XmlComponentVecSlice": {
+                        "external": "azul_core::xml::XmlComponentVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "XmlComponent",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
