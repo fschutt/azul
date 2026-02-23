@@ -1281,6 +1281,15 @@ pub enum FfiSafetyWarningKind {
         location: String,
         raw_type: String,
     },
+    /// A type is referenced (as a field type, enum variant type, callback arg, etc.)
+    /// in api.json but has no definition entry in api.json.
+    /// This means codegen will emit code referencing a type that doesn't exist.
+    UndefinedTypeReference {
+        /// Where the reference occurs, e.g. "CssParsingErrorOwned::ColumnFill"
+        location: String,
+        /// The type name that is referenced but not defined
+        referenced_type: String,
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -1319,6 +1328,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::TupleTypeReference { .. } => true,
             // Critical - raw generics like Vec<T> not allowed, use impl_vec!/impl_option!
             FfiSafetyWarningKind::AngleBracketInType { .. } => true,
+            // Critical - referenced type not defined in api.json
+            FfiSafetyWarningKind::UndefinedTypeReference { .. } => true,
         }
     }
 }
@@ -2241,6 +2252,21 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             println!(
                 "    {} Types with '<' are not FFI-safe. Use impl_vec!/impl_option! and put generic args in the 'generic_args' field.",
                 "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::UndefinedTypeReference { location, referenced_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} references undefined type: {}",
+                "→".dimmed(),
+                location.cyan(),
+                referenced_type.yellow()
+            );
+            println!(
+                "    {} Add '{}' to api.json or remove the reference.",
+                "FIX:".cyan(),
+                referenced_type
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
