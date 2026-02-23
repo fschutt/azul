@@ -304,7 +304,7 @@ impl_display! { PercentageParseError, {
 pub enum PercentageParseErrorOwned {
     ValueParseErr(ParseFloatError),
     NoPercentSign,
-    InvalidUnit(String),
+    InvalidUnit(AzString),
 }
 
 impl PercentageParseError {
@@ -312,7 +312,7 @@ impl PercentageParseError {
         match self {
             Self::ValueParseErr(e) => PercentageParseErrorOwned::ValueParseErr(e.clone()),
             Self::NoPercentSign => PercentageParseErrorOwned::NoPercentSign,
-            Self::InvalidUnit(u) => PercentageParseErrorOwned::InvalidUnit(u.as_str().to_string()),
+            Self::InvalidUnit(u) => PercentageParseErrorOwned::InvalidUnit(u.clone()),
         }
     }
 }
@@ -322,7 +322,7 @@ impl PercentageParseErrorOwned {
         match self {
             Self::ValueParseErr(e) => PercentageParseError::ValueParseErr(e.clone()),
             Self::NoPercentSign => PercentageParseError::NoPercentSign,
-            Self::InvalidUnit(u) => PercentageParseError::InvalidUnit(u.clone().into()),
+            Self::InvalidUnit(u) => PercentageParseError::InvalidUnit(u.clone()),
         }
     }
 }

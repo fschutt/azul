@@ -5,6 +5,7 @@ use core::{
     fmt,
     num::{ParseFloatError, ParseIntError},
 };
+use crate::corety::AzString;
 
 use crate::{
     impl_option,
@@ -983,18 +984,18 @@ impl_from!(
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssColorParseErrorOwned {
-    InvalidColor(String),
-    InvalidFunctionName(String),
+    InvalidColor(AzString),
+    InvalidFunctionName(AzString),
     InvalidColorComponent(u8),
     IntValueParseErr(ParseIntError),
     FloatValueParseErr(ParseFloatError),
     FloatValueOutOfRange(f32),
     MissingColorComponent(CssColorComponent),
-    ExtraArguments(String),
-    UnclosedColor(String),
+    ExtraArguments(AzString),
+    UnclosedColor(AzString),
     EmptyInput,
     DirectionParseError(CssDirectionParseErrorOwned),
-    UnsupportedDirection(String),
+    UnsupportedDirection(AzString),
     InvalidPercentage(PercentageParseError),
 }
 
@@ -1002,10 +1003,10 @@ impl<'a> CssColorParseError<'a> {
     pub fn to_contained(&self) -> CssColorParseErrorOwned {
         match self {
             CssColorParseError::InvalidColor(s) => {
-                CssColorParseErrorOwned::InvalidColor(s.to_string())
+                CssColorParseErrorOwned::InvalidColor(s.to_string().into())
             }
             CssColorParseError::InvalidFunctionName(s) => {
-                CssColorParseErrorOwned::InvalidFunctionName(s.to_string())
+                CssColorParseErrorOwned::InvalidFunctionName(s.to_string().into())
             }
             CssColorParseError::InvalidColorComponent(n) => {
                 CssColorParseErrorOwned::InvalidColorComponent(*n)
@@ -1023,17 +1024,17 @@ impl<'a> CssColorParseError<'a> {
                 CssColorParseErrorOwned::MissingColorComponent(*c)
             }
             CssColorParseError::ExtraArguments(s) => {
-                CssColorParseErrorOwned::ExtraArguments(s.to_string())
+                CssColorParseErrorOwned::ExtraArguments(s.to_string().into())
             }
             CssColorParseError::UnclosedColor(s) => {
-                CssColorParseErrorOwned::UnclosedColor(s.to_string())
+                CssColorParseErrorOwned::UnclosedColor(s.to_string().into())
             }
             CssColorParseError::EmptyInput => CssColorParseErrorOwned::EmptyInput,
             CssColorParseError::DirectionParseError(e) => {
                 CssColorParseErrorOwned::DirectionParseError(e.to_contained())
             }
             CssColorParseError::UnsupportedDirection(s) => {
-                CssColorParseErrorOwned::UnsupportedDirection(s.to_string())
+                CssColorParseErrorOwned::UnsupportedDirection(s.to_string().into())
             }
             CssColorParseError::InvalidPercentage(e) => {
                 CssColorParseErrorOwned::InvalidPercentage(e.clone())

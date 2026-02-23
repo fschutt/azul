@@ -256,7 +256,7 @@ pub struct UnknownSelectorError {
 pub enum CssPseudoSelectorParseErrorOwned {
     EmptyNthChild,
     UnknownSelector(UnknownSelectorError),
-    InvalidNthChildPattern(String),
+    InvalidNthChildPattern(AzString),
     InvalidNthChild(ParseIntError),
 }
 
@@ -273,7 +273,7 @@ impl<'a> CssPseudoSelectorParseError<'a> {
                 })
             }
             CssPseudoSelectorParseError::InvalidNthChildPattern(s) => {
-                CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string())
+                CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string().into())
             }
             CssPseudoSelectorParseError::InvalidNthChild(e) => {
                 CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone())
@@ -324,7 +324,7 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum DynamicCssParseErrorOwned {
-    InvalidBraceContents(String),
+    InvalidBraceContents(AzString),
     UnexpectedValue(CssParsingErrorOwned),
 }
 
@@ -332,7 +332,7 @@ impl<'a> DynamicCssParseError<'a> {
     pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
         match self {
             DynamicCssParseError::InvalidBraceContents(s) => {
-                DynamicCssParseErrorOwned::InvalidBraceContents(s.to_string())
+                DynamicCssParseErrorOwned::InvalidBraceContents(s.to_string().into())
             }
             DynamicCssParseError::UnexpectedValue(e) => {
                 DynamicCssParseErrorOwned::UnexpectedValue(e.to_contained())
@@ -558,8 +558,8 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssPathParseErrorOwned {
     EmptyPath,
-    InvalidTokenEncountered(String),
-    UnexpectedEndOfStream(String),
+    InvalidTokenEncountered(AzString),
+    UnexpectedEndOfStream(AzString),
     SyntaxError(CssSyntaxError),
     NodeTypeTag(NodeTypeTagParseErrorOwned),
     PseudoSelectorParseError(CssPseudoSelectorParseErrorOwned),
@@ -570,10 +570,10 @@ impl<'a> CssPathParseError<'a> {
         match self {
             CssPathParseError::EmptyPath => CssPathParseErrorOwned::EmptyPath,
             CssPathParseError::InvalidTokenEncountered(s) => {
-                CssPathParseErrorOwned::InvalidTokenEncountered(s.to_string())
+                CssPathParseErrorOwned::InvalidTokenEncountered(s.to_string().into())
             }
             CssPathParseError::UnexpectedEndOfStream(s) => {
-                CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string())
+                CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string().into())
             }
             CssPathParseError::SyntaxError(e) => CssPathParseErrorOwned::SyntaxError(e.clone()),
             CssPathParseError::NodeTypeTag(e) => {

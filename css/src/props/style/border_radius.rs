@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 use crate::{
     css::PrintAsCssValue,
@@ -84,7 +85,7 @@ impl_from!(
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssBorderRadiusParseErrorOwned {
-    TooManyValues(String),
+    TooManyValues(AzString),
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
@@ -95,7 +96,7 @@ impl<'a> CssBorderRadiusParseError<'a> {
     pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {
         match self {
             CssBorderRadiusParseError::TooManyValues(s) => {
-                CssBorderRadiusParseErrorOwned::TooManyValues(s.to_string())
+                CssBorderRadiusParseErrorOwned::TooManyValues(s.to_string().into())
             }
             CssBorderRadiusParseError::PixelValue(e) => {
                 CssBorderRadiusParseErrorOwned::PixelValue(e.to_contained())

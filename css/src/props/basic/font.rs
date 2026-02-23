@@ -572,17 +572,17 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssStyleFontFamilyParseErrorOwned {
-    InvalidStyleFontFamily(String),
-    UnclosedQuotes(String),
+    InvalidStyleFontFamily(AzString),
+    UnclosedQuotes(AzString),
 }
 impl<'a> CssStyleFontFamilyParseError<'a> {
     pub fn to_contained(&self) -> CssStyleFontFamilyParseErrorOwned {
         match self {
             CssStyleFontFamilyParseError::InvalidStyleFontFamily(s) => {
-                CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily(s.to_string())
+                CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily(s.to_string().into())
             }
             CssStyleFontFamilyParseError::UnclosedQuotes(e) => {
-                CssStyleFontFamilyParseErrorOwned::UnclosedQuotes(e.0.to_string())
+                CssStyleFontFamilyParseErrorOwned::UnclosedQuotes(e.0.to_string().into())
             }
         }
     }

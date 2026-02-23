@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
@@ -58,14 +59,14 @@ impl<'a> fmt::Display for TextJustifyParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum TextJustifyParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 impl<'a> TextJustifyParseError<'a> {
     pub fn to_owned(&self) -> TextJustifyParseErrorOwned {
         match self {
             TextJustifyParseError::InvalidValue(s) => {
-                TextJustifyParseErrorOwned::InvalidValue((*s).to_string())
+                TextJustifyParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }

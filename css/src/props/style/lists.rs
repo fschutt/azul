@@ -4,6 +4,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
@@ -145,14 +146,14 @@ impl_display! { StyleListStyleTypeParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleListStyleTypeParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> StyleListStyleTypeParseError<'a> {
     pub fn to_contained(&self) -> StyleListStyleTypeParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleListStyleTypeParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => StyleListStyleTypeParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -206,7 +207,7 @@ impl_display! { StyleListStylePositionParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleListStylePositionParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -214,7 +215,7 @@ impl<'a> StyleListStylePositionParseError<'a> {
     pub fn to_contained(&self) -> StyleListStylePositionParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleListStylePositionParseErrorOwned::InvalidValue(s.to_string())
+                StyleListStylePositionParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }

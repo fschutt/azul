@@ -1,6 +1,7 @@
 //! CSS properties for styling scrollbars.
 
 use alloc::string::{String, ToString};
+use crate::corety::AzString;
 
 use crate::props::{
     basic::{
@@ -783,13 +784,13 @@ impl_display! { LayoutScrollbarWidthParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutScrollbarWidthParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 impl<'a> LayoutScrollbarWidthParseError<'a> {
     pub fn to_contained(&self) -> LayoutScrollbarWidthParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                LayoutScrollbarWidthParseErrorOwned::InvalidValue(s.to_string())
+                LayoutScrollbarWidthParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -829,14 +830,14 @@ impl_from!(CssColorParseError<'a>, StyleScrollbarColorParseError::Color);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleScrollbarColorParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
     Color(CssColorParseErrorOwned),
 }
 impl<'a> StyleScrollbarColorParseError<'a> {
     pub fn to_contained(&self) -> StyleScrollbarColorParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleScrollbarColorParseErrorOwned::InvalidValue(s.to_string())
+                StyleScrollbarColorParseErrorOwned::InvalidValue(s.to_string().into())
             }
             Self::Color(e) => StyleScrollbarColorParseErrorOwned::Color(e.to_contained()),
         }
@@ -894,14 +895,14 @@ impl_display! { CssScrollbarStyleParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssScrollbarStyleParseErrorOwned {
-    Invalid(String),
+    Invalid(AzString),
 }
 
 impl<'a> CssScrollbarStyleParseError<'a> {
     pub fn to_contained(&self) -> CssScrollbarStyleParseErrorOwned {
         match self {
             CssScrollbarStyleParseError::Invalid(s) => {
-                CssScrollbarStyleParseErrorOwned::Invalid(s.to_string())
+                CssScrollbarStyleParseErrorOwned::Invalid(s.to_string().into())
             }
         }
     }

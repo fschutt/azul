@@ -244,8 +244,9 @@ impl crate::format_rust_code::FormatAsRustCode for ColumnRuleColor {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use super::*;
+    use crate::corety::AzString;
 
     // -- ColumnCount parser
 
@@ -264,15 +265,15 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum ColumnCountParseErrorOwned {
-        InvalidValue(String),
-        ParseInt(String),
+        InvalidValue(AzString),
+        ParseInt(AzString),
     }
 
     impl<'a> ColumnCountParseError<'a> {
         pub fn to_contained(&self) -> ColumnCountParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => ColumnCountParseErrorOwned::InvalidValue(s.to_string()),
-                Self::ParseInt(e) => ColumnCountParseErrorOwned::ParseInt(e.to_string()),
+                Self::InvalidValue(s) => ColumnCountParseErrorOwned::InvalidValue(s.to_string().into()),
+                Self::ParseInt(e) => ColumnCountParseErrorOwned::ParseInt(e.to_string().into()),
             }
         }
     }
@@ -317,14 +318,14 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum ColumnWidthParseErrorOwned {
-        InvalidValue(String),
+        InvalidValue(AzString),
         PixelValue(CssPixelValueParseErrorOwned),
     }
 
     impl<'a> ColumnWidthParseError<'a> {
         pub fn to_contained(&self) -> ColumnWidthParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => ColumnWidthParseErrorOwned::InvalidValue(s.to_string()),
+                Self::InvalidValue(s) => ColumnWidthParseErrorOwned::InvalidValue(s.to_string().into()),
                 Self::PixelValue(e) => ColumnWidthParseErrorOwned::PixelValue(e.to_contained()),
             }
         }
@@ -371,13 +372,13 @@ mod parser {
 
             #[derive(Debug, Clone, PartialEq)]
             pub enum $error_owned_name {
-                InvalidValue(String),
+                InvalidValue(AzString),
             }
 
             impl<'a> $error_name<'a> {
                 pub fn to_contained(&self) -> $error_owned_name {
                     match self {
-                        Self::InvalidValue(s) => $error_owned_name::InvalidValue(s.to_string()),
+                        Self::InvalidValue(s) => $error_owned_name::InvalidValue(s.to_string().into()),
                     }
                 }
             }

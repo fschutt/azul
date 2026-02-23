@@ -80,8 +80,9 @@ impl crate::format_rust_code::FormatAsRustCode for FlowFrom {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use super::*;
+    use crate::corety::AzString;
 
     macro_rules! define_flow_parser {
         (
@@ -103,13 +104,13 @@ mod parser {
 
             #[derive(Debug, Clone, PartialEq)]
             pub enum $error_owned_name {
-                InvalidValue(String),
+                InvalidValue(AzString),
             }
 
             impl<'a> $error_name<'a> {
                 pub fn to_contained(&self) -> $error_owned_name {
                     match self {
-                        Self::InvalidValue(s) => $error_owned_name::InvalidValue(s.to_string()),
+                        Self::InvalidValue(s) => $error_owned_name::InvalidValue(s.to_string().into()),
                     }
                 }
             }

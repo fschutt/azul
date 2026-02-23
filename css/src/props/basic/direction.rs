@@ -2,6 +2,7 @@
 
 use alloc::string::String;
 use core::{fmt, num::ParseFloatError};
+use crate::corety::AzString;
 
 use crate::props::{
     basic::{
@@ -201,14 +202,14 @@ impl_display! { CssDirectionCornerParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssDirectionCornerParseErrorOwned {
-    InvalidDirection(String),
+    InvalidDirection(AzString),
 }
 
 impl<'a> CssDirectionCornerParseError<'a> {
     pub fn to_contained(&self) -> CssDirectionCornerParseErrorOwned {
         match self {
             CssDirectionCornerParseError::InvalidDirection(s) => {
-                CssDirectionCornerParseErrorOwned::InvalidDirection(s.to_string())
+                CssDirectionCornerParseErrorOwned::InvalidDirection(s.to_string().into())
             }
         }
     }
@@ -252,8 +253,8 @@ impl_from! { CssAngleValueParseError<'a>, CssDirectionParseError::AngleError }
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssDirectionParseErrorOwned {
-    Error(String),
-    InvalidArguments(String),
+    Error(AzString),
+    InvalidArguments(AzString),
     ParseFloat(ParseFloatError),
     CornerError(CssDirectionCornerParseErrorOwned),
     AngleError(CssAngleValueParseErrorOwned),
@@ -262,9 +263,9 @@ pub enum CssDirectionParseErrorOwned {
 impl<'a> CssDirectionParseError<'a> {
     pub fn to_contained(&self) -> CssDirectionParseErrorOwned {
         match self {
-            CssDirectionParseError::Error(s) => CssDirectionParseErrorOwned::Error(s.to_string()),
+            CssDirectionParseError::Error(s) => CssDirectionParseErrorOwned::Error(s.to_string().into()),
             CssDirectionParseError::InvalidArguments(s) => {
-                CssDirectionParseErrorOwned::InvalidArguments(s.to_string())
+                CssDirectionParseErrorOwned::InvalidArguments(s.to_string().into())
             }
             CssDirectionParseError::ParseFloat(e) => {
                 CssDirectionParseErrorOwned::ParseFloat(e.clone())

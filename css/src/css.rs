@@ -594,13 +594,13 @@ impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum NodeTypeTagParseErrorOwned {
-    Invalid(String),
+    Invalid(AzString),
 }
 
 impl<'a> NodeTypeTagParseError<'a> {
     pub fn to_contained(&self) -> NodeTypeTagParseErrorOwned {
         match self {
-            NodeTypeTagParseError::Invalid(s) => NodeTypeTagParseErrorOwned::Invalid(s.to_string()),
+            NodeTypeTagParseError::Invalid(s) => NodeTypeTagParseErrorOwned::Invalid(s.to_string().into()),
         }
     }
 }

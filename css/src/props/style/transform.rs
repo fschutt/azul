@@ -6,6 +6,7 @@ use alloc::{
 };
 use core::fmt;
 use std::num::ParseFloatError;
+use crate::corety::AzString;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{
@@ -402,7 +403,7 @@ impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssStyleTransformParseErrorOwned {
-    InvalidTransform(String),
+    InvalidTransform(AzString),
     InvalidParenthesis(ParenthesisParseErrorOwned),
     WrongNumberOfComponents(WrongComponentCountError),
     NumberParseError(core::num::ParseFloatError),
@@ -415,7 +416,7 @@ impl<'a> CssStyleTransformParseError<'a> {
     pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
         match self {
             Self::InvalidTransform(s) => {
-                CssStyleTransformParseErrorOwned::InvalidTransform(s.to_string())
+                CssStyleTransformParseErrorOwned::InvalidTransform(s.to_string().into())
             }
             Self::InvalidParenthesis(e) => {
                 CssStyleTransformParseErrorOwned::InvalidParenthesis(e.to_contained())
@@ -600,14 +601,14 @@ impl_display! { CssBackfaceVisibilityParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssBackfaceVisibilityParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 impl<'a> CssBackfaceVisibilityParseError<'a> {
     pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                CssBackfaceVisibilityParseErrorOwned::InvalidValue(s.to_string())
+                CssBackfaceVisibilityParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }

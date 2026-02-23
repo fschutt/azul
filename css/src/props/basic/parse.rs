@@ -1,4 +1,5 @@
 use crate::props::basic::CssImageParseError;
+use crate::corety::AzString;
 
 /// Splits a string by commas, but respects parentheses/braces
 ///
@@ -126,7 +127,7 @@ pub enum ParenthesisParseErrorOwned {
     UnclosedBraces,
     NoOpeningBraceFound,
     NoClosingBraceFound,
-    StopWordNotFound(String),
+    StopWordNotFound(AzString),
     EmptyInput,
 }
 
@@ -141,7 +142,7 @@ impl<'a> ParenthesisParseError<'a> {
                 ParenthesisParseErrorOwned::NoClosingBraceFound
             }
             ParenthesisParseError::StopWordNotFound(s) => {
-                ParenthesisParseErrorOwned::StopWordNotFound(s.to_string())
+                ParenthesisParseErrorOwned::StopWordNotFound(s.to_string().into())
             }
             ParenthesisParseError::EmptyInput => ParenthesisParseErrorOwned::EmptyInput,
         }

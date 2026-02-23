@@ -1,6 +1,7 @@
 //! CSS properties for text wrapping and writing modes.
 
 use alloc::string::{String, ToString};
+use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -60,7 +61,7 @@ impl_display! { LayoutWrapParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutWrapParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -68,7 +69,7 @@ impl<'a> LayoutWrapParseError<'a> {
     pub fn to_contained(&self) -> LayoutWrapParseErrorOwned {
         match self {
             LayoutWrapParseError::InvalidValue(s) => {
-                LayoutWrapParseErrorOwned::InvalidValue(s.to_string())
+                LayoutWrapParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -159,7 +160,7 @@ impl_display! { LayoutWritingModeParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutWritingModeParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -167,7 +168,7 @@ impl<'a> LayoutWritingModeParseError<'a> {
     pub fn to_contained(&self) -> LayoutWritingModeParseErrorOwned {
         match self {
             LayoutWritingModeParseError::InvalidValue(s) => {
-                LayoutWritingModeParseErrorOwned::InvalidValue(s.to_string())
+                LayoutWritingModeParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -255,7 +256,7 @@ impl_display! { LayoutClearParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutClearParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -263,7 +264,7 @@ impl<'a> LayoutClearParseError<'a> {
     pub fn to_contained(&self) -> LayoutClearParseErrorOwned {
         match self {
             LayoutClearParseError::InvalidValue(s) => {
-                LayoutClearParseErrorOwned::InvalidValue(s.to_string())
+                LayoutClearParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }

@@ -1,6 +1,7 @@
 //! CSS properties for positioning elements.
 
 use alloc::string::{String, ToString};
+use crate::corety::AzString;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::pixel::parse_pixel_value;
@@ -64,14 +65,14 @@ impl_display! { LayoutPositionParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutPositionParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 impl<'a> LayoutPositionParseError<'a> {
     pub fn to_contained(&self) -> LayoutPositionParseErrorOwned {
         match self {
             LayoutPositionParseError::InvalidValue(s) => {
-                LayoutPositionParseErrorOwned::InvalidValue(s.to_string())
+                LayoutPositionParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -374,7 +375,7 @@ pub struct ParseIntErrorWithInput {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutZIndexParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
     ParseInt(ParseIntErrorWithInput),
 }
 
@@ -382,7 +383,7 @@ impl<'a> LayoutZIndexParseError<'a> {
     pub fn to_contained(&self) -> LayoutZIndexParseErrorOwned {
         match self {
             LayoutZIndexParseError::InvalidValue(s) => {
-                LayoutZIndexParseErrorOwned::InvalidValue(s.to_string())
+                LayoutZIndexParseErrorOwned::InvalidValue(s.to_string().into())
             }
             LayoutZIndexParseError::ParseInt(e, s) => {
                 LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string(), input: s.to_string() })

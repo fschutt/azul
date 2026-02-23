@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::{fmt, num::ParseFloatError};
+use crate::corety::AzString;
 
 use crate::props::basic::error::ParseFloatErrorWithInput;
 
@@ -208,7 +209,7 @@ pub enum CssAngleValueParseErrorOwned {
     EmptyString,
     NoValueGiven(AngleNoValueGivenError),
     ValueParseErr(ParseFloatErrorWithInput),
-    InvalidAngle(String),
+    InvalidAngle(AzString),
 }
 
 impl<'a> CssAngleValueParseError<'a> {
@@ -222,7 +223,7 @@ impl<'a> CssAngleValueParseError<'a> {
                 CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone(), input: s.to_string() })
             }
             CssAngleValueParseError::InvalidAngle(s) => {
-                CssAngleValueParseErrorOwned::InvalidAngle(s.to_string())
+                CssAngleValueParseErrorOwned::InvalidAngle(s.to_string().into())
             }
         }
     }

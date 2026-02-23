@@ -319,14 +319,14 @@ impl_display! { GridParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum GridParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> GridParseError<'a> {
     pub fn to_contained(&self) -> GridParseErrorOwned {
         match self {
-            GridParseError::InvalidValue(s) => GridParseErrorOwned::InvalidValue(s.to_string()),
+            GridParseError::InvalidValue(s) => GridParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -566,7 +566,7 @@ impl_display! { GridAutoFlowParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum GridAutoFlowParseErrorOwned {
-    InvalidValue(alloc::string::String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -574,7 +574,7 @@ impl<'a> GridAutoFlowParseError<'a> {
     pub fn to_contained(&self) -> GridAutoFlowParseErrorOwned {
         match self {
             GridAutoFlowParseError::InvalidValue(s) => {
-                GridAutoFlowParseErrorOwned::InvalidValue(s.to_string())
+                GridAutoFlowParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -646,7 +646,7 @@ pub enum JustifySelfParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum JustifySelfParseErrorOwned {
-    InvalidValue(alloc::string::String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -654,7 +654,7 @@ impl<'a> JustifySelfParseError<'a> {
     pub fn to_contained(&self) -> JustifySelfParseErrorOwned {
         match self {
             JustifySelfParseError::InvalidValue(s) => {
-                JustifySelfParseErrorOwned::InvalidValue(s.to_string())
+                JustifySelfParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -729,7 +729,7 @@ pub enum JustifyItemsParseError<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum JustifyItemsParseErrorOwned {
-    InvalidValue(alloc::string::String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -737,7 +737,7 @@ impl<'a> JustifyItemsParseError<'a> {
     pub fn to_contained(&self) -> JustifyItemsParseErrorOwned {
         match self {
             JustifyItemsParseError::InvalidValue(s) => {
-                JustifyItemsParseErrorOwned::InvalidValue(s.to_string())
+                JustifyItemsParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }

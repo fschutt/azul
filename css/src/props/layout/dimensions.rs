@@ -391,9 +391,10 @@ impl PrintAsCssValue for LayoutBoxSizing {
 // -- Parser --
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
 
     use alloc::string::ToString;
+    use crate::corety::AzString;
 
     use super::*;
     use crate::props::basic::pixel::parse_pixel_value;
@@ -463,7 +464,7 @@ mod parser {
     #[repr(C, u8)]
     pub enum LayoutWidthParseErrorOwned {
         PixelValue(CssPixelValueParseErrorOwned),
-        InvalidKeyword(String),
+        InvalidKeyword(AzString),
     }
 
     impl<'a> LayoutWidthParseError<'a> {
@@ -473,7 +474,7 @@ mod parser {
                     LayoutWidthParseErrorOwned::PixelValue(e.to_contained())
                 }
                 LayoutWidthParseError::InvalidKeyword(k) => {
-                    LayoutWidthParseErrorOwned::InvalidKeyword(k.to_string())
+                    LayoutWidthParseErrorOwned::InvalidKeyword(k.to_string().into())
                 }
             }
         }
@@ -530,7 +531,7 @@ mod parser {
     #[repr(C, u8)]
     pub enum LayoutHeightParseErrorOwned {
         PixelValue(CssPixelValueParseErrorOwned),
-        InvalidKeyword(String),
+        InvalidKeyword(AzString),
     }
 
     impl<'a> LayoutHeightParseError<'a> {
@@ -540,7 +541,7 @@ mod parser {
                     LayoutHeightParseErrorOwned::PixelValue(e.to_contained())
                 }
                 LayoutHeightParseError::InvalidKeyword(k) => {
-                    LayoutHeightParseErrorOwned::InvalidKeyword(k.to_string())
+                    LayoutHeightParseErrorOwned::InvalidKeyword(k.to_string().into())
                 }
             }
         }
@@ -618,14 +619,14 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum LayoutBoxSizingParseErrorOwned {
-        InvalidValue(String),
+        InvalidValue(AzString),
     }
 
     impl<'a> LayoutBoxSizingParseError<'a> {
         pub fn to_contained(&self) -> LayoutBoxSizingParseErrorOwned {
             match self {
                 LayoutBoxSizingParseError::InvalidValue(s) => {
-                    LayoutBoxSizingParseErrorOwned::InvalidValue(s.to_string())
+                    LayoutBoxSizingParseErrorOwned::InvalidValue(s.to_string().into())
                 }
             }
         }

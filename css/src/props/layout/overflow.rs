@@ -1,6 +1,7 @@
 //! CSS properties for managing content overflow.
 
 use alloc::string::{String, ToString};
+use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -96,7 +97,7 @@ impl_display! { LayoutOverflowParseError<'a>, {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutOverflowParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 impl<'a> LayoutOverflowParseError<'a> {
@@ -104,7 +105,7 @@ impl<'a> LayoutOverflowParseError<'a> {
     pub fn to_contained(&self) -> LayoutOverflowParseErrorOwned {
         match self {
             LayoutOverflowParseError::InvalidValue(s) => {
-                LayoutOverflowParseErrorOwned::InvalidValue(s.to_string())
+                LayoutOverflowParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }

@@ -217,6 +217,7 @@ impl PrintAsCssValue for StyleCursor {
 #[cfg(feature = "parser")]
 pub mod parsers {
     use super::*;
+    use crate::corety::AzString;
     use crate::props::basic::error::{InvalidValueErr, InvalidValueErrOwned};
 
     // -- Opacity Parser --
@@ -244,7 +245,7 @@ pub mod parsers {
     #[repr(C, u8)]
     pub enum OpacityParseErrorOwned {
         ParsePercentage(PercentageParseErrorWithInput),
-        OutOfRange(String),
+        OutOfRange(AzString),
     }
 
     impl<'a> OpacityParseError<'a> {
@@ -253,7 +254,7 @@ pub mod parsers {
                 Self::ParsePercentage(err, s) => {
                     OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: s.to_string() })
                 }
-                Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange(s.to_string()),
+                Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange(s.to_string().into()),
             }
         }
     }

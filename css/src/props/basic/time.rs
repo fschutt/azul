@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -49,16 +50,16 @@ impl_display! { DurationParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum DurationParseErrorOwned {
-    InvalidValue(String),
-    ParseFloat(String),
+    InvalidValue(AzString),
+    ParseFloat(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> DurationParseError<'a> {
     pub fn to_contained(&self) -> DurationParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => DurationParseErrorOwned::InvalidValue(s.to_string()),
-            Self::ParseFloat(e) => DurationParseErrorOwned::ParseFloat(e.to_string()),
+            Self::InvalidValue(s) => DurationParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::ParseFloat(e) => DurationParseErrorOwned::ParseFloat(e.to_string().into()),
         }
     }
 }

@@ -175,7 +175,7 @@ impl crate::format_rust_code::FormatAsRustCode for StringSet {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use super::*;
 
     // Simplified parsers that just take the raw string value.

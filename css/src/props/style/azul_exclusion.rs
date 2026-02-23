@@ -86,7 +86,7 @@ impl_from!(ParseFloatError, StyleExclusionMarginParseError::FloatValue);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleExclusionMarginParseErrorOwned {
-    FloatValue(String),
+    FloatValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -94,7 +94,7 @@ impl StyleExclusionMarginParseError {
     pub fn to_contained(&self) -> StyleExclusionMarginParseErrorOwned {
         match self {
             Self::FloatValue(e) => {
-                StyleExclusionMarginParseErrorOwned::FloatValue(format!("{}", e))
+                StyleExclusionMarginParseErrorOwned::FloatValue(format!("{}", e).into())
             }
         }
     }
@@ -192,7 +192,7 @@ impl_display! { StyleHyphenationLanguageParseError, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleHyphenationLanguageParseErrorOwned {
-    InvalidString(String),
+    InvalidString(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -200,7 +200,7 @@ impl StyleHyphenationLanguageParseError {
     pub fn to_contained(&self) -> StyleHyphenationLanguageParseErrorOwned {
         match self {
             Self::InvalidString(e) => {
-                StyleHyphenationLanguageParseErrorOwned::InvalidString(e.clone())
+                StyleHyphenationLanguageParseErrorOwned::InvalidString(e.clone().into())
             }
         }
     }
@@ -210,7 +210,7 @@ impl StyleHyphenationLanguageParseError {
 impl StyleHyphenationLanguageParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> StyleHyphenationLanguageParseError {
         match self {
-            Self::InvalidString(e) => StyleHyphenationLanguageParseError::InvalidString(e.clone()),
+            Self::InvalidString(e) => StyleHyphenationLanguageParseError::InvalidString(e.to_string()),
         }
     }
 }

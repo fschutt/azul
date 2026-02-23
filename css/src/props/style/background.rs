@@ -809,11 +809,11 @@ impl_from!(
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssBackgroundParseErrorOwned {
-    Error(String),
+    Error(AzString),
     InvalidBackground(ParenthesisParseErrorOwned),
-    UnclosedGradient(String),
-    NoDirection(String),
-    TooFewGradientStops(String),
+    UnclosedGradient(AzString),
+    NoDirection(AzString),
+    TooFewGradientStops(AzString),
     DirectionParseError(CssDirectionParseErrorOwned),
     GradientParseError(CssGradientStopParseErrorOwned),
     ConicGradient(CssConicGradientParseErrorOwned),
@@ -825,16 +825,16 @@ pub enum CssBackgroundParseErrorOwned {
 impl<'a> CssBackgroundParseError<'a> {
     pub fn to_contained(&self) -> CssBackgroundParseErrorOwned {
         match self {
-            Self::Error(s) => CssBackgroundParseErrorOwned::Error(s.to_string()),
+            Self::Error(s) => CssBackgroundParseErrorOwned::Error(s.to_string().into()),
             Self::InvalidBackground(e) => {
                 CssBackgroundParseErrorOwned::InvalidBackground(e.to_contained())
             }
             Self::UnclosedGradient(s) => {
-                CssBackgroundParseErrorOwned::UnclosedGradient(s.to_string())
+                CssBackgroundParseErrorOwned::UnclosedGradient(s.to_string().into())
             }
-            Self::NoDirection(s) => CssBackgroundParseErrorOwned::NoDirection(s.to_string()),
+            Self::NoDirection(s) => CssBackgroundParseErrorOwned::NoDirection(s.to_string().into()),
             Self::TooFewGradientStops(s) => {
-                CssBackgroundParseErrorOwned::TooFewGradientStops(s.to_string())
+                CssBackgroundParseErrorOwned::TooFewGradientStops(s.to_string().into())
             }
             Self::DirectionParseError(e) => {
                 CssBackgroundParseErrorOwned::DirectionParseError(e.to_contained())
@@ -902,7 +902,7 @@ impl_from!(
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssGradientStopParseErrorOwned {
-    Error(String),
+    Error(AzString),
     Percentage(PercentageParseErrorOwned),
     Angle(CssAngleValueParseErrorOwned),
     ColorParseError(CssColorParseErrorOwned),
@@ -911,7 +911,7 @@ pub enum CssGradientStopParseErrorOwned {
 impl<'a> CssGradientStopParseError<'a> {
     pub fn to_contained(&self) -> CssGradientStopParseErrorOwned {
         match self {
-            Self::Error(s) => CssGradientStopParseErrorOwned::Error(s.to_string()),
+            Self::Error(s) => CssGradientStopParseErrorOwned::Error(s.to_string().into()),
             Self::Percentage(e) => CssGradientStopParseErrorOwned::Percentage(e.to_contained()),
             Self::Angle(e) => CssGradientStopParseErrorOwned::Angle(e.to_contained()),
             Self::ColorParseError(e) => {
@@ -960,14 +960,14 @@ impl_from!(
 pub enum CssConicGradientParseErrorOwned {
     Position(CssBackgroundPositionParseErrorOwned),
     Angle(CssAngleValueParseErrorOwned),
-    NoAngle(String),
+    NoAngle(AzString),
 }
 impl<'a> CssConicGradientParseError<'a> {
     pub fn to_contained(&self) -> CssConicGradientParseErrorOwned {
         match self {
             Self::Position(e) => CssConicGradientParseErrorOwned::Position(e.to_contained()),
             Self::Angle(e) => CssConicGradientParseErrorOwned::Angle(e.to_contained()),
-            Self::NoAngle(s) => CssConicGradientParseErrorOwned::NoAngle(s.to_string()),
+            Self::NoAngle(s) => CssConicGradientParseErrorOwned::NoAngle(s.to_string().into()),
         }
     }
 }
@@ -1025,17 +1025,17 @@ impl_display! {CssBackgroundPositionParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssBackgroundPositionParseErrorOwned {
-    NoPosition(String),
-    TooManyComponents(String),
+    NoPosition(AzString),
+    TooManyComponents(AzString),
     FirstComponentWrong(CssPixelValueParseErrorOwned),
     SecondComponentWrong(CssPixelValueParseErrorOwned),
 }
 impl<'a> CssBackgroundPositionParseError<'a> {
     pub fn to_contained(&self) -> CssBackgroundPositionParseErrorOwned {
         match self {
-            Self::NoPosition(s) => CssBackgroundPositionParseErrorOwned::NoPosition(s.to_string()),
+            Self::NoPosition(s) => CssBackgroundPositionParseErrorOwned::NoPosition(s.to_string().into()),
             Self::TooManyComponents(s) => {
-                CssBackgroundPositionParseErrorOwned::TooManyComponents(s.to_string())
+                CssBackgroundPositionParseErrorOwned::TooManyComponents(s.to_string().into())
             }
             Self::FirstComponentWrong(e) => {
                 CssBackgroundPositionParseErrorOwned::FirstComponentWrong(e.to_contained())
@@ -1064,7 +1064,7 @@ impl CssBackgroundPositionParseErrorOwned {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use super::*;
 
     /// Internal enum to help dispatch parsing logic within the `parse_gradient` function.

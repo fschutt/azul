@@ -3390,7 +3390,12 @@ pub fn parse_component_arguments<'a>(
     Ok(args)
 }
 
-/// Filters the XML attributes of a component given XmlAttributeMap
+/// Filters the XML attributes of a component given XmlAttributeMap.
+///
+/// Validates that:
+/// - Attribute names are recognized by the component
+/// - Values are type-compatible with declared field types (when possible)
+/// - Unknown attributes trigger warnings (lenient mode for HTML compat)
 pub fn validate_and_filter_component_args(
     xml_attributes: &XmlAttributeMap,
     valid_args: &ComponentArguments,
@@ -3410,6 +3415,13 @@ pub fn validate_and_filter_component_args(
             .find(|s| s.0 == xml_attribute_name.as_str())
             .map(|q| &q.1)
         {
+            // Validate value against declared type (basic checks)
+            validate_attribute_value(
+                xml_attribute_name.as_str(),
+                xml_attribute_value.as_str(),
+                valid_arg_type.as_str(),
+            );
+
             map.types.push((
                 xml_attribute_name.as_str().to_string(),
                 valid_arg_type.clone(),
@@ -3445,6 +3457,149 @@ pub fn validate_and_filter_component_args(
     }
 
     Ok(map)
+}
+
+/// Validate an attribute value against a declared type string.
+/// Prints a warning if the value is incompatible (lenient — does not error).
+fn validate_attribute_value(attr_name: &str, attr_value: &str, type_str: &str) {
+    let warning = match type_str {
+        "bool" | "Bool" | "boolean" => {
+            if !matches!(attr_value, "true" | "false" | "1" | "0" | "yes" | "no") {
+                Some(format!("expected bool ('true'/'false'), got '{}'", attr_value))
+            } else { None }
+        }
+        "i32" | "I32" | "int" => {
+            if attr_value.parse::<i32>().is_err() {
+                Some(format!("expected i32, got '{}'", attr_value))
+            } else { None }
+        }
+        "i64" | "I64" => {
+            if attr_value.parse::<i64>().is_err() {
+                Some(format!("expected i64, got '{}'", attr_value))
+            } else { None }
+        }
+        "u32" | "U32" => {
+            if attr_value.parse::<u32>().is_err() {
+                Some(format!("expected u32, got '{}'", attr_value))
+            } else { None }
+        }
+        "u64" | "U64" => {
+            if attr_value.parse::<u64>().is_err() {
+                Some(format!("expected u64, got '{}'", attr_value))
+            } else { None }
+        }
+        "usize" | "Usize" => {
+            if attr_value.parse::<usize>().is_err() {
+                Some(format!("expected usize, got '{}'", attr_value))
+            } else { None }
+        }
+        "f32" | "F32" | "float" => {
+            if attr_value.parse::<f32>().is_err() {
+                Some(format!("expected f32, got '{}'", attr_value))
+            } else { None }
+        }
+        "f64" | "F64" | "double" => {
+            if attr_value.parse::<f64>().is_err() {
+                Some(format!("expected f64, got '{}'", attr_value))
+            } else { None }
+        }
+        // String, ColorU, CssProperty, etc. — accept any value
+        _ => None,
+    };
+
+    if let Some(msg) = warning {
+        #[cfg(feature = "std")]
+        eprintln!("Warning: attribute '{}' type mismatch: {}", attr_name, msg);
+    }
+}
+
+/// Validate a component's template XML recursively.
+///
+/// Checks that all child component references in the template:
+/// - Reference components that exist in the component map
+/// - Pass valid attributes to those components
+/// - Don't create circular references
+///
+/// This works on pre-parsed XML nodes (from the component's template).
+#[cfg(feature = "std")]
+pub fn validate_component_template_recursive(
+    template_children: &[XmlNodeChild],
+    component_name: &str,
+    component_map: &XmlComponentMap,
+    visited: &mut alloc::collections::BTreeSet<alloc::string::String>,
+) -> Result<(), alloc::string::String> {
+    use alloc::string::ToString;
+
+    if !visited.insert(component_name.to_string()) {
+        return Err(alloc::format!(
+            "Circular component reference detected: '{}' references itself (chain: {:?})",
+            component_name, visited
+        ));
+    }
+
+    // Recursively check each child element
+    for child in template_children {
+        validate_xml_node_recursive(child, component_map, visited)?;
+    }
+
+    visited.remove(component_name);
+    Ok(())
+}
+
+/// Recursively validate a single XML node and its children against the component map.
+#[cfg(feature = "std")]
+fn validate_xml_node_recursive(
+    node: &XmlNodeChild,
+    component_map: &XmlComponentMap,
+    visited: &mut alloc::collections::BTreeSet<alloc::string::String>,
+) -> Result<(), alloc::string::String> {
+    use alloc::string::ToString;
+
+    let element = match node {
+        XmlNodeChild::Element(e) => e,
+        _ => return Ok(()),
+    };
+
+    let tag_normalized = normalize_casing(&element.node_type);
+
+    // Check if this component exists
+    if let Some(xml_component) = component_map.get(&tag_normalized) {
+        // Validate attributes against declared arguments
+        let available_args = xml_component.renderer.get_available_arguments();
+        for AzStringPair { key, .. } in element.attributes.as_ref().iter() {
+            let attr_name = key.as_str();
+            if !DEFAULT_ARGS.contains(&attr_name)
+                && !available_args.args.iter().any(|a| a.0 == attr_name)
+            {
+                #[cfg(feature = "std")]
+                eprintln!(
+                    "Warning: component '{}' does not accept attribute '{}' (available: {:?})",
+                    tag_normalized,
+                    attr_name,
+                    available_args.args.iter().map(|a| &a.0).collect::<alloc::vec::Vec<_>>()
+                );
+            }
+        }
+
+        // If this component has a template, recursively validate its children
+        let xml_node = xml_component.renderer.get_xml_node();
+        if !xml_node.children.as_ref().is_empty() {
+            validate_component_template_recursive(
+                xml_node.children.as_ref(),
+                &tag_normalized,
+                component_map,
+                visited,
+            )?;
+        }
+    }
+    // Note: unknown tags are allowed (lenient mode for HTML compat)
+
+    // Recurse into children
+    for child in element.children.as_ref().iter() {
+        validate_xml_node_recursive(child, component_map, visited)?;
+    }
+
+    Ok(())
 }
 
 /// Find the one and only `<body>` node, return error if

@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 use crate::props::{
     basic::{
@@ -146,7 +147,7 @@ impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssShadowParseErrorOwned {
-    TooManyOrTooFewComponents(String),
+    TooManyOrTooFewComponents(AzString),
     ValueParseErr(CssPixelValueParseErrorOwned),
     ColorParseError(CssColorParseErrorOwned),
 }
@@ -155,7 +156,7 @@ impl<'a> CssShadowParseError<'a> {
     pub fn to_contained(&self) -> CssShadowParseErrorOwned {
         match self {
             CssShadowParseError::TooManyOrTooFewComponents(s) => {
-                CssShadowParseErrorOwned::TooManyOrTooFewComponents(s.to_string())
+                CssShadowParseErrorOwned::TooManyOrTooFewComponents(s.to_string().into())
             }
             CssShadowParseError::ValueParseErr(e) => {
                 CssShadowParseErrorOwned::ValueParseErr(e.to_contained())

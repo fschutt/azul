@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{color::parse_css_color, pixel::parse_pixel_value};
@@ -320,7 +321,7 @@ impl_display! { CssBorderStyleParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssBorderStyleParseErrorOwned {
-    InvalidStyle(String),
+    InvalidStyle(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -328,7 +329,7 @@ impl<'a> CssBorderStyleParseError<'a> {
     pub fn to_contained(&self) -> CssBorderStyleParseErrorOwned {
         match self {
             CssBorderStyleParseError::InvalidStyle(s) => {
-                CssBorderStyleParseErrorOwned::InvalidStyle(s.to_string())
+                CssBorderStyleParseErrorOwned::InvalidStyle(s.to_string().into())
             }
         }
     }
@@ -394,7 +395,7 @@ impl_from!(CssColorParseError<'a>, CssBorderSideParseError::Color);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssBorderSideParseErrorOwned {
-    InvalidDeclaration(String),
+    InvalidDeclaration(AzString),
     Width(CssPixelValueParseErrorOwned),
     Style(CssBorderStyleParseErrorOwned),
     Color(CssColorParseErrorOwned),
@@ -405,7 +406,7 @@ impl<'a> CssBorderSideParseError<'a> {
     pub fn to_contained(&self) -> CssBorderSideParseErrorOwned {
         match self {
             CssBorderSideParseError::InvalidDeclaration(s) => {
-                CssBorderSideParseErrorOwned::InvalidDeclaration(s.to_string())
+                CssBorderSideParseErrorOwned::InvalidDeclaration(s.to_string().into())
             }
             CssBorderSideParseError::Width(e) => {
                 CssBorderSideParseErrorOwned::Width(e.to_contained())

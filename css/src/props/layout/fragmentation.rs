@@ -201,8 +201,9 @@ impl crate::format_rust_code::FormatAsRustCode for BoxDecorationBreak {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use super::*;
+    use crate::corety::AzString;
 
     // -- PageBreak parser (`break-before`, `break-after`)
 
@@ -219,13 +220,13 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum PageBreakParseErrorOwned {
-        InvalidValue(String),
+        InvalidValue(AzString),
     }
 
     impl<'a> PageBreakParseError<'a> {
         pub fn to_contained(&self) -> PageBreakParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => PageBreakParseErrorOwned::InvalidValue(s.to_string()),
+                Self::InvalidValue(s) => PageBreakParseErrorOwned::InvalidValue(s.to_string().into()),
             }
         }
     }
@@ -271,13 +272,13 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum BreakInsideParseErrorOwned {
-        InvalidValue(String),
+        InvalidValue(AzString),
     }
 
     impl<'a> BreakInsideParseError<'a> {
         pub fn to_contained(&self) -> BreakInsideParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => BreakInsideParseErrorOwned::InvalidValue(s.to_string()),
+                Self::InvalidValue(s) => BreakInsideParseErrorOwned::InvalidValue(s.to_string().into()),
             }
         }
     }
@@ -320,15 +321,15 @@ mod parser {
 
             #[derive(Debug, Clone, PartialEq)]
             pub enum $error_owned_name {
-                ParseInt(String, String),
-                NegativeValue(String),
+                ParseInt(AzString, AzString),
+                NegativeValue(AzString),
             }
 
             impl<'a> $error_name<'a> {
                 pub fn to_contained(&self) -> $error_owned_name {
                     match self {
-                        Self::ParseInt(e, s) => $error_owned_name::ParseInt(e.to_string(), s.to_string()),
-                        Self::NegativeValue(s) => $error_owned_name::NegativeValue(s.to_string()),
+                        Self::ParseInt(e, s) => $error_owned_name::ParseInt(e.to_string().into(), s.to_string().into()),
+                        Self::NegativeValue(s) => $error_owned_name::NegativeValue(s.to_string().into()),
                     }
                 }
             }
@@ -384,14 +385,14 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum BoxDecorationBreakParseErrorOwned {
-        InvalidValue(String),
+        InvalidValue(AzString),
     }
 
     impl<'a> BoxDecorationBreakParseError<'a> {
         pub fn to_contained(&self) -> BoxDecorationBreakParseErrorOwned {
             match self {
                 Self::InvalidValue(s) => {
-                    BoxDecorationBreakParseErrorOwned::InvalidValue(s.to_string())
+                    BoxDecorationBreakParseErrorOwned::InvalidValue(s.to_string().into())
                 }
             }
         }

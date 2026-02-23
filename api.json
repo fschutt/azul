@@ -71806,6 +71806,15 @@
                     },
                     "ComponentCallbackArgVec": {
                         "external": "azul_core::xml::ComponentCallbackArgVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -71829,6 +71838,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentCallbackArgVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentCallbackArgVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentCallbackArgVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackArgVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_callback_arg_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_callback_arg_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_callback_arg_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentCallbackArgVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentCallbackArg"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackArgVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentCallbackArgVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentCallbackArg"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackArgVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentCallbackArg"
+                                },
+                                "fn_body": "component_callback_arg_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentCallbackArgVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackArgVecSlice"
+                                },
+                                "fn_body": "component_callback_arg_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallbackArgVecSlice"
+                                },
+                                "fn_body": "component_callback_arg_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentFieldOverrideVecDestructor": {
@@ -71845,10 +72004,19 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "ComponentFieldOverrideVec": {
                         "external": "azul_core::xml::ComponentFieldOverrideVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -71872,6 +72040,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ComponentFieldOverrideVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ComponentFieldOverrideVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ComponentFieldOverrideVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentFieldOverrideVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_field_override_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "component_field_override_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "component_field_override_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ComponentFieldOverrideVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ComponentFieldOverride"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentFieldOverrideVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ComponentFieldOverrideVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ComponentFieldOverride"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentFieldOverrideVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionComponentFieldOverride"
+                                },
+                                "fn_body": "component_field_override_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ComponentFieldOverrideVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentFieldOverrideVecSlice"
+                                },
+                                "fn_body": "component_field_override_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentFieldOverrideVecSlice"
+                                },
+                                "fn_body": "component_field_override_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ComponentCallbackArgVecDestructor": {
@@ -71888,7 +72206,7 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -75728,7 +76046,63 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentFieldOverride": {
+                        "external": "azul_core::xml::OptionComponentFieldOverride",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentFieldOverride",
+                                    "doc": [
+                                        "Some value of type ComponentFieldOverride"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComponentCallbackArg": {
+                        "external": "azul_core::xml::OptionComponentCallbackArg",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ComponentCallbackArg",
+                                    "doc": [
+                                        "Some value of type ComponentCallbackArg"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -82468,7 +82842,7 @@
                         "repr": "C"
                     },
                     "ComponentEnumVariantVecSlice": {
-                        "external": "azul_css::ComponentEnumVariantVecSlice",
+                        "external": "azul_core::xml::ComponentEnumVariantVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -82540,10 +82914,20 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "ComponentFieldTypeBox": {
                         "external": "azul_core::xml::ComponentFieldTypeBox",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Drop",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "struct_fields": [
                             {
                                 "ptr": {
@@ -82555,7 +82939,7 @@
                         "repr": "C"
                     },
                     "ComponentEnumModelVecSlice": {
-                        "external": "azul_css::ComponentEnumModelVecSlice",
+                        "external": "azul_core::xml::ComponentEnumModelVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -82724,7 +83108,7 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "ComponentFieldValueSource": {
                         "external": "azul_core::xml::ComponentFieldValueSource",
@@ -82745,6 +83129,58 @@
                                 },
                                 "Binding": {
                                     "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ComponentFieldOverrideVecSlice": {
+                        "external": "azul_core::xml::ComponentFieldOverrideVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentFieldOverride",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComponentCallbackArgVecSlice": {
+                        "external": "azul_core::xml::ComponentCallbackArgVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ComponentCallbackArg",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],

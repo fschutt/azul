@@ -14,14 +14,14 @@ impl_display! {CssImageParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssImageParseErrorOwned {
-    UnclosedQuotes(String),
+    UnclosedQuotes(AzString),
 }
 
 impl<'a> CssImageParseError<'a> {
     pub fn to_contained(&self) -> CssImageParseErrorOwned {
         match self {
             CssImageParseError::UnclosedQuotes(s) => {
-                CssImageParseErrorOwned::UnclosedQuotes(s.to_string())
+                CssImageParseErrorOwned::UnclosedQuotes(s.to_string().into())
             }
         }
     }

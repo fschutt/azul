@@ -248,7 +248,7 @@ impl crate::format_rust_code::FormatAsRustCode for ShapeImageThreshold {
 
 // --- PARSERS ---
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use core::num::ParseFloatError;
 
     use super::*;

@@ -1,5 +1,6 @@
 use core::fmt;
 use std::num::ParseFloatError;
+use crate::corety::AzString;
 
 use crate::props::{
     basic::{error::ParseFloatErrorWithInput, FloatValue, SizeMetric},
@@ -749,7 +750,7 @@ pub enum CssPixelValueParseErrorOwned {
     EmptyString,
     NoValueGiven(PixelNoValueGivenError),
     ValueParseErr(ParseFloatErrorWithInput),
-    InvalidPixelValue(String),
+    InvalidPixelValue(AzString),
 }
 
 impl<'a> CssPixelValueParseError<'a> {
@@ -763,7 +764,7 @@ impl<'a> CssPixelValueParseError<'a> {
                 CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone(), input: s.to_string() })
             }
             CssPixelValueParseError::InvalidPixelValue(s) => {
-                CssPixelValueParseErrorOwned::InvalidPixelValue(s.to_string())
+                CssPixelValueParseErrorOwned::InvalidPixelValue(s.to_string().into())
             }
         }
     }

@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+use crate::corety::AzString;
 
 use crate::{
     format_rust_code::FormatAsRustCode,
@@ -731,9 +732,9 @@ impl_display! { StyleInitialLetterParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleInitialLetterParseErrorOwned {
-    InvalidFormat(String),
-    InvalidSize(String),
-    InvalidSink(String),
+    InvalidFormat(AzString),
+    InvalidSize(AzString),
+    InvalidSink(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -741,10 +742,10 @@ impl<'a> StyleInitialLetterParseError<'a> {
     pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
         match self {
             Self::InvalidFormat(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string())
+                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string().into())
             }
-            Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string()),
-            Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string()),
+            Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string().into()),
+            Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string().into()),
         }
     }
 }
@@ -765,13 +766,13 @@ impl From<StyleInitialLetterParseError<'_>> for StyleInitialLetterParseErrorOwne
     fn from(e: StyleInitialLetterParseError) -> Self {
         match e {
             StyleInitialLetterParseError::InvalidFormat(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string())
+                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string().into())
             }
             StyleInitialLetterParseError::InvalidSize(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string())
+                StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string().into())
             }
             StyleInitialLetterParseError::InvalidSink(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string())
+                StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string().into())
             }
         }
     }
@@ -855,7 +856,7 @@ impl_display! { StyleLineClampParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleLineClampParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
     ZeroValue,
 }
 
@@ -863,7 +864,7 @@ pub enum StyleLineClampParseErrorOwned {
 impl<'a> StyleLineClampParseError<'a> {
     pub fn to_contained(&self) -> StyleLineClampParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleLineClampParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => StyleLineClampParseErrorOwned::InvalidValue(s.to_string().into()),
             Self::ZeroValue => StyleLineClampParseErrorOwned::ZeroValue,
         }
     }
@@ -954,7 +955,7 @@ impl_display! { StyleHangingPunctuationParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleHangingPunctuationParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -962,7 +963,7 @@ impl<'a> StyleHangingPunctuationParseError<'a> {
     pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleHangingPunctuationParseErrorOwned::InvalidValue(s.to_string())
+                StyleHangingPunctuationParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }
@@ -1051,8 +1052,8 @@ impl_display! { StyleTextCombineUprightParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum StyleTextCombineUprightParseErrorOwned {
-    InvalidValue(String),
-    InvalidDigits(String),
+    InvalidValue(AzString),
+    InvalidDigits(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -1060,10 +1061,10 @@ impl<'a> StyleTextCombineUprightParseError<'a> {
     pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleTextCombineUprightParseErrorOwned::InvalidValue(s.to_string())
+                StyleTextCombineUprightParseErrorOwned::InvalidValue(s.to_string().into())
             }
             Self::InvalidDigits(s) => {
-                StyleTextCombineUprightParseErrorOwned::InvalidDigits(s.to_string())
+                StyleTextCombineUprightParseErrorOwned::InvalidDigits(s.to_string().into())
             }
         }
     }

@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::num::ParseFloatError;
+use crate::corety::AzString;
 
 use crate::{
     format_rust_code::FormatAsRustCode,
@@ -85,7 +86,7 @@ impl_display! { FlexGrowParseError<'a>, {
 #[repr(C, u8)]
 pub enum FlexGrowParseErrorOwned {
     ParseFloat(ParseFloatErrorWithInput),
-    NegativeValue(String),
+    NegativeValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -96,7 +97,7 @@ impl<'a> FlexGrowParseError<'a> {
                 FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone(), input: s.to_string() })
             }
             FlexGrowParseError::NegativeValue(s) => {
-                FlexGrowParseErrorOwned::NegativeValue(s.to_string())
+                FlexGrowParseErrorOwned::NegativeValue(s.to_string().into())
             }
         }
     }
@@ -191,7 +192,7 @@ impl_display! { FlexShrinkParseError<'a>, {
 #[repr(C, u8)]
 pub enum FlexShrinkParseErrorOwned {
     ParseFloat(ParseFloatErrorWithInput),
-    NegativeValue(String),
+    NegativeValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -202,7 +203,7 @@ impl<'a> FlexShrinkParseError<'a> {
                 FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone(), input: s.to_string() })
             }
             FlexShrinkParseError::NegativeValue(s) => {
-                FlexShrinkParseErrorOwned::NegativeValue(s.to_string())
+                FlexShrinkParseErrorOwned::NegativeValue(s.to_string().into())
             }
         }
     }
@@ -319,14 +320,14 @@ impl_display! { FlexDirectionParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum FlexDirectionParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> FlexDirectionParseError<'a> {
     pub fn to_contained(&self) -> FlexDirectionParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => FlexDirectionParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => FlexDirectionParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -399,14 +400,14 @@ impl_display! { FlexWrapParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum FlexWrapParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> FlexWrapParseError<'a> {
     pub fn to_contained(&self) -> FlexWrapParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => FlexWrapParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => FlexWrapParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -488,14 +489,14 @@ impl_display! { JustifyContentParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum JustifyContentParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> JustifyContentParseError<'a> {
     pub fn to_contained(&self) -> JustifyContentParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => JustifyContentParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => JustifyContentParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -574,14 +575,14 @@ impl_display! { AlignItemsParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum AlignItemsParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> AlignItemsParseError<'a> {
     pub fn to_contained(&self) -> AlignItemsParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignItemsParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => AlignItemsParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -661,14 +662,14 @@ impl_display! { AlignContentParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum AlignContentParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> AlignContentParseError<'a> {
     pub fn to_contained(&self) -> AlignContentParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignContentParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => AlignContentParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -765,14 +766,14 @@ impl_display! { AlignSelfParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum AlignSelfParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> AlignSelfParseError<'a> {
     pub fn to_contained(&self) -> AlignSelfParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignSelfParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => AlignSelfParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -851,7 +852,7 @@ impl_display! { FlexBasisParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum FlexBasisParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
@@ -859,7 +860,7 @@ impl<'a> FlexBasisParseError<'a> {
     pub fn to_contained(&self) -> FlexBasisParseErrorOwned {
         match self {
             FlexBasisParseError::InvalidValue(s) => {
-                FlexBasisParseErrorOwned::InvalidValue(s.to_string())
+                FlexBasisParseErrorOwned::InvalidValue(s.to_string().into())
             }
         }
     }

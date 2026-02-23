@@ -1,6 +1,7 @@
 //! CSS properties for `display` and `float`.
 
 use alloc::string::{String, ToString};
+use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -151,14 +152,14 @@ impl_display! { LayoutDisplayParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutDisplayParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> LayoutDisplayParseError<'a> {
     pub fn to_contained(&self) -> LayoutDisplayParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => LayoutDisplayParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => LayoutDisplayParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }
@@ -222,14 +223,14 @@ impl_display! { LayoutFloatParseError<'a>, {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum LayoutFloatParseErrorOwned {
-    InvalidValue(String),
+    InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
 impl<'a> LayoutFloatParseError<'a> {
     pub fn to_contained(&self) -> LayoutFloatParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => LayoutFloatParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => LayoutFloatParseErrorOwned::InvalidValue(s.to_string().into()),
         }
     }
 }

@@ -229,9 +229,10 @@ impl PrintAsCssValue for StyleCompositeFilter {
 // --- PARSER ---
 
 #[cfg(feature = "parser")]
-mod parser {
+pub mod parser {
     use super::*;
     use crate::props::basic::parse_percentage_value;
+    use crate::corety::AzString;
 
     // -- Top-level Filter Error --
 
@@ -305,7 +306,7 @@ mod parser {
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum CssStyleFilterParseErrorOwned {
-        InvalidFilter(String),
+        InvalidFilter(AzString),
         InvalidParenthesis(ParenthesisParseErrorOwned),
         Shadow(CssShadowParseErrorOwned),
         BlendMode(InvalidValueErrOwned),
@@ -322,7 +323,7 @@ mod parser {
         pub fn to_contained(&self) -> CssStyleFilterParseErrorOwned {
             match self {
                 Self::InvalidFilter(s) => {
-                    CssStyleFilterParseErrorOwned::InvalidFilter(s.to_string())
+                    CssStyleFilterParseErrorOwned::InvalidFilter(s.to_string().into())
                 }
                 Self::InvalidParenthesis(e) => {
                     CssStyleFilterParseErrorOwned::InvalidParenthesis(e.to_contained())
@@ -381,7 +382,7 @@ mod parser {
     #[repr(C, u8)]
     pub enum CssStyleBlurParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
-        TooManyComponents(String),
+        TooManyComponents(AzString),
     }
 
     impl<'a> CssStyleBlurParseError<'a> {
@@ -389,7 +390,7 @@ mod parser {
             match self {
                 Self::Pixel(e) => CssStyleBlurParseErrorOwned::Pixel(e.to_contained()),
                 Self::TooManyComponents(s) => {
-                    CssStyleBlurParseErrorOwned::TooManyComponents(s.to_string())
+                    CssStyleBlurParseErrorOwned::TooManyComponents(s.to_string().into())
                 }
             }
         }
