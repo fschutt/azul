@@ -2363,6 +2363,176 @@ fn extract_macro_generated_types(
             }
         }
 
+        // CSS parser error macros - these generate *Owned error enums with repr(C, u8)
+
+        "define_simple_column_parser" | "define_flow_parser" => {
+            // define_simple_column_parser!(fn, struct, error, error_owned, prop, vals...)
+            // define_flow_parser!(fn, struct, error, error_owned, prop)
+            // Both generate: #[repr(C, u8)] enum ErrorOwned { InvalidValue(AzString) }
+            if args.len() >= 4 {
+                let error_owned_name = args[3].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &error_owned_name),
+                    type_name: error_owned_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "InvalidValue".to_string(),
+                                VariantDef {
+                                    name: "InvalidValue".to_string(),
+                                    ty: Some("AzString".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
+        "define_pixel_dimension_parser" => {
+            // define_pixel_dimension_parser!(fn, struct, error, error_owned)
+            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned) }
+            if args.len() >= 4 {
+                let error_owned_name = args[3].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &error_owned_name),
+                    type_name: error_owned_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "PixelValue".to_string(),
+                                VariantDef {
+                                    name: "PixelValue".to_string(),
+                                    ty: Some("CssPixelValueParseErrorOwned".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
+        "define_border_radius_parse_error" => {
+            // define_border_radius_parse_error!(Error, ErrorOwned)
+            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned) }
+            if args.len() >= 2 {
+                let error_owned_name = args[1].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &error_owned_name),
+                    type_name: error_owned_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "PixelValue".to_string(),
+                                VariantDef {
+                                    name: "PixelValue".to_string(),
+                                    ty: Some("CssPixelValueParseErrorOwned".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
+        "define_widow_orphan_parser" => {
+            // define_widow_orphan_parser!(fn, struct, error, error_owned, prop)
+            // Generates: #[repr(C, u8)] enum ErrorOwned {
+            //   ParseInt(ParseIntErrorWithInput),
+            //   NegativeValue(AzString),
+            // }
+            if args.len() >= 4 {
+                let error_owned_name = args[3].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &error_owned_name),
+                    type_name: error_owned_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "ParseInt".to_string(),
+                                VariantDef {
+                                    name: "ParseInt".to_string(),
+                                    ty: Some("ParseIntErrorWithInput".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "NegativeValue".to_string(),
+                                VariantDef {
+                                    name: "NegativeValue".to_string(),
+                                    ty: Some("AzString".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
         _ => {}
     }
 
