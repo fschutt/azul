@@ -1311,8 +1311,8 @@ impl std::fmt::Display for CssWarningType {
             CssWarningType::ParseError(err) => write!(
                 f,
                 "Parse error at {:?}..{:?}: {}",
-                err.location.0,
-                err.location.1,
+                err.location.start,
+                err.location.end,
                 err.warning.to_shared()
             ),
             CssWarningType::UnsupportedProperty(prop) => {

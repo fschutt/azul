@@ -120,7 +120,16 @@ impl core::ops::DerefMut for XmlAttributeMap {
 pub type ComponentArgumentName = String;
 pub type ComponentArgumentType = String;
 pub type ComponentArgumentOrder = usize;
-pub type ComponentArgumentTypes = Vec<(ComponentArgumentName, ComponentArgumentType)>;
+
+/// FFI-safe replacement for `(ComponentArgumentName, ComponentArgumentType)` tuple.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ComponentArgument {
+    pub name: String,
+    pub arg_type: String,
+}
+
+pub type ComponentArgumentTypes = Vec<ComponentArgument>;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
 
@@ -1325,17 +1334,17 @@ pub enum ComponentFieldType {
     /// StyledDom slot — field name = slot name
     StyledDom,
     /// Callback with typed signature
-    Callback { signature: ComponentCallbackSignature },
+    Callback(ComponentCallbackSignature),
     /// RefAny data binding with type hint
-    RefAny { type_hint: AzString },
+    RefAny(AzString),
     /// Optional value (recursive via Box)
-    OptionType { inner: ComponentFieldTypeBox },
+    OptionType(ComponentFieldTypeBox),
     /// Vec of values (recursive via Box)
-    VecType { inner: ComponentFieldTypeBox },
+    VecType(ComponentFieldTypeBox),
     /// Reference to a struct defined in the same library
-    StructRef { name: AzString },
+    StructRef(AzString),
     /// Reference to an enum defined in the same library
-    EnumRef { name: AzString },
+    EnumRef(AzString),
 }
 
 /// A single variant in a component enum model.
@@ -1602,6 +1611,58 @@ pub enum CompileTarget {
     Python,
 }
 
+/// FFI-safe result type for `Result<StyledDom, RenderDomError>`.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ResultStyledDomRenderDomError {
+    Ok(StyledDom),
+    Err(RenderDomError),
+}
+
+impl From<Result<StyledDom, RenderDomError>> for ResultStyledDomRenderDomError {
+    fn from(r: Result<StyledDom, RenderDomError>) -> Self {
+        match r {
+            Ok(v) => ResultStyledDomRenderDomError::Ok(v),
+            Err(e) => ResultStyledDomRenderDomError::Err(e),
+        }
+    }
+}
+
+impl Into<Result<StyledDom, RenderDomError>> for ResultStyledDomRenderDomError {
+    fn into(self) -> Result<StyledDom, RenderDomError> {
+        match self {
+            ResultStyledDomRenderDomError::Ok(v) => Ok(v),
+            ResultStyledDomRenderDomError::Err(e) => Err(e),
+        }
+    }
+}
+
+/// FFI-safe result type for `Result<String, CompileError>`.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ResultStringCompileError {
+    Ok(String),
+    Err(CompileError),
+}
+
+impl From<Result<String, CompileError>> for ResultStringCompileError {
+    fn from(r: Result<String, CompileError>) -> Self {
+        match r {
+            Ok(v) => ResultStringCompileError::Ok(v),
+            Err(e) => ResultStringCompileError::Err(e),
+        }
+    }
+}
+
+impl Into<Result<String, CompileError>> for ResultStringCompileError {
+    fn into(self) -> Result<String, CompileError> {
+        match self {
+            ResultStringCompileError::Ok(v) => Ok(v),
+            ResultStringCompileError::Err(e) => Err(e),
+        }
+    }
+}
+
 /// Render function type: takes component definition + arguments, returns StyledDom
 pub type ComponentRenderFn = fn(
     &ComponentDef,
@@ -1740,7 +1801,7 @@ pub struct ComponentLibrary {
     /// Components reference these by name in their `field_type`.
     pub data_models: ComponentDataModelVec,
     /// Named enum types defined by this library.
-    /// Components reference these via `ComponentFieldType::EnumRef { name }`.
+    /// Components reference these via `ComponentFieldType::EnumRef(name)`.
     pub enum_models: ComponentEnumModelVec,
 }
 
@@ -3248,7 +3309,7 @@ impl IconRenderer {
 impl XmlComponentTrait for IconRenderer {
     fn get_available_arguments(&self) -> ComponentArguments {
         let mut args = ComponentArgumentTypes::default();
-        args.push(("name".to_string(), "String".to_string()));
+        args.push(ComponentArgument { name: "name".to_string(), arg_type: "String".to_string() });
         ComponentArguments {
             args,
             accepts_text: true, // Allow <icon>name</icon> syntax
@@ -3277,8 +3338,8 @@ impl XmlComponentTrait for IconRenderer {
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         let icon_name = args.args.iter()
-            .find(|(name, _)| name == "name")
-            .map(|(_, value)| value.to_string())
+            .find(|a| a.name == "name")
+            .map(|a| a.arg_type.to_string())
             .or_else(|| content.as_ref().map(|s| s.to_string()))
             .unwrap_or_else(|| "invalid-icon".to_string());
         
@@ -3384,7 +3445,7 @@ pub fn parse_component_arguments<'a>(
         let arg_name = normalize_casing(arg_name);
         let arg_type = arg_type.to_string();
 
-        args.push((arg_name, arg_type));
+        args.push(ComponentArgument { name: arg_name, arg_type });
     }
 
     Ok(args)
@@ -3412,8 +3473,8 @@ pub fn validate_and_filter_component_args(
         if let Some(valid_arg_type) = valid_args
             .args
             .iter()
-            .find(|s| s.0 == xml_attribute_name.as_str())
-            .map(|q| &q.1)
+            .find(|s| s.name == xml_attribute_name.as_str())
+            .map(|q| &q.arg_type)
         {
             // Validate value against declared type (basic checks)
             validate_attribute_value(
@@ -3422,10 +3483,10 @@ pub fn validate_and_filter_component_args(
                 valid_arg_type.as_str(),
             );
 
-            map.types.push((
-                xml_attribute_name.as_str().to_string(),
-                valid_arg_type.clone(),
-            ));
+            map.types.push(ComponentArgument {
+                name: xml_attribute_name.as_str().to_string(),
+                arg_type: valid_arg_type.clone(),
+            });
             map.values.insert(
                 xml_attribute_name.as_str().to_string(),
                 xml_attribute_value.as_str().to_string(),
@@ -3445,7 +3506,7 @@ pub fn validate_and_filter_component_args(
                 "Warning: Useless component argument \"{}\": \"{}\" for component with args: {:?}",
                 xml_attribute_name,
                 xml_attribute_value,
-                valid_args.args.iter().map(|s| &s.0).collect::<Vec<_>>()
+                valid_args.args.iter().map(|s| &s.name).collect::<Vec<_>>()
             );
 
             // Still insert the value so it's available, but don't validate the type
@@ -3569,14 +3630,14 @@ fn validate_xml_node_recursive(
         for AzStringPair { key, .. } in element.attributes.as_ref().iter() {
             let attr_name = key.as_str();
             if !DEFAULT_ARGS.contains(&attr_name)
-                && !available_args.args.iter().any(|a| a.0 == attr_name)
+                && !available_args.args.iter().any(|a| a.name == attr_name)
             {
                 #[cfg(feature = "std")]
                 eprintln!(
                     "Warning: component '{}' does not accept attribute '{}' (available: {:?})",
                     tag_normalized,
                     attr_name,
-                    available_args.args.iter().map(|a| &a.0).collect::<alloc::vec::Vec<_>>()
+                    available_args.args.iter().map(|a| &a.name).collect::<alloc::vec::Vec<_>>()
                 );
             }
         }
@@ -4006,7 +4067,7 @@ pub fn compile_components(
 pub fn format_component_args(component_args: &ComponentArgumentTypes) -> String {
     let mut args = component_args
         .iter()
-        .map(|(arg_name, arg_type)| format!("{}: {}", arg_name, arg_type))
+        .map(|a| format!("{}: {}", a.name, a.arg_type))
         .collect::<Vec<String>>();
 
     args.sort_by(|a, b| b.cmp(&a));
@@ -4255,7 +4316,7 @@ pub fn render_dom_from_body_node_inner<'a>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.types.iter_mut() {
-        v.1 = format_args_dynamic(&v.1, &parent_xml_attributes.types).to_string();
+        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.types).to_string();
     }
 
     // Don't pass text content to the component renderer - text children will be appended separately
@@ -4365,7 +4426,7 @@ pub fn set_attributes(
             azul_css::parser2::parse_css_declaration(
                 key.trim(),
                 value.trim(),
-                (ErrorLocation::default(), ErrorLocation::default()),
+                azul_css::parser2::ErrorLocationRange::default(),
                 &css_key_map,
                 &mut Vec::new(),
                 &mut attributes,
@@ -4595,8 +4656,8 @@ pub fn combine_and_replace_dynamic_items(
                 let variable_name = normalize_casing(name.trim());
                 match variables
                     .iter()
-                    .find(|s| s.0 == variable_name)
-                    .map(|q| &q.1)
+                    .find(|s| s.name == variable_name)
+                    .map(|q| &q.arg_type)
                 {
                     Some(resolved_var) => {
                         // Format specifiers are applied at compile time, not at runtime replacement
@@ -4750,7 +4811,7 @@ pub fn render_component_inner<'a>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.args.iter_mut() {
-        v.1 = format_args_dynamic(&v.1, &parent_xml_attributes.args).to_string();
+        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).to_string();
     }
 
     let text_content = xml_node.get_text_content();
@@ -5301,15 +5362,15 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.types.iter_mut() {
-        v.1 = format_args_dynamic(&v.1, &parent_xml_attributes.args).to_string();
+        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).to_string();
     }
 
     let instantiated_function_arguments = {
         let mut args = filtered_xml_attributes
             .types
             .iter()
-            .filter_map(|(xml_attribute_key, _xml_attribute_type)| {
-                match node.attributes.get_key(xml_attribute_key).cloned() {
+            .filter_map(|arg| {
+                match node.attributes.get_key(&arg.name).cloned() {
                     Some(s) => Some(format_args_for_rust_code(&s)),
                     None => {
                         // __TODO__

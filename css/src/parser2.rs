@@ -51,7 +51,7 @@ impl From<SimplecssError> for CssSyntaxError {
 
 pub use crate::props::property::CssParsingError;
 use crate::{
-    corety::{AzString, OptionAzString},
+    corety::{AzString, OptionString},
     css::{
         Css, CssDeclaration, CssNthChildSelector, CssPath, CssPathPseudoSelector, CssPathSelector,
         CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
@@ -75,7 +75,7 @@ use crate::{
 pub struct CssParseError<'a> {
     pub css_string: &'a str,
     pub error: CssParseErrorInner<'a>,
-    pub location: (ErrorLocation, ErrorLocation),
+    pub location: ErrorLocationRange,
 }
 
 /// Owned version of CssParseError, without references.
@@ -84,7 +84,7 @@ pub struct CssParseError<'a> {
 pub struct CssParseErrorOwned {
     pub css_string: AzString,
     pub error: CssParseErrorInnerOwned,
-    pub location: (ErrorLocation, ErrorLocation),
+    pub location: ErrorLocationRange,
 }
 
 impl<'a> CssParseError<'a> {
@@ -110,7 +110,7 @@ impl CssParseErrorOwned {
 impl<'a> CssParseError<'a> {
     /// Returns the string between the (start, end) location
     pub fn get_error_string(&self) -> &'a str {
-        let (start, end) = (self.location.0.original_pos, self.location.1.original_pos);
+        let (start, end) = (self.location.start.original_pos, self.location.end.original_pos);
         let s = &self.css_string[start..end];
         s.trim()
     }
@@ -298,7 +298,7 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
 #[repr(C)]
 pub struct UnknownSelectorError {
     pub selector: AzString,
-    pub suggestion: OptionAzString,
+    pub suggestion: OptionString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -519,6 +519,15 @@ pub struct ErrorLocation {
     pub original_pos: usize,
 }
 
+/// FFI-safe replacement for `(ErrorLocation, ErrorLocation)` tuple.
+/// Represents a range (start..end) in the source text.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct ErrorLocationRange {
+    pub start: ErrorLocation,
+    pub end: ErrorLocation,
+}
+
 impl ErrorLocation {
     /// Given an error location, returns the (line, column)
     pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
@@ -540,8 +549,8 @@ impl ErrorLocation {
 
 impl<'a> fmt::Display for CssParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let start_location = self.location.0.get_line_column_from_error(self.css_string);
-        let end_location = self.location.1.get_line_column_from_error(self.css_string);
+        let start_location = self.location.start.get_line_column_from_error(self.css_string);
+        let end_location = self.location.end.get_line_column_from_error(self.css_string);
         write!(
             f,
             "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n    reason: {}",
@@ -755,7 +764,7 @@ pub struct UnparsedCssRuleBlock<'a> {
     /// The css path (full selector) of the style ruleset
     pub path: CssPath,
     /// `"justify-content" => "center"`
-    pub declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
+    pub declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
     /// Conditions from enclosing @-rules (@media, @lang, etc.)
     pub conditions: Vec<DynamicSelector>,
 }
@@ -764,7 +773,7 @@ pub struct UnparsedCssRuleBlock<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnparsedCssRuleBlockOwned {
     pub path: CssPath,
-    pub declarations: BTreeMap<String, (String, (ErrorLocation, ErrorLocation))>,
+    pub declarations: BTreeMap<String, (String, ErrorLocationRange)>,
     pub conditions: Vec<DynamicSelector>,
 }
 
@@ -799,14 +808,14 @@ impl UnparsedCssRuleBlockOwned {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseWarnMsg<'a> {
     pub warning: CssParseWarnMsgInner<'a>,
-    pub location: (ErrorLocation, ErrorLocation),
+    pub location: ErrorLocationRange,
 }
 
 /// Owned version of CssParseWarnMsg, where warning is the owned type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseWarnMsgOwned {
     pub warning: CssParseWarnMsgInnerOwned,
-    pub location: (ErrorLocation, ErrorLocation),
+    pub location: ErrorLocationRange,
 }
 
 impl<'a> CssParseWarnMsg<'a> {
@@ -1150,14 +1159,14 @@ fn new_from_str_inner<'a>(
     // declarations: current declarations at this level
     struct NestingLevel<'a> {
         paths: Vec<Vec<CssPathSelector>>,
-        declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
+        declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
         nesting_level: usize,
     }
     let mut nesting_stack: Vec<NestingLevel<'a>> = Vec::new();
     // Current accumulated paths before BlockStart
     let mut current_paths: Vec<Vec<CssPathSelector>> = Vec::new();
     // Current declarations at current level
-    let mut current_declarations: BTreeMap<&str, (&str, (ErrorLocation, ErrorLocation))> = BTreeMap::new();
+    let mut current_declarations: BTreeMap<&str, (&str, ErrorLocationRange)> = BTreeMap::new();
 
     // Safety: limit maximum iterations to prevent infinite loops
     // A reasonable limit is 10x the input length (each char could produce at most a few tokens)
@@ -1174,7 +1183,7 @@ fn new_from_str_inner<'a>(
                 warning: CssParseWarnMsgInner::MalformedStructure {
                     message: "Parser iteration limit exceeded - possible infinite loop",
                 },
-                location: (last_error_location, get_error_location(tokenizer)),
+                location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
             });
             break;
         }
@@ -1188,7 +1197,7 @@ fn new_from_str_inner<'a>(
                     warning: CssParseWarnMsgInner::MalformedStructure {
                         message: "Parser stuck - position not advancing",
                     },
-                    location: (last_error_location, get_error_location(tokenizer)),
+                    location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
                 });
                 break;
             }
@@ -1203,7 +1212,7 @@ fn new_from_str_inner<'a>(
                 let error_location = get_error_location(tokenizer);
                 warnings.push(CssParseWarnMsg {
                     warning: CssParseWarnMsgInner::ParseError(e.into()),
-                    location: (last_error_location, error_location),
+                    location: ErrorLocationRange { start: last_error_location, end: error_location },
                 });
                 // On error, break to avoid infinite loop - the tokenizer may be stuck
                 break;
@@ -1214,7 +1223,7 @@ fn new_from_str_inner<'a>(
             ($warning:expr) => {{
                 warnings.push(CssParseWarnMsg {
                     warning: $warning,
-                    location: (last_error_location, get_error_location(tokenizer)),
+                    location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
                 });
                 continue;
             }};
@@ -1434,7 +1443,7 @@ fn new_from_str_inner<'a>(
             Token::Declaration(key, val) => {
                 current_declarations.insert(
                     key,
-                    (val, (last_error_location, get_error_location(tokenizer))),
+                    (val, ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) }),
                 );
             }
             Token::EndOfStream => {
@@ -1443,7 +1452,7 @@ fn new_from_str_inner<'a>(
                         warning: CssParseWarnMsgInner::MalformedStructure {
                             message: "Unclosed blocks at end of file",
                         },
-                        location: (last_error_location, get_error_location(tokenizer)),
+                        location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
                     });
                 }
                 break;
@@ -1511,7 +1520,7 @@ fn css_blocks_to_stylesheet<'a>(
 fn parse_declaration_resilient<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,
-    location: (ErrorLocation, ErrorLocation),
+    location: ErrorLocationRange,
     css_key_map: &CssKeyMap,
 ) -> Result<Vec<CssDeclaration>, CssParseErrorInner<'a>> {
     let mut declarations = Vec::new();
@@ -1607,7 +1616,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(
 pub fn parse_css_declaration<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,
-    location: (ErrorLocation, ErrorLocation),
+    location: ErrorLocationRange,
     css_key_map: &CssKeyMap,
     warnings: &mut Vec<CssParseWarnMsg<'a>>,
     declarations: &mut Vec<CssDeclaration>,
