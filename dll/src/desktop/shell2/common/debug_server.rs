@@ -3734,7 +3734,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
 
             // --- data model (component-specific attributes) ---
             let mut data_model: Vec<ComponentDataFieldInfo> = def.data_model.fields.as_ref().iter()
-                .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback { .. }))
+                .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback(..)))
                 .map(|f| ComponentDataFieldInfo {
                     name: f.name.as_str().to_string(),
                     field_type: field_type_to_string(&f.field_type),
@@ -3773,7 +3773,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
             // --- callback slots (extracted from data_model.fields with Callback type) ---
             let callback_slots: Vec<ComponentCallbackSlotInfo> = def.data_model.fields.as_ref().iter()
                 .filter_map(|f| {
-                    if let azul_core::xml::ComponentFieldType::Callback { ref signature } = f.field_type {
+                    if let azul_core::xml::ComponentFieldType::Callback(ref signature) = f.field_type {
                         Some(ComponentCallbackSlotInfo {
                             name: f.name.as_str().to_string(),
                             callback_type: format!("Callback({})", signature.return_type.as_str()),
@@ -3899,7 +3899,7 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
                 display_name: def.display_name.as_str().to_string(),
                 compiled_code,
                 data_fields: def.data_model.fields.as_ref().iter()
-                    .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback { .. }))
+                    .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback(..)))
                     .map(|f| (
                         f.name.as_str().to_string(),
                         field_type_to_string(&f.field_type),
@@ -3907,7 +3907,7 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
                     )).collect(),
                 callback_slots: def.data_model.fields.as_ref().iter()
                     .filter_map(|f| {
-                        if let azul_core::xml::ComponentFieldType::Callback { ref signature } = f.field_type {
+                        if let azul_core::xml::ComponentFieldType::Callback(ref signature) = f.field_type {
                             Some((
                                 f.name.as_str().to_string(),
                                 format!("Callback({})", signature.return_type.as_str()),
@@ -3967,12 +3967,12 @@ fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
         ComponentFieldType::ImageRef => "ImageRef".to_string(),
         ComponentFieldType::FontRef => "FontRef".to_string(),
         ComponentFieldType::StyledDom => "StyledDom".to_string(),
-        ComponentFieldType::Callback { signature } => format!("Callback({})", signature.return_type.as_str()),
-        ComponentFieldType::RefAny { type_hint } => format!("RefAny({})", type_hint.as_str()),
-        ComponentFieldType::OptionType { inner } => format!("Option<{}>", field_type_to_string(inner.as_ref())),
-        ComponentFieldType::VecType { inner } => format!("Vec<{}>", field_type_to_string(inner.as_ref())),
-        ComponentFieldType::StructRef { name } => format!("struct:{}", name.as_str()),
-        ComponentFieldType::EnumRef { name } => format!("enum:{}", name.as_str()),
+        ComponentFieldType::Callback(signature) => format!("Callback({})", signature.return_type.as_str()),
+        ComponentFieldType::RefAny(type_hint) => format!("RefAny({})", type_hint.as_str()),
+        ComponentFieldType::OptionType(inner) => format!("Option<{}>", field_type_to_string(inner.as_ref())),
+        ComponentFieldType::VecType(inner) => format!("Vec<{}>", field_type_to_string(inner.as_ref())),
+        ComponentFieldType::StructRef(name) => format!("struct:{}", name.as_str()),
+        ComponentFieldType::EnumRef(name) => format!("enum:{}", name.as_str()),
     }
 }
 
@@ -4023,40 +4023,40 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
         "StyledDom" | "dom" | "Dom" => Ok(ComponentFieldType::StyledDom),
         other => {
             if other.starts_with("Callback") {
-                Ok(ComponentFieldType::Callback {
-                    signature: ComponentCallbackSignature {
+                Ok(ComponentFieldType::Callback(
+                    ComponentCallbackSignature {
                         return_type: AzString::from("Update"),
                         args: ComponentCallbackArgVec::from_const_slice(&[]),
                     },
-                })
+                ))
             } else if other.starts_with("RefAny") {
                 let hint = other.strip_prefix("RefAny(").and_then(|s| s.strip_suffix(")"))
                     .ok_or_else(|| format!("Invalid RefAny syntax '{}', expected 'RefAny(TypeHint)'", other))?;
-                Ok(ComponentFieldType::RefAny { type_hint: AzString::from(hint) })
+                Ok(ComponentFieldType::RefAny(AzString::from(hint)))
             } else if other.starts_with("Option<") {
                 let inner = other.strip_prefix("Option<").and_then(|s| s.strip_suffix(">"))
                     .ok_or_else(|| format!("Invalid Option type syntax '{}', expected 'Option<InnerType>'", other))?;
-                Ok(ComponentFieldType::OptionType {
-                    inner: ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
-                })
+                Ok(ComponentFieldType::OptionType(
+                    ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
+                ))
             } else if other.starts_with("Vec<") {
                 let inner = other.strip_prefix("Vec<").and_then(|s| s.strip_suffix(">"))
                     .ok_or_else(|| format!("Invalid Vec type syntax '{}', expected 'Vec<InnerType>'", other))?;
-                Ok(ComponentFieldType::VecType {
-                    inner: ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
-                })
+                Ok(ComponentFieldType::VecType(
+                    ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
+                ))
             } else if other.starts_with("struct:") {
                 let name = &other[7..];
                 if name.is_empty() {
                     return Err("Empty struct reference name in 'struct:'".to_string());
                 }
-                Ok(ComponentFieldType::StructRef { name: AzString::from(name) })
+                Ok(ComponentFieldType::StructRef(AzString::from(name)))
             } else if other.starts_with("enum:") {
                 let name = &other[5..];
                 if name.is_empty() {
                     return Err("Empty enum reference name in 'enum:'".to_string());
                 }
-                Ok(ComponentFieldType::EnumRef { name: AzString::from(name) })
+                Ok(ComponentFieldType::EnumRef(AzString::from(name)))
             } else {
                 Err(format!(
                     "Unknown field type '{}'. Valid types: String, bool, i32, i64, u32, u64, usize, \
