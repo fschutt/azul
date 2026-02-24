@@ -4183,7 +4183,7 @@ const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Encode bytes to Base64 string
-fn base64_encode(input: &[u8]) -> alloc::string::String {
+pub fn base64_encode(input: &[u8]) -> alloc::string::String {
     let mut output = alloc::string::String::with_capacity((input.len() + 2) / 3 * 4);
 
     for chunk in input.chunks(3) {

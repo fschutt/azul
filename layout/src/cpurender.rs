@@ -1026,3 +1026,277 @@ fn build_rounded_rect_path(
     pb.close();
     pb.finish()
 }
+
+// ============================================================================
+// Component Preview Rendering
+// ============================================================================
+
+/// Options for rendering a component preview.
+pub struct ComponentPreviewOptions {
+    /// Optional width constraint. If None, size to content (uses 4096px max).
+    pub width: Option<f32>,
+    /// Optional height constraint. If None, size to content (uses 4096px max).
+    pub height: Option<f32>,
+    /// DPI scale factor. Default 1.0.
+    pub dpi_factor: f32,
+    /// Background color. Default white.
+    pub background_color: ColorU,
+}
+
+impl Default for ComponentPreviewOptions {
+    fn default() -> Self {
+        Self {
+            width: None,
+            height: None,
+            dpi_factor: 1.0,
+            background_color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+        }
+    }
+}
+
+/// Result of a component preview render.
+pub struct ComponentPreviewResult {
+    /// PNG-encoded image data.
+    pub png_data: Vec<u8>,
+    /// Actual content width (logical pixels).
+    pub content_width: f32,
+    /// Actual content height (logical pixels).
+    pub content_height: f32,
+}
+
+/// Compute the tight bounding box of all display list items.
+///
+/// Returns `(min_x, min_y, max_x, max_y)` in logical coordinates.
+/// Returns `None` if the display list is empty.
+fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    let mut has_items = false;
+
+    for item in &dl.items {
+        let bounds = match item {
+            DisplayListItem::Rect { bounds, .. } => Some(*bounds),
+            DisplayListItem::SelectionRect { bounds, .. } => Some(*bounds),
+            DisplayListItem::Border { bounds, .. } => Some(*bounds),
+            DisplayListItem::Text { clip_rect, .. } => Some(*clip_rect),
+            DisplayListItem::Image { bounds, .. } => Some(*bounds),
+            DisplayListItem::BoxShadow { bounds, .. } => Some(*bounds),
+            DisplayListItem::PushClip { bounds, .. } => Some(*bounds),
+            DisplayListItem::LinearGradient { bounds, .. } => Some(*bounds),
+            DisplayListItem::RadialGradient { bounds, .. } => Some(*bounds),
+            DisplayListItem::ConicGradient { bounds, .. } => Some(*bounds),
+            DisplayListItem::IFrame { bounds, .. } => Some(*bounds),
+            DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds),
+            _ => None,
+        };
+        if let Some(b) = bounds {
+            has_items = true;
+            min_x = min_x.min(b.origin.x);
+            min_y = min_y.min(b.origin.y);
+            max_x = max_x.max(b.origin.x + b.size.width);
+            max_y = max_y.max(b.origin.y + b.size.height);
+        }
+    }
+
+    if has_items {
+        Some((min_x, min_y, max_x, max_y))
+    } else {
+        None
+    }
+}
+
+/// Render a `StyledDom` to a PNG image for component preview.
+///
+/// This is a self-contained function that:
+/// 1. Resolves fonts using the shared `FontManager` (from the running binary)
+/// 2. Runs layout with either the specified or auto-sized viewport
+/// 3. Renders the display list to a pixmap via CPU
+/// 4. Crops to content bounds if sizing to content
+/// 5. Returns PNG bytes + actual dimensions
+///
+/// # Arguments
+/// * `styled_dom` - The styled DOM to render
+/// * `font_manager` - Shared font manager from the running application
+/// * `opts` - Preview options (width, height, dpi, background)
+///
+/// # Returns
+/// * `Ok(ComponentPreviewResult)` with PNG data and dimensions
+/// * `Err(String)` on layout or rendering failure
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+pub fn render_component_preview(
+    styled_dom: azul_core::styled_dom::StyledDom,
+    font_manager: &FontManager<azul_css::props::basic::FontRef>,
+    opts: ComponentPreviewOptions,
+) -> Result<ComponentPreviewResult, String> {
+    use std::collections::BTreeMap;
+    use azul_core::{
+        dom::DomId,
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{IdNamespace, RendererResources},
+        selection::{SelectionState, TextSelection},
+    };
+    use crate::{
+        solver3::{
+            self,
+            cache::LayoutCache,
+            display_list::DisplayList,
+        },
+        font_traits::TextLayoutCache,
+    };
+
+    // The "infinite canvas" size for size-to-content mode
+    const MAX_SIZE: f32 = 4096.0;
+
+    let layout_width = opts.width.unwrap_or(MAX_SIZE);
+    let layout_height = opts.height.unwrap_or(MAX_SIZE);
+
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: LogicalSize {
+            width: layout_width,
+            height: layout_height,
+        },
+    };
+
+    // Create a layout-local font manager that shares the parsed font pool
+    // (Arc<Mutex<>>) with the running application but has its own font chain cache.
+    let mut preview_font_manager = FontManager::from_arc_shared(
+        font_manager.fc_cache.clone(),
+        font_manager.parsed_fonts.clone(),
+    ).map_err(|e| format!("Failed to create preview font manager: {:?}", e))?;
+
+    // --- Font resolution (same as LayoutWindow::layout_dom_recursive) ---
+    {
+        use crate::solver3::getters::{
+            collect_and_resolve_font_chains, collect_font_ids_from_chains,
+            compute_fonts_to_load, load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
+        };
+
+        let platform = azul_css::system::Platform::current();
+
+        // Register embedded FontRefs (e.g. Material Icons)
+        register_embedded_fonts_from_styled_dom(&styled_dom, &preview_font_manager, &platform);
+
+        // Resolve font chains
+        let chains = collect_and_resolve_font_chains(&styled_dom, &preview_font_manager.fc_cache, &platform);
+
+        // Get required font IDs and load any missing ones
+        let required_fonts = collect_font_ids_from_chains(&chains);
+        let already_loaded = preview_font_manager.get_loaded_font_ids();
+        let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+
+        if !fonts_to_load.is_empty() {
+            use crate::text3::default::PathLoader;
+            let loader = PathLoader::new();
+            let load_result = load_fonts_from_disk(
+                &fonts_to_load,
+                &preview_font_manager.fc_cache,
+                |bytes, index| loader.load_font(bytes, index),
+            );
+            // insert_fonts uses internal Mutex — fonts go into the shared pool
+            preview_font_manager.insert_fonts(load_result.loaded);
+        }
+
+        // Set font chain cache for this layout pass
+        preview_font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
+    }
+
+    // --- Layout ---
+    let mut layout_cache = LayoutCache {
+        tree: None,
+        calculated_positions: Vec::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
+        float_cache: BTreeMap::new(),
+        cache_map: Default::default(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let empty_scroll_offsets = BTreeMap::new();
+    let empty_selections = BTreeMap::new();
+    let empty_text_selections = BTreeMap::new();
+    let renderer_resources = RendererResources::default();
+    let id_namespace = IdNamespace(0xFFFF); // preview namespace
+    let dom_id = DomId::ROOT_ID;
+    let mut debug_messages = None;
+    let get_system_time_fn = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+
+    let display_list = solver3::layout_document(
+        &mut layout_cache,
+        &mut text_cache,
+        styled_dom,
+        viewport,
+        &preview_font_manager,
+        &empty_scroll_offsets,
+        &empty_selections,
+        &empty_text_selections,
+        &mut debug_messages,
+        None, // no GPU cache
+        &renderer_resources,
+        id_namespace,
+        dom_id,
+        false, // cursor not visible
+        None,  // no cursor location
+        None,  // no system style
+        get_system_time_fn,
+    ).map_err(|e| format!("Layout failed: {:?}", e))?;
+
+    // --- Determine actual render size ---
+    let (render_width, render_height) = if opts.width.is_some() && opts.height.is_some() {
+        // Fixed size — render at exactly the specified dimensions
+        (opts.width.unwrap(), opts.height.unwrap())
+    } else {
+        // Size to content — measure actual bounds
+        match compute_content_bounds(&display_list) {
+            Some((_min_x, _min_y, max_x, max_y)) => {
+                let w = if opts.width.is_some() { opts.width.unwrap() } else { max_x.max(1.0).ceil() };
+                let h = if opts.height.is_some() { opts.height.unwrap() } else { max_y.max(1.0).ceil() };
+                (w, h)
+            }
+            None => {
+                // Empty display list — render a 1x1 pixel
+                (1.0, 1.0)
+            }
+        }
+    };
+
+    // Clamp to reasonable max
+    let render_width = render_width.min(MAX_SIZE);
+    let render_height = render_height.min(MAX_SIZE);
+
+    // --- Render ---
+    let dpi = opts.dpi_factor;
+    let pixel_w = ((render_width * dpi) as u32).max(1);
+    let pixel_h = ((render_height * dpi) as u32).max(1);
+
+    let mut pixmap = Pixmap::new(pixel_w, pixel_h)
+        .ok_or_else(|| format!("Cannot create pixmap {}x{}", pixel_w, pixel_h))?;
+
+    // Fill with background color
+    let bg = opts.background_color;
+    pixmap.fill(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a));
+
+    // Render the display list
+    render_display_list(
+        &display_list,
+        &mut pixmap,
+        dpi,
+        &renderer_resources,
+        Some(&preview_font_manager),
+    )?;
+
+    // Encode to PNG
+    let png_data = pixmap.encode_png()
+        .map_err(|e| format!("PNG encoding failed: {}", e))?;
+
+    Ok(ComponentPreviewResult {
+        png_data,
+        content_width: render_width,
+        content_height: render_height,
+    })
+}
