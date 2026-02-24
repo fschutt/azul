@@ -835,3 +835,343 @@ body {
     opacity: 1 !important;
     color: var(--accent);
 }
+
+/* ================================================================
+ * WIDGETS — azd- prefixed reusable component styles
+ * ================================================================ */
+
+/* ── FieldEditor row ── */
+.azd-field-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--border);
+    min-height: 28px;
+}
+.azd-field-row:hover {
+    background: var(--bg-hover);
+}
+.azd-field-label {
+    flex: 0 0 120px;
+    font-size: 12px;
+    color: var(--fg);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+}
+.azd-field-label.azd-required::after {
+    content: ' *';
+    color: var(--error, #f44);
+}
+
+/* ── TypeBadge ── */
+.azd-type-badge {
+    display: inline-block;
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    background: var(--bg-alt);
+    color: var(--fg-muted);
+    text-align: center;
+    min-width: 28px;
+    line-height: 16px;
+}
+.azd-type-string   { color: #98c379; }
+.azd-type-bool     { color: #e5c07b; }
+.azd-type-i32, .azd-type-i64, .azd-type-u32, .azd-type-u64, .azd-type-usize { color: #61afef; }
+.azd-type-f32, .azd-type-f64 { color: #56b6c2; }
+.azd-type-coloru   { color: #c678dd; }
+.azd-type-option   { color: #e06c75; }
+.azd-type-vec      { color: #d19a66; }
+.azd-type-styleddom { color: #56b6c2; }
+.azd-type-callback { color: #abb2bf; font-style: italic; }
+.azd-type-enumref  { color: #e5c07b; }
+.azd-type-structref { color: #61afef; }
+
+/* ── Inputs ── */
+.azd-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.azd-input-string,
+.azd-input-int,
+.azd-input-float {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    width: 100%;
+    box-sizing: border-box;
+}
+.azd-input-string:focus,
+.azd-input-int:focus,
+.azd-input-float:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.azd-input-bool {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.azd-input-color {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.azd-input-color input[type="color"] {
+    width: 28px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+}
+.azd-color-hex {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+}
+
+/* ── Option ── */
+.azd-input-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.azd-option-inner {
+    flex: 1;
+    min-width: 0;
+}
+.azd-muted {
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+
+/* ── Vec ── */
+.azd-input-vec {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.azd-vec-items {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.azd-vec-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.azd-btn-icon {
+    background: none;
+    border: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+    line-height: 1;
+}
+.azd-btn-icon:hover {
+    color: var(--error, #f44);
+}
+.azd-btn-small {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    margin-top: 4px;
+}
+.azd-btn-small:hover {
+    background: var(--accent);
+    color: #fff;
+}
+
+/* ── Slot (StyledDom drop zone) ── */
+.azd-input-slot {
+    border: 2px dashed var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--fg-muted);
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.azd-slot-filled {
+    border-style: solid;
+    background: var(--bg-alt);
+    color: var(--fg);
+}
+.azd-slot-hover {
+    border-color: var(--accent);
+    background: rgba(97, 175, 239, 0.08);
+}
+.azd-slot-empty {
+    cursor: pointer;
+}
+
+/* ── Callback ── */
+.azd-input-callback {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.azd-callback-sig {
+    font-size: 11px;
+    color: var(--fg-muted);
+    background: var(--bg-alt);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+.azd-callback-fn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent);
+}
+
+/* ── Enum select ── */
+.azd-input-enum {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+}
+
+/* ── Struct ── */
+.azd-input-struct {
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+    margin-left: 4px;
+}
+.azd-struct-header {
+    font-size: 11px;
+    color: var(--fg-muted);
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+/* ── DataModelEditor ── */
+.azd-data-model-editor {
+    display: flex;
+    flex-direction: column;
+}
+.azd-dm-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+}
+.azd-dm-struct-head,
+.azd-dm-struct-close {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-muted);
+    padding: 2px 8px;
+}
+
+/* ── CssEditor ── */
+.azd-css-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.azd-css-textarea {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px;
+    border-radius: 3px;
+    min-height: 80px;
+    resize: vertical;
+    white-space: pre;
+    tab-size: 2;
+}
+.azd-css-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.azd-css-errors {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.azd-css-error {
+    font-size: 11px;
+    color: var(--error, #f44);
+    background: rgba(244, 68, 68, 0.08);
+    padding: 2px 6px;
+    border-radius: 2px;
+}
+
+/* ── PreviewPanel ── */
+.azd-preview-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.azd-preview-img-wrap {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    min-height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-alt);
+}
+.azd-preview-img-wrap.azd-loading::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    animation: azd-loading-bar 1.2s ease-in-out infinite;
+}
+@keyframes azd-loading-bar {
+    0%   { transform: translateX(-100%); }
+    50%  { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+}
+.azd-preview-img {
+    max-width: 100%;
+    max-height: 400px;
+    object-fit: contain;
+    image-rendering: auto;
+}
+.azd-preview-error {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    right: 4px;
+    font-size: 11px;
+    color: var(--error, #f44);
+    background: rgba(0,0,0,0.6);
+    padding: 4px 8px;
+    border-radius: 3px;
+}

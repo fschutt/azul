@@ -1800,121 +1800,216 @@ const app = {
             var rightPanel = document.getElementById('component-detail-right');
             if (!leftPanel) return;
 
-            // === Left column: Properties ===
-            var html = '<div style="margin-bottom:12px">';
-            html += '<h3 style="margin:0 0 4px 0">' + esc(component.display_name || component.tag) + '</h3>';
-            html += '<span style="color:var(--text-muted);font-size:12px">' + esc(component.qualified_name) + '</span>';
-            if (component.description) html += '<p style="margin:8px 0 0 0;color:var(--text-muted)">' + esc(component.description) + '</p>';
-            html += '</div>';
+            // Clear and rebuild via DOM (no innerHTML for interactive parts)
+            leftPanel.innerHTML = '';
 
-            // Source + child policy badges
-            html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
-            html += '<span class="badge">' + esc(component.source) + '</span>';
-            html += '<span class="badge">' + esc(component.child_policy) + '</span>';
-            if (component.accepts_text) html += '<span class="badge">accepts text</span>';
-            html += '</div>';
+            // === Header ===
+            var headerDiv = document.createElement('div');
+            headerDiv.style.marginBottom = '12px';
+            var h3 = document.createElement('h3');
+            h3.style.margin = '0 0 4px 0';
+            h3.textContent = component.display_name || component.tag;
+            headerDiv.appendChild(h3);
+            var qualSpan = document.createElement('span');
+            qualSpan.style.cssText = 'color:var(--text-muted);font-size:12px';
+            qualSpan.textContent = component.qualified_name;
+            headerDiv.appendChild(qualSpan);
+            if (component.description) {
+                var descP = document.createElement('p');
+                descP.style.cssText = 'margin:8px 0 0 0;color:var(--text-muted)';
+                descP.textContent = component.description;
+                headerDiv.appendChild(descP);
+            }
+            leftPanel.appendChild(headerDiv);
 
-            // Data Model (component-specific attributes = main data model)
+            // === Badges ===
+            var badgeDiv = document.createElement('div');
+            badgeDiv.style.cssText = 'display:flex;gap:6px;margin-bottom:12px';
+            [component.source, component.child_policy].forEach(function(t) {
+                var b = document.createElement('span');
+                b.className = 'badge';
+                b.textContent = t;
+                badgeDiv.appendChild(b);
+            });
+            if (component.accepts_text) {
+                var b = document.createElement('span');
+                b.className = 'badge';
+                b.textContent = 'accepts text';
+                badgeDiv.appendChild(b);
+            }
+            leftPanel.appendChild(badgeDiv);
+
+            // === Data Model (widget-based) ===
             var dataModel = component.data_model || [];
             if (dataModel.length) {
-                html += '<details open><summary style="font-weight:600;margin-bottom:6px">Data Model (' + dataModel.length + ')</summary>';
-                html += '<div style="background:var(--bg-darker);border-radius:4px;padding:8px;font-family:monospace;font-size:12px;">';
-                html += '<div style="color:var(--text-muted);margin-bottom:4px;">struct <span style="color:var(--accent)">' + esc(component.display_name || component.tag) + 'Data</span> {</div>';
-                dataModel.forEach(function(f) {
-                    var defVal = f.default != null ? ' = ' + f.default : '';
-                    html += '<div style="padding-left:16px;">';
-                    html += '<span style="color:var(--text)">' + esc(f.name) + '</span>';
-                    html += ': <span style="color:var(--accent)">' + esc(f.field_type) + '</span>';
-                    if (defVal) html += '<span style="color:var(--text-muted)">' + esc(defVal) + '</span>';
-                    html += ',';
-                    if (f.description) html += ' <span style="color:var(--text-muted);font-style:italic"> // ' + esc(f.description) + '</span>';
-                    html += '</div>';
+                var dmDetails = document.createElement('details');
+                dmDetails.open = true;
+                var dmSummary = document.createElement('summary');
+                dmSummary.style.cssText = 'font-weight:600;margin-bottom:6px';
+                dmSummary.textContent = 'Data Model (' + dataModel.length + ')';
+                dmDetails.appendChild(dmSummary);
+
+                var dmEditor = app.widgets.DataModelEditor.render({
+                    dataModel: {
+                        name: (component.display_name || component.tag) + 'Data',
+                        fields: dataModel
+                    },
+                    readOnly: component.source !== 'user_defined'
+                }, {
+                    fieldValues: {}
+                }, {
+                    onFieldChange: function(name, newVal) {
+                        app.log('Field changed: ' + name + ' = ' + JSON.stringify(newVal), 'info');
+                    }
                 });
-                html += '<div>}</div></div></details>';
+                dmDetails.appendChild(dmEditor);
+                leftPanel.appendChild(dmDetails);
             }
 
-            // Callback slots
+            // === Callback slots (innerHTML — read-only table) ===
             if (component.callback_slots && component.callback_slots.length) {
-                html += '<details open><summary style="font-weight:600;margin:12px 0 6px 0">Callbacks (' + component.callback_slots.length + ')</summary>';
-                html += '<table class="detail-table"><tr><th>Slot</th><th>Type</th><th>Description</th></tr>';
+                var cbDetails = document.createElement('details');
+                cbDetails.open = true;
+                var cbSummary = document.createElement('summary');
+                cbSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0';
+                cbSummary.textContent = 'Callbacks (' + component.callback_slots.length + ')';
+                cbDetails.appendChild(cbSummary);
+                var cbHtml = '<table class="detail-table"><tr><th>Slot</th><th>Type</th><th>Description</th></tr>';
                 component.callback_slots.forEach(function(s) {
-                    html += '<tr><td>' + esc(s.name) + '</td><td style="color:var(--accent);font-size:11px">' + esc(s.callback_type) + '</td><td>' + esc(s.description) + '</td></tr>';
+                    cbHtml += '<tr><td>' + esc(s.name) + '</td><td style="color:var(--accent);font-size:11px">' + esc(s.callback_type) + '</td><td>' + esc(s.description) + '</td></tr>';
                 });
-                html += '</table></details>';
+                cbHtml += '</table>';
+                var cbTable = document.createElement('div');
+                cbTable.innerHTML = cbHtml;
+                cbDetails.appendChild(cbTable);
+                leftPanel.appendChild(cbDetails);
             }
 
-            // Scoped CSS (editable for user-defined)
+            // === Scoped CSS (widget-based) ===
             if (component.scoped_css || component.source === 'user_defined') {
-                html += '<details' + (component.scoped_css ? ' open' : '') + '><summary style="font-weight:600;margin:12px 0 6px 0">Scoped CSS</summary>';
-                if (component.source === 'user_defined') {
-                    html += '<textarea id="component-css-editor" style="width:100%;min-height:80px;background:var(--bg-darker);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:12px;resize:vertical;">' + esc(component.scoped_css || '') + '</textarea>';
-                    html += '<button class="btn-sm" style="margin-top:4px" onclick="app.handlers._saveComponentCss()">Save CSS</button>';
-                } else {
-                    html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.scoped_css) + '</pre>';
-                }
-                html += '</details>';
+                var cssDetails = document.createElement('details');
+                if (component.scoped_css) cssDetails.open = true;
+                var cssSummary = document.createElement('summary');
+                cssSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0';
+                cssSummary.textContent = 'Scoped CSS';
+                cssDetails.appendChild(cssSummary);
+
+                var isEditable = component.source === 'user_defined';
+                var cssEditor = app.widgets.CssEditor.render({
+                    readOnly: !isEditable
+                }, {
+                    css: component.scoped_css || ''
+                }, {
+                    onChange: function(newCss) {
+                        // live update stored in memory
+                        component.scoped_css = newCss;
+                    },
+                    onSave: isEditable ? function(cssText) {
+                        app.handlers._saveComponentCss(cssText);
+                    } : null
+                });
+                cssDetails.appendChild(cssEditor);
+                leftPanel.appendChild(cssDetails);
             }
 
-            // Universal HTML Attributes (collapsed)
+            // === Universal HTML Attributes (innerHTML — read-only table, collapsed) ===
             var universalAttrs = component.universal_attributes || [];
             if (universalAttrs.length) {
-                html += '<details><summary style="font-weight:600;margin:12px 0 6px 0;color:var(--text-muted)">Universal HTML Attributes (' + universalAttrs.length + ')</summary>';
-                html += '<table class="detail-table"><tr><th>Name</th><th>Type</th></tr>';
+                var uaDetails = document.createElement('details');
+                var uaSummary = document.createElement('summary');
+                uaSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0;color:var(--text-muted)';
+                uaSummary.textContent = 'Universal HTML Attributes (' + universalAttrs.length + ')';
+                uaDetails.appendChild(uaSummary);
+                var uaHtml = '<table class="detail-table"><tr><th>Name</th><th>Type</th></tr>';
                 universalAttrs.forEach(function(a) {
-                    html += '<tr><td>' + esc(a.name) + '</td><td style="color:var(--accent)">' + esc(a.attr_type) + '</td></tr>';
+                    uaHtml += '<tr><td>' + esc(a.name) + '</td><td style="color:var(--accent)">' + esc(a.attr_type) + '</td></tr>';
                 });
-                html += '</table></details>';
+                uaHtml += '</table>';
+                var uaTable = document.createElement('div');
+                uaTable.innerHTML = uaHtml;
+                uaDetails.appendChild(uaTable);
+                leftPanel.appendChild(uaDetails);
             }
 
-            // Example XML
+            // === Example XML (read-only) ===
             if (component.example_xml) {
-                html += '<details><summary style="font-weight:600;margin:12px 0 6px 0">Example XML</summary>';
-                html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.example_xml) + '</pre></details>';
+                var xmlDetails = document.createElement('details');
+                var xmlSummary = document.createElement('summary');
+                xmlSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0';
+                xmlSummary.textContent = 'Example XML';
+                xmlDetails.appendChild(xmlSummary);
+                var xmlPre = document.createElement('pre');
+                xmlPre.style.cssText = 'background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px';
+                xmlPre.textContent = component.example_xml;
+                xmlDetails.appendChild(xmlPre);
+                leftPanel.appendChild(xmlDetails);
             }
 
-            leftPanel.innerHTML = html;
-
-            // === Right column: Template tree + preview ===
+            // === Right column: Template + Preview (widget-based) ===
             if (rightPanel) {
                 rightPanel.style.display = 'block';
-                var rhtml = '<div style="margin-bottom:12px">';
-                rhtml += '<h4 style="margin:0 0 8px 0">Template</h4>';
-                if (component.template) {
-                    rhtml += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;white-space:pre-wrap">' + esc(component.template) + '</pre>';
-                } else if (component.source === 'builtin') {
-                    rhtml += '<div style="color:var(--text-muted);font-size:12px;font-style:italic">Builtin element — renders directly as &lt;' + esc(component.tag) + '&gt;</div>';
-                } else {
-                    rhtml += '<div style="color:var(--text-muted);font-size:12px;font-style:italic">No template defined</div>';
-                }
-                rhtml += '</div>';
+                rightPanel.innerHTML = '';
 
-                // Preview
-                rhtml += '<div style="margin-top:12px">';
-                rhtml += '<h4 style="margin:0 0 8px 0">Preview</h4>';
-                rhtml += '<div id="component-preview-container" style="background:var(--bg-darker);border:1px solid var(--border);border-radius:4px;min-height:100px;display:flex;align-items:center;justify-content:center;">';
-                rhtml += '<span style="color:var(--text-muted);font-size:12px">Loading preview…</span>';
-                rhtml += '</div>';
-                rhtml += '</div>';
-                rightPanel.innerHTML = rhtml;
+                // Template section
+                var tplDiv = document.createElement('div');
+                tplDiv.style.marginBottom = '12px';
+                var tplH4 = document.createElement('h4');
+                tplH4.style.margin = '0 0 8px 0';
+                tplH4.textContent = 'Template';
+                tplDiv.appendChild(tplH4);
+                if (component.template) {
+                    var tplPre = document.createElement('pre');
+                    tplPre.style.cssText = 'background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;white-space:pre-wrap';
+                    tplPre.textContent = component.template;
+                    tplDiv.appendChild(tplPre);
+                } else if (component.source === 'builtin') {
+                    var tplDesc = document.createElement('div');
+                    tplDesc.style.cssText = 'color:var(--text-muted);font-size:12px;font-style:italic';
+                    tplDesc.textContent = 'Builtin element \u2014 renders directly as <' + component.tag + '>';
+                    tplDiv.appendChild(tplDesc);
+                } else {
+                    var tplNone = document.createElement('div');
+                    tplNone.style.cssText = 'color:var(--text-muted);font-size:12px;font-style:italic';
+                    tplNone.textContent = 'No template defined';
+                    tplDiv.appendChild(tplNone);
+                }
+                rightPanel.appendChild(tplDiv);
+
+                // Preview section (widget-based)
+                var previewH4 = document.createElement('h4');
+                previewH4.style.margin = '12px 0 8px 0';
+                previewH4.textContent = 'Preview';
+                rightPanel.appendChild(previewH4);
+
+                var previewEl = app.widgets.PreviewPanel.render({}, { loading: true }, {
+                    onRefresh: function() {
+                        app.handlers._loadComponentPreview(component, previewEl);
+                    }
+                });
+                previewEl.id = 'component-preview-widget';
+                rightPanel.appendChild(previewEl);
 
                 // Load the actual preview image
-                app.handlers._loadComponentPreview(component);
+                app.handlers._loadComponentPreview(component, previewEl);
             }
         },
 
-        _saveComponentCss: async function() {
+        _saveComponentCss: async function(cssText) {
             var idx = app.state.selectedComponentIdx;
             var components = (app.state.componentData && app.state.componentData.components) || [];
             var component = components[idx];
             if (!component) return;
-            var textarea = document.getElementById('component-css-editor');
-            if (!textarea) return;
+            if (cssText === undefined) {
+                // Fallback: read from widget textarea
+                var ta = document.querySelector('.azd-css-textarea');
+                if (ta) cssText = ta.value; else return;
+            }
             try {
                 var res = await app.api.post({
                     op: 'update_component',
                     library: app.state.selectedLibrary,
                     name: component.tag,
-                    scoped_css: textarea.value,
+                    scoped_css: cssText,
                 });
                 if (res.status === 'ok') {
                     app.log('CSS saved for ' + component.tag, 'info');
@@ -1927,9 +2022,9 @@ const app = {
             }
         },
 
-        _loadComponentPreview: async function(component) {
-            var container = document.getElementById('component-preview-container');
-            if (!container) return;
+        _loadComponentPreview: async function(component, previewEl) {
+            if (!previewEl) previewEl = document.getElementById('component-preview-widget');
+            if (!previewEl) return;
             try {
                 var payload = {
                     op: 'get_component_preview',
@@ -1939,15 +2034,23 @@ const app = {
                 var res = await app.api.post(payload);
                 if (res.status === 'ok' && res.data && res.data.value) {
                     var preview = res.data.value;
-                    container.innerHTML = '<img src="' + preview.data + '" '
-                        + 'style="max-width:100%;height:auto;image-rendering:pixelated" '
-                        + 'title="' + Math.round(preview.width) + ' × ' + Math.round(preview.height) + ' px" />';
+                    app.widgets.PreviewPanel.update(previewEl, {
+                        imageDataUri: preview.data,
+                        width: preview.width,
+                        height: preview.height,
+                        loading: false
+                    });
                 } else {
-                    var msg = (res.message || 'Unknown error');
-                    container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Preview failed: ' + msg + '</span>';
+                    app.widgets.PreviewPanel.update(previewEl, {
+                        error: 'Preview failed: ' + (res.message || 'Unknown error'),
+                        loading: false
+                    });
                 }
             } catch (e) {
-                container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Preview error: ' + e.message + '</span>';
+                app.widgets.PreviewPanel.update(previewEl, {
+                    error: 'Preview error: ' + e.message,
+                    loading: false
+                });
             }
         },
 
@@ -2307,6 +2410,641 @@ const app = {
                 container.appendChild(childContainer);
             }
         },
+    },
+
+    /* ================================================================
+     * WIDGETS — reusable, composable UI components for type-aware editing
+     *
+     * Contract: each widget has:
+     *   render(config, state, callbacks) → HTMLElement
+     *   update(el, newState)             → void (optional, for perf)
+     *
+     * All widgets use createElement (never innerHTML for interactive parts).
+     * Callbacks via config — widgets never touch global state directly.
+     * ================================================================ */
+    widgets: {
+
+        /* ── W2: TypeBadge — color-coded type indicator ── */
+        TypeBadge: {
+            render: function(config) {
+                var el = document.createElement('span');
+                var ft = config.fieldType || {};
+                var t = ft.type || 'Unknown';
+                el.className = 'azd-type-badge azd-type-' + t.toLowerCase();
+                switch (t) {
+                    case 'String':    el.textContent = 'Str'; break;
+                    case 'Bool':      el.textContent = 'Bool'; break;
+                    case 'I32':       el.textContent = 'i32'; break;
+                    case 'I64':       el.textContent = 'i64'; break;
+                    case 'U32':       el.textContent = 'u32'; break;
+                    case 'U64':       el.textContent = 'u64'; break;
+                    case 'Usize':     el.textContent = 'usize'; break;
+                    case 'F32':       el.textContent = 'f32'; break;
+                    case 'F64':       el.textContent = 'f64'; break;
+                    case 'ColorU':    el.textContent = '\u25A0'; el.style.color = '#f0f'; break;
+                    case 'Option':    el.textContent = (ft.inner ? ft.inner.type : '?') + '?'; break;
+                    case 'Vec':       el.textContent = '[' + (ft.inner ? ft.inner.type : '?') + ']'; break;
+                    case 'StyledDom': el.textContent = '\u25FB Slot'; break;
+                    case 'Callback':  el.textContent = 'fn()'; break;
+                    case 'RefAny':    el.textContent = 'ref'; break;
+                    case 'EnumRef':   el.textContent = ft.name || 'enum'; break;
+                    case 'StructRef': el.textContent = ft.name || 'struct'; break;
+                    case 'ImageRef':  el.textContent = 'img'; break;
+                    case 'FontRef':   el.textContent = 'font'; break;
+                    default:          el.textContent = t; break;
+                }
+                return el;
+            }
+        },
+
+        /* ── W3: FieldInput — primitive input controls ── */
+        FieldInput: {
+            render: function(config, state, callbacks) {
+                var ft = config.fieldType || {};
+                var t = ft.type || 'String';
+                switch (t) {
+                    case 'String':   return this._renderString(config, state, callbacks);
+                    case 'Bool':     return this._renderBool(config, state, callbacks);
+                    case 'I32': case 'I64': case 'U32': case 'U64': case 'Usize':
+                                     return this._renderInt(config, state, callbacks);
+                    case 'F32': case 'F64':
+                                     return this._renderFloat(config, state, callbacks);
+                    case 'ColorU':   return this._renderColor(config, state, callbacks);
+                    case 'Option':   return this._renderOption(config, state, callbacks);
+                    case 'Vec':      return this._renderVec(config, state, callbacks);
+                    case 'StyledDom':return this._renderSlot(config, state, callbacks);
+                    case 'Callback': return this._renderCallback(config, state, callbacks);
+                    case 'EnumRef':  return this._renderEnum(config, state, callbacks);
+                    case 'StructRef':return this._renderStruct(config, state, callbacks);
+                    default:         return this._renderString(config, state, callbacks);
+                }
+            },
+
+            _renderString: function(config, state, callbacks) {
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'azd-input azd-input-string';
+                input.value = state.value != null ? String(state.value) : '';
+                input.placeholder = config.default || '';
+                input.disabled = !!config.readOnly;
+                if (config.description) input.title = config.description;
+                input.addEventListener('input', function() {
+                    if (callbacks.onChange) callbacks.onChange(config.name, { type: 'String', value: input.value });
+                });
+                return input;
+            },
+
+            _renderBool: function(config, state, callbacks) {
+                var label = document.createElement('label');
+                label.className = 'azd-input azd-input-bool';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!state.value;
+                cb.disabled = !!config.readOnly;
+                var text = document.createTextNode(cb.checked ? 'true' : 'false');
+                cb.addEventListener('change', function() {
+                    text.textContent = cb.checked ? 'true' : 'false';
+                    if (callbacks.onChange) callbacks.onChange(config.name, { type: 'Bool', value: cb.checked });
+                });
+                label.appendChild(cb);
+                label.appendChild(text);
+                return label;
+            },
+
+            _renderInt: function(config, state, callbacks) {
+                var input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'azd-input azd-input-int';
+                input.value = state.value != null ? state.value : 0;
+                input.step = '1';
+                input.disabled = !!config.readOnly;
+                if (config.description) input.title = config.description;
+                input.addEventListener('input', function() {
+                    var v = parseInt(input.value, 10);
+                    if (isNaN(v)) v = 0;
+                    if (callbacks.onChange) callbacks.onChange(config.name, { type: config.fieldType.type, value: v });
+                });
+                return input;
+            },
+
+            _renderFloat: function(config, state, callbacks) {
+                var input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'azd-input azd-input-float';
+                input.value = state.value != null ? state.value : 0;
+                input.step = '0.1';
+                input.disabled = !!config.readOnly;
+                if (config.description) input.title = config.description;
+                input.addEventListener('input', function() {
+                    var v = parseFloat(input.value);
+                    if (isNaN(v)) v = 0.0;
+                    if (callbacks.onChange) callbacks.onChange(config.name, { type: config.fieldType.type, value: v });
+                });
+                return input;
+            },
+
+            _renderColor: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-input azd-input-color';
+                var picker = document.createElement('input');
+                picker.type = 'color';
+                picker.value = state.value ? app.widgets._colorUToHex(state.value) : '#000000';
+                picker.disabled = !!config.readOnly;
+                var hex = document.createElement('span');
+                hex.className = 'azd-color-hex';
+                hex.textContent = picker.value;
+                picker.addEventListener('input', function() {
+                    hex.textContent = picker.value;
+                    if (callbacks.onChange) callbacks.onChange(config.name, {
+                        type: 'ColorU',
+                        value: app.widgets._hexToColorU(picker.value)
+                    });
+                });
+                wrap.appendChild(picker);
+                wrap.appendChild(hex);
+                return wrap;
+            },
+
+            _renderOption: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-input azd-input-option';
+                var hasValue = state.value !== null && state.value !== undefined;
+
+                var toggle = document.createElement('input');
+                toggle.type = 'checkbox';
+                toggle.checked = hasValue;
+                toggle.disabled = !!config.readOnly;
+
+                var innerWrap = document.createElement('div');
+                innerWrap.className = 'azd-option-inner';
+
+                var self = this;
+                var rebuildInner = function(val) {
+                    innerWrap.innerHTML = '';
+                    if (val !== null && val !== undefined) {
+                        var innerConfig = Object.assign({}, config, {
+                            fieldType: config.fieldType.inner || { type: 'String' },
+                            name: config.name
+                        });
+                        innerWrap.appendChild(self.render(innerConfig, { value: val }, callbacks));
+                    } else {
+                        var none = document.createElement('span');
+                        none.className = 'azd-muted';
+                        none.textContent = 'None';
+                        innerWrap.appendChild(none);
+                    }
+                };
+
+                rebuildInner(hasValue ? state.value : null);
+
+                toggle.addEventListener('change', function() {
+                    if (toggle.checked) {
+                        var def = app.widgets._defaultForType(config.fieldType.inner || { type: 'String' });
+                        rebuildInner(def);
+                        if (callbacks.onChange) callbacks.onChange(config.name, { type: 'Some', value: def });
+                    } else {
+                        rebuildInner(null);
+                        if (callbacks.onChange) callbacks.onChange(config.name, { type: 'None' });
+                    }
+                });
+
+                wrap.appendChild(toggle);
+                wrap.appendChild(innerWrap);
+                return wrap;
+            },
+
+            _renderVec: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-input azd-input-vec';
+                var items = state.value || [];
+
+                var list = document.createElement('div');
+                list.className = 'azd-vec-items';
+
+                var self = this;
+                items.forEach(function(item, idx) {
+                    var itemRow = document.createElement('div');
+                    itemRow.className = 'azd-vec-item';
+
+                    var innerConfig = Object.assign({}, config, {
+                        fieldType: config.fieldType.inner || { type: 'String' },
+                        name: config.name + '[' + idx + ']'
+                    });
+                    itemRow.appendChild(self.render(innerConfig, { value: item }, {
+                        onChange: function(_, newVal) {
+                            var newItems = items.slice();
+                            newItems[idx] = newVal.value;
+                            if (callbacks.onChange) callbacks.onChange(config.name, { type: 'Vec', value: newItems });
+                        }
+                    }));
+
+                    if (!config.readOnly) {
+                        var removeBtn = document.createElement('button');
+                        removeBtn.className = 'azd-btn-icon';
+                        removeBtn.textContent = '\u00D7';
+                        removeBtn.title = 'Remove';
+                        removeBtn.addEventListener('click', function() {
+                            var newItems = items.slice();
+                            newItems.splice(idx, 1);
+                            if (callbacks.onChange) callbacks.onChange(config.name, { type: 'Vec', value: newItems });
+                        });
+                        itemRow.appendChild(removeBtn);
+                    }
+                    list.appendChild(itemRow);
+                });
+                wrap.appendChild(list);
+
+                if (!config.readOnly) {
+                    var addBtn = document.createElement('button');
+                    addBtn.className = 'azd-btn-small';
+                    addBtn.textContent = '+ Add';
+                    addBtn.addEventListener('click', function() {
+                        var newItems = items.slice();
+                        newItems.push(app.widgets._defaultForType(config.fieldType.inner || { type: 'String' }));
+                        if (callbacks.onChange) callbacks.onChange(config.name, { type: 'Vec', value: newItems });
+                    });
+                    wrap.appendChild(addBtn);
+                }
+                return wrap;
+            },
+
+            _renderSlot: function(config, state, callbacks) {
+                var zone = document.createElement('div');
+                zone.className = 'azd-input azd-input-slot';
+                zone.setAttribute('data-slot', config.name);
+
+                if (state.value && state.value.component) {
+                    zone.textContent = state.value.library + '.' + state.value.component;
+                    zone.classList.add('azd-slot-filled');
+                } else {
+                    zone.textContent = 'Drop component here';
+                    zone.classList.add('azd-slot-empty');
+                }
+
+                zone.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    zone.classList.add('azd-slot-hover');
+                });
+                zone.addEventListener('dragleave', function() {
+                    zone.classList.remove('azd-slot-hover');
+                });
+                zone.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    zone.classList.remove('azd-slot-hover');
+                    try {
+                        var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                        if (callbacks.onChange) callbacks.onChange(config.name, {
+                            type: 'ComponentInstance',
+                            library: data.library,
+                            component: data.component
+                        });
+                    } catch(err) { /* ignore invalid drops */ }
+                });
+                return zone;
+            },
+
+            _renderCallback: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-input azd-input-callback';
+
+                var sig = (config.fieldType || {}).signature;
+                var sigText = 'fn(';
+                if (sig && sig.args) {
+                    sigText += sig.args.map(function(a) { return a.name + ': ' + a.arg_type; }).join(', ');
+                }
+                sigText += ') \u2192 ' + (sig && sig.return_type ? sig.return_type : 'Update');
+
+                var sigBadge = document.createElement('code');
+                sigBadge.className = 'azd-callback-sig';
+                sigBadge.textContent = sigText;
+                wrap.appendChild(sigBadge);
+
+                if (state.value && state.value.fn_name) {
+                    var fnName = document.createElement('span');
+                    fnName.className = 'azd-callback-fn';
+                    fnName.textContent = state.value.fn_name;
+                    wrap.appendChild(fnName);
+                }
+                return wrap;
+            },
+
+            _renderEnum: function(config, state, callbacks) {
+                var select = document.createElement('select');
+                select.className = 'azd-input azd-input-enum';
+                select.disabled = !!config.readOnly;
+                if (config.enumModel) {
+                    config.enumModel.variants.forEach(function(v) {
+                        var opt = document.createElement('option');
+                        opt.value = v.name;
+                        opt.textContent = v.name;
+                        if (state.value && state.value.variant === v.name) opt.selected = true;
+                        select.appendChild(opt);
+                    });
+                }
+                select.addEventListener('change', function() {
+                    if (callbacks.onChange) callbacks.onChange(config.name, {
+                        type: 'Enum', variant: select.value, fields: []
+                    });
+                });
+                return select;
+            },
+
+            _renderStruct: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-input azd-input-struct';
+
+                var header = document.createElement('div');
+                header.className = 'azd-struct-header';
+                header.textContent = (config.fieldType || {}).name || 'struct';
+                wrap.appendChild(header);
+
+                if (config.structModel && config.structModel.fields) {
+                    config.structModel.fields.forEach(function(field) {
+                        var fieldEl = app.widgets.FieldEditor.render({
+                            name: field.name,
+                            fieldType: field.field_type,
+                            required: field.required,
+                            description: field.description,
+                            readOnly: config.readOnly
+                        }, {
+                            value: (state.value && state.value[field.name]) || null
+                        }, {
+                            onChange: function(fieldName, newVal) {
+                                var newStruct = Object.assign({}, state.value || {});
+                                newStruct[fieldName] = newVal.value;
+                                if (callbacks.onChange) callbacks.onChange(config.name, { type: 'Struct', value: newStruct });
+                            }
+                        });
+                        wrap.appendChild(fieldEl);
+                    });
+                }
+                return wrap;
+            }
+        },
+
+        /* ── W1: FieldEditor — type-aware field row (label + badge + input) ── */
+        FieldEditor: {
+            render: function(config, state, callbacks) {
+                var row = document.createElement('div');
+                row.className = 'azd-field-row';
+
+                // Label
+                var label = document.createElement('label');
+                label.className = 'azd-field-label';
+                label.textContent = config.name;
+                if (config.required) label.classList.add('azd-required');
+                if (config.description) label.title = config.description;
+                row.appendChild(label);
+
+                // Type badge
+                var badge = app.widgets.TypeBadge.render({ fieldType: config.fieldType || {} });
+                row.appendChild(badge);
+
+                // Input control
+                var input = app.widgets.FieldInput.render(config, state, callbacks);
+                row.appendChild(input);
+
+                return row;
+            }
+        },
+
+        /* ── W8: DataModelEditor — full data model editing panel ── */
+        DataModelEditor: {
+            render: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-data-model-editor';
+
+                // Header
+                var header = document.createElement('div');
+                header.className = 'azd-dm-header';
+                var dm = config.dataModel || {};
+                var fields = dm.fields || [];
+                header.textContent = (dm.name || 'Data Model') + ' (' + fields.length + ')';
+                wrap.appendChild(header);
+
+                // Struct-like display header
+                var structHead = document.createElement('div');
+                structHead.className = 'azd-dm-struct-head';
+                structHead.textContent = 'struct ' + (dm.name || 'Data') + ' {';
+                wrap.appendChild(structHead);
+
+                // Field rows
+                var fieldValues = state.fieldValues || {};
+                fields.forEach(function(field) {
+                    var ft = field.field_type || {};
+                    // Parse field_type if it comes as a plain string from the API
+                    if (typeof ft === 'string') {
+                        ft = { type: ft };
+                    }
+                    var val = fieldValues[field.name];
+                    if (val === undefined && field.default != null) {
+                        val = field.default;
+                    }
+
+                    var fieldEl = app.widgets.FieldEditor.render({
+                        name: field.name,
+                        fieldType: ft,
+                        required: field.required,
+                        description: field.description,
+                        readOnly: config.readOnly,
+                        default: field.default != null ? String(field.default) : ''
+                    }, {
+                        value: val
+                    }, {
+                        onChange: function(name, newVal) {
+                            if (callbacks.onFieldChange) callbacks.onFieldChange(name, newVal);
+                        }
+                    });
+                    wrap.appendChild(fieldEl);
+                });
+
+                // Closing brace
+                var structClose = document.createElement('div');
+                structClose.className = 'azd-dm-struct-close';
+                structClose.textContent = '}';
+                wrap.appendChild(structClose);
+
+                // Add field button (if editable)
+                if (!config.readOnly && callbacks.onAddField) {
+                    var addBtn = document.createElement('button');
+                    addBtn.className = 'azd-btn-small';
+                    addBtn.textContent = '+ Add Field';
+                    addBtn.addEventListener('click', function() {
+                        callbacks.onAddField();
+                    });
+                    wrap.appendChild(addBtn);
+                }
+
+                return wrap;
+            }
+        },
+
+        /* ── W6: CssEditor — CSS editor with save support ── */
+        CssEditor: {
+            render: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-css-editor';
+
+                var textarea = document.createElement('textarea');
+                textarea.className = 'azd-css-textarea';
+                textarea.value = state.css || '';
+                textarea.disabled = !!config.readOnly;
+                textarea.spellcheck = false;
+                textarea.placeholder = config.readOnly ? '(no CSS)' : 'Enter component CSS\u2026';
+                textarea.setAttribute('data-lang', 'css');
+
+                var debounceTimer = null;
+                textarea.addEventListener('input', function() {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(function() {
+                        if (callbacks.onChange) callbacks.onChange(textarea.value);
+                    }, 150);
+                });
+                wrap.appendChild(textarea);
+
+                // Error display
+                if (state.errors && state.errors.length > 0) {
+                    var errorList = document.createElement('div');
+                    errorList.className = 'azd-css-errors';
+                    state.errors.forEach(function(err) {
+                        var errEl = document.createElement('div');
+                        errEl.className = 'azd-css-error';
+                        errEl.textContent = err;
+                        errorList.appendChild(errEl);
+                    });
+                    wrap.appendChild(errorList);
+                }
+
+                // Save button for user_defined components
+                if (!config.readOnly && callbacks.onSave) {
+                    var saveBtn = document.createElement('button');
+                    saveBtn.className = 'azd-btn-small';
+                    saveBtn.textContent = 'Save CSS';
+                    saveBtn.addEventListener('click', function() {
+                        callbacks.onSave(textarea.value);
+                    });
+                    wrap.appendChild(saveBtn);
+                }
+
+                return wrap;
+            }
+        },
+
+        /* ── W7: PreviewPanel — live component preview with context switcher ── */
+        PreviewPanel: {
+            render: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-preview-panel';
+
+                // Preview image container
+                var imgWrap = document.createElement('div');
+                imgWrap.className = 'azd-preview-img-wrap';
+                var img = document.createElement('img');
+                img.className = 'azd-preview-img';
+                if (state.imageDataUri) {
+                    img.src = state.imageDataUri;
+                    if (state.width && state.height) {
+                        img.title = Math.round(state.width) + ' \u00D7 ' + Math.round(state.height) + ' px';
+                    }
+                }
+                if (state.loading) {
+                    imgWrap.classList.add('azd-loading');
+                    if (!state.imageDataUri) {
+                        var loadText = document.createElement('span');
+                        loadText.className = 'azd-muted';
+                        loadText.textContent = 'Loading preview\u2026';
+                        imgWrap.appendChild(loadText);
+                    }
+                }
+                imgWrap.appendChild(img);
+
+                // Error display
+                if (state.error) {
+                    var errEl = document.createElement('div');
+                    errEl.className = 'azd-preview-error';
+                    errEl.textContent = state.error;
+                    imgWrap.appendChild(errEl);
+                }
+                wrap.appendChild(imgWrap);
+
+                // Refresh button
+                if (callbacks.onRefresh) {
+                    var refreshBtn = document.createElement('button');
+                    refreshBtn.className = 'azd-btn-small';
+                    refreshBtn.textContent = '\u21BB Refresh';
+                    refreshBtn.addEventListener('click', function() {
+                        callbacks.onRefresh();
+                    });
+                    wrap.appendChild(refreshBtn);
+                }
+
+                return wrap;
+            },
+
+            update: function(el, newState) {
+                if (!el) return;
+                var img = el.querySelector('.azd-preview-img');
+                if (img && newState.imageDataUri) {
+                    img.src = newState.imageDataUri;
+                    if (newState.width && newState.height) {
+                        img.title = Math.round(newState.width) + ' \u00D7 ' + Math.round(newState.height) + ' px';
+                    }
+                }
+                var wrap = el.querySelector('.azd-preview-img-wrap');
+                if (wrap) {
+                    if (newState.loading) wrap.classList.add('azd-loading');
+                    else wrap.classList.remove('azd-loading');
+                }
+                var errEl = el.querySelector('.azd-preview-error');
+                if (errEl && newState.error) {
+                    errEl.textContent = newState.error;
+                } else if (errEl && !newState.error) {
+                    errEl.remove();
+                } else if (!errEl && newState.error) {
+                    var newErr = document.createElement('div');
+                    newErr.className = 'azd-preview-error';
+                    newErr.textContent = newState.error;
+                    if (wrap) wrap.appendChild(newErr);
+                }
+            }
+        },
+
+        /* ── Utility helpers ── */
+
+        _colorUToHex: function(c) {
+            return '#' + [c.r, c.g, c.b].map(function(v) {
+                return ('0' + (v || 0).toString(16)).slice(-2);
+            }).join('');
+        },
+
+        _hexToColorU: function(hex) {
+            var r = parseInt(hex.slice(1, 3), 16) || 0;
+            var g = parseInt(hex.slice(3, 5), 16) || 0;
+            var b = parseInt(hex.slice(5, 7), 16) || 0;
+            return { r: r, g: g, b: b, a: 255 };
+        },
+
+        _defaultForType: function(ft) {
+            if (!ft) return null;
+            switch (ft.type) {
+                case 'String':   return '';
+                case 'Bool':     return false;
+                case 'I32': case 'I64': case 'U32': case 'U64': case 'Usize': return 0;
+                case 'F32': case 'F64': return 0.0;
+                case 'ColorU':   return { r: 0, g: 0, b: 0, a: 255 };
+                case 'Option':   return null;
+                case 'Vec':      return [];
+                default:         return null;
+            }
+        },
+
+        _findModel: function(models, name) {
+            if (!models) return null;
+            for (var i = 0; i < models.length; i++) {
+                if (models[i].name === name) return models[i];
+            }
+            return null;
+        }
     },
 
     /* ================================================================
