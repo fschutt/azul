@@ -1888,14 +1888,17 @@ const app = {
                 }
                 rhtml += '</div>';
 
-                // Preview placeholder
+                // Preview
                 rhtml += '<div style="margin-top:12px">';
                 rhtml += '<h4 style="margin:0 0 8px 0">Preview</h4>';
                 rhtml += '<div id="component-preview-container" style="background:var(--bg-darker);border:1px solid var(--border);border-radius:4px;min-height:100px;display:flex;align-items:center;justify-content:center;">';
-                rhtml += '<span style="color:var(--text-muted);font-size:12px">Preview not available yet</span>';
+                rhtml += '<span style="color:var(--text-muted);font-size:12px">Loading preview…</span>';
                 rhtml += '</div>';
                 rhtml += '</div>';
                 rightPanel.innerHTML = rhtml;
+
+                // Load the actual preview image
+                app.handlers._loadComponentPreview(component);
             }
         },
 
@@ -1921,6 +1924,30 @@ const app = {
                 }
             } catch(e) {
                 app.log('Save CSS failed: ' + e.message, 'error');
+            }
+        },
+
+        _loadComponentPreview: async function(component) {
+            var container = document.getElementById('component-preview-container');
+            if (!container) return;
+            try {
+                var payload = {
+                    op: 'get_component_preview',
+                    library: app.state.selectedLibrary || 'builtin',
+                    name: component.tag,
+                };
+                var res = await app.api.post(payload);
+                if (res.status === 'ok' && res.data && res.data.value) {
+                    var preview = res.data.value;
+                    container.innerHTML = '<img src="' + preview.data + '" '
+                        + 'style="max-width:100%;height:auto;image-rendering:pixelated" '
+                        + 'title="' + Math.round(preview.width) + ' × ' + Math.round(preview.height) + ' px" />';
+                } else {
+                    var msg = (res.message || 'Unknown error');
+                    container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Preview failed: ' + msg + '</span>';
+                }
+            } catch (e) {
+                container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Preview error: ' + e.message + '</span>';
             }
         },
 

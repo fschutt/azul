@@ -142,6 +142,20 @@ pub enum ResponseData {
     ImportedLibrary(ImportedLibraryResponse),
     /// Component library exported as JSON
     ExportedLibrary(ExportedLibraryResponse),
+    /// Component preview image (CPU-rendered)
+    ComponentPreview(ComponentPreviewResponse),
+}
+
+/// Response for GetComponentPreview — CPU-rendered component image.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentPreviewResponse {
+    /// Base64-encoded PNG data URI ("data:image/png;base64,...")
+    pub data: String,
+    /// Actual content width in logical pixels
+    pub width: f32,
+    /// Actual content height in logical pixels
+    pub height: f32,
 }
 
 /// Wrapper for E2E test results
@@ -275,10 +289,6 @@ pub struct ComponentInfo {
     pub display_name: String,
     /// Description / documentation
     pub description: String,
-    /// Whether this tag accepts text content
-    pub accepts_text: bool,
-    /// Child policy: "no_children", "any_children", "text_only"
-    pub child_policy: String,
     /// Source: "builtin", "compiled", "user_defined"
     pub source: String,
     /// Component-specific data model fields (the component's own attributes,
@@ -289,12 +299,8 @@ pub struct ComponentInfo {
     pub universal_attributes: Vec<ComponentAttributeInfo>,
     /// Callback slots this component exposes
     pub callback_slots: Vec<ComponentCallbackSlotInfo>,
-    /// Example XML usage
-    pub example_xml: String,
-    /// Scoped CSS
-    pub scoped_css: String,
-    /// XML template body (for user-defined components)
-    pub template: String,
+    /// CSS
+    pub css: String,
 }
 
 /// Info about an attribute a component accepts
@@ -419,25 +425,10 @@ pub struct ExportedComponentDef {
     /// Callbacks have type "Callback(...)", regular fields have type "String", "bool", etc.
     #[serde(default)]
     pub fields: Vec<ExportedDataField>,
-    /// Whether this component accepts text content
+    /// CSS for the component
     #[serde(default)]
-    pub accepts_text: bool,
-    /// Child policy: "no_children", "any_children", "text_only"
-    #[serde(default = "default_child_policy")]
-    pub child_policy: String,
-    /// Scoped CSS for the component
-    #[serde(default)]
-    pub scoped_css: String,
-    /// Example XML usage
-    #[serde(default)]
-    pub example_xml: String,
-    /// XML template body (for rendering)
-    #[serde(default)]
-    pub template: String,
+    pub css: String,
 }
-
-#[cfg(feature = "std")]
-fn default_child_policy() -> String { "any_children".to_string() }
 
 #[cfg(feature = "std")]
 fn default_param_type() -> String { "String".to_string() }
@@ -1691,18 +1682,15 @@ pub enum DebugEvent {
         /// Component tag name
         name: String,
     },
-    /// Update a component's properties (template, CSS, data model, etc.)
+    /// Update a component's properties (CSS, data model, etc.)
     UpdateComponent {
         /// Library name
         library: String,
         /// Component tag name
         name: String,
-        /// New template (if provided)
+        /// New CSS (if provided)
         #[serde(default)]
-        template: Option<String>,
-        /// New scoped CSS (if provided)
-        #[serde(default)]
-        scoped_css: Option<String>,
+        css: Option<String>,
         /// New description (if provided)
         #[serde(default)]
         description: Option<String>,
@@ -1713,6 +1701,35 @@ pub enum DebugEvent {
         /// Unified list: includes both data fields and callbacks.
         #[serde(default)]
         fields: Option<Vec<ExportedDataField>>,
+    },
+    /// Render a component to a PNG image via CPU renderer.
+    /// Uses the existing window's fonts — no expensive font rebuild.
+    GetComponentPreview {
+        /// Library name, e.g. "builtin", "mylib"
+        library: String,
+        /// Component tag name, e.g. "button", "card"
+        name: String,
+        /// Viewport width (logical px). None = size to content.
+        #[serde(default)]
+        width: Option<f32>,
+        /// Viewport height (logical px). None = size to content.
+        #[serde(default)]
+        height: Option<f32>,
+        /// DPI factor. None = 1.0.
+        #[serde(default)]
+        dpi: Option<f32>,
+        /// Background color as "#RRGGBB" or "#RRGGBBAA". None = white.
+        #[serde(default)]
+        background: Option<String>,
+        /// Optional CSS to apply (overrides component css).
+        #[serde(default)]
+        css_override: Option<String>,
+        /// Component arguments as typed JSON values, e.g. {"label": "Click", "disabled": true, "count": 42}.
+        /// Keys must match the component's data_model field names.
+        /// Values are validated against the field's ComponentFieldType.
+        /// Missing fields use their default_value from the data model.
+        #[serde(default)]
+        args: Option<std::collections::HashMap<String, serde_json::Value>>,
     },
     /// Open a source file in the user's editor (best-effort)
     OpenFile {
@@ -2347,6 +2364,8 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     if let Err(e) = request.response_tx.send(response) {
     }
 }
+
+
 
 /// Helper function for serializing DebugHttpResponse
 #[cfg(feature = "std")]
@@ -3722,7 +3741,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
 /// in so the debugger inspector can show them.
 #[cfg(feature = "std")]
 fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> ComponentRegistryResponse {
-    use azul_core::xml::{ComponentMap, ComponentSource, ChildPolicy};
+    use azul_core::xml::{ComponentMap, ComponentSource};
 
     let mut libraries = Vec::new();
 
@@ -3785,12 +3804,6 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 })
                 .collect();
 
-            let child_policy_str = match def.child_policy {
-                ChildPolicy::NoChildren => "no_children",
-                ChildPolicy::AnyChildren => "any_children",
-                ChildPolicy::TextOnly => "text_only",
-            };
-
             let source_str = match def.source {
                 ComponentSource::Builtin => "builtin",
                 ComponentSource::Compiled => "compiled",
@@ -3802,15 +3815,11 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 qualified_name: def.id.qualified_name(),
                 display_name: def.display_name.as_str().to_string(),
                 description: def.description.as_str().to_string(),
-                accepts_text: def.accepts_text,
-                child_policy: child_policy_str.to_string(),
                 source: source_str.to_string(),
                 data_model,
                 universal_attributes,
                 callback_slots,
-                example_xml: def.example_xml.as_str().to_string(),
-                scoped_css: def.scoped_css.as_str().to_string(),
-                template: def.template.as_str().to_string(),
+                css: def.css.as_str().to_string(),
             });
         }
 
@@ -3847,6 +3856,169 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
     ComponentRegistryResponse { libraries }
 }
 
+
+/// Clone the component's `data_model` and override `default_value` fields from the
+/// provided JSON args map. Returns a `ComponentDataModel` ready to pass to `render_fn`.
+///
+/// - Known fields have their defaults overridden by the parsed JSON value.
+/// - Missing fields keep their existing default.
+/// - Missing required fields (no default and not in JSON) are an error.
+/// - Unknown keys are silently ignored.
+#[cfg(feature = "std")]
+fn override_data_model_defaults(
+    data_model: &azul_core::xml::ComponentDataModel,
+    json_args: Option<&std::collections::HashMap<String, serde_json::Value>>,
+) -> Result<azul_core::xml::ComponentDataModel, String> {
+    use azul_core::xml::{
+        ComponentDefaultValue, ComponentFieldType,
+        ComponentDataModel, ComponentDataField, ComponentDataFieldVec,
+        OptionComponentDefaultValue,
+    };
+
+    let empty_map = std::collections::HashMap::new();
+    let map = json_args.unwrap_or(&empty_map);
+
+    let mut fields: Vec<ComponentDataField> = data_model.fields.as_ref().iter().cloned().collect();
+
+    for field in fields.iter_mut() {
+        let name = field.name.as_str();
+        if let Some(json_val) = map.get(name) {
+            let parsed = parse_json_to_default_value(&field.field_type, json_val)
+                .map_err(|e| format!("field '{}': {}", name, e))?;
+            field.default_value = OptionComponentDefaultValue::Some(parsed);
+        } else if field.required {
+            if let OptionComponentDefaultValue::None = &field.default_value {
+                return Err(format!("required field '{}' is missing", name));
+            }
+        }
+    }
+
+    Ok(ComponentDataModel {
+        name: data_model.name.clone(),
+        description: data_model.description.clone(),
+        fields: ComponentDataFieldVec::from_vec(fields),
+    })
+}
+
+/// Convert a single `serde_json::Value` to a `ComponentDefaultValue` given the expected type.
+#[cfg(feature = "std")]
+fn parse_json_to_default_value(
+    ft: &azul_core::xml::ComponentFieldType,
+    val: &serde_json::Value,
+) -> Result<azul_core::xml::ComponentDefaultValue, String> {
+    use azul_core::xml::{ComponentDefaultValue, ComponentFieldType};
+    use azul_css::corety::AzString;
+
+    match ft {
+        ComponentFieldType::String => match val {
+            serde_json::Value::String(s) => Ok(ComponentDefaultValue::String(AzString::from(s.as_str()))),
+            other => Ok(ComponentDefaultValue::String(AzString::from(other.to_string().as_str()))),
+        },
+        ComponentFieldType::Bool => match val {
+            serde_json::Value::Bool(b) => Ok(ComponentDefaultValue::Bool(*b)),
+            serde_json::Value::String(s) => s.parse::<bool>()
+                .map(ComponentDefaultValue::Bool)
+                .map_err(|_| format!("expected bool, got \"{}\"", s)),
+            other => Err(format!("expected bool, got {}", other)),
+        },
+        ComponentFieldType::I32 => match val {
+            serde_json::Value::Number(n) => n.as_i64()
+                .and_then(|v| i32::try_from(v).ok())
+                .map(ComponentDefaultValue::I32)
+                .ok_or_else(|| format!("expected i32, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<i32>()
+                .map(ComponentDefaultValue::I32)
+                .map_err(|_| format!("expected i32, got \"{}\"", s)),
+            other => Err(format!("expected i32, got {}", other)),
+        },
+        ComponentFieldType::I64 => match val {
+            serde_json::Value::Number(n) => n.as_i64()
+                .map(ComponentDefaultValue::I64)
+                .ok_or_else(|| format!("expected i64, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<i64>()
+                .map(ComponentDefaultValue::I64)
+                .map_err(|_| format!("expected i64, got \"{}\"", s)),
+            other => Err(format!("expected i64, got {}", other)),
+        },
+        ComponentFieldType::U32 => match val {
+            serde_json::Value::Number(n) => n.as_u64()
+                .and_then(|v| u32::try_from(v).ok())
+                .map(ComponentDefaultValue::U32)
+                .ok_or_else(|| format!("expected u32, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<u32>()
+                .map(ComponentDefaultValue::U32)
+                .map_err(|_| format!("expected u32, got \"{}\"", s)),
+            other => Err(format!("expected u32, got {}", other)),
+        },
+        ComponentFieldType::U64 => match val {
+            serde_json::Value::Number(n) => n.as_u64()
+                .map(ComponentDefaultValue::U64)
+                .ok_or_else(|| format!("expected u64, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<u64>()
+                .map(ComponentDefaultValue::U64)
+                .map_err(|_| format!("expected u64, got \"{}\"", s)),
+            other => Err(format!("expected u64, got {}", other)),
+        },
+        ComponentFieldType::Usize => match val {
+            serde_json::Value::Number(n) => n.as_u64()
+                .map(|v| v as usize)
+                .map(ComponentDefaultValue::Usize)
+                .ok_or_else(|| format!("expected usize, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<usize>()
+                .map(ComponentDefaultValue::Usize)
+                .map_err(|_| format!("expected usize, got \"{}\"", s)),
+            other => Err(format!("expected usize, got {}", other)),
+        },
+        ComponentFieldType::F32 => match val {
+            serde_json::Value::Number(n) => n.as_f64()
+                .map(|v| v as f32)
+                .map(ComponentDefaultValue::F32)
+                .ok_or_else(|| format!("expected f32, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<f32>()
+                .map(ComponentDefaultValue::F32)
+                .map_err(|_| format!("expected f32, got \"{}\"", s)),
+            other => Err(format!("expected f32, got {}", other)),
+        },
+        ComponentFieldType::F64 => match val {
+            serde_json::Value::Number(n) => n.as_f64()
+                .map(ComponentDefaultValue::F64)
+                .ok_or_else(|| format!("expected f64, got {}", n)),
+            serde_json::Value::String(s) => s.parse::<f64>()
+                .map(ComponentDefaultValue::F64)
+                .map_err(|_| format!("expected f64, got \"{}\"", s)),
+            other => Err(format!("expected f64, got {}", other)),
+        },
+        ComponentFieldType::ColorU => match val {
+            serde_json::Value::String(s) => {
+                let hex = s.strip_prefix('#').unwrap_or(s.as_str());
+                if hex.len() >= 6 {
+                    let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| format!("invalid color: {}", s))?;
+                    let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| format!("invalid color: {}", s))?;
+                    let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| format!("invalid color: {}", s))?;
+                    let a = if hex.len() >= 8 {
+                        u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
+                    } else { 255 };
+                    Ok(ComponentDefaultValue::ColorU(
+                        azul_css::props::basic::color::ColorU { r, g, b, a }
+                    ))
+                } else {
+                    Err(format!("expected #RRGGBB[AA], got \"{}\"", s))
+                }
+            }
+            other => Err(format!("expected color string (#RRGGBB), got {}", other)),
+        },
+        ComponentFieldType::OptionType(inner) => match val {
+            serde_json::Value::Null => Ok(ComponentDefaultValue::None),
+            _ => parse_json_to_default_value(inner.as_ref(), val),
+        },
+        // For complex types we fall back to storing as string
+        _ => match val {
+            serde_json::Value::String(s) => Ok(ComponentDefaultValue::String(AzString::from(s.as_str()))),
+            other => Ok(ComponentDefaultValue::String(AzString::from(other.to_string().as_str()))),
+        },
+    }
+}
+
 /// Build exported code for all exportable component libraries.
 ///
 /// Uses `compile_fn` on each exportable component to generate source code
@@ -3856,10 +4028,9 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
 fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -> Result<ExportedCodeResponse, String> {
     use azul_core::xml::{
         ComponentMap, CompileTarget,
-        FilteredComponentArguments, ComponentDef,
+        ComponentDef,
         ResultStringCompileError,
     };
-    use azul_css::corety::OptionString;
 
     let target = match language {
         "rust" => CompileTarget::Rust,
@@ -3880,10 +4051,8 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
 
     for lib in &exportable {
         for def in lib.components.iter() {
-            let args = FilteredComponentArguments::default();
-            let text = OptionString::None;
 
-            let compiled_code = match (def.compile_fn)(def, &target, &args, &text, 0) {
+            let compiled_code = match (def.compile_fn)(def, &target, &def.data_model, 0) {
                 ResultStringCompileError::Ok(code) => Some(code.as_str().to_string()),
                 ResultStringCompileError::Err(e) => {
                     warnings.push(format!(
@@ -8030,7 +8199,7 @@ fn process_debug_event(
         DebugEvent::ImportComponentLibrary { library: lib_json } => {
             use azul_core::xml::{
                 ComponentDef, ComponentId, ComponentDataModel,
-                ComponentLibrary, ChildPolicy,
+                ComponentLibrary,
                 ComponentSource, ComponentDefVec, ComponentLibraryVec,
                 ComponentDataFieldVec,
             };
@@ -8044,11 +8213,6 @@ fn process_debug_event(
             let mut validation_errors = Vec::new();
 
             for c in &lib_json.components {
-                let child_policy = match c.child_policy.as_str() {
-                    "no_children" => ChildPolicy::NoChildren,
-                    "text_only" => ChildPolicy::TextOnly,
-                    _ => ChildPolicy::AnyChildren,
-                };
 
                 // Validate and convert all fields
                 let validated_fields = match validate_exported_fields(&c.fields) {
@@ -8064,20 +8228,15 @@ fn process_debug_event(
                     id: ComponentId::new(&lib_name, &c.name),
                     display_name: AzString::from(display_name_str.as_str()),
                     description: AzString::from(c.description.as_str()),
-                    accepts_text: c.accepts_text,
-                    child_policy,
-                    scoped_css: AzString::from(c.scoped_css.as_str()),
-                    example_xml: AzString::from(c.example_xml.as_str()),
+                    css: AzString::from(c.css.as_str()),
                     source: ComponentSource::UserDefined,
                     data_model: ComponentDataModel {
                         name: AzString::from(format!("{}Data", display_name_str).as_str()),
                         description: AzString::from(c.description.as_str()),
                         fields: ComponentDataFieldVec::from_vec(validated_fields),
                     },
-                    template: AzString::from(c.template.as_str()),
                     render_fn: azul_core::xml::user_defined_render_fn,
                     compile_fn: azul_core::xml::user_defined_compile_fn,
-                    node_type: azul_core::dom::OptionNodeType::None,
                 });
             }
 
@@ -8168,11 +8327,7 @@ fn process_debug_event(
                             display_name: c.display_name.clone(),
                             description: c.description.clone(),
                             fields,
-                            accepts_text: c.accepts_text,
-                            child_policy: c.child_policy.clone(),
-                            scoped_css: c.scoped_css.clone(),
-                            example_xml: c.example_xml.clone(),
-                            template: c.template.clone(),
+                            css: c.css.clone(),
                         }
                     }).collect(),
                 };
@@ -8237,7 +8392,7 @@ fn process_debug_event(
         }
 
         DebugEvent::CreateComponent { library, name, display_name } => {
-            use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ChildPolicy, ComponentLibraryVec, ComponentDataModel, ComponentDataFieldVec};
+            use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ComponentLibraryVec, ComponentDataModel, ComponentDataFieldVec};
             use azul_css::corety::AzString;
 
             let mut map_guard = component_map.lock().unwrap();
@@ -8255,20 +8410,15 @@ fn process_debug_event(
                         id: ComponentId::new(library.as_str(), name.as_str()),
                         display_name: AzString::from(display),
                         description: AzString::from_const_str(""),
-                        accepts_text: false,
-                        child_policy: ChildPolicy::AnyChildren,
-                        scoped_css: AzString::from_const_str(""),
-                        example_xml: AzString::from(format!("<{} />", name).as_str()),
+                        css: AzString::from_const_str(""),
                         source: ComponentSource::UserDefined,
                         data_model: ComponentDataModel {
                             name: AzString::from(format!("{}Data", display).as_str()),
                             description: AzString::from_const_str(""),
                             fields: ComponentDataFieldVec::from_const_slice(&[]),
                         },
-                        template: AzString::from_const_str(""),
                         render_fn: azul_core::xml::user_defined_render_fn,
                         compile_fn: azul_core::xml::user_defined_compile_fn,
-                        node_type: azul_core::dom::OptionNodeType::None,
                     };
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     comps.push(new_def);
@@ -8311,7 +8461,7 @@ fn process_debug_event(
             }
         }
 
-        DebugEvent::UpdateComponent { library, name, template, scoped_css, description, display_name, fields } => {
+        DebugEvent::UpdateComponent { library, name, css, description, display_name, fields } => {
             use azul_core::xml::ComponentLibraryVec;
             use azul_css::corety::AzString;
 
@@ -8327,11 +8477,8 @@ fn process_debug_event(
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
-                        if let Some(t) = template {
-                            comp.template = AzString::from(t.as_str());
-                        }
-                        if let Some(css) = scoped_css {
-                            comp.scoped_css = AzString::from(css.as_str());
+                        if let Some(new_css) = css {
+                            comp.css = AzString::from(new_css.as_str());
                         }
                         if let Some(desc) = description {
                             comp.description = AzString::from(desc.as_str());
@@ -8372,6 +8519,128 @@ fn process_debug_event(
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
                 send_err(request, &format!("Library '{}' not found", library));
+            }
+        }
+
+        DebugEvent::GetComponentPreview {
+            library,
+            name,
+            width,
+            height,
+            dpi,
+            background,
+            css_override,
+            args,
+        } => {
+            // --- 1. Look up the component ---
+            let map_guard = component_map.lock().unwrap();
+            let comp_found = map_guard.libraries.iter().find_map(|lib| {
+                if lib.name.as_str() == library.as_str() {
+                    lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
+                } else {
+                    None
+                }
+            }).cloned();
+            drop(map_guard);
+
+            let comp = match comp_found {
+                Some(c) => c,
+                None => {
+                    send_err(request, &format!(
+                        "Component '{}' not found in library '{}'", name, library
+                    ));
+                    return needs_update;
+                }
+            };
+
+            // --- 2. Override data_model defaults with provided args ---
+            let render_data_model = match override_data_model_defaults(
+                &comp.data_model,
+                args.as_ref(),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    send_err(request, &format!(
+                        "Invalid args for '{}': {}", name, e
+                    ));
+                    return needs_update;
+                }
+            };
+
+            // --- 3. Render the component to a StyledDom ---
+            let styled_dom = match (comp.render_fn)(&comp, &render_data_model) {
+                azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
+                azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
+                    send_err(request, &format!(
+                        "render_fn failed for '{}': {:?}", name, e
+                    ));
+                    return needs_update;
+                }
+            };
+
+            // --- 4. Apply CSS (component css or overridden) ---
+            let css_text = css_override
+                .as_deref()
+                .unwrap_or_else(|| comp.css.as_str());
+            let mut styled_dom = styled_dom;
+            if !css_text.is_empty() {
+                let css = azul_css::css::Css::from_string(
+                    azul_css::corety::AzString::from(css_text)
+                );
+                styled_dom.restyle(css);
+            }
+
+            // --- 5. Parse background color ---
+            let bg_color = background.as_deref().and_then(|bg_str| {
+                let hex = bg_str.strip_prefix('#').unwrap_or(bg_str);
+                if hex.len() >= 6 {
+                    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+                    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+                    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+                    let a = if hex.len() >= 8 {
+                        u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
+                    } else { 255 };
+                    Some(azul_css::props::basic::color::ColorU { r, g, b, a })
+                } else {
+                    None
+                }
+            }).unwrap_or(azul_css::props::basic::color::ColorU { r: 255, g: 255, b: 255, a: 255 });
+
+            // --- 6. Build render options ---
+            let opts = azul_layout::cpurender::ComponentPreviewOptions {
+                width: *width,
+                height: *height,
+                dpi_factor: dpi.unwrap_or(1.0),
+                background_color: bg_color,
+            };
+
+            // --- 7. Get the font manager from the running window ---
+            let layout_window = callback_info.get_layout_window();
+            let font_manager = &layout_window.font_manager;
+
+            // --- 8. Render to PNG ---
+            match azul_layout::cpurender::render_component_preview(
+                styled_dom,
+                font_manager,
+                opts,
+            ) {
+                Ok(result) => {
+                    // Base64-encode the PNG data
+                    let base64_str = azul_layout::callbacks::base64_encode(&result.png_data);
+                    let data_uri = format!("data:image/png;base64,{}", base64_str);
+                    send_ok(
+                        request,
+                        None,
+                        Some(ResponseData::ComponentPreview(ComponentPreviewResponse {
+                            data: data_uri,
+                            width: result.content_width,
+                            height: result.content_height,
+                        })),
+                    );
+                }
+                Err(e) => {
+                    send_err(request, &format!("Preview render failed: {}", e));
+                }
             }
         }
 
