@@ -140,6 +140,14 @@ impl_vec_hash!(ComponentArgument, ComponentArgumentVec);
 impl_vec_clone!(ComponentArgument, ComponentArgumentVec, ComponentArgumentVecDestructor);
 impl_vec_mut!(ComponentArgument, ComponentArgumentVec);
 
+/// Holds the list of arguments and whether the component accepts text content.
+/// Used by the compile pipeline to generate Rust function signatures.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ComponentArguments {
+    pub args: ComponentArgumentVec,
+    pub accepts_text: bool,
+}
+
 pub type ComponentName = String;
 pub type CompiledComponent = String;
 
@@ -1057,86 +1065,8 @@ impl fmt::Display for XmlError {
     }
 }
 
-/// A component can take various arguments (to pass down to its children), which are then
-/// later compiled into Rust function arguments - for example
-///
-/// ```xml,no_run,ignore
-/// <component name="test" args="a: String, b: bool, c: HashMap<X, Y>">
-///     <Button id="my_button" class="test_{{ a }}"> Is this true? Scientists say: {{ b }}</Button>
-/// </component>
-/// ```
-///
-/// ... will turn into the following (generated) Rust code:
-///
-/// ```rust,no_run,ignore
-/// struct TestRendererArgs<'a> {
-///     a: &'a String,
-///     b: &'a bool,
-///     c: &'a HashMap<X, Y>,
-/// }
-///
-/// fn render_component_test<'a, T>(args: &TestRendererArgs<'a>) -> StyledDom {
-///     Button::with_label(format!("Is this true? Scientists say: {:?}", args.b)).with_class(format!("test_{}", args.a))
-/// }
-/// ```
-///
-/// For this to work, a component has to note all its arguments and types that it can take.
-/// If a type is not `str` or `String`, it will be formatted using the `{:?}` formatter
-/// in the generated source code, otherwise the compiler will use the `{}` formatter.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComponentArguments {
-    /// The arguments of the component, i.e. `date => String`
-    pub args: ComponentArgumentVec,
-    /// Whether this widget accepts text. Note that this will be passed as the first
-    /// argument when rendering the Rust code.
-    pub accepts_text: bool,
-}
-
-impl Default for ComponentArguments {
-    fn default() -> Self {
-        Self {
-            args: ComponentArgumentVec::new(),
-            accepts_text: false,
-        }
-    }
-}
-
-impl ComponentArguments {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct FilteredComponentArguments {
-    /// The types of the component, i.e. `date => String`, in order
-    pub types: ComponentArgumentVec,
-    /// The values of the component, i.e. `date => "01.01.1998"`
-    pub values: StringPairVec,
-    /// Whether this widget accepts text. Note that this will be passed as the first
-    /// argument when rendering the Rust code.
-    pub accepts_text: bool,
-}
-
-impl Default for FilteredComponentArguments {
-    fn default() -> Self {
-        Self {
-            types: ComponentArgumentVec::new(),
-            values: Vec::new().into(),
-            accepts_text: false,
-        }
-    }
-}
-
-impl FilteredComponentArguments {
-    fn new() -> Self {
-        Self::default()
-    }
-}
-
 // ============================================================================
-// New repr(C) component system — replaces XmlComponentTrait over time
+// New repr(C) component system
 // ============================================================================
 
 /// Identifies a component within a library collection.
@@ -1511,6 +1441,23 @@ impl_vec_debug!(ComponentFieldNamedValue, ComponentFieldNamedValueVec);
 impl_vec_partialeq!(ComponentFieldNamedValue, ComponentFieldNamedValueVec);
 impl_vec_clone!(ComponentFieldNamedValue, ComponentFieldNamedValueVec, ComponentFieldNamedValueVecDestructor);
 
+impl ComponentFieldNamedValueVec {
+    /// Look up a field by name, return a reference to its value.
+    pub fn get_field(&self, name: &str) -> Option<&ComponentFieldValue> {
+        self.as_ref().iter().find_map(|v| {
+            if v.name.as_str() == name { Some(&v.value) } else { None }
+        })
+    }
+
+    /// Convenience: get a field as `&str` if it is `ComponentFieldValue::String`.
+    pub fn get_string(&self, name: &str) -> Option<&AzString> {
+        match self.get_field(name) {
+            Some(ComponentFieldValue::String(s)) => Some(s),
+            _ => None,
+        }
+    }
+}
+
 impl_vec!(ComponentFieldValue, ComponentFieldValueVec, ComponentFieldValueVecDestructor, ComponentFieldValueVecDestructorType, ComponentFieldValueVecSlice, OptionComponentFieldValue);
 impl_option!(ComponentFieldValue, OptionComponentFieldValue, copy = false, [Debug, Clone, PartialEq]);
 impl_vec_debug!(ComponentFieldValue, ComponentFieldValueVec);
@@ -1557,11 +1504,333 @@ pub struct ComponentDataModel {
     pub fields: ComponentDataFieldVec,
 }
 
+impl ComponentDataModel {
+    /// Look up a field by name.
+    pub fn get_field(&self, name: &str) -> Option<&ComponentDataField> {
+        self.fields.as_ref().iter().find(|f| f.name.as_str() == name)
+    }
+
+    /// Look up a field's default value as a string, if it exists and is a String variant.
+    pub fn get_default_string(&self, name: &str) -> Option<&AzString> {
+        self.get_field(name).and_then(|f| {
+            match &f.default_value {
+                OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s),
+                _ => None,
+            }
+        })
+    }
+
+    /// Clone this data model, overriding the default value for a field by name.
+    /// If the field is not found, the data model is returned unchanged.
+    pub fn with_default(mut self, name: &str, value: ComponentDefaultValue) -> Self {
+        let mut fields_vec = core::mem::replace(
+            &mut self.fields,
+            ComponentDataFieldVec::from_const_slice(&[]),
+        ).into_library_owned_vec();
+        for f in fields_vec.iter_mut() {
+            if f.name.as_str() == name {
+                f.default_value = OptionComponentDefaultValue::Some(value);
+                break;
+            }
+        }
+        self.fields = ComponentDataFieldVec::from_vec(fields_vec);
+        self
+    }
+}
+
 impl_vec!(ComponentDataModel, ComponentDataModelVec, ComponentDataModelVecDestructor, ComponentDataModelVecDestructorType, ComponentDataModelVecSlice, OptionComponentDataModel);
 impl_option!(ComponentDataModel, OptionComponentDataModel, copy = false, [Debug, Clone]);
 impl_vec_debug!(ComponentDataModel, ComponentDataModelVec);
 impl_vec_clone!(ComponentDataModel, ComponentDataModelVec, ComponentDataModelVecDestructor);
 impl_vec_mut!(ComponentDataModel, ComponentDataModelVec);
+
+// ============================================================================
+// Serde support for ComponentDataModel (feature-gated)
+// ============================================================================
+
+#[cfg(feature = "serde-json")]
+mod serde_impl {
+    use super::*;
+    use serde::{Serialize, Serializer, Deserialize, Deserializer};
+    use serde::ser::SerializeStruct;
+
+    // --- AzString helpers ---
+
+    fn ser_azstring<S: Serializer>(s: &AzString, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(s.as_str())
+    }
+
+    fn de_azstring<'de, D: Deserializer<'de>>(deserializer: D) -> Result<AzString, D::Error> {
+        let s = alloc::string::String::deserialize(deserializer)?;
+        Ok(AzString::from(s.as_str()))
+    }
+
+    // --- ComponentFieldType ---
+
+    impl Serialize for ComponentFieldType {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.serialize_str(&field_type_to_string(self))
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ComponentFieldType {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let s = alloc::string::String::deserialize(deserializer)?;
+            Ok(string_to_field_type(&s))
+        }
+    }
+
+    fn field_type_to_string(ft: &ComponentFieldType) -> alloc::string::String {
+        match ft {
+            ComponentFieldType::String => "String".into(),
+            ComponentFieldType::Bool => "bool".into(),
+            ComponentFieldType::I32 => "i32".into(),
+            ComponentFieldType::I64 => "i64".into(),
+            ComponentFieldType::U32 => "u32".into(),
+            ComponentFieldType::U64 => "u64".into(),
+            ComponentFieldType::Usize => "usize".into(),
+            ComponentFieldType::F32 => "f32".into(),
+            ComponentFieldType::F64 => "f64".into(),
+            ComponentFieldType::ColorU => "ColorU".into(),
+            ComponentFieldType::CssProperty => "CssProperty".into(),
+            ComponentFieldType::ImageRef => "ImageRef".into(),
+            ComponentFieldType::FontRef => "FontRef".into(),
+            ComponentFieldType::StyledDom => "Dom".into(),
+            ComponentFieldType::Callback(sig) => alloc::format!(
+                "Callback({})",
+                sig.return_type.as_str()
+            ),
+            ComponentFieldType::RefAny(hint) => alloc::format!("RefAny({})", hint.as_str()),
+            ComponentFieldType::OptionType(inner) => alloc::format!(
+                "Option<{}>",
+                field_type_to_string(inner.as_ref())
+            ),
+            ComponentFieldType::VecType(inner) => alloc::format!(
+                "Vec<{}>",
+                field_type_to_string(inner.as_ref())
+            ),
+            ComponentFieldType::StructRef(name) => alloc::format!("struct:{}", name.as_str()),
+            ComponentFieldType::EnumRef(name) => alloc::format!("enum:{}", name.as_str()),
+        }
+    }
+
+    fn string_to_field_type(s: &str) -> ComponentFieldType {
+        match s {
+            "String" | "string" => ComponentFieldType::String,
+            "bool" | "Bool" => ComponentFieldType::Bool,
+            "i32" | "I32" => ComponentFieldType::I32,
+            "i64" | "I64" => ComponentFieldType::I64,
+            "u32" | "U32" => ComponentFieldType::U32,
+            "u64" | "U64" => ComponentFieldType::U64,
+            "usize" | "Usize" => ComponentFieldType::Usize,
+            "f32" | "F32" => ComponentFieldType::F32,
+            "f64" | "F64" => ComponentFieldType::F64,
+            "ColorU" | "Color" | "color" => ComponentFieldType::ColorU,
+            "CssProperty" => ComponentFieldType::CssProperty,
+            "ImageRef" | "Image" => ComponentFieldType::ImageRef,
+            "FontRef" | "Font" => ComponentFieldType::FontRef,
+            "Dom" | "StyledDom" | "Children" => ComponentFieldType::StyledDom,
+            other => {
+                if let Some(inner) = other.strip_prefix("Option<").and_then(|s| s.strip_suffix('>')) {
+                    ComponentFieldType::OptionType(ComponentFieldTypeBox::new(string_to_field_type(inner)))
+                } else if let Some(inner) = other.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+                    ComponentFieldType::VecType(ComponentFieldTypeBox::new(string_to_field_type(inner)))
+                } else if let Some(name) = other.strip_prefix("struct:") {
+                    ComponentFieldType::StructRef(AzString::from(name))
+                } else if let Some(name) = other.strip_prefix("enum:") {
+                    ComponentFieldType::EnumRef(AzString::from(name))
+                } else if other.starts_with("Callback") {
+                    let ret = other.strip_prefix("Callback(")
+                        .and_then(|s| s.strip_suffix(')'))
+                        .unwrap_or("()");
+                    ComponentFieldType::Callback(ComponentCallbackSignature {
+                        return_type: AzString::from(ret),
+                        args: ComponentCallbackArgVec::from_const_slice(&[]),
+                    })
+                } else if other.starts_with("RefAny") {
+                    let hint = other.strip_prefix("RefAny(")
+                        .and_then(|s| s.strip_suffix(')'))
+                        .unwrap_or("");
+                    ComponentFieldType::RefAny(AzString::from(hint))
+                } else {
+                    ComponentFieldType::String // fallback
+                }
+            }
+        }
+    }
+
+    // --- ComponentDefaultValue ---
+
+    impl Serialize for ComponentDefaultValue {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeMap;
+            match self {
+                ComponentDefaultValue::None => serializer.serialize_none(),
+                ComponentDefaultValue::String(s) => serializer.serialize_str(s.as_str()),
+                ComponentDefaultValue::Bool(b) => serializer.serialize_bool(*b),
+                ComponentDefaultValue::I32(v) => serializer.serialize_i32(*v),
+                ComponentDefaultValue::I64(v) => serializer.serialize_i64(*v),
+                ComponentDefaultValue::U32(v) => serializer.serialize_u32(*v),
+                ComponentDefaultValue::U64(v) => serializer.serialize_u64(*v),
+                ComponentDefaultValue::Usize(v) => serializer.serialize_u64(*v as u64),
+                ComponentDefaultValue::F32(v) => serializer.serialize_f32(*v),
+                ComponentDefaultValue::F64(v) => serializer.serialize_f64(*v),
+                ComponentDefaultValue::ColorU(c) => {
+                    serializer.serialize_str(&alloc::format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a))
+                }
+                ComponentDefaultValue::ComponentInstance(ci) => {
+                    let mut map = serializer.serialize_map(Some(2))?;
+                    map.serialize_entry("library", ci.library.as_str())?;
+                    map.serialize_entry("component", ci.component.as_str())?;
+                    map.end()
+                }
+                ComponentDefaultValue::CallbackFnPointer(name) => {
+                    serializer.serialize_str(name.as_str())
+                }
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ComponentDefaultValue {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let val = serde_json::Value::deserialize(deserializer)?;
+            Ok(match val {
+                serde_json::Value::Null => ComponentDefaultValue::None,
+                serde_json::Value::Bool(b) => ComponentDefaultValue::Bool(b),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        if let Ok(v) = i32::try_from(i) {
+                            ComponentDefaultValue::I32(v)
+                        } else {
+                            ComponentDefaultValue::I64(i)
+                        }
+                    } else if let Some(f) = n.as_f64() {
+                        ComponentDefaultValue::F64(f)
+                    } else {
+                        ComponentDefaultValue::None
+                    }
+                }
+                serde_json::Value::String(s) => {
+                    ComponentDefaultValue::String(AzString::from(s.as_str()))
+                }
+                _ => ComponentDefaultValue::None,
+            })
+        }
+    }
+
+    // --- OptionComponentDefaultValue ---
+
+    impl Serialize for OptionComponentDefaultValue {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            match self {
+                OptionComponentDefaultValue::Some(v) => v.serialize(serializer),
+                OptionComponentDefaultValue::None => serializer.serialize_none(),
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for OptionComponentDefaultValue {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let val = Option::<ComponentDefaultValue>::deserialize(deserializer)?;
+            Ok(match val {
+                Some(v) => OptionComponentDefaultValue::Some(v),
+                None => OptionComponentDefaultValue::None,
+            })
+        }
+    }
+
+    // --- ComponentDataField ---
+
+    impl Serialize for ComponentDataField {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("ComponentDataField", 5)?;
+            s.serialize_field("name", self.name.as_str())?;
+            s.serialize_field("type", &self.field_type)?;
+            s.serialize_field("default", &self.default_value)?;
+            s.serialize_field("required", &self.required)?;
+            s.serialize_field("description", self.description.as_str())?;
+            s.end()
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ComponentDataField {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            #[derive(Deserialize)]
+            struct Helper {
+                name: alloc::string::String,
+                #[serde(rename = "type", default = "default_type")]
+                field_type: ComponentFieldType,
+                #[serde(default)]
+                default: OptionComponentDefaultValue,
+                #[serde(default)]
+                required: bool,
+                #[serde(default)]
+                description: alloc::string::String,
+            }
+            fn default_type() -> ComponentFieldType { ComponentFieldType::String }
+
+            let h = Helper::deserialize(deserializer)?;
+            Ok(ComponentDataField {
+                name: AzString::from(h.name.as_str()),
+                field_type: h.field_type,
+                default_value: h.default,
+                required: h.required,
+                description: AzString::from(h.description.as_str()),
+            })
+        }
+    }
+
+    // --- ComponentDataModel ---
+
+    impl Serialize for ComponentDataModel {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("ComponentDataModel", 3)?;
+            s.serialize_field("name", self.name.as_str())?;
+            s.serialize_field("description", self.description.as_str())?;
+            let fields: alloc::vec::Vec<&ComponentDataField> = self.fields.as_ref().iter().collect();
+            s.serialize_field("fields", &fields)?;
+            s.end()
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ComponentDataModel {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            #[derive(Deserialize)]
+            struct Helper {
+                #[serde(default)]
+                name: alloc::string::String,
+                #[serde(default)]
+                description: alloc::string::String,
+                #[serde(default)]
+                fields: alloc::vec::Vec<ComponentDataField>,
+            }
+
+            let h = Helper::deserialize(deserializer)?;
+            Ok(ComponentDataModel {
+                name: AzString::from(h.name.as_str()),
+                description: AzString::from(h.description.as_str()),
+                fields: ComponentDataFieldVec::from_vec(h.fields),
+            })
+        }
+    }
+}
+
+// Re-export serde impls so they're visible when the feature is enabled
+#[cfg(feature = "serde-json")]
+pub use serde_impl::*;
+
+#[cfg(feature = "serde-json")]
+impl ComponentDataModel {
+    /// Serialize this data model to a JSON string.
+    pub fn to_json(&self) -> Result<alloc::string::String, alloc::string::String> {
+        serde_json::to_string_pretty(self).map_err(|e| alloc::format!("{}", e))
+    }
+
+    /// Deserialize a data model from a JSON string.
+    pub fn from_json(json: &str) -> Result<Self, alloc::string::String> {
+        serde_json::from_str(json).map_err(|e| alloc::format!("{}", e))
+    }
+}
 
 /// What children a component accepts
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1637,19 +1906,21 @@ impl_result!(
     [Debug, Clone, PartialEq]
 );
 
-/// Render function type: takes component definition + arguments, returns StyledDom
+/// Render function type: takes component definition + data model (with current values
+/// in `default_value` fields), returns StyledDom.
+///
+/// The `data` parameter is typically `def.data_model` cloned and with caller-provided
+/// values substituted into the `default_value` fields.
 pub type ComponentRenderFn = fn(
     &ComponentDef,
-    &FilteredComponentArguments,
-    &OptionString,
+    &ComponentDataModel,
 ) -> ResultStyledDomRenderDomError;
 
-/// Compile function type: takes component definition + target language + context, returns source code
+/// Compile function type: takes component definition + target language + data model, returns source code.
 pub type ComponentCompileFn = fn(
     &ComponentDef,
     &CompileTarget,
-    &FilteredComponentArguments,
-    &OptionString,
+    &ComponentDataModel,
     indent: usize,
 ) -> ResultStringCompileError;
 
@@ -1698,7 +1969,6 @@ impl_callback!(RegisterComponentLibraryFn, RegisterComponentLibraryFnType);
 /// A component definition — the "class" / "template" of a component.
 /// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
 ///
-/// This is the new `repr(C)` replacement for `XmlComponentTrait`.
 #[derive(Clone)]
 #[repr(C)]
 pub struct ComponentDef {
@@ -1708,30 +1978,20 @@ pub struct ComponentDef {
     pub display_name: AzString,
     /// Markdown documentation for the component
     pub description: AzString,
-    /// Whether this component accepts text content
-    pub accepts_text: bool,
-    /// Child policy (no children, any, text only)
-    pub child_policy: ChildPolicy,
-    /// The component's own scoped CSS
-    pub scoped_css: AzString,
-    /// Example usage as XML
-    pub example_xml: AzString,
+    /// The component's CSS
+    pub css: AzString,
     /// Where this component was defined (determines exportability)
     pub source: ComponentSource,
     /// Unified data model: all value fields, callback slots, and child slots
     /// in a single named struct. Code gen uses `data_model.name` as the
     /// input struct type name (e.g. "ButtonData").
+    /// The `default_value` on each field doubles as the "current value" for
+    /// preview rendering — callers override defaults before calling `render_fn`.
     pub data_model: ComponentDataModel,
-    /// XML/HTML template body for user-defined components.
-    /// Used by the template-based render_fn/compile_fn.
-    /// Empty for builtin components (they render via node_type).
-    pub template: AzString,
     /// Render to live DOM
     pub render_fn: ComponentRenderFn,
     /// Compile to source code in target language
     pub compile_fn: ComponentCompileFn,
-    /// The NodeType to create for this component (for builtins)
-    pub node_type: OptionNodeType,
 }
 
 impl fmt::Debug for ComponentDef {
@@ -1740,7 +2000,6 @@ impl fmt::Debug for ComponentDef {
             .field("id", &self.id)
             .field("display_name", &self.display_name)
             .field("source", &self.source)
-            .field("accepts_text", &self.accepts_text)
             .field("data_model", &self.data_model.name)
             .finish()
     }
@@ -1783,8 +2042,7 @@ impl_vec_debug!(ComponentLibrary, ComponentLibraryVec);
 impl_vec_clone!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor);
 impl_vec_mut!(ComponentLibrary, ComponentLibraryVec);
 
-/// The new component map — holds libraries with namespaced components.
-/// Coexists with `XmlComponentMap` during migration.
+/// The component map — holds libraries with namespaced components.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ComponentMap {
@@ -1831,16 +2089,135 @@ impl ComponentMap {
 // Builtin component bridge — wraps existing render/compile into ComponentDef
 // ============================================================================
 
+/// Map a builtin tag name to its corresponding `NodeType`.
+/// Falls back to `NodeType::Div` for unknown tags.
+fn tag_to_node_type(tag: &str) -> NodeType {
+    match tag {
+        "html" => NodeType::Html,
+        "head" => NodeType::Head,
+        "title" => NodeType::Title,
+        "body" => NodeType::Body,
+        "div" => NodeType::Div,
+        "header" => NodeType::Header,
+        "footer" => NodeType::Footer,
+        "section" => NodeType::Section,
+        "article" => NodeType::Article,
+        "aside" => NodeType::Aside,
+        "nav" => NodeType::Nav,
+        "main" => NodeType::Main,
+        "h1" => NodeType::H1,
+        "h2" => NodeType::H2,
+        "h3" => NodeType::H3,
+        "h4" => NodeType::H4,
+        "h5" => NodeType::H5,
+        "h6" => NodeType::H6,
+        "p" => NodeType::P,
+        "span" => NodeType::Span,
+        "pre" => NodeType::Pre,
+        "code" => NodeType::Code,
+        "blockquote" => NodeType::BlockQuote,
+        "br" => NodeType::Br,
+        "hr" => NodeType::Hr,
+        "ul" => NodeType::Ul,
+        "ol" => NodeType::Ol,
+        "li" => NodeType::Li,
+        "dl" => NodeType::Dl,
+        "dt" => NodeType::Dt,
+        "dd" => NodeType::Dd,
+        "table" => NodeType::Table,
+        "thead" => NodeType::THead,
+        "tbody" => NodeType::TBody,
+        "tfoot" => NodeType::TFoot,
+        "tr" => NodeType::Tr,
+        "th" => NodeType::Th,
+        "td" => NodeType::Td,
+        "a" => NodeType::A,
+        "strong" => NodeType::Strong,
+        "em" => NodeType::Em,
+        "b" => NodeType::B,
+        "i" => NodeType::I,
+        "u" => NodeType::U,
+        "small" => NodeType::Small,
+        "mark" => NodeType::Mark,
+        "sub" => NodeType::Sub,
+        "sup" => NodeType::Sup,
+        "form" => NodeType::Form,
+        "label" => NodeType::Label,
+        "button" => NodeType::Button,
+        _ => NodeType::Div,
+    }
+}
+
+/// Map a tag name to its CSS `NodeTypeTag` for CSS matching in the compile pipeline.
+/// Falls back to `NodeTypeTag::Div` for unknown tags.
+fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
+    match tag {
+        "html" => NodeTypeTag::Html,
+        "head" => NodeTypeTag::Head,
+        "title" => NodeTypeTag::Title,
+        "body" => NodeTypeTag::Body,
+        "div" => NodeTypeTag::Div,
+        "header" => NodeTypeTag::Header,
+        "footer" => NodeTypeTag::Footer,
+        "section" => NodeTypeTag::Section,
+        "article" => NodeTypeTag::Article,
+        "aside" => NodeTypeTag::Aside,
+        "nav" => NodeTypeTag::Nav,
+        "main" => NodeTypeTag::Main,
+        "h1" => NodeTypeTag::H1,
+        "h2" => NodeTypeTag::H2,
+        "h3" => NodeTypeTag::H3,
+        "h4" => NodeTypeTag::H4,
+        "h5" => NodeTypeTag::H5,
+        "h6" => NodeTypeTag::H6,
+        "p" => NodeTypeTag::P,
+        "span" => NodeTypeTag::Span,
+        "pre" => NodeTypeTag::Pre,
+        "code" => NodeTypeTag::Code,
+        "blockquote" => NodeTypeTag::BlockQuote,
+        "br" => NodeTypeTag::Br,
+        "hr" => NodeTypeTag::Hr,
+        "ul" => NodeTypeTag::Ul,
+        "ol" => NodeTypeTag::Ol,
+        "li" => NodeTypeTag::Li,
+        "dl" => NodeTypeTag::Dl,
+        "dt" => NodeTypeTag::Dt,
+        "dd" => NodeTypeTag::Dd,
+        "table" => NodeTypeTag::Table,
+        "thead" => NodeTypeTag::THead,
+        "tbody" => NodeTypeTag::TBody,
+        "tfoot" => NodeTypeTag::TFoot,
+        "tr" => NodeTypeTag::Tr,
+        "th" => NodeTypeTag::Th,
+        "td" => NodeTypeTag::Td,
+        "a" => NodeTypeTag::A,
+        "strong" => NodeTypeTag::Strong,
+        "em" => NodeTypeTag::Em,
+        "b" => NodeTypeTag::B,
+        "i" => NodeTypeTag::I,
+        "u" => NodeTypeTag::U,
+        "small" => NodeTypeTag::Small,
+        "mark" => NodeTypeTag::Mark,
+        "sub" => NodeTypeTag::Sub,
+        "sup" => NodeTypeTag::Sup,
+        "form" => NodeTypeTag::Form,
+        "label" => NodeTypeTag::Label,
+        "button" => NodeTypeTag::Button,
+        "img" | "image" => NodeTypeTag::Img,
+        "icon" => NodeTypeTag::Icon,
+        _ => NodeTypeTag::Div,
+    }
+}
+
 /// Default render function for builtin HTML elements.
 /// Delegates to creating a DOM node of the appropriate NodeType.
 fn builtin_render_fn(
     def: &ComponentDef,
-    _args: &FilteredComponentArguments,
-    text: &OptionString,
+    data: &ComponentDataModel,
 ) -> ResultStyledDomRenderDomError {
-    let node_type: NodeType = Option::from(def.node_type.clone()).unwrap_or(NodeType::Div);
+    let node_type = tag_to_node_type(def.id.name.as_str());
     let mut dom = Dom::create_node(node_type);
-    if let Some(text_str) = text.as_ref() {
+    if let Some(text_str) = data.get_default_string("text") {
         let prepared = prepare_string(text_str);
         if !prepared.is_empty() {
             dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
@@ -1855,16 +2232,16 @@ fn builtin_render_fn(
 fn builtin_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
-    _args: &FilteredComponentArguments,
-    text: &OptionString,
+    data: &ComponentDataModel,
     indent: usize,
 ) -> ResultStringCompileError {
-    let node_type: NodeType = Option::from(def.node_type.clone()).unwrap_or(NodeType::Div);
+    let node_type = tag_to_node_type(def.id.name.as_str());
     let type_name = format!("{:?}", node_type); // "Div", "Body", "P", etc.
+    let text = data.get_default_string("text");
 
     let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
-            if let Some(text_str) = text.as_ref() {
+            if let Some(text_str) = text {
                 Ok(format!(
                     "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
                     type_name,
@@ -1875,7 +2252,7 @@ fn builtin_compile_fn(
             }
         }
         CompileTarget::C => {
-            if let Some(text_str) = text.as_ref() {
+            if let Some(text_str) = text {
                 Ok(format!(
                     "AzDom_createText(AzString_fromConstStr(\"{}\"))",
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
@@ -1898,11 +2275,10 @@ fn builtin_compile_fn(
 /// Renders the component as a div with a text label showing the component name.
 pub fn user_defined_render_fn(
     def: &ComponentDef,
-    _args: &FilteredComponentArguments,
-    text: &OptionString,
+    data: &ComponentDataModel,
 ) -> ResultStyledDomRenderDomError {
     let mut dom = Dom::create_node(NodeType::Div);
-    if let Some(text_str) = text.as_ref() {
+    if let Some(text_str) = data.get_default_string("text") {
         let prepared = prepare_string(text_str);
         if !prepared.is_empty() {
             dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
@@ -1917,14 +2293,14 @@ pub fn user_defined_render_fn(
 pub fn user_defined_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
-    _args: &FilteredComponentArguments,
-    text: &OptionString,
+    data: &ComponentDataModel,
     indent: usize,
 ) -> ResultStringCompileError {
     let tag = def.id.name.as_str();
+    let text = data.get_default_string("text");
     let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
-            if let Some(text_str) = text.as_ref() {
+            if let Some(text_str) = text {
                 Ok(format!(
                     "Dom::create_node(NodeType::Div).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
@@ -1934,7 +2310,7 @@ pub fn user_defined_compile_fn(
             }
         }
         CompileTarget::C => {
-            if let Some(text_str) = text.as_ref() {
+            if let Some(text_str) = text {
                 Ok(format!(
                     "AzDom_createText(AzString_fromConstStr(\"{}\"))",
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
@@ -1954,27 +2330,28 @@ pub fn user_defined_compile_fn(
 }
 
 /// Create a ComponentDef for a builtin HTML element
-fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, accepts_text: bool, child_policy: ChildPolicy) -> ComponentDef {
-    let fields = builtin_data_model(tag);
+fn builtin_component_def(tag: &str, display_name: &str, has_text: bool) -> ComponentDef {
+    let mut fields = builtin_data_model(tag);
+    // If this element accepts text content, add a "text" field to the data model
+    if has_text {
+        fields.push(data_field("text", ComponentFieldType::String,
+            Some(ComponentDefaultValue::String(AzString::from_const_str(""))),
+            "Text content of the element"));
+    }
     let model_name = format!("{}Data", display_name);
     ComponentDef {
         id: ComponentId::builtin(tag),
         display_name: AzString::from(display_name),
         description: AzString::from(format!("HTML <{}> element", tag).as_str()),
-        accepts_text,
-        child_policy,
-        scoped_css: AzString::from_const_str(""),
-        example_xml: AzString::from(format!("<{}>content</{}>", tag, tag).as_str()),
+        css: AzString::from_const_str(""),
         source: ComponentSource::Builtin,
         data_model: ComponentDataModel {
             name: AzString::from(model_name.as_str()),
             description: AzString::from(format!("Data model for <{}>", tag).as_str()),
             fields: fields.into(),
         },
-        template: AzString::from_const_str(""),
         render_fn: builtin_render_fn,
         compile_fn: builtin_compile_fn,
-        node_type: OptionNodeType::Some(node_type),
     }
 }
 
@@ -2057,6 +2434,13 @@ impl ComponentMap {
         Self::default()
     }
 
+    /// Create a `ComponentMap` with the 52 built-in HTML element components pre-registered.
+    pub fn with_builtin() -> Self {
+        ComponentMap {
+            libraries: alloc::vec![register_builtin_components()].into(),
+        }
+    }
+
     /// Build a `ComponentMap` from the libraries stored in an `AppConfig`.
     ///
     /// The `component_libraries` field already contains builtins (registered in
@@ -2067,6 +2451,55 @@ impl ComponentMap {
             libraries: libs.clone(),
         }
     }
+}
+
+/// Convert XML attributes to a `ComponentDataModel` by cloning the component's
+/// base data model and overriding field defaults with values from the XML attributes.
+///
+/// This is the bridge between the XML parsing layer (key-value string pairs)
+/// and the typed component data model. For each field in the base model,
+/// if a matching XML attribute exists, its string value is set as the new default.
+///
+/// # Arguments
+/// * `base_model` - The component's data model template (from `ComponentDef::data_model`)
+/// * `xml_attributes` - The XML node's attribute map
+/// * `text_content` - Optional text content from child text nodes
+///
+/// # Returns
+/// A cloned `ComponentDataModel` with overridden defaults
+pub fn xml_attrs_to_data_model(
+    base_model: &ComponentDataModel,
+    xml_attributes: &XmlAttributeMap,
+    text_content: Option<&str>,
+) -> ComponentDataModel {
+    let mut model = base_model.clone();
+
+    // Override defaults from XML attributes
+    let mut fields_vec = core::mem::replace(
+        &mut model.fields,
+        ComponentDataFieldVec::from_const_slice(&[]),
+    ).into_library_owned_vec();
+
+    for field in fields_vec.iter_mut() {
+        if let Some(attr_value) = xml_attributes.get_key(field.name.as_str()) {
+            // Override the default_value with the XML attribute's string value
+            field.default_value = OptionComponentDefaultValue::Some(
+                ComponentDefaultValue::String(attr_value.clone()),
+            );
+        }
+    }
+
+    model.fields = ComponentDataFieldVec::from_vec(fields_vec);
+
+    // Handle text content — set the "text" field if present
+    if let Some(text) = text_content {
+        let prepared = prepare_string(text);
+        if !prepared.is_empty() {
+            model = model.with_default("text", ComponentDefaultValue::String(AzString::from(prepared.as_str())));
+        }
+    }
+
+    model
 }
 
 /// Register the 52 built-in HTML element components.
@@ -2088,65 +2521,65 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
         enum_models: Vec::new().into(),
         components: alloc::vec![
             // Structural
-            builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),
-            builtin_component_def("head", "Head", NodeType::Head, false, ChildPolicy::AnyChildren),
-            builtin_component_def("title", "Title", NodeType::Title, true, ChildPolicy::TextOnly),
-            builtin_component_def("body", "Body", NodeType::Body, false, ChildPolicy::AnyChildren),
+            builtin_component_def("html", "HTML", false),
+            builtin_component_def("head", "Head", false),
+            builtin_component_def("title", "Title", true),
+            builtin_component_def("body", "Body", false),
             // Block-level
-            builtin_component_def("div", "Div", NodeType::Div, false, ChildPolicy::AnyChildren),
-            builtin_component_def("header", "Header", NodeType::Header, false, ChildPolicy::AnyChildren),
-            builtin_component_def("footer", "Footer", NodeType::Footer, false, ChildPolicy::AnyChildren),
-            builtin_component_def("section", "Section", NodeType::Section, false, ChildPolicy::AnyChildren),
-            builtin_component_def("article", "Article", NodeType::Article, false, ChildPolicy::AnyChildren),
-            builtin_component_def("aside", "Aside", NodeType::Aside, false, ChildPolicy::AnyChildren),
-            builtin_component_def("nav", "Nav", NodeType::Nav, false, ChildPolicy::AnyChildren),
-            builtin_component_def("main", "Main", NodeType::Main, false, ChildPolicy::AnyChildren),
+            builtin_component_def("div", "Div", false),
+            builtin_component_def("header", "Header", false),
+            builtin_component_def("footer", "Footer", false),
+            builtin_component_def("section", "Section", false),
+            builtin_component_def("article", "Article", false),
+            builtin_component_def("aside", "Aside", false),
+            builtin_component_def("nav", "Nav", false),
+            builtin_component_def("main", "Main", false),
             // Headings
-            builtin_component_def("h1", "Heading 1", NodeType::H1, true, ChildPolicy::TextOnly),
-            builtin_component_def("h2", "Heading 2", NodeType::H2, true, ChildPolicy::TextOnly),
-            builtin_component_def("h3", "Heading 3", NodeType::H3, true, ChildPolicy::TextOnly),
-            builtin_component_def("h4", "Heading 4", NodeType::H4, true, ChildPolicy::TextOnly),
-            builtin_component_def("h5", "Heading 5", NodeType::H5, true, ChildPolicy::TextOnly),
-            builtin_component_def("h6", "Heading 6", NodeType::H6, true, ChildPolicy::TextOnly),
+            builtin_component_def("h1", "Heading 1", true),
+            builtin_component_def("h2", "Heading 2", true),
+            builtin_component_def("h3", "Heading 3", true),
+            builtin_component_def("h4", "Heading 4", true),
+            builtin_component_def("h5", "Heading 5", true),
+            builtin_component_def("h6", "Heading 6", true),
             // Text content
-            builtin_component_def("p", "Paragraph", NodeType::P, true, ChildPolicy::AnyChildren),
-            builtin_component_def("span", "Span", NodeType::Span, true, ChildPolicy::AnyChildren),
-            builtin_component_def("pre", "Preformatted", NodeType::Pre, true, ChildPolicy::TextOnly),
-            builtin_component_def("code", "Code", NodeType::Code, true, ChildPolicy::TextOnly),
-            builtin_component_def("blockquote", "Blockquote", NodeType::BlockQuote, true, ChildPolicy::AnyChildren),
-            builtin_component_def("br", "Line Break", NodeType::Br, false, ChildPolicy::NoChildren),
-            builtin_component_def("hr", "Horizontal Rule", NodeType::Hr, false, ChildPolicy::NoChildren),
-            builtin_component_def("icon", "Icon", NodeType::Div, true, ChildPolicy::NoChildren),
+            builtin_component_def("p", "Paragraph", true),
+            builtin_component_def("span", "Span", true),
+            builtin_component_def("pre", "Preformatted", true),
+            builtin_component_def("code", "Code", true),
+            builtin_component_def("blockquote", "Blockquote", true),
+            builtin_component_def("br", "Line Break", false),
+            builtin_component_def("hr", "Horizontal Rule", false),
+            builtin_component_def("icon", "Icon", true),
             // Lists
-            builtin_component_def("ul", "Unordered List", NodeType::Ul, false, ChildPolicy::AnyChildren),
-            builtin_component_def("ol", "Ordered List", NodeType::Ol, false, ChildPolicy::AnyChildren),
-            builtin_component_def("li", "List Item", NodeType::Li, true, ChildPolicy::AnyChildren),
-            builtin_component_def("dl", "Description List", NodeType::Dl, false, ChildPolicy::AnyChildren),
-            builtin_component_def("dt", "Description Term", NodeType::Dt, true, ChildPolicy::TextOnly),
-            builtin_component_def("dd", "Description Details", NodeType::Dd, true, ChildPolicy::AnyChildren),
+            builtin_component_def("ul", "Unordered List", false),
+            builtin_component_def("ol", "Ordered List", false),
+            builtin_component_def("li", "List Item", true),
+            builtin_component_def("dl", "Description List", false),
+            builtin_component_def("dt", "Description Term", true),
+            builtin_component_def("dd", "Description Details", true),
             // Tables
-            builtin_component_def("table", "Table", NodeType::Table, false, ChildPolicy::AnyChildren),
-            builtin_component_def("thead", "Table Head", NodeType::THead, false, ChildPolicy::AnyChildren),
-            builtin_component_def("tbody", "Table Body", NodeType::TBody, false, ChildPolicy::AnyChildren),
-            builtin_component_def("tfoot", "Table Foot", NodeType::TFoot, false, ChildPolicy::AnyChildren),
-            builtin_component_def("tr", "Table Row", NodeType::Tr, false, ChildPolicy::AnyChildren),
-            builtin_component_def("th", "Table Header Cell", NodeType::Th, true, ChildPolicy::AnyChildren),
-            builtin_component_def("td", "Table Data Cell", NodeType::Td, true, ChildPolicy::AnyChildren),
+            builtin_component_def("table", "Table", false),
+            builtin_component_def("thead", "Table Head", false),
+            builtin_component_def("tbody", "Table Body", false),
+            builtin_component_def("tfoot", "Table Foot", false),
+            builtin_component_def("tr", "Table Row", false),
+            builtin_component_def("th", "Table Header Cell", true),
+            builtin_component_def("td", "Table Data Cell", true),
             // Inline
-            builtin_component_def("a", "Link", NodeType::A, true, ChildPolicy::AnyChildren),
-            builtin_component_def("strong", "Strong", NodeType::Strong, true, ChildPolicy::TextOnly),
-            builtin_component_def("em", "Emphasis", NodeType::Em, true, ChildPolicy::TextOnly),
-            builtin_component_def("b", "Bold", NodeType::B, true, ChildPolicy::TextOnly),
-            builtin_component_def("i", "Italic", NodeType::I, true, ChildPolicy::TextOnly),
-            builtin_component_def("u", "Underline", NodeType::U, true, ChildPolicy::TextOnly),
-            builtin_component_def("small", "Small", NodeType::Small, true, ChildPolicy::TextOnly),
-            builtin_component_def("mark", "Mark", NodeType::Mark, true, ChildPolicy::TextOnly),
-            builtin_component_def("sub", "Subscript", NodeType::Sub, true, ChildPolicy::TextOnly),
-            builtin_component_def("sup", "Superscript", NodeType::Sup, true, ChildPolicy::TextOnly),
+            builtin_component_def("a", "Link", true),
+            builtin_component_def("strong", "Strong", true),
+            builtin_component_def("em", "Emphasis", true),
+            builtin_component_def("b", "Bold", true),
+            builtin_component_def("i", "Italic", true),
+            builtin_component_def("u", "Underline", true),
+            builtin_component_def("small", "Small", true),
+            builtin_component_def("mark", "Mark", true),
+            builtin_component_def("sub", "Subscript", true),
+            builtin_component_def("sup", "Superscript", true),
             // Forms
-            builtin_component_def("form", "Form", NodeType::Form, false, ChildPolicy::AnyChildren),
-            builtin_component_def("label", "Label", NodeType::Label, true, ChildPolicy::AnyChildren),
-            builtin_component_def("button", "Button", NodeType::Button, true, ChildPolicy::AnyChildren),
+            builtin_component_def("form", "Form", false),
+            builtin_component_def("label", "Label", true),
+            builtin_component_def("button", "Button", true),
         ].into(),
     }
 }
@@ -2155,99 +2588,6 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
 // End new component system types
 // ============================================================================
 
-/// Specifies a component that reacts to a parsed XML node
-pub trait XmlComponentTrait {
-    /// Clone this trait object into a new Box.
-    /// Required so that `XmlComponent` (and by extension `XmlComponentVec`) can be `Clone`.
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait>;
-
-    /// Returns the type ID of this component, default = `div`
-    fn get_type_id(&self) -> String {
-        "div".to_string()
-    }
-
-    /// Returns the XML node for this component, used in the `get_html_string` debugging code
-    /// (necessary to compile the component into a function during the Rust compilation stage)
-    fn get_xml_node(&self) -> XmlNode {
-        XmlNode::create(self.get_type_id())
-    }
-
-    /// (Optional): Should return all arguments that this component can take - for example if you
-    /// have a component called `Calendar`, which can take a `selectedDate` argument:
-    ///
-    /// ```xml,no_run,ignore
-    /// <Calendar
-    ///     selectedDate='01.01.2018'
-    ///     minimumDate='01.01.1970'
-    ///     maximumDate='31.12.2034'
-    ///     firstDayOfWeek='sunday'
-    ///     gridVisible='false'
-    /// />
-    /// ```
-    /// ... then the `ComponentArguments` returned by this function should look something like this:
-    ///
-    /// ```rust,no_run,ignore
-    /// impl XmlComponentTrait for CalendarRenderer {
-    ///     fn get_available_arguments(&self) -> ComponentArguments {
-    ///         btreemap![
-    ///             "selected_date" => "DateTime",
-    ///             "minimum_date" => "DateTime",
-    ///             "maximum_date" => "DateTime",
-    ///             "first_day_of_week" => "WeekDay",
-    ///             "grid_visible" => "bool",
-    ///             /* ... */
-    ///         ]
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// If a user instantiates a component with an invalid argument (i.e. `<Calendar
-    /// asdf="false">`), the user will get an error that the component can't handle this
-    /// argument. The types are not checked, but they are necessary for the XML-to-Rust
-    /// compiler.
-    ///
-    /// When the XML is then compiled to Rust, the generated Rust code will look like this:
-    ///
-    /// ```rust,no_run,ignore
-    /// calendar(&CalendarRendererArgs {
-    ///     selected_date: DateTime::from("01.01.2018")
-    ///     minimum_date: DateTime::from("01.01.2018")
-    ///     maximum_date: DateTime::from("01.01.2018")
-    ///     first_day_of_week: WeekDay::from("sunday")
-    ///     grid_visible: false,
-    ///     .. Default::default()
-    /// })
-    /// ```
-    ///
-    /// Of course, the code generation isn't perfect: For non-builtin types, the compiler will use
-    /// `Type::from` to make the conversion. You can then take that generated Rust code and clean it
-    /// up, put it somewhere else and create another component out of it - XML should only be
-    /// seen as a high-level prototyping tool (to get around the problem of compile times), not
-    /// as the final data format.
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::new()
-    }
-
-    // - necessary functions
-
-    /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(
-        &self,
-        components: &XmlComponentMap,
-        arguments: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError>;
-
-    /// (Optional): Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(
-        &self,
-        components: &XmlComponentMap,
-        attributes: &ComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::new())
-    }
-}
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
@@ -2408,351 +2748,6 @@ impl_vec_partialord!(XmlNode, XmlNodeVec);
 impl_vec_ord!(XmlNode, XmlNodeVec);
 impl_vec_hash!(XmlNode, XmlNodeVec);
 impl_vec_clone!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
-
-#[repr(C)]
-pub struct XmlComponent {
-    pub id: String,
-    /// DOM rendering component (boxed trait)
-    pub renderer: Box<dyn XmlComponentTrait>,
-    /// Whether this component should inherit variables from the parent scope
-    pub inherit_vars: bool,
-}
-
-impl Clone for XmlComponent {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            renderer: self.renderer.clone_box(),
-            inherit_vars: self.inherit_vars,
-        }
-    }
-}
-
-impl core::fmt::Debug for XmlComponent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("XmlComponent")
-            .field("id", &self.id)
-            .field("args", &self.renderer.get_available_arguments())
-            .field("inherit_vars", &self.inherit_vars)
-            .finish()
-    }
-}
-
-impl_option!(XmlComponent, OptionXmlComponent, copy = false, clone = false, [Debug]);
-impl_vec!(XmlComponent, XmlComponentVec, XmlComponentVecDestructor, XmlComponentVecDestructorType, XmlComponentVecSlice, OptionXmlComponent);
-impl_vec_clone!(XmlComponent, XmlComponentVec, XmlComponentVecDestructor);
-impl_vec_mut!(XmlComponent, XmlComponentVec);
-impl_vec_debug!(XmlComponent, XmlComponentVec);
-
-/// Holds all XML components - builtin components
-#[repr(C)]
-pub struct XmlComponentMap {
-    /// Stores all known components that can be used during DOM rendering
-    /// Lookup by normalized component name (lowercase with underscores)
-    pub components: XmlComponentVec,
-}
-
-impl Default for XmlComponentMap {
-    fn default() -> Self {
-        let mut map = Self {
-            components: XmlComponentVec::new(),
-        };
-
-        // Structural elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("html"),
-            renderer: Box::new(HtmlRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("head"),
-            renderer: Box::new(HeadRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("title"),
-            renderer: Box::new(TitleRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("body"),
-            renderer: Box::new(BodyRenderer::new()),
-            inherit_vars: true,
-        });
-
-        // Block-level elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("div"),
-            renderer: Box::new(DivRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("header"),
-            renderer: Box::new(HeaderRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("footer"),
-            renderer: Box::new(FooterRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("section"),
-            renderer: Box::new(SectionRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("article"),
-            renderer: Box::new(ArticleRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("aside"),
-            renderer: Box::new(AsideRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("nav"),
-            renderer: Box::new(NavRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("main"),
-            renderer: Box::new(MainRenderer::new()),
-            inherit_vars: true,
-        });
-
-        // Heading elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("h1"),
-            renderer: Box::new(H1Renderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("h2"),
-            renderer: Box::new(H2Renderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("h3"),
-            renderer: Box::new(H3Renderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("h4"),
-            renderer: Box::new(H4Renderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("h5"),
-            renderer: Box::new(H5Renderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("h6"),
-            renderer: Box::new(H6Renderer::new()),
-            inherit_vars: true,
-        });
-
-        // Text content elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("p"),
-            renderer: Box::new(TextRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("span"),
-            renderer: Box::new(SpanRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("pre"),
-            renderer: Box::new(PreRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("code"),
-            renderer: Box::new(CodeRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("blockquote"),
-            renderer: Box::new(BlockquoteRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("br"),
-            renderer: Box::new(BrRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("hr"),
-            renderer: Box::new(HrRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("icon"),
-            renderer: Box::new(IconRenderer::new()),
-            inherit_vars: true,
-        });
-
-        // List elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("ul"),
-            renderer: Box::new(UlRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("ol"),
-            renderer: Box::new(OlRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("li"),
-            renderer: Box::new(LiRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("dl"),
-            renderer: Box::new(DlRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("dt"),
-            renderer: Box::new(DtRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("dd"),
-            renderer: Box::new(DdRenderer::new()),
-            inherit_vars: true,
-        });
-
-        // Table elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("table"),
-            renderer: Box::new(TableRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("thead"),
-            renderer: Box::new(TheadRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("tbody"),
-            renderer: Box::new(TbodyRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("tfoot"),
-            renderer: Box::new(TfootRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("tr"),
-            renderer: Box::new(TrRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("th"),
-            renderer: Box::new(ThRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("td"),
-            renderer: Box::new(TdRenderer::new()),
-            inherit_vars: true,
-        });
-
-        // Inline elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("a"),
-            renderer: Box::new(ARenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("strong"),
-            renderer: Box::new(StrongRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("em"),
-            renderer: Box::new(EmRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("b"),
-            renderer: Box::new(BRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("i"),
-            renderer: Box::new(IRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("u"),
-            renderer: Box::new(URenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("small"),
-            renderer: Box::new(SmallRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("mark"),
-            renderer: Box::new(MarkRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("sub"),
-            renderer: Box::new(SubRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("sup"),
-            renderer: Box::new(SupRenderer::new()),
-            inherit_vars: true,
-        });
-
-        // Form elements
-        map.register_component(XmlComponent {
-            id: normalize_casing("form"),
-            renderer: Box::new(FormRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("label"),
-            renderer: Box::new(LabelRenderer::new()),
-            inherit_vars: true,
-        });
-        map.register_component(XmlComponent {
-            id: normalize_casing("button"),
-            renderer: Box::new(ButtonRenderer::new()),
-            inherit_vars: true,
-        });
-
-        map
-    }
-}
-
-impl XmlComponentMap {
-    pub fn register_component(&mut self, comp: XmlComponent) {
-        // Replace existing or push new
-        if let Some(existing) = self.components.iter_mut().find(|c| c.id == comp.id) {
-            *existing = comp;
-        } else {
-            self.components.push(comp);
-        }
-    }
-    
-    /// Get a component by its normalized name
-    pub fn get(&self, name: &str) -> Option<&XmlComponent> {
-        self.components.iter().find(|c| c.id == name)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -3039,649 +3034,6 @@ impl<'a> fmt::Display for RenderDomError {
     }
 }
 
-// --- Renderers for various built-in types
-
-/// Macro to generate HTML element components
-/// Each HTML tag becomes a component that renders the corresponding DOM node
-macro_rules! html_component {
-    ($name:ident, $tag:expr, $node_type:expr) => {
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name {
-            node: XmlNode,
-        }
-
-        impl $name {
-            pub fn new() -> Self {
-                Self {
-                    node: XmlNode::create($tag),
-                }
-            }
-        }
-
-        impl XmlComponentTrait for $name {
-            fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-                Box::new(self.clone())
-            }
-
-            fn get_available_arguments(&self) -> ComponentArguments {
-                ComponentArguments {
-                    args: ComponentArgumentVec::new(),
-                    accepts_text: true,
-                }
-            }
-
-            fn render_dom(
-                &self,
-                _: &XmlComponentMap,
-                _: &FilteredComponentArguments,
-                text: &XmlTextContent,
-            ) -> Result<StyledDom, RenderDomError> {
-                let mut dom = Dom::create_node($node_type);
-
-                // Add text content if present
-                if let Some(text_str) = text.as_ref() {
-                    let prepared = prepare_string(text_str);
-                    if !prepared.is_empty() {
-                        dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
-                    }
-                }
-
-                Ok(dom.style(Css::empty()))
-            }
-
-            fn compile_to_rust_code(
-                &self,
-                _: &XmlComponentMap,
-                _: &ComponentArguments,
-                _: &XmlTextContent,
-            ) -> Result<String, CompileError> {
-                Ok(format!(
-                    "Dom::create_node(NodeType::{})",
-                    stringify!($node_type)
-                ))
-            }
-
-            fn get_xml_node(&self) -> XmlNode {
-                self.node.clone()
-            }
-        }
-    };
-}
-
-// Generate components for HTML elements
-html_component!(HtmlRenderer, "html", NodeType::Html);
-html_component!(HeadRenderer, "head", NodeType::Head);
-html_component!(TitleRenderer, "title", NodeType::Title);
-html_component!(HeaderRenderer, "header", NodeType::Header);
-html_component!(FooterRenderer, "footer", NodeType::Footer);
-html_component!(SectionRenderer, "section", NodeType::Section);
-html_component!(ArticleRenderer, "article", NodeType::Article);
-html_component!(AsideRenderer, "aside", NodeType::Aside);
-html_component!(NavRenderer, "nav", NodeType::Nav);
-html_component!(MainRenderer, "main", NodeType::Main);
-html_component!(H1Renderer, "h1", NodeType::H1);
-html_component!(H2Renderer, "h2", NodeType::H2);
-html_component!(H3Renderer, "h3", NodeType::H3);
-html_component!(H4Renderer, "h4", NodeType::H4);
-html_component!(H5Renderer, "h5", NodeType::H5);
-html_component!(H6Renderer, "h6", NodeType::H6);
-html_component!(SpanRenderer, "span", NodeType::Span);
-html_component!(PreRenderer, "pre", NodeType::Pre);
-html_component!(CodeRenderer, "code", NodeType::Code);
-html_component!(BlockquoteRenderer, "blockquote", NodeType::BlockQuote);
-html_component!(UlRenderer, "ul", NodeType::Ul);
-html_component!(OlRenderer, "ol", NodeType::Ol);
-html_component!(LiRenderer, "li", NodeType::Li);
-html_component!(DlRenderer, "dl", NodeType::Dl);
-html_component!(DtRenderer, "dt", NodeType::Dt);
-html_component!(DdRenderer, "dd", NodeType::Dd);
-html_component!(TableRenderer, "table", NodeType::Table);
-html_component!(TheadRenderer, "thead", NodeType::THead);
-html_component!(TbodyRenderer, "tbody", NodeType::TBody);
-html_component!(TfootRenderer, "tfoot", NodeType::TFoot);
-html_component!(TrRenderer, "tr", NodeType::Tr);
-html_component!(ThRenderer, "th", NodeType::Th);
-html_component!(TdRenderer, "td", NodeType::Td);
-html_component!(ARenderer, "a", NodeType::A);
-html_component!(StrongRenderer, "strong", NodeType::Strong);
-html_component!(EmRenderer, "em", NodeType::Em);
-html_component!(BRenderer, "b", NodeType::B);
-html_component!(IRenderer, "i", NodeType::I);
-html_component!(URenderer, "u", NodeType::U);
-html_component!(SmallRenderer, "small", NodeType::Small);
-html_component!(MarkRenderer, "mark", NodeType::Mark);
-html_component!(SubRenderer, "sub", NodeType::Sub);
-html_component!(SupRenderer, "sup", NodeType::Sup);
-html_component!(FormRenderer, "form", NodeType::Form);
-html_component!(LabelRenderer, "label", NodeType::Label);
-html_component!(ButtonRenderer, "button", NodeType::Button);
-html_component!(HrRenderer, "hr", NodeType::Hr);
-
-/// Render for a `div` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DivRenderer {
-    node: XmlNode,
-}
-
-impl DivRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::create("div"),
-        }
-    }
-}
-
-impl XmlComponentTrait for DivRenderer {
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-        Box::new(self.clone())
-    }
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::new()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::create_div().style(Css::empty()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::create_div()".into())
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Render for a `body` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BodyRenderer {
-    node: XmlNode,
-}
-
-impl BodyRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::create("body"),
-        }
-    }
-}
-
-impl XmlComponentTrait for BodyRenderer {
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-        Box::new(self.clone())
-    }
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::new()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::create_body().style(Css::empty()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::create_body()".into())
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Render for a `br` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BrRenderer {
-    node: XmlNode,
-}
-
-impl BrRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::create("br"),
-        }
-    }
-}
-
-impl XmlComponentTrait for BrRenderer {
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-        Box::new(self.clone())
-    }
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::new()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::create_node(NodeType::Br).style(Css::empty()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::create_node(NodeType::Br)".into())
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for an `icon` component
-///
-/// Renders an icon element that will be resolved by the IconProvider.
-/// The icon name is specified via the `name` attribute or the text content.
-///
-/// # Example
-/// ```html
-/// <icon name="home" />
-/// <icon>settings</icon>
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct IconRenderer {
-    node: XmlNode,
-}
-
-impl IconRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::create("icon"),
-        }
-    }
-}
-
-impl XmlComponentTrait for IconRenderer {
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-        Box::new(self.clone())
-    }
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        let mut args = ComponentArgumentVec::new();
-        args.push(ComponentArgument { name: "name".into(), arg_type: "String".into() });
-        ComponentArguments {
-            args,
-            accepts_text: true, // Allow <icon>name</icon> syntax
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        args: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        // Get icon name from either the 'name' attribute or text content
-        let icon_name = args.values.get_key("name")
-            .map(|s| s.as_str().to_string())
-            .or_else(|| content.as_ref().map(|s| prepare_string(&s)))
-            .unwrap_or_else(|| "invalid-icon".to_string());
-        
-        Ok(Dom::create_node(NodeType::Icon(AzString::from(icon_name))).style(Css::empty()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        args: &ComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        let icon_name = args.args.iter()
-            .find(|a| a.name.as_str() == "name")
-            .map(|a| a.arg_type.to_string())
-            .or_else(|| content.as_ref().map(|s| s.to_string()))
-            .unwrap_or_else(|| "invalid-icon".to_string());
-        
-        Ok(format!("Dom::create_node(NodeType::Icon(AzString::from(\"{}\")))", icon_name))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Render for a `p` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TextRenderer {
-    node: XmlNode,
-}
-
-impl TextRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::create("p"),
-        }
-    }
-}
-
-impl XmlComponentTrait for TextRenderer {
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-        Box::new(self.clone())
-    }
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentVec::new(),
-            accepts_text: true, // important!
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-        Ok(Dom::create_node(NodeType::P)
-            .with_children(vec![Dom::create_text(content)].into())
-            .style(Css::empty()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        args: &ComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from(
-            "Dom::create_node(NodeType::P).with_children(vec![Dom::create_text(content)].into())",
-        ))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
-pub fn parse_component_arguments<'a>(
-    input: &'a str,
-) -> Result<ComponentArgumentVec, ComponentParseError> {
-    use self::ComponentParseError::*;
-
-    let mut args = ComponentArgumentVec::new();
-
-    for (arg_idx, arg) in input.split(",").enumerate() {
-        let mut colon_iterator = arg.split(":");
-
-        let arg_name = colon_iterator.next().ok_or(MissingName(arg_idx))?;
-        let arg_name = arg_name.trim();
-
-        if arg_name.is_empty() {
-            return Err(MissingName(arg_idx));
-        }
-        if arg_name.chars().any(char::is_whitespace) {
-            return Err(WhiteSpaceInComponentName(WhiteSpaceInComponentNameError { arg_pos: arg_idx, arg_name: arg_name.into() }));
-        }
-
-        let arg_type = colon_iterator
-            .next()
-            .ok_or(MissingType(MissingTypeError { arg_pos: arg_idx, arg_name: arg_name.into() }))?;
-        let arg_type = arg_type.trim();
-
-        if arg_type.is_empty() {
-            return Err(MissingType(MissingTypeError { arg_pos: arg_idx, arg_name: arg_name.into() }));
-        }
-
-        if arg_type.chars().any(char::is_whitespace) {
-            return Err(WhiteSpaceInComponentType(WhiteSpaceInComponentTypeError {
-                arg_pos: arg_idx,
-                arg_name: arg_name.into(),
-                arg_type: arg_type.into(),
-            }));
-        }
-
-        let arg_name = normalize_casing(arg_name);
-        let arg_type = arg_type.to_string();
-
-        args.push(ComponentArgument { name: arg_name.into(), arg_type: arg_type.into() });
-    }
-
-    Ok(args)
-}
-
-/// Filters the XML attributes of a component given XmlAttributeMap.
-///
-/// Validates that:
-/// - Attribute names are recognized by the component
-/// - Values are type-compatible with declared field types (when possible)
-/// - Unknown attributes trigger warnings (lenient mode for HTML compat)
-pub fn validate_and_filter_component_args(
-    xml_attributes: &XmlAttributeMap,
-    valid_args: &ComponentArguments,
-) -> Result<FilteredComponentArguments, ComponentError> {
-    let mut map = FilteredComponentArguments {
-        types: ComponentArgumentVec::new(),
-        values: StringPairVec::from_const_slice(&[]),
-        accepts_text: valid_args.accepts_text,
-    };
-
-    for AzStringPair { key, value } in xml_attributes.as_ref().iter() {
-        let xml_attribute_name = key;
-        let xml_attribute_value = value;
-        if let Some(valid_arg_type) = valid_args
-            .args
-            .iter()
-            .find(|s| s.name.as_str() == xml_attribute_name.as_str())
-            .map(|q| &q.arg_type)
-        {
-            // Validate value against declared type (basic checks)
-            validate_attribute_value(
-                xml_attribute_name.as_str(),
-                xml_attribute_value.as_str(),
-                valid_arg_type.as_str(),
-            );
-
-            map.types.push(ComponentArgument {
-                name: xml_attribute_name.as_str().into(),
-                arg_type: valid_arg_type.clone(),
-            });
-            map.values.insert_kv(
-                xml_attribute_name.as_str(),
-                xml_attribute_value.as_str(),
-            );
-        } else if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
-            // no error, but don't insert the attribute name
-            map.values.insert_kv(
-                xml_attribute_name.as_str(),
-                xml_attribute_value.as_str(),
-            );
-        } else {
-            // key was not expected for this component
-            // WARNING: Lenient mode - ignore unknown attributes instead of erroring
-            // This allows HTML with unsupported attributes (like <img src="...">) to render
-            #[cfg(feature = "std")]
-            eprintln!(
-                "Warning: Useless component argument \"{}\": \"{}\" for component with args: {:?}",
-                xml_attribute_name,
-                xml_attribute_value,
-                valid_args.args.iter().map(|s| &s.name).collect::<Vec<_>>()
-            );
-
-            // Still insert the value so it's available, but don't validate the type
-            map.values.insert_kv(
-                xml_attribute_name.as_str(),
-                xml_attribute_value.as_str(),
-            );
-        }
-    }
-
-    Ok(map)
-}
-
-/// Validate an attribute value against a declared type string.
-/// Prints a warning if the value is incompatible (lenient — does not error).
-fn validate_attribute_value(attr_name: &str, attr_value: &str, type_str: &str) {
-    let warning = match type_str {
-        "bool" | "Bool" | "boolean" => {
-            if !matches!(attr_value, "true" | "false" | "1" | "0" | "yes" | "no") {
-                Some(format!("expected bool ('true'/'false'), got '{}'", attr_value))
-            } else { None }
-        }
-        "i32" | "I32" | "int" => {
-            if attr_value.parse::<i32>().is_err() {
-                Some(format!("expected i32, got '{}'", attr_value))
-            } else { None }
-        }
-        "i64" | "I64" => {
-            if attr_value.parse::<i64>().is_err() {
-                Some(format!("expected i64, got '{}'", attr_value))
-            } else { None }
-        }
-        "u32" | "U32" => {
-            if attr_value.parse::<u32>().is_err() {
-                Some(format!("expected u32, got '{}'", attr_value))
-            } else { None }
-        }
-        "u64" | "U64" => {
-            if attr_value.parse::<u64>().is_err() {
-                Some(format!("expected u64, got '{}'", attr_value))
-            } else { None }
-        }
-        "usize" | "Usize" => {
-            if attr_value.parse::<usize>().is_err() {
-                Some(format!("expected usize, got '{}'", attr_value))
-            } else { None }
-        }
-        "f32" | "F32" | "float" => {
-            if attr_value.parse::<f32>().is_err() {
-                Some(format!("expected f32, got '{}'", attr_value))
-            } else { None }
-        }
-        "f64" | "F64" | "double" => {
-            if attr_value.parse::<f64>().is_err() {
-                Some(format!("expected f64, got '{}'", attr_value))
-            } else { None }
-        }
-        // String, ColorU, CssProperty, etc. — accept any value
-        _ => None,
-    };
-
-    if let Some(msg) = warning {
-        #[cfg(feature = "std")]
-        eprintln!("Warning: attribute '{}' type mismatch: {}", attr_name, msg);
-    }
-}
-
-/// Validate a component's template XML recursively.
-///
-/// Checks that all child component references in the template:
-/// - Reference components that exist in the component map
-/// - Pass valid attributes to those components
-/// - Don't create circular references
-///
-/// This works on pre-parsed XML nodes (from the component's template).
-#[cfg(feature = "std")]
-pub fn validate_component_template_recursive(
-    template_children: &[XmlNodeChild],
-    component_name: &str,
-    component_map: &XmlComponentMap,
-    visited: &mut alloc::collections::BTreeSet<alloc::string::String>,
-) -> Result<(), alloc::string::String> {
-    use alloc::string::ToString;
-
-    if !visited.insert(component_name.to_string()) {
-        return Err(alloc::format!(
-            "Circular component reference detected: '{}' references itself (chain: {:?})",
-            component_name, visited
-        ));
-    }
-
-    // Recursively check each child element
-    for child in template_children {
-        validate_xml_node_recursive(child, component_map, visited)?;
-    }
-
-    visited.remove(component_name);
-    Ok(())
-}
-
-/// Recursively validate a single XML node and its children against the component map.
-#[cfg(feature = "std")]
-fn validate_xml_node_recursive(
-    node: &XmlNodeChild,
-    component_map: &XmlComponentMap,
-    visited: &mut alloc::collections::BTreeSet<alloc::string::String>,
-) -> Result<(), alloc::string::String> {
-    use alloc::string::ToString;
-
-    let element = match node {
-        XmlNodeChild::Element(e) => e,
-        _ => return Ok(()),
-    };
-
-    let tag_normalized = normalize_casing(&element.node_type);
-
-    // Check if this component exists
-    if let Some(xml_component) = component_map.get(&tag_normalized) {
-        // Validate attributes against declared arguments
-        let available_args = xml_component.renderer.get_available_arguments();
-        for AzStringPair { key, .. } in element.attributes.as_ref().iter() {
-            let attr_name = key.as_str();
-            if !DEFAULT_ARGS.contains(&attr_name)
-                && !available_args.args.iter().any(|a| a.name.as_str() == attr_name)
-            {
-                #[cfg(feature = "std")]
-                eprintln!(
-                    "Warning: component '{}' does not accept attribute '{}' (available: {:?})",
-                    tag_normalized,
-                    attr_name,
-                    available_args.args.iter().map(|a| &a.name).collect::<alloc::vec::Vec<_>>()
-                );
-            }
-        }
-
-        // If this component has a template, recursively validate its children
-        let xml_node = xml_component.renderer.get_xml_node();
-        if !xml_node.children.as_ref().is_empty() {
-            validate_component_template_recursive(
-                xml_node.children.as_ref(),
-                &tag_normalized,
-                component_map,
-                visited,
-            )?;
-        }
-    }
-    // Note: unknown tags are allowed (lenient mode for HTML compat)
-
-    // Recurse into children
-    for child in element.children.as_ref().iter() {
-        validate_xml_node_recursive(child, component_map, visited)?;
-    }
-
-    Ok(())
-}
 
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
@@ -3854,7 +3206,7 @@ fn get_item_internal<'a>(
 /// `<app></app>`
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNodeChild],
-    component_map: &'a mut XmlComponentMap,
+    component_map: &'a ComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
@@ -3863,26 +3215,6 @@ pub fn str_to_dom<'a>(
     let mut global_style = None;
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        // parse all dynamic XML components from the head node
-        for child in head_node.children.as_ref() {
-            if let XmlNodeChild::Element(node) = child {
-                match DynamicXmlComponent::new(node) {
-                    Ok(comp) => {
-                        let node_name = comp.name.clone();
-                        component_map.register_component(XmlComponent {
-                            id: normalize_casing(&node_name),
-                            renderer: Box::new(comp),
-                            inherit_vars: false,
-                        });
-                    }
-                    Err(ComponentParseError::NotAComponent) => {} /* not a <component /> node, */
-                    // ignore
-                    Err(e) => return Err(e.into()), /* Error during parsing the XML
-                                                     * component, bail */
-                }
-            }
-        }
-
         // parse the <style></style> tag contents, if present
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             let text = style_node.get_text_content();
@@ -3902,33 +3234,13 @@ pub fn str_to_dom<'a>(
 pub fn str_to_rust_code<'a>(
     root_nodes: &'a [XmlNodeChild],
     imports: &str,
-    component_map: &'a mut XmlComponentMap,
+    component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
     let html_node = get_html_node(&root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
     let mut global_style = Css::empty();
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        for child in head_node.children.as_ref() {
-            if let XmlNodeChild::Element(node) = child {
-                match DynamicXmlComponent::new(node) {
-                    Ok(node) => {
-                        let node_name = node.name.clone();
-                        component_map.register_component(XmlComponent {
-                            id: normalize_casing(&node_name),
-                            renderer: Box::new(node),
-                            inherit_vars: false,
-                        });
-                    }
-                    Err(ComponentParseError::NotAComponent) => {} /* not a <component /> node, */
-                    // ignore
-                    Err(e) => return Err(CompileError::Xml(e.into())), /* Error during parsing
-                                                                        * the XML
-                                                                        * component, bail */
-                }
-            }
-        }
-
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             let text = style_node.get_text_content();
             if !text.is_empty() {
@@ -4011,7 +3323,7 @@ fn main() {
         "#![windows_subsystem = \"windows\"]\r\n//! Auto-generated UI source \
          code\r\n{}\r\n{}\r\n\r\n{}{}",
         imports,
-        compile_components(compile_components_to_rust_code(component_map)?),
+        compile_components(Vec::new()), // no user-defined components to compile
         format!(
             "#[allow(unused_imports)]\r\npub mod ui {{
 
@@ -4131,21 +3443,16 @@ pub fn compile_component(
 /// This is O(n) instead of O(n²) for large documents
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
-    component_map: &'a XmlComponentMap,
+    component_map: &'a ComponentMap,
 ) -> Result<Dom, RenderDomError> {
-    use crate::dom::{Dom, NodeType, IdOrClass};
-    
+    use crate::dom::{Dom, NodeType, IdOrClass, TabIndex};
+
     let component_name = normalize_casing(&xml_node.node_type);
-    
-    // Get the component to determine the NodeType
-    let xml_component = component_map
-        .get(&component_name)
-        .ok_or(ComponentError::UnknownComponent(component_name.clone().into()))?;
-    
-    // Create the DOM node based on component type
-    let node_type = get_node_type_for_component(&component_name);
+
+    // Look up the component definition
+    let node_type = tag_to_node_type(&component_name);
     let mut dom = Dom::create_node(node_type);
-    
+
     // Set id and class attributes
     let mut ids_and_classes = Vec::new();
     if let Some(id_str) = xml_node.attributes.get_key("id") {
@@ -4161,7 +3468,50 @@ fn xml_node_to_dom_fast<'a>(
     if !ids_and_classes.is_empty() {
         dom.root.set_ids_and_classes(ids_and_classes.into());
     }
-    
+
+    // Handle focusable attribute
+    if let Some(focusable) = xml_node.attributes.get_key("focusable").and_then(|f| parse_bool(f.as_str())) {
+        match focusable {
+            true => dom.root.set_tab_index(TabIndex::Auto),
+            false => dom.root.set_tab_index(TabIndex::NoKeyboardFocus),
+        }
+    }
+
+    // Handle tabindex attribute
+    if let Some(tab_index) = xml_node.attributes.get_key("tabindex").and_then(|val| val.parse::<isize>().ok()) {
+        match tab_index {
+            0 => dom.root.set_tab_index(TabIndex::Auto),
+            i if i > 0 => dom.root.set_tab_index(TabIndex::OverrideInParent(i as u32)),
+            _ => dom.root.set_tab_index(TabIndex::NoKeyboardFocus),
+        }
+    }
+
+    // Handle inline style attribute
+    if let Some(style) = xml_node.attributes.get_key("style") {
+        let css_key_map = azul_css::props::property::get_css_key_map();
+        let mut attributes = Vec::new();
+        for s in style.as_str().split(";") {
+            let mut s = s.split(":");
+            let key = match s.next() { Some(s) => s, None => continue };
+            let value = match s.next() { Some(s) => s, None => continue };
+            azul_css::parser2::parse_css_declaration(
+                key.trim(), value.trim(),
+                azul_css::parser2::ErrorLocationRange::default(),
+                &css_key_map, &mut Vec::new(), &mut attributes,
+            );
+        }
+        let props = attributes.into_iter().filter_map(|s| {
+            use azul_css::dynamic_selector::CssPropertyWithConditions;
+            match s {
+                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
+                _ => None,
+            }
+        }).collect::<Vec<_>>();
+        if !props.is_empty() {
+            dom.root.set_css_props(props.into());
+        }
+    }
+
     // Recursively convert children
     let mut children = Vec::new();
     for child in xml_node.children.as_ref().iter() {
@@ -4176,77 +3526,19 @@ fn xml_node_to_dom_fast<'a>(
             }
         }
     }
-    
+
     if !children.is_empty() {
         dom = dom.with_children(children.into());
     }
-    
+
     Ok(dom)
 }
 
 /// Map component name to NodeType
-fn get_node_type_for_component(name: &str) -> crate::dom::NodeType {
-    use crate::dom::NodeType;
-    match name {
-        "html" => NodeType::Html,
-        "head" => NodeType::Head,
-        "title" => NodeType::Title,
-        "body" => NodeType::Body,
-        "div" => NodeType::Div,
-        "p" => NodeType::P,
-        "span" => NodeType::Span,
-        "br" => NodeType::Br,
-        "h1" => NodeType::H1,
-        "h2" => NodeType::H2,
-        "h3" => NodeType::H3,
-        "h4" => NodeType::H4,
-        "h5" => NodeType::H5,
-        "h6" => NodeType::H6,
-        "header" => NodeType::Header,
-        "footer" => NodeType::Footer,
-        "section" => NodeType::Section,
-        "article" => NodeType::Article,
-        "aside" => NodeType::Aside,
-        "nav" => NodeType::Nav,
-        "main" => NodeType::Main,
-        "pre" => NodeType::Pre,
-        "code" => NodeType::Code,
-        "blockquote" => NodeType::BlockQuote,
-        "ul" => NodeType::Ul,
-        "ol" => NodeType::Ol,
-        "li" => NodeType::Li,
-        "dl" => NodeType::Dl,
-        "dt" => NodeType::Dt,
-        "dd" => NodeType::Dd,
-        "table" => NodeType::Table,
-        "thead" => NodeType::THead,
-        "tbody" => NodeType::TBody,
-        "tfoot" => NodeType::TFoot,
-        "tr" => NodeType::Tr,
-        "th" => NodeType::Th,
-        "td" => NodeType::Td,
-        "a" => NodeType::A,
-        "strong" => NodeType::Strong,
-        "em" => NodeType::Em,
-        "b" => NodeType::B,
-        "i" => NodeType::I,
-        "u" => NodeType::U,
-        "small" => NodeType::Small,
-        "mark" => NodeType::Mark,
-        "sub" => NodeType::Sub,
-        "sup" => NodeType::Sup,
-        "form" => NodeType::Form,
-        "label" => NodeType::Label,
-        "button" => NodeType::Button,
-        "hr" => NodeType::Hr,
-        _ => NodeType::Div, // Default fallback
-    }
-}
-
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,
-    component_map: &'a XmlComponentMap,
+    component_map: &'a ComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
     // OPTIMIZATION: Build Dom tree first, then style once at the end
@@ -4309,164 +3601,6 @@ pub fn render_dom_from_body_node<'a>(
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-pub fn render_dom_from_body_node_inner<'a>(
-    xml_node: &'a XmlNode,
-    component_map: &'a XmlComponentMap,
-    parent_xml_attributes: &FilteredComponentArguments,
-) -> Result<StyledDom, RenderDomError> {
-    let component_name = normalize_casing(&xml_node.node_type);
-
-    let xml_component = component_map
-        .get(&component_name)
-        .ok_or(ComponentError::UnknownComponent(
-            component_name.clone().into(),
-        ))?;
-
-    // Arguments of the current node
-    let available_function_args = xml_component.renderer.get_available_arguments();
-    let mut filtered_xml_attributes =
-        validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
-
-    if xml_component.inherit_vars {
-        // Append all variables that are in scope for the parent node
-        filtered_xml_attributes
-            .types
-            .extend(parent_xml_attributes.types.clone().into_iter());
-    }
-
-    // Instantiate the parent arguments in the current child arguments
-    for v in filtered_xml_attributes.types.iter_mut() {
-        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.types).into();
-    }
-
-    // Don't pass text content to the component renderer - text children will be appended separately
-    let mut dom = xml_component.renderer.render_dom(
-        component_map,
-        &filtered_xml_attributes,
-        &OptionString::None,
-    )?;
-    set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
-
-    // Track child index for O(1) append instead of O(n) count
-    let mut child_index = 0usize;
-    for child in xml_node.children.as_ref().iter() {
-        match child {
-            XmlNodeChild::Element(child_node) => {
-                let child_dom = render_dom_from_body_node_inner(
-                    child_node,
-                    component_map,
-                    &filtered_xml_attributes,
-                )?;
-                dom.append_child_with_index(child_dom, child_index);
-                child_index += 1;
-            }
-            XmlNodeChild::Text(text) => {
-                // Create a text node for text children
-                let text_dom = Dom::create_text(AzString::from(text.as_str())).style(Css::empty());
-                dom.append_child_with_index(text_dom, child_index);
-                child_index += 1;
-            }
-        }
-    }
-
-    Ok(dom)
-}
-
-pub fn set_attributes(
-    dom: &mut StyledDom,
-    xml_attributes: &XmlAttributeMap,
-    filtered_xml_attributes: &FilteredComponentArguments,
-) {
-    use crate::dom::{
-        IdOrClass::{Class, Id},
-        TabIndex,
-    };
-
-    let mut ids_and_classes = Vec::new();
-    let dom_root = match dom.root.into_crate_internal() {
-        Some(s) => s,
-        None => return,
-    };
-    let node_data = &mut dom.node_data.as_container_mut()[dom_root];
-
-    if let Some(ids) = xml_attributes.get_key("id") {
-        for id in ids.split_whitespace() {
-            ids_and_classes.push(Id(
-                format_args_dynamic(id, &filtered_xml_attributes.types).into()
-            ));
-        }
-    }
-
-    if let Some(classes) = xml_attributes.get_key("class") {
-        for class in classes.split_whitespace() {
-            ids_and_classes.push(Class(
-                format_args_dynamic(class, &filtered_xml_attributes.types).into(),
-            ));
-        }
-    }
-
-    node_data.set_ids_and_classes(ids_and_classes.into());
-
-    if let Some(focusable) = xml_attributes
-        .get_key("focusable")
-        .map(|f| format_args_dynamic(f.as_str(), &filtered_xml_attributes.types))
-        .and_then(|f| parse_bool(&f))
-    {
-        match focusable {
-            true => node_data.set_tab_index(TabIndex::Auto),
-            false => node_data.set_tab_index(TabIndex::NoKeyboardFocus.into()),
-        }
-    }
-
-    if let Some(tab_index) = xml_attributes
-        .get_key("tabindex")
-        .map(|val| format_args_dynamic(val, &filtered_xml_attributes.types))
-        .and_then(|val| val.parse::<isize>().ok())
-    {
-        match tab_index {
-            0 => node_data.set_tab_index(TabIndex::Auto),
-            i if i > 0 => node_data.set_tab_index(TabIndex::OverrideInParent(i as u32)),
-            _ => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
-        }
-    }
-
-    if let Some(style) = xml_attributes.get_key("style") {
-        let css_key_map = azul_css::props::property::get_css_key_map();
-        let mut attributes = Vec::new();
-        for s in style.as_str().split(";") {
-            let mut s = s.split(":");
-            let key = match s.next() {
-                Some(s) => s,
-                None => continue,
-            };
-            let value = match s.next() {
-                Some(s) => s,
-                None => continue,
-            };
-            azul_css::parser2::parse_css_declaration(
-                key.trim(),
-                value.trim(),
-                azul_css::parser2::ErrorLocationRange::default(),
-                &css_key_map,
-                &mut Vec::new(),
-                &mut attributes,
-            );
-        }
-
-        let props = attributes
-            .into_iter()
-            .filter_map(|s| {
-                use azul_css::dynamic_selector::CssPropertyWithConditions;
-                match s {
-                    CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                    _ => return None,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        node_data.set_css_props(props.into());
-    }
-}
 
 pub fn set_stringified_attributes(
     dom_string: &mut String,
@@ -4780,163 +3914,6 @@ pub fn parse_bool(input: &str) -> Option<bool> {
     }
 }
 
-pub fn render_component_inner<'a>(
-    map: &mut Vec<(
-        ComponentName,
-        CompiledComponent,
-        ComponentArguments,
-        BTreeMap<String, String>,
-    )>,
-    component_name: String,
-    xml_component: &'a XmlComponent,
-    component_map: &'a XmlComponentMap,
-    parent_xml_attributes: &ComponentArguments,
-    tabs: usize,
-) -> Result<(), CompileError> {
-    let t = String::from("    ").repeat(tabs - 1);
-    let t1 = String::from("    ").repeat(tabs);
-
-    let component_name = normalize_casing(&component_name);
-    let xml_node = xml_component.renderer.get_xml_node();
-
-    let mut css = match find_node_by_type(xml_node.children.as_ref(), "style") {
-        Some(style_node) => {
-            let text = style_node.get_text_content();
-            if !text.is_empty() {
-                Some(text)
-            } else {
-                None
-            }
-        }
-        None => None,
-    };
-    let mut css = match css {
-        Some(text) => azul_css::parser2::new_from_str(&text).0,
-        None => Css::empty(),
-    };
-
-    css.sort_by_specificity();
-
-    // Arguments of the current node
-    let available_function_arg_types = xml_component.renderer.get_available_arguments();
-    // Types of the filtered xml arguments, important, only for Rust code compilation
-    let mut filtered_xml_attributes = available_function_arg_types.clone();
-
-    if xml_component.inherit_vars {
-        // Append all variables that are in scope for the parent node
-        filtered_xml_attributes
-            .args
-            .extend(parent_xml_attributes.args.clone().into_iter());
-    }
-
-    // Instantiate the parent arguments in the current child arguments
-    for v in filtered_xml_attributes.args.iter_mut() {
-        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).into();
-    }
-
-    let text_content = xml_node.get_text_content();
-    let text = if !text_content.is_empty() {
-        Some(AzString::from(format_args_dynamic(
-            &text_content,
-            &filtered_xml_attributes.args,
-        )))
-    } else {
-        None
-    };
-
-    let mut dom_string = xml_component.renderer.compile_to_rust_code(
-        component_map,
-        &filtered_xml_attributes,
-        &text.into(),
-    )?;
-
-    set_stringified_attributes(
-        &mut dom_string,
-        &xml_node.attributes,
-        &filtered_xml_attributes.args,
-        tabs,
-    );
-
-    // TODO
-    let matcher = CssMatcher {
-        path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
-        indices_in_parent: Vec::new(),
-        children_length: Vec::new(),
-    };
-
-    let mut css_blocks = BTreeMap::new();
-    let mut extra_blocks = VecContents::default();
-
-    if !xml_node.children.as_ref().is_empty() {
-        dom_string.push_str(&format!(
-            "\r\n{}.with_children(DomVec::from_vec(vec![\r\n",
-            t
-        ));
-        for (child_idx, child) in xml_node.children.as_ref().iter().enumerate() {
-            if let XmlNodeChild::Element(child_node) = child {
-                let mut matcher = matcher.clone();
-                matcher.indices_in_parent.push(child_idx);
-                matcher
-                    .children_length
-                    .push(xml_node.children.as_ref().len());
-
-                dom_string.push_str(&format!(
-                    "{}{},",
-                    t1,
-                    compile_node_to_rust_code_inner(
-                        child_node,
-                        component_map,
-                        &filtered_xml_attributes,
-                        tabs + 1,
-                        &mut extra_blocks,
-                        &mut css_blocks,
-                        &css,
-                        matcher,
-                    )?
-                ));
-            }
-        }
-        dom_string.push_str(&format!("\r\n{}]))", t));
-    }
-
-    map.push((
-        component_name,
-        dom_string,
-        filtered_xml_attributes,
-        css_blocks,
-    ));
-
-    Ok(())
-}
-
-/// Takes all components and generates the source code function from them
-pub fn compile_components_to_rust_code(
-    components: &XmlComponentMap,
-) -> Result<
-    Vec<(
-        ComponentName,
-        CompiledComponent,
-        ComponentArguments,
-        BTreeMap<String, String>,
-    )>,
-    CompileError,
-> {
-    let mut map = Vec::new();
-
-    for xml_component in components.components.iter() {
-        render_component_inner(
-            &mut map,
-            xml_component.id.clone(),
-            xml_component,
-            &components,
-            &ComponentArguments::default(),
-            1,
-        )?;
-    }
-
-    Ok(map)
-}
-
 #[derive(Clone)]
 pub struct CssMatcher {
     path: Vec<CssPathSelector>,
@@ -5130,7 +4107,7 @@ struct CssBlock {
 
 pub fn compile_body_node_to_rust_code<'a>(
     body_node: &'a XmlNode,
-    component_map: &'a XmlComponentMap,
+    component_map: &'a ComponentMap,
     extra_blocks: &mut VecContents,
     css_blocks: &mut BTreeMap<String, String>,
     css: &Css,
@@ -5239,7 +4216,6 @@ pub fn compile_body_node_to_rust_code<'a>(
                         compile_node_to_rust_code_inner(
                             child_node,
                             component_map,
-                            &ComponentArguments::default(),
                             1,
                             extra_blocks,
                             css_blocks,
@@ -5347,8 +4323,7 @@ fn format_args_for_rust_code(input: &str) -> String {
 
 pub fn compile_node_to_rust_code_inner<'a>(
     node: &XmlNode,
-    component_map: &'a XmlComponentMap,
-    parent_xml_attributes: &ComponentArguments,
+    component_map: &'a ComponentMap,
     tabs: usize,
     extra_blocks: &mut VecContents,
     css_blocks: &mut BTreeMap<String, String>,
@@ -5362,92 +4337,34 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
     let component_name = normalize_casing(&node.node_type);
 
-    let xml_component = component_map
-        .get(&component_name)
-        .ok_or(ComponentError::UnknownComponent(
-            component_name.clone().into(),
-        ))?;
+    // Build the data model from XML attributes
+    let def = component_map.get_unqualified(&component_name);
 
-    // Arguments of the current node
-    let available_function_args = xml_component.renderer.get_available_arguments();
-    let mut filtered_xml_attributes =
-        validate_and_filter_component_args(&node.attributes, &available_function_args)?;
+    // Look up the CSS NodeTypeTag
+    let node_type_tag = tag_to_node_type_tag(&component_name);
+    let node_type = CssPathSelector::Type(node_type_tag);
 
-    if xml_component.inherit_vars {
-        // Append all variables that are in scope for the parent node
-        filtered_xml_attributes
-            .types
-            .extend(parent_xml_attributes.args.clone().into_iter());
-    }
-
-    // Instantiate the parent arguments in the current child arguments
-    for v in filtered_xml_attributes.types.iter_mut() {
-        v.arg_type = format_args_dynamic(&v.arg_type, &parent_xml_attributes.args).into();
-    }
-
-    let instantiated_function_arguments = {
-        let mut args = filtered_xml_attributes
-            .types
-            .iter()
-            .filter_map(|arg| {
-                match node.attributes.get_key(&arg.name).cloned() {
-                    Some(s) => Some(format_args_for_rust_code(&s)),
-                    None => {
-                        // __TODO__
-                        // let node_text = format_args_for_rust_code(&xml_attribute_key);
-                        //   "{text}" => "text"
-                        //   "{href}" => "href"
-                        //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
-                        None
-                    }
-                }
-            })
-            .collect::<Vec<String>>();
-
-        args.sort_by(|a, b| a.cmp(&b));
-
-        args.join(", ")
-    };
-
-    let text_as_first_arg = if filtered_xml_attributes.accepts_text {
-        let node_text = node.get_text_content();
-        let node_text = format_args_for_rust_code(node_text.trim());
-        let trailing_comma = if !instantiated_function_arguments.is_empty() {
-            ", "
-        } else {
-            ""
-        };
-
-        // __TODO__
-        // let node_text = format_args_for_rust_code(&node_text, &parent_xml_attributes.args);
-        //   "{text}" => "text"
-        //   "{href}" => "href"
-        //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
-
-        format!("{}{}", node_text, trailing_comma)
-    } else {
-        String::new()
-    };
-
-    let node_type = CssPathSelector::Type(match component_name.as_str() {
-        "body" => NodeTypeTag::Body,
-        "div" => NodeTypeTag::Div,
-        "br" => NodeTypeTag::Br,
-        "p" => NodeTypeTag::P,
-        "img" => NodeTypeTag::Img,
-        "br" => NodeTypeTag::Br,
-        other => {
-            return Err(CompileError::Dom(RenderDomError::Component(
-                ComponentError::UnknownComponent(other.to_string().into()),
-            )));
+    // Generate DOM creation code using the component's compile_fn
+    let text_content = node.get_text_content();
+    let text_content_trimmed = text_content.trim();
+    let mut dom_string = if let Some(d) = def {
+        let data_model = xml_attrs_to_data_model(
+            &d.data_model,
+            &node.attributes,
+            if text_content_trimmed.is_empty() { None } else { Some(text_content_trimmed) },
+        );
+        match (d.compile_fn)(d, &CompileTarget::Rust, &data_model, tabs) {
+            ResultStringCompileError::Ok(s) => format!("{}{}", t2, s.as_str()),
+            ResultStringCompileError::Err(_) => {
+                // Fallback: generate basic DOM node
+                let node_type = tag_to_node_type(&component_name);
+                format!("{}Dom::create_node(NodeType::{:?})", t2, node_type)
+            }
         }
-    });
-
-    // The dom string is the function name
-    let mut dom_string = format!(
-        "{}{}::render({}{})",
-        t2, component_name, text_as_first_arg, instantiated_function_arguments
-    );
+    } else {
+        // Unknown component, generate div fallback
+        format!("{}Dom::create_node(NodeType::Div) /* {} */", t2, component_name)
+    };
 
     matcher.path.push(node_type);
     let ids = node
@@ -5532,7 +4449,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     set_stringified_attributes(
         &mut dom_string,
         &node.attributes,
-        &filtered_xml_attributes.types,
+        &ComponentArgumentVec::new(),
         tabs,
     );
 
@@ -5551,10 +4468,6 @@ pub fn compile_node_to_rust_code_inner<'a>(
                 Some(compile_node_to_rust_code_inner(
                     child_node,
                     component_map,
-                    &ComponentArguments {
-                        args: filtered_xml_attributes.types.clone(),
-                        accepts_text: filtered_xml_attributes.accepts_text,
-                    },
                     tabs + 1,
                     extra_blocks,
                     css_blocks,
@@ -5584,110 +4497,6 @@ pub fn compile_node_to_rust_code_inner<'a>(
     }
 
     Ok(dom_string)
-}
-
-/// Component that was created from a XML node (instead of being registered from Rust code).
-/// Necessary to
-#[derive(Clone)]
-pub struct DynamicXmlComponent {
-    /// What the name of this component is, i.e. "test" for `<component name="test" />`
-    pub name: String,
-    /// Whether this component has any `args="a: String"` arguments
-    pub arguments: ComponentArguments,
-    /// Root XML node of this component (the `<component />` Node)
-    pub root: XmlNode,
-}
-
-impl DynamicXmlComponent {
-    /// Parses a `component` from an XML node
-    pub fn new<'a>(root: &'a XmlNode) -> Result<Self, ComponentParseError> {
-        let node_type = normalize_casing(&root.node_type);
-
-        if node_type.as_str() != "component" {
-            return Err(ComponentParseError::NotAComponent);
-        }
-
-        let name = root
-            .attributes
-            .get_key("name")
-            .cloned()
-            .ok_or(ComponentParseError::NotAComponent)?;
-        let accepts_text = root
-            .attributes
-            .get_key("accepts_text")
-            .and_then(|p| parse_bool(p.as_str()))
-            .unwrap_or(false);
-
-        let args = match root.attributes.get_key("args") {
-            Some(s) => parse_component_arguments(s)?,
-            None => ComponentArgumentVec::new(),
-        };
-
-        Ok(Self {
-            name: normalize_casing(&name),
-            arguments: ComponentArguments { args, accepts_text },
-            root: root.clone(),
-        })
-    }
-}
-
-impl XmlComponentTrait for DynamicXmlComponent {
-    fn clone_box(&self) -> Box<dyn XmlComponentTrait> {
-        Box::new(self.clone())
-    }
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        self.arguments.clone()
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.root.clone()
-    }
-
-    fn render_dom<'a>(
-        &'a self,
-        components: &'a XmlComponentMap,
-        arguments: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let mut component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
-            Some(style_node) => {
-                let text = style_node.get_text_content();
-                if !text.is_empty() {
-                    let parsed_css = Css::from_string(text.into());
-                    Some(parsed_css)
-                } else {
-                    None
-                }
-            }
-            None => None,
-        };
-
-        let mut dom = StyledDom::default();
-
-        for child in self.root.children.as_ref() {
-            if let XmlNodeChild::Element(child_node) = child {
-                dom.append_child(render_dom_from_body_node_inner(
-                    child_node, components, arguments,
-                )?);
-            }
-        }
-
-        if let Some(css) = component_css.clone() {
-            dom.restyle(css);
-        }
-
-        Ok(dom)
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        components: &XmlComponentMap,
-        attributes: &ComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::create_div()".into()) // TODO!s
-    }
 }
 
 #[cfg(test)]
