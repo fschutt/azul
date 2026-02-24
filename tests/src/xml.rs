@@ -1,63 +1,13 @@
 #[cfg(test)]
 use azul_core::xml::{
-    compile_body_node_to_rust_code, compile_component, compile_components_to_rust_code,
-    format_args_dynamic, get_body_node, get_item, normalize_casing, parse_component_arguments,
-    prepare_string, ComponentArgumentVec, ComponentParseError, XmlComponentMap, XmlNode,
+    compile_body_node_to_rust_code, compile_component,
+    format_args_dynamic, get_body_node, get_item, normalize_casing,
+    prepare_string, ComponentArgumentVec, ComponentMap, XmlNode,
 };
 #[cfg(test)]
 use azul_layout::xml::parse_xml_string;
 
-#[test]
-fn test_compile_dom_1() {
-    use azul_core::callbacks::Dummy;
-
-    // Test the output of a certain component
-    fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
-        let mut component_map = XmlComponentMap::<Dummy>::default();
-        let root_nodes = parse_xml_string(input).unwrap();
-        get_xml_components(&root_nodes, &mut component_map).unwrap();
-        let body_node = get_body_node(&root_nodes).unwrap();
-        let components = compile_components_to_rust_code(&component_map).unwrap();
-        let (searched_component_source, searched_component_args) =
-            components.get(component_name).unwrap();
-        let component_string = compile_component(
-            component_name,
-            searched_component_args,
-            searched_component_source,
-        );
-
-        // TODO!
-        // assert_eq!(component_string, expected);
-    }
-
-    fn test_app_source_code(input: &str, expected: &str) {
-        let mut component_map = XmlComponentMap::default();
-        let root_nodes = parse_xml_string(input).unwrap();
-        get_xml_components(&root_nodes, &mut component_map).unwrap();
-        let body_node = get_body_node(&root_nodes).unwrap();
-        let app_source = compile_body_node_to_rust_code(&body_node, &component_map).unwrap();
-
-        // TODO!
-        // assert_eq!(app_source, expected);
-    }
-
-    let s1 = r#"
-        <component name="test">
-            <div id="a" class="b"></div>
-        </component>
-
-        <body>
-            <Test />
-        </body>
-    "#;
-    let s1_expected = r#"
-        fn test() -> StyledDom {
-            Dom::create_div().with_id("a").with_class("b")
-        }
-    "#;
-
-    test_component_source_code(&s1, "test", &s1_expected);
-}
+// test_compile_dom_1 removed: uses deleted XmlComponentMap/compile_components_to_rust_code
 
 #[test]
 fn test_format_args_dynamic() {
@@ -94,59 +44,7 @@ fn test_normalize_casing() {
     );
 }
 
-#[test]
-fn test_parse_component_arguments() {
-    let mut args_1_expected = ComponentArgumentVec::new();
-    args_1_expected.push(("selected_date".to_string(), "DateTime".to_string()));
-    args_1_expected.push(("minimum_date".to_string(), "DateTime".to_string()));
-    args_1_expected.push(("grid_visible".to_string(), "bool".to_string()));
-
-    // Everything OK
-    assert_eq!(
-        parse_component_arguments(
-            "gridVisible: bool, selectedDate: DateTime, minimumDate: DateTime"
-        ),
-        Ok(args_1_expected)
-    );
-
-    // Missing type for selectedDate
-    assert_eq!(
-        parse_component_arguments("gridVisible: bool, selectedDate: , minimumDate: DateTime"),
-        Err(ComponentParseError::MissingType(
-            1,
-            "selectedDate".to_string().into(),
-        ))
-    );
-
-    // Missing name for first argument
-    assert_eq!(
-        parse_component_arguments(": bool, selectedDate: DateTime, minimumDate: DateTime"),
-        Err(ComponentParseError::MissingName(0))
-    );
-
-    // Missing comma after DateTime
-    assert_eq!(
-        parse_component_arguments(
-            "gridVisible: bool, selectedDate: DateTime  minimumDate: DateTime"
-        ),
-        Err(ComponentParseError::WhiteSpaceInComponentType(
-            1,
-            "selectedDate".to_string().into(),
-            "DateTime  minimumDate".to_string().into(),
-        ))
-    );
-
-    // Missing colon after gridVisible
-    assert_eq!(
-        parse_component_arguments(
-            "gridVisible: bool, selectedDate DateTime, minimumDate: DateTime"
-        ),
-        Err(ComponentParseError::WhiteSpaceInComponentName(
-            1,
-            "selectedDate DateTime".to_string().into(),
-        ))
-    );
-}
+// test_parse_component_arguments removed: uses deleted parse_component_arguments function
 
 #[test]
 fn test_xml_get_item() {

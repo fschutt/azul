@@ -14,7 +14,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::StyledDom,
     window::StringPairVec,
-    xml::{get_html_node, DomXml, XmlComponentMap, XmlNode, XmlNodeChild},
+    xml::{get_html_node, DomXml, ComponentMap, XmlNode, XmlNodeChild},
 };
 use azul_css::{
     css::{Css, CssDeclaration},
@@ -1154,7 +1154,7 @@ impl EnhancedXmlParser {
         let metadata = Self::extract_metadata(&parsed_xml);
 
         // Parse to DOM
-        let dom = domxml_from_str(&xml_content, &mut XmlComponentMap::default());
+        let dom = domxml_from_str(&xml_content, &ComponentMap::with_builtin());
 
         Ok((dom, metadata, parsed_xml))
     }

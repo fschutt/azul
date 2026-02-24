@@ -291,7 +291,7 @@ json = ["azul-layout", "azul-layout/json"]
 
 # JSON serialization for RefAny (enables RefAny::new_serde<T>)
 # Requires T: serde::Serialize + serde::de::DeserializeOwned
-serde-json = ["serde", "serde_json"]
+serde-json = ["serde", "serde_json", "azul-core?/serde-json"]
 
 # -----------------------------------------------------------------------------
 # Logging Backends

@@ -100,7 +100,7 @@ use azul_css::{css::Css, AzString, OptionString, U8Vec};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
-pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml {
+pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     let error_css = Css::empty();
 
     let parsed = match parse_xml_string(&xml) {
@@ -136,7 +136,7 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
 #[cfg(all(feature = "std", feature = "xml"))]
 pub fn domxml_from_file<I: AsRef<Path>>(
     file_path: I,
-    component_map: &mut XmlComponentMap,
+    component_map: &ComponentMap,
 ) -> DomXml {
     use std::fs;
 
@@ -695,8 +695,8 @@ pub trait DomXmlExt {
 #[cfg(feature = "xml")]
 impl DomXmlExt for Dom {
     fn from_xml_string<S: AsRef<str>>(xml: S) -> StyledDom {
-        let mut component_map = XmlComponentMap::default();
-        let dom_xml = domxml_from_str(xml.as_ref(), &mut component_map);
+        let component_map = ComponentMap::with_builtin();
+        let dom_xml = domxml_from_str(xml.as_ref(), &component_map);
         dom_xml.parsed_dom
     }
 }

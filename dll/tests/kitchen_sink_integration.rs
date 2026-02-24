@@ -7,7 +7,7 @@ mod kitchen_sink_xml_tests {
     // Import the compile_to_rust function from kitchen_sink
     // Since kitchen_sink.rs is a binary, we need to test the compilation logic directly
 
-    use azul_core::xml::{str_to_rust_code, XmlComponentMap};
+    use azul_core::xml::{str_to_rust_code, ComponentMap};
     use azul_layout::xml::parse_xml_string;
 
     /// Simulate the compile_to_rust function from kitchen_sink.rs
@@ -25,8 +25,8 @@ mod kitchen_sink_xml_tests {
         };
 
         // Compile to Rust
-        let mut component_map = XmlComponentMap::default();
-        match str_to_rust_code(parsed.as_ref(), "", &mut component_map) {
+        let component_map = ComponentMap::with_builtin();
+        match str_to_rust_code(parsed.as_ref(), "", &component_map) {
             Ok(rust_code) => rust_code,
             Err(e) => {
                 format!(

@@ -77,7 +77,7 @@ fn test_manual_dom_structure() {
 #[cfg(feature = "xml")]
 #[test]
 fn test_parsed_inline_span_structure() {
-    use azul_layout::xml::{domxml_from_str, XmlComponentMap};
+    use azul_layout::xml::{domxml_from_str, ComponentMap};
     
     let html = r#"
 <!DOCTYPE html>
@@ -88,8 +88,8 @@ fn test_parsed_inline_span_structure() {
 </html>
 "#;
     
-    let mut component_map = XmlComponentMap::default();
-    let dom_xml = domxml_from_str(html, &mut component_map);
+    let component_map = ComponentMap::with_builtin();
+    let dom_xml = domxml_from_str(html, &component_map);
     let styled_dom = dom_xml.parsed_dom;
     
     // Debug: Print the DOM structure

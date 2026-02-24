@@ -4,7 +4,7 @@
 
 #[cfg(feature = "xml")]
 mod xml_compilation_tests {
-    use azul_core::xml::{str_to_rust_code, XmlComponentMap};
+    use azul_core::xml::{str_to_rust_code, ComponentMap};
     use azul_layout::xml::parse_xml_string;
 
     #[test]
@@ -20,9 +20,9 @@ mod xml_compilation_tests {
 "#;
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
-        let mut component_map = XmlComponentMap::default();
+        let component_map = ComponentMap::with_builtin();
 
-        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &component_map)
             .expect("Failed to compile to Rust");
 
         // Check that output contains expected Rust code patterns
@@ -53,9 +53,9 @@ mod xml_compilation_tests {
 "#;
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
-        let mut component_map = XmlComponentMap::default();
+        let component_map = ComponentMap::with_builtin();
 
-        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &component_map)
             .expect("Failed to compile to Rust");
 
         // Verify structure
@@ -89,9 +89,9 @@ mod xml_compilation_tests {
 "#;
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
-        let mut component_map = XmlComponentMap::default();
+        let component_map = ComponentMap::with_builtin();
 
-        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &component_map)
             .expect("Failed to compile to Rust");
 
         // Should be valid Rust code structure
@@ -119,9 +119,9 @@ mod xml_compilation_tests {
 "#;
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
-        let mut component_map = XmlComponentMap::default();
+        let component_map = ComponentMap::with_builtin();
 
-        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &component_map)
             .expect("Failed to compile to Rust");
 
         // Even with empty body, should have valid structure
@@ -175,9 +175,9 @@ mod xml_compilation_tests {
         let custom_imports = "use std::collections::HashMap;";
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
-        let mut component_map = XmlComponentMap::default();
+        let component_map = ComponentMap::with_builtin();
 
-        let rust_code = str_to_rust_code(parsed.as_ref(), custom_imports, &mut component_map)
+        let rust_code = str_to_rust_code(parsed.as_ref(), custom_imports, &component_map)
             .expect("Failed to compile to Rust");
 
         // Custom imports should be included
@@ -207,9 +207,9 @@ mod xml_compilation_tests {
 "#;
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
-        let mut component_map = XmlComponentMap::default();
+        let component_map = ComponentMap::with_builtin();
 
-        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &component_map)
             .expect("Failed to compile to Rust");
 
         // Should compile without errors

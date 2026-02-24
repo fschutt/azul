@@ -25,8 +25,8 @@ pub fn styled_dom_from_file(_: &str) -> StyledDom {
 
 #[cfg(feature = "xml")]
 pub fn styled_dom_from_file(path: &str) -> StyledDom {
-    use crate::xml::XmlComponentMap;
-    crate::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
+    use crate::xml::ComponentMap;
+    crate::xml::domxml_from_file(path, &ComponentMap::with_builtin()).parsed_dom
 }
 
 #[cfg(not(feature = "xml"))]
@@ -46,8 +46,8 @@ pub fn styled_dom_from_str(_: &str) -> StyledDom {
 
 #[cfg(feature = "xml")]
 pub fn styled_dom_from_str(s: &str) -> StyledDom {
-    use crate::xml::XmlComponentMap;
-    crate::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
+    use crate::xml::ComponentMap;
+    crate::xml::domxml_from_str(s, &ComponentMap::with_builtin()).parsed_dom
 }
 
 /// Create a StyledDom from an already-parsed Xml structure.
@@ -71,12 +71,12 @@ pub fn styled_dom_from_parsed_xml(_xml: azul_core::xml::Xml) -> StyledDom {
 /// This avoids re-parsing the XML string.
 #[cfg(feature = "xml")]
 pub fn styled_dom_from_parsed_xml(xml: azul_core::xml::Xml) -> StyledDom {
-    use azul_core::xml::{str_to_dom, XmlComponentMap};
+    use azul_core::xml::{str_to_dom, ComponentMap};
     use azul_core::dom::Dom;
     use azul_css::css::Css;
     
-    let mut component_map = XmlComponentMap::default();
-    match str_to_dom(xml.root.as_ref(), &mut component_map, None) {
+    let component_map = ComponentMap::with_builtin();
+    match str_to_dom(xml.root.as_ref(), &component_map, None) {
         Ok(styled_dom) => styled_dom,
         Err(e) => {
             Dom::create_body()
