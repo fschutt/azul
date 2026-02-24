@@ -140,7 +140,6 @@ impl_vec_hash!(ComponentArgument, ComponentArgumentVec);
 impl_vec_clone!(ComponentArgument, ComponentArgumentVec, ComponentArgumentVecDestructor);
 impl_vec_mut!(ComponentArgument, ComponentArgumentVec);
 
-pub type ComponentArgumentTypes = ComponentArgumentVec;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
 
@@ -1087,7 +1086,7 @@ impl fmt::Display for XmlError {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ComponentArguments {
     /// The arguments of the component, i.e. `date => String`
-    pub args: ComponentArgumentTypes,
+    pub args: ComponentArgumentVec,
     /// Whether this widget accepts text. Note that this will be passed as the first
     /// argument when rendering the Rust code.
     pub accepts_text: bool,
@@ -1112,7 +1111,7 @@ impl ComponentArguments {
 #[repr(C)]
 pub struct FilteredComponentArguments {
     /// The types of the component, i.e. `date => String`, in order
-    pub types: ComponentArgumentTypes,
+    pub types: ComponentArgumentVec,
     /// The values of the component, i.e. `date => "01.01.1998"`
     pub values: StringPairVec,
     /// Whether this widget accepts text. Note that this will be passed as the first
@@ -1641,7 +1640,6 @@ impl_result!(
 /// Render function type: takes component definition + arguments, returns StyledDom
 pub type ComponentRenderFn = fn(
     &ComponentDef,
-    &XmlComponentMap,
     &FilteredComponentArguments,
     &OptionString,
 ) -> ResultStyledDomRenderDomError;
@@ -1650,7 +1648,6 @@ pub type ComponentRenderFn = fn(
 pub type ComponentCompileFn = fn(
     &ComponentDef,
     &CompileTarget,
-    &XmlComponentMap,
     &FilteredComponentArguments,
     &OptionString,
     indent: usize,
@@ -1838,7 +1835,6 @@ impl ComponentMap {
 /// Delegates to creating a DOM node of the appropriate NodeType.
 fn builtin_render_fn(
     def: &ComponentDef,
-    _components: &XmlComponentMap,
     _args: &FilteredComponentArguments,
     text: &OptionString,
 ) -> ResultStyledDomRenderDomError {
@@ -1859,7 +1855,6 @@ fn builtin_render_fn(
 fn builtin_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
-    _components: &XmlComponentMap,
     _args: &FilteredComponentArguments,
     text: &OptionString,
     indent: usize,
@@ -1903,7 +1898,6 @@ fn builtin_compile_fn(
 /// Renders the component as a div with a text label showing the component name.
 pub fn user_defined_render_fn(
     def: &ComponentDef,
-    _components: &XmlComponentMap,
     _args: &FilteredComponentArguments,
     text: &OptionString,
 ) -> ResultStyledDomRenderDomError {
@@ -1923,7 +1917,6 @@ pub fn user_defined_render_fn(
 pub fn user_defined_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
-    _components: &XmlComponentMap,
     _args: &FilteredComponentArguments,
     text: &OptionString,
     indent: usize,
@@ -3434,7 +3427,7 @@ impl XmlComponentTrait for TextRenderer {
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
 pub fn parse_component_arguments<'a>(
     input: &'a str,
-) -> Result<ComponentArgumentTypes, ComponentParseError> {
+) -> Result<ComponentArgumentVec, ComponentParseError> {
     use self::ComponentParseError::*;
 
     let mut args = ComponentArgumentVec::new();
@@ -4091,7 +4084,7 @@ pub fn compile_components(
     }
 }
 
-pub fn format_component_args(component_args: &ComponentArgumentTypes) -> String {
+pub fn format_component_args(component_args: &ComponentArgumentVec) -> String {
     let mut args = component_args
         .iter()
         .map(|a| format!("{}: {}", a.name, a.arg_type))
@@ -4478,7 +4471,7 @@ pub fn set_attributes(
 pub fn set_stringified_attributes(
     dom_string: &mut String,
     xml_attributes: &XmlAttributeMap,
-    filtered_xml_attributes: &ComponentArgumentTypes,
+    filtered_xml_attributes: &ComponentArgumentVec,
     tabs: usize,
 ) {
     let t0 = String::from("    ").repeat(tabs);
@@ -4673,7 +4666,7 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 /// => "hello value1, valuec{ {c} }"
 pub fn combine_and_replace_dynamic_items(
     input: &[DynamicItem],
-    variables: &ComponentArgumentTypes,
+    variables: &ComponentArgumentVec,
 ) -> String {
     let mut s = String::new();
 
@@ -4728,7 +4721,7 @@ pub fn combine_and_replace_dynamic_items(
 /// Note: the number (0, 1, etc.) is the order of the argument, it is irrelevant for
 /// runtime formatting, only important for keeping the component / function arguments
 /// in order when compiling the arguments to Rust code
-pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentTypes) -> String {
+pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentVec) -> String {
     let dynamic_str_items = split_dynamic_string(input);
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
