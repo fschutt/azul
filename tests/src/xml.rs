@@ -2,7 +2,7 @@
 use azul_core::xml::{
     compile_body_node_to_rust_code, compile_component, compile_components_to_rust_code,
     format_args_dynamic, get_body_node, get_item, normalize_casing, parse_component_arguments,
-    prepare_string, ComponentArgumentTypes, ComponentParseError, XmlComponentMap, XmlNode,
+    prepare_string, ComponentArgumentVec, ComponentParseError, XmlComponentMap, XmlNode,
 };
 #[cfg(test)]
 use azul_layout::xml::parse_xml_string;
@@ -61,7 +61,7 @@ fn test_compile_dom_1() {
 
 #[test]
 fn test_format_args_dynamic() {
-    let mut variables = ComponentArgumentTypes::new();
+    let mut variables = ComponentArgumentVec::new();
     variables.push(("a".to_string(), "value1".to_string()));
     variables.push(("b".to_string(), "value2".to_string()));
     assert_eq!(
@@ -96,7 +96,7 @@ fn test_normalize_casing() {
 
 #[test]
 fn test_parse_component_arguments() {
-    let mut args_1_expected = ComponentArgumentTypes::new();
+    let mut args_1_expected = ComponentArgumentVec::new();
     args_1_expected.push(("selected_date".to_string(), "DateTime".to_string()));
     args_1_expected.push(("minimum_date".to_string(), "DateTime".to_string()));
     args_1_expected.push(("grid_visible".to_string(), "bool".to_string()));
