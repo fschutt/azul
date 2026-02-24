@@ -428,6 +428,7 @@ mod tests {
                         kind: TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: vec![],
                             custom_impls: vec![],
@@ -476,6 +477,7 @@ mod tests {
                         kind: TypeDefKind::Enum {
                             variants,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: vec![],
                             custom_impls: vec![],

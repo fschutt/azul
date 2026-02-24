@@ -1302,6 +1302,14 @@ pub enum FfiSafetyWarningKind {
         /// Whether all generic_args types are defined in api.json
         all_args_in_api: bool,
     },
+    /// Type has more than one `#[repr(...)]` attribute.
+    /// This is ambiguous and likely a bug — only one repr attribute should be present.
+    DuplicateReprAttribute {
+        /// Number of `#[repr(...)]` attributes found
+        count: usize,
+        /// The merged repr value
+        merged_repr: String,
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -1348,6 +1356,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::GenericTypeAlias { target_in_api, all_args_in_api, .. } => {
                 !target_in_api || !all_args_in_api
             }
+            // Critical - multiple #[repr(...)] attributes are ambiguous
+            FfiSafetyWarningKind::DuplicateReprAttribute { .. } => true,
         }
     }
 }
@@ -1476,11 +1486,24 @@ pub fn check_ffi_safety(
             // Check structs for repr(C) and field issues
             if let type_index::TypeDefKind::Struct {
                 repr,
+                repr_attr_count,
                 fields,
                 is_tuple_struct,
                 ..
             } = &typedef.kind
             {
+                // Check for duplicate #[repr(...)] attributes
+                if *repr_attr_count > 1 {
+                    warnings.push(FfiSafetyWarning {
+                        type_name: type_name.clone(),
+                        file_path: file_path.clone(),
+                        kind: FfiSafetyWarningKind::DuplicateReprAttribute {
+                            count: *repr_attr_count,
+                            merged_repr: repr.clone().unwrap_or_default(),
+                        },
+                    });
+                }
+
                 // Tuple structs are not supported - they need named fields for C API
                 if *is_tuple_struct {
                     warnings.push(FfiSafetyWarning {
@@ -1535,7 +1558,19 @@ pub fn check_ffi_safety(
             }
 
             // Check enums
-            if let type_index::TypeDefKind::Enum { variants, repr, .. } = &typedef.kind {
+            if let type_index::TypeDefKind::Enum { variants, repr, repr_attr_count, .. } = &typedef.kind {
+                // Check for duplicate #[repr(...)] attributes
+                if *repr_attr_count > 1 {
+                    warnings.push(FfiSafetyWarning {
+                        type_name: type_name.clone(),
+                        file_path: file_path.clone(),
+                        kind: FfiSafetyWarningKind::DuplicateReprAttribute {
+                            count: *repr_attr_count,
+                            merged_repr: repr.clone().unwrap_or_default(),
+                        },
+                    });
+                }
+
                 // Check if any variant has data
                 let has_data_variants = variants.values().any(|v| v.ty.is_some());
 
@@ -2343,6 +2378,20 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                     );
                 }
             }
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::DuplicateReprAttribute { count, merged_repr } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} Type has {} #[repr(...)] attributes (merged: {})",
+                "→".dimmed(),
+                count.to_string().red(),
+                merged_repr.yellow()
+            );
+            println!(
+                "    {} Remove duplicate #[repr(...)] attributes. Only one is allowed per type.",
+                "FIX:".cyan()
+            );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
     }

@@ -95,6 +95,9 @@ pub enum TypeDefKind {
         fields: IndexMap<String, FieldDef>,
         /// The repr attribute value, e.g. Some("C") or None if missing
         repr: Option<String>,
+        /// Number of `#[repr(...)]` attributes found on the source type.
+        /// More than 1 is an error (duplicate repr attributes).
+        repr_attr_count: usize,
         generic_params: Vec<String>,
         derives: Vec<String>,
         /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
@@ -106,6 +109,9 @@ pub enum TypeDefKind {
         variants: IndexMap<String, VariantDef>,
         /// The repr attribute value, e.g. Some("C"), Some("C, u8"), or None if missing
         repr: Option<String>,
+        /// Number of `#[repr(...)]` attributes found on the source type.
+        /// More than 1 is an error (duplicate repr attributes).
+        repr_attr_count: usize,
         generic_params: Vec<String>,
         derives: Vec<String>,
         /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
@@ -259,6 +265,7 @@ impl TypeDefinition {
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string()]
@@ -301,6 +308,7 @@ impl TypeDefinition {
                         TypeDefKind::Enum {
                             variants,
                             repr: Some("C, u8".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string()]
@@ -347,6 +355,7 @@ impl TypeDefinition {
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: Vec::new(),
                             derives: vec![
                                 "Debug".to_string(),
@@ -380,6 +389,7 @@ impl TypeDefinition {
                         TypeDefKind::Enum {
                             variants,
                             repr: Some("C, u8".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string(), "Clone".to_string()]
@@ -414,6 +424,7 @@ impl TypeDefinition {
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string(), "Clone".to_string()]
@@ -449,6 +460,7 @@ impl TypeDefinition {
                         TypeDefKind::Enum {
                             variants,
                             repr: Some("C, u8".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string(), "Clone".to_string()]
@@ -484,6 +496,7 @@ impl TypeDefinition {
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string()]
@@ -518,6 +531,7 @@ impl TypeDefinition {
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
+                            repr_attr_count: 1,
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string()]
@@ -575,6 +589,7 @@ impl TypeDefinition {
                 derives,
                 custom_impls,
                 is_tuple_struct: _,
+                ..
             } => TypeKind::Struct {
                 fields: fields
                     .into_iter()
@@ -606,6 +621,7 @@ impl TypeDefinition {
                 generic_params,
                 derives,
                 custom_impls,
+                ..
             } => TypeKind::Enum {
                 variants: variants
                     .into_iter()
@@ -1575,7 +1591,7 @@ fn extract_struct(
         );
     }
 
-    let repr = extract_repr_attr(&s.attrs);
+    let (repr, repr_attr_count) = extract_repr_attr(&s.attrs);
     let derives = extract_derives(&s.attrs);
 
     Some(TypeDefinition {
@@ -1587,6 +1603,7 @@ fn extract_struct(
         kind: TypeDefKind::Struct {
             fields,
             repr,
+            repr_attr_count,
             generic_params,
             derives,
             custom_impls: vec![], // Will be filled in by second pass
@@ -1638,7 +1655,7 @@ fn extract_enum(
         );
     }
 
-    let repr = extract_repr_attr(&e.attrs);
+    let (repr, repr_attr_count) = extract_repr_attr(&e.attrs);
     let derives = extract_derives(&e.attrs);
 
     Some(TypeDefinition {
@@ -1650,6 +1667,7 @@ fn extract_enum(
         kind: TypeDefKind::Enum {
             variants,
             repr,
+            repr_attr_count,
             generic_params,
             derives,
             custom_impls: vec![], // Will be filled in by second pass
@@ -2198,6 +2216,7 @@ fn extract_macro_generated_types(
                             fields
                         },
                         repr: Some("C".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Debug".to_string(),
@@ -2244,6 +2263,7 @@ fn extract_macro_generated_types(
                             fields
                         },
                         repr: Some("C".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Default".to_string(),
@@ -2298,6 +2318,7 @@ fn extract_macro_generated_types(
                             fields
                         },
                         repr: Some("C".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Copy".to_string(),
@@ -2343,6 +2364,7 @@ fn extract_macro_generated_types(
                             fields
                         },
                         repr: Some("C".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Default".to_string(),
@@ -2391,6 +2413,7 @@ fn extract_macro_generated_types(
                             variants
                         },
                         repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Debug".to_string(),
@@ -2430,6 +2453,7 @@ fn extract_macro_generated_types(
                             variants
                         },
                         repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Debug".to_string(),
@@ -2469,6 +2493,7 @@ fn extract_macro_generated_types(
                             variants
                         },
                         repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Debug".to_string(),
@@ -2519,6 +2544,7 @@ fn extract_macro_generated_types(
                             variants
                         },
                         repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
                         generic_params: vec![],
                         derives: vec![
                             "Debug".to_string(),
@@ -2541,27 +2567,33 @@ fn extract_macro_generated_types(
 
 // helpers
 /// Extract the #[repr(...)] attribute value if present.
-/// Returns Some("C"), Some("C, u8"), Some("transparent"), etc. or None if no repr attribute.
-fn extract_repr_attr(attrs: &[syn::Attribute]) -> Option<String> {
+/// Returns (merged_repr, count) where count is the number of `#[repr(...)]` attributes found.
+/// If there are multiple repr attributes, their contents are merged (e.g. `#[repr(C)]` + `#[repr(C, u8)]` → "C, u8").
+/// A count > 1 indicates duplicate repr attributes, which is an error.
+fn extract_repr_attr(attrs: &[syn::Attribute]) -> (Option<String>, usize) {
+    let mut all_parts: Vec<String> = Vec::new();
+    let mut count = 0usize;
     for attr in attrs {
         if !attr.path().is_ident("repr") {
             continue;
         }
+        count += 1;
         // Parse the repr content: #[repr(C)] -> "C", #[repr(C, u8)] -> "C, u8"
         if let syn::Meta::List(list) = &attr.meta {
             let tokens = list.tokens.to_string();
-            // Clean up whitespace
-            let repr_value = tokens
-                .split(',')
-                .map(|s| s.trim())
-                .collect::<Vec<_>>()
-                .join(", ");
-            if !repr_value.is_empty() {
-                return Some(repr_value);
+            for part in tokens.split(',') {
+                let trimmed = part.trim().to_string();
+                if !trimmed.is_empty() && !all_parts.contains(&trimmed) {
+                    all_parts.push(trimmed);
+                }
             }
         }
     }
-    None
+    if all_parts.is_empty() {
+        (None, count)
+    } else {
+        (Some(all_parts.join(", ")), count)
+    }
 }
 
 /// Check if a repr value indicates FFI-safe representation
