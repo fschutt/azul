@@ -3855,8 +3855,9 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
 #[cfg(feature = "std")]
 fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -> Result<ExportedCodeResponse, String> {
     use azul_core::xml::{
-        ComponentMap, CompileTarget, XmlComponentMap,
+        ComponentMap, CompileTarget,
         FilteredComponentArguments, ComponentDef,
+        ResultStringCompileError,
     };
     use azul_css::corety::OptionString;
 
@@ -3868,7 +3869,6 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
         other => return Err(format!("Unsupported language: '{}'. Use: rust, c, cpp, python", other)),
     };
 
-    let xml_map = XmlComponentMap::default();
     let mut files = std::collections::HashMap::new();
     let mut warnings = Vec::new();
 
@@ -3883,9 +3883,9 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
             let args = FilteredComponentArguments::default();
             let text = OptionString::None;
 
-            let compiled_code = match (def.compile_fn)(def, &target, &xml_map, &args, &text, 0) {
-                Ok(code) => Some(code),
-                Err(e) => {
+            let compiled_code = match (def.compile_fn)(def, &target, &args, &text, 0) {
+                ResultStringCompileError::Ok(code) => Some(code.as_str().to_string()),
+                ResultStringCompileError::Err(e) => {
                     warnings.push(format!(
                         "Failed to compile component '{}': {:?}",
                         def.id.qualified_name(), e
