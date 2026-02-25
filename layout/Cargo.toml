@@ -184,7 +184,7 @@ http = ["dep:ureq", "dep:url", "std"]
 zip_support = ["dep:zip", "std"]
 
 # JSON parsing support
-json = ["dep:serde_json", "std"]
+json = ["dep:serde_json", "std", "azul-core/serde-json"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip_support", "dep:material-icons"]

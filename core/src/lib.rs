@@ -79,6 +79,8 @@ pub mod ui_solver;
 pub mod window;
 /// XML structures
 pub mod xml;
+/// JSON value types (data definitions, no serde_json dependency)
+pub mod json;
 
 // Typedef for possible faster implementation of hashing
 pub type FastHashMap<T, U> = alloc::collections::BTreeMap<T, U>;
