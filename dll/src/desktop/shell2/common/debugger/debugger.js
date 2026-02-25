@@ -60,6 +60,9 @@ const app = {
         // JSON tree collapsed paths for read-only views
         jsonReadOnlyCollapsed: new Set(),
         jsonReadOnlyGroupCollapsed: new Set(),
+        // Node dataset state
+        datasetJson: null,
+        datasetNodeId: null,
     },
 
     /* ================================================================
@@ -135,6 +138,7 @@ const app = {
             // ── App State ──
             'get_app_state':   { desc: 'Get global app state as JSON',             examples: ['/get_app_state'],                             params: [] },
             'set_app_state':   { desc: 'Set global app state from JSON',           examples: ['/set_app_state state {"counter":0}'],          params: [{ name: 'state', type: 'text', placeholder: '{"counter": 0}' }] },
+            'get_node_dataset': { desc: 'Get node dataset RefAny as JSON',         examples: ['/get_node_dataset node_id 3'],                params: [{ name: 'node_id', type: 'number', value: 0 }] },
 
             // ── DOM Mutation ──
             'insert_node':     { desc: 'Insert child node',                        examples: ['/insert_node parent_id 0 node_type div'],     params: [{ name: 'parent_id', type: 'number', value: 0 }, { name: 'node_type', type: 'text', placeholder: 'div' }, { name: 'position', type: 'number', placeholder: '' }] },
@@ -430,6 +434,9 @@ const app = {
             if (payload.op === 'get_app_state') {
                 return { status: 'ok', data: { type: 'app_state', value: { counter: 0, items: ['a', 'b'], nested: { flag: true } } }};
             }
+            if (payload.op === 'get_node_dataset') {
+                return { status: 'ok', data: { type: 'node_dataset', value: { node_id: payload.node_id, metadata: { type_id: 0, type_name: 'MockDataset', can_serialize: true, can_deserialize: false, ref_count: 1 }, dataset: { key: 'mock_value' }, error: null }}};
+            }
             if (payload.op === 'get_component_registry') {
                 return { status: 'ok', data: { type: 'component_registry', value: { libraries: [] }}};
             }
@@ -605,9 +612,11 @@ const app = {
                 var lastColon = shortName.lastIndexOf(':');
                 if (lastColon >= 0) shortName = shortName.substring(lastColon + 1);
                 compBadge.textContent = shortName;
-                var dmKeys = Object.keys(node.component.data_model || {});
-                if (dmKeys.length) {
-                    compBadge.title = dmKeys.map(function(k) { return k + '=' + node.component.data_model[k]; }).join(', ');
+                var dm = node.component.data_model;
+                if (dm != null && typeof dm === 'object') {
+                    compBadge.title = JSON.stringify(dm);
+                } else if (dm != null) {
+                    compBadge.title = String(dm);
                 }
                 label.appendChild(compBadge);
             }
@@ -677,10 +686,17 @@ const app = {
             if (node.component && node.component.component_id) {
                 html += '<div class="detail-row"><span class="detail-key">component</span><span class="detail-value detail-component-id">' + esc(node.component.component_id) + '</span></div>';
                 var dm = node.component.data_model;
-                if (dm) {
-                    Object.keys(dm).forEach(function(k) {
-                        html += '<div class="detail-row" style="padding-left:12px"><span class="detail-key">' + esc(k) + '</span><span class="detail-value">' + esc(dm[k]) + '</span></div>';
-                    });
+                if (dm != null) {
+                    if (typeof dm === 'object' && !Array.isArray(dm)) {
+                        // Object: show key-value rows
+                        Object.keys(dm).forEach(function(k) {
+                            var val = typeof dm[k] === 'object' ? JSON.stringify(dm[k]) : String(dm[k]);
+                            html += '<div class="detail-row" style="padding-left:12px"><span class="detail-key">' + esc(k) + '</span><span class="detail-value">' + esc(val) + '</span></div>';
+                        });
+                    } else {
+                        // Primitive or array: show as JSON string
+                        html += '<div class="detail-row" style="padding-left:12px"><span class="detail-key">value</span><span class="detail-value">' + esc(JSON.stringify(dm)) + '</span></div>';
+                    }
                 }
             }
 
@@ -1514,6 +1530,14 @@ const app = {
             if (node && node.events && node.events.length) {
                 app._autoResolvePointers(node);
             }
+            // Load dataset if node has one
+            if (node && node.has_dataset) {
+                app.handlers.loadNodeDataset(nodeId);
+            } else {
+                app.state.datasetJson = null;
+                app.state.datasetNodeId = null;
+                app.handlers._updateDatasetPanel();
+            }
         },
 
         /* ── CSS editing (inline edit + add override) ── */
@@ -1695,6 +1719,44 @@ const app = {
                 }
             } catch(e) {
                 app.log('Save app state failed: ' + e.message, 'error');
+            }
+        },
+
+        /* ── Node Dataset (read-only JSON tree for node's RefAny dataset) ── */
+        loadNodeDataset: async function(nodeId) {
+            var nid = (nodeId != null) ? nodeId : app.state.selectedNodeId;
+            if (nid == null) {
+                app.state.datasetJson = null;
+                app.state.datasetNodeId = null;
+                app.handlers._updateDatasetPanel();
+                return;
+            }
+            try {
+                var res = await app.api.post({ op: 'get_node_dataset', node_id: nid });
+                if (res.status === 'ok' && res.data && res.data.value) {
+                    var ds = res.data.value;
+                    app.state.datasetJson = ds.dataset || null;
+                    app.state.datasetNodeId = nid;
+                } else {
+                    app.state.datasetJson = null;
+                    app.state.datasetNodeId = nid;
+                }
+            } catch(e) {
+                app.state.datasetJson = null;
+                app.state.datasetNodeId = nid;
+            }
+            app.handlers._updateDatasetPanel();
+        },
+
+        _updateDatasetPanel: function() {
+            var panel = document.getElementById('dataset-panel');
+            if (!panel) return;
+            if (app.state.datasetJson != null) {
+                panel.style.display = '';
+                app.json.render('dataset-tree', app.state.datasetJson, true);
+            } else {
+                panel.style.display = 'none';
+                document.getElementById('dataset-tree').innerHTML = '<div class="placeholder-text">No dataset.</div>';
             }
         },
 

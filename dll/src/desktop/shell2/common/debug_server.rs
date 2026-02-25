@@ -144,6 +144,8 @@ pub enum ResponseData {
     ExportedLibrary(ExportedLibraryResponse),
     /// Component preview image (CPU-rendered)
     ComponentPreview(ComponentPreviewResponse),
+    /// Node dataset (RefAny serialized to JSON)
+    NodeDataset(NodeDatasetResponse),
 }
 
 /// Response for GetComponentPreview — CPU-rendered component image.
@@ -156,6 +158,21 @@ pub struct ComponentPreviewResponse {
     pub width: f32,
     /// Actual content height in logical pixels
     pub height: f32,
+}
+
+/// Response for GetNodeDataset — serialized RefAny dataset of a DOM node.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeDatasetResponse {
+    /// The node ID queried
+    pub node_id: u64,
+    /// Metadata about the RefAny type
+    pub metadata: RefAnyMetadata,
+    /// The serialized dataset JSON (null if not serializable)
+    pub dataset: serde_json::Value,
+    /// Error message if serialization failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<RefAnyError>,
 }
 
 /// Wrapper for E2E test results
@@ -805,8 +822,8 @@ pub struct HierarchyNodeInfo {
 pub struct ComponentOriginJson {
     /// Qualified component name, e.g. "shadcn:card"
     pub component_id: String,
-    /// Data model field values at render time: { "title": "Hello", ... }
-    pub data_model: std::collections::HashMap<String, String>,
+    /// Data model at render time as a typed JSON value (object, number, string, etc.)
+    pub data_model: serde_json::Value,
 }
 
 /// Event handler info for a single callback on a node
@@ -1568,6 +1585,11 @@ pub enum DebugEvent {
     SetAppState {
         /// The JSON value to set as the new app state
         state: serde_json::Value,
+    },
+    /// Get the dataset (RefAny) of a specific DOM node as JSON
+    GetNodeDataset {
+        /// Node ID whose dataset to retrieve
+        node_id: u64,
     },
 
     // Focus and Cursor State
@@ -3173,13 +3195,8 @@ fn eval_assert_app_state(
         None => return AssertionResult::fail("assert_app_state: serialization returned null"),
     };
 
-    // Parse our internal JSON into serde_json::Value
-    let root: serde_json::Value = match serde_json::from_str(&json.to_string().as_str()) {
-        Ok(v) => v,
-        Err(e) => return AssertionResult::fail(format!(
-            "assert_app_state: JSON parse error: {}", e
-        )),
-    };
+    // Convert our internal JSON into serde_json::Value
+    let root: serde_json::Value = json.to_serde_value();
 
     // Navigate the dot-path
     let actual = navigate_json_path(&root, path);
@@ -4936,6 +4953,47 @@ fn python_default_value(field_type: &str, default_val: Option<&str>) -> String {
     }
 }
 
+/// Convert an `azul_core::json::Json` value to `serde_json::Value`.
+///
+/// For primitive types (null, bool, number, string) we convert directly.
+/// For arrays/objects the internal representation is already a JSON string,
+/// so we parse it with serde_json.
+#[cfg(feature = "std")]
+fn json_to_serde_value(json: &azul_core::json::Json) -> serde_json::Value {
+    use azul_core::json::JsonType;
+    match json.value_type {
+        JsonType::Null => serde_json::Value::Null,
+        JsonType::Bool => {
+            match json.as_bool() {
+                azul_css::OptionBool::Some(b) => serde_json::Value::Bool(b),
+                azul_css::OptionBool::None => serde_json::Value::Null,
+            }
+        }
+        JsonType::Number => {
+            match json.as_number() {
+                azul_css::OptionF64::Some(n) => {
+                    if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+                        serde_json::Value::Number(serde_json::Number::from(n as i64))
+                    } else {
+                        serde_json::Number::from_f64(n)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null)
+                    }
+                }
+                azul_css::OptionF64::None => serde_json::Value::Null,
+            }
+        }
+        JsonType::String => {
+            serde_json::Value::String(json.raw_string().to_string())
+        }
+        JsonType::Array | JsonType::Object => {
+            // Internal storage is a JSON string — just parse it
+            serde_json::from_str(json.raw_string())
+                .unwrap_or(serde_json::Value::Null)
+        }
+    }
+}
+
 /// Returns universal HTML attributes that all elements support
 fn get_universal_attributes() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -5911,13 +5969,11 @@ fn process_debug_event(
 
                     // Extract component origin (if this node was rendered by a component)
                     let component = data.get_component_origin().map(|origin| {
-                        let mut dm = std::collections::HashMap::new();
-                        for (k, v) in &origin.data_model_values {
-                            dm.insert(k.as_str().to_string(), v.as_str().to_string());
-                        }
+                        // Convert azul_core::json::Json → serde_json::Value via the raw string
+                        let dm_value = json_to_serde_value(&origin.data_model_json);
                         ComponentOriginJson {
                             component_id: origin.component_id.as_str().to_string(),
-                            data_model: dm,
+                            data_model: dm_value,
                         }
                     });
 
@@ -7345,25 +7401,13 @@ fn process_debug_event(
                 match serialize_refany_to_json(app_data) {
                     Some(json) => {
                         // Convert our Json type to serde_json::Value for the response
-                        let json_string = json.to_string();
-                        match serde_json::from_str(&json_string.as_str()) {
-                            Ok(value) => {
-                                let response = AppStateResponse {
-                                    metadata,
-                                    state: value,
-                                    error: None,
-                                };
-                                send_ok(request, None, Some(ResponseData::AppState(response)));
-                            }
-                            Err(e) => {
-                                let response = AppStateResponse {
-                                    metadata,
-                                    state: serde_json::Value::Null,
-                                    error: Some(RefAnyError::SerdeError(e.to_string())),
-                                };
-                                send_ok(request, None, Some(ResponseData::AppState(response)));
-                            }
-                        }
+                        let value = json.to_serde_value();
+                        let response = AppStateResponse {
+                            metadata,
+                            state: value,
+                            error: None,
+                        };
+                        send_ok(request, None, Some(ResponseData::AppState(response)));
                     }
                     None => {
                         let response = AppStateResponse {
@@ -7423,6 +7467,73 @@ fn process_debug_event(
                         send_ok(request, None, Some(ResponseData::AppStateSet(response)));
                     }
                 }
+            }
+        }
+
+        DebugEvent::GetNodeDataset { node_id } => {
+            use azul_core::dom::{DomId, NodeId};
+            use azul_layout::json::serialize_refany_to_json;
+
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let node_data = layout_result.styled_dom.node_data.as_container();
+                let nid = *node_id as usize;
+
+                if nid < node_data.len() {
+                    let data = &node_data[NodeId::new(nid)];
+                    match &data.dataset {
+                        azul_core::refany::OptionRefAny::Some(refany) => {
+                            let metadata = RefAnyMetadata {
+                                type_id: refany.get_type_id(),
+                                type_name: refany.get_type_name().as_str().to_string(),
+                                can_serialize: refany.can_serialize(),
+                                can_deserialize: refany.can_deserialize(),
+                                ref_count: refany.get_ref_count(),
+                            };
+
+                            if !refany.can_serialize() {
+                                let response = NodeDatasetResponse {
+                                    node_id: *node_id,
+                                    metadata,
+                                    dataset: serde_json::Value::Null,
+                                    error: Some(RefAnyError::NotSerializable),
+                                };
+                                send_ok(request, None, Some(ResponseData::NodeDataset(response)));
+                            } else {
+                                match serialize_refany_to_json(refany) {
+                                    Some(json) => {
+                                        let value = json.to_serde_value();
+                                        let response = NodeDatasetResponse {
+                                            node_id: *node_id,
+                                            metadata,
+                                            dataset: value,
+                                            error: None,
+                                        };
+                                        send_ok(request, None, Some(ResponseData::NodeDataset(response)));
+                                    }
+                                    None => {
+                                        let response = NodeDatasetResponse {
+                                            node_id: *node_id,
+                                            metadata,
+                                            dataset: serde_json::Value::Null,
+                                            error: Some(RefAnyError::SerdeError("Serialization returned null".to_string())),
+                                        };
+                                        send_ok(request, None, Some(ResponseData::NodeDataset(response)));
+                                    }
+                                }
+                            }
+                        }
+                        azul_core::refany::OptionRefAny::None => {
+                            send_err(request, &alloc::format!("Node {} has no dataset", node_id));
+                        }
+                    }
+                } else {
+                    send_err(request, &alloc::format!("Node {} out of range (max {})", node_id, node_data.len()));
+                }
+            } else {
+                send_err(request, "No layout result for DOM 0");
             }
         }
 

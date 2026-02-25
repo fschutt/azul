@@ -1387,20 +1387,50 @@ impl Hash for NodeData {
 /// - The debugger to show a "Component Tree" alongside the DOM tree
 /// - Code generation roundtrips (rendered DOM → component invocations → code)
 /// - Clicking a DOM node to navigate to the component that produced it
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComponentOrigin {
     /// Qualified component name, e.g. "shadcn:card", "builtin:div"
     pub component_id: AzString,
-    /// Snapshot of the data model field values at render time.
-    /// Stored as (name, value_as_string) pairs for debugger display.
-    pub data_model_values: alloc::vec::Vec<(AzString, AzString)>,
+    /// Snapshot of the data model at render time, stored as a JSON value.
+    /// The debug server can inspect typed values; the frontend serializes
+    /// them back to JSON for display and editing.
+    pub data_model_json: crate::json::Json,
+}
+
+// Manual impls because Json contains f64 (no Eq/Ord/Hash derive),
+// but we need them for NodeDataExt. We compare on the Display string.
+impl Eq for ComponentOrigin {}
+
+impl PartialOrd for ComponentOrigin {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ComponentOrigin {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.component_id.cmp(&other.component_id)
+            .then_with(|| {
+                let a = alloc::format!("{}", self.data_model_json);
+                let b = alloc::format!("{}", other.data_model_json);
+                a.cmp(&b)
+            })
+    }
+}
+
+impl core::hash::Hash for ComponentOrigin {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.component_id.hash(state);
+        let s = alloc::format!("{}", self.data_model_json);
+        s.hash(state);
+    }
 }
 
 impl Default for ComponentOrigin {
     fn default() -> Self {
         Self {
             component_id: AzString::from_const_str(""),
-            data_model_values: alloc::vec::Vec::new(),
+            data_model_json: crate::json::Json::null(),
         }
     }
 }

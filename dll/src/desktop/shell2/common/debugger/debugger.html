@@ -104,6 +104,16 @@
                 <div class="placeholder-text">Click refresh to load.</div>
             </div>
             <div id="snapshots-container" style="padding:0;"></div>
+            <!-- Dataset Panel (visible when selected node has a dataset) -->
+            <div id="dataset-panel" style="display:none;">
+                <div class="sidebar-header" style="border-top:1px solid var(--border)">
+                    <span>Node Dataset</span>
+                    <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.loadNodeDataset()" title="Refresh">refresh</span>
+                </div>
+                <div id="dataset-tree" class="sidebar-content" style="padding:0;">
+                    <div class="placeholder-text">No dataset.</div>
+                </div>
+            </div>
         </div>
         <div class="resizer" data-target="appstate-panel" data-min="120" data-max="500"></div>
 
