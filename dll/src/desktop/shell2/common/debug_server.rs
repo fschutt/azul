@@ -788,6 +788,25 @@ pub struct HierarchyNodeInfo {
     pub rect: Option<LogicalRectJson>,
     pub tab_index: Option<i32>,
     pub contenteditable: bool,
+    /// Which component rendered this DOM node (if any).
+    /// Enables the debugger to show a Component Tree alongside the DOM tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component: Option<ComponentOriginJson>,
+    /// Whether this node has a dataset (opaque RefAny data).
+    /// True if `NodeData.dataset` is `Some(...)`. The actual data is opaque
+    /// but knowing it exists helps visualize component state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_dataset: Option<bool>,
+}
+
+/// JSON representation of a component origin stamp.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ComponentOriginJson {
+    /// Qualified component name, e.g. "shadcn:card"
+    pub component_id: String,
+    /// Data model field values at render time: { "title": "Hello", ... }
+    pub data_model: std::collections::HashMap<String, String>,
 }
 
 /// Event handler info for a single callback on a node
@@ -4066,9 +4085,13 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
             component_infos.push(ScaffoldComponentInfo {
                 name: def.id.name.as_str().to_string(),
                 display_name: def.display_name.as_str().to_string(),
+                data_model_name: def.data_model.name.as_str().to_string(),
                 compiled_code,
                 data_fields: def.data_model.fields.as_ref().iter()
-                    .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback(..)))
+                    .filter(|f| !matches!(f.field_type,
+                        azul_core::xml::ComponentFieldType::Callback(..)
+                        | azul_core::xml::ComponentFieldType::StyledDom
+                    ))
                     .map(|f| (
                         f.name.as_str().to_string(),
                         field_type_to_string(&f.field_type),
@@ -4085,7 +4108,12 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
                             None
                         }
                     }).collect(),
-                parameters: Vec::new(),
+                slot_fields: def.data_model.fields.as_ref().iter()
+                    .filter(|f| matches!(f.field_type, azul_core::xml::ComponentFieldType::StyledDom))
+                    .map(|f| (
+                        f.name.as_str().to_string(),
+                        f.description.as_str().to_string(),
+                    )).collect(),
             });
         }
     }
@@ -4111,10 +4139,15 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
 struct ScaffoldComponentInfo {
     name: String,
     display_name: String,
+    /// Name of the data model struct (e.g. "CardData")
+    data_model_name: String,
     compiled_code: Option<String>,
-    data_fields: Vec<(String, String, Option<String>)>,    // (name, type, default)
-    callback_slots: Vec<(String, String)>,                  // (name, callback_type)
-    parameters: Vec<(String, String, Option<String>)>,      // (name, type, default)
+    /// Data fields: (name, type_string, default_value)
+    data_fields: Vec<(String, String, Option<String>)>,
+    /// Callback slots: (name, callback_type_string)
+    callback_slots: Vec<(String, String)>,
+    /// Slot fields (StyledDom children): (name, description)
+    slot_fields: Vec<(String, String)>,
 }
 
 /// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol.
@@ -4409,7 +4442,39 @@ fn map_type_to_c(type_str: &str) -> &str {
         "u32" | "uint" => "uint32_t",
         "u64" => "uint64_t",
         "usize" => "size_t",
+        "ColorU" | "color" => "AzColorU",
+        "StyledDom" | "dom" => "AzStyledDom",
         _ => "AzString",
+    }
+}
+
+/// Map component type strings to C++ types
+#[cfg(feature = "std")]
+fn map_type_to_cpp(type_str: &str) -> &str {
+    match type_str {
+        "String" | "string" => "std::string",
+        "bool" | "Bool" | "boolean" => "bool",
+        "i32" | "int" | "Int" => "int32_t",
+        "i64" => "int64_t",
+        "f32" | "float" | "Float" => "float",
+        "f64" | "double" | "Double" => "double",
+        "u32" | "uint" => "uint32_t",
+        "u64" => "uint64_t",
+        "usize" => "size_t",
+        "ColorU" | "color" => "ColorU",
+        "StyledDom" | "dom" => "StyledDom",
+        _ => "std::string",
+    }
+}
+
+/// Generate C++ default initializer expression
+#[cfg(feature = "std")]
+fn cpp_default_init(type_str: &str) -> String {
+    match type_str {
+        "String" | "string" => String::new(),
+        "bool" | "Bool" | "boolean" => " = false".to_string(),
+        "f32" | "float" | "Float" | "f64" | "double" | "Double" => " = 0.0".to_string(),
+        _ => " = 0".to_string(),
     }
 }
 
@@ -4465,32 +4530,69 @@ azul = "0.0.1"
 "#;
     files.push(("Cargo.toml".to_string(), cargo_toml.to_string()));
 
-    // --- Build DataModel struct ---
-    let mut data_model_fields = String::new();
-    let mut data_model_defaults = String::new();
-    let mut has_data_fields = false;
+    // --- Per-component data structs ---
+    let mut component_structs = String::new();
+    let mut component_render_fns = String::new();
+    let mut callback_stubs = String::new();
 
     for comp in components {
-        for (field_name, field_type, default_val) in &comp.data_fields {
-            has_data_fields = true;
+        let struct_name = &comp.data_model_name;
+        let pascal_name = to_pascal_case(&comp.name);
+
+        // Generate the struct
+        component_structs.push_str(&format!("/// Data model for the {} component\n", comp.display_name));
+        component_structs.push_str(&format!("pub struct {} {{\n", struct_name));
+        for (field_name, field_type, _default) in &comp.data_fields {
             let rust_type = map_type_to_rust(field_type);
-            data_model_fields.push_str(&format!("    pub {}: {},\n", field_name, rust_type));
-            data_model_defaults.push_str(&format!(
+            component_structs.push_str(&format!("    pub {}: {},\n", field_name, rust_type));
+        }
+        for (slot_name, _desc) in &comp.slot_fields {
+            component_structs.push_str(&format!("    pub {}: StyledDom,\n", slot_name));
+        }
+        for (cb_name, _cb_type) in &comp.callback_slots {
+            component_structs.push_str(&format!("    pub {}: Option<Callback>,\n", cb_name));
+        }
+        component_structs.push_str("}\n\n");
+
+        // Generate Default impl
+        component_structs.push_str(&format!("impl Default for {} {{\n", struct_name));
+        component_structs.push_str("    fn default() -> Self {\n");
+        component_structs.push_str("        Self {\n");
+        for (field_name, field_type, default_val) in &comp.data_fields {
+            component_structs.push_str(&format!(
                 "            {}: {},\n",
                 field_name,
                 rust_default_for_type(field_type, default_val.as_deref())
             ));
         }
-    }
+        for (slot_name, _desc) in &comp.slot_fields {
+            component_structs.push_str(&format!("            {}: StyledDom::default(),\n", slot_name));
+        }
+        for (cb_name, _cb_type) in &comp.callback_slots {
+            component_structs.push_str(&format!("            {}: None,\n", cb_name));
+        }
+        component_structs.push_str("        }\n    }\n}\n\n");
 
-    if !has_data_fields {
-        data_model_fields.push_str("    pub counter: usize,\n");
-        data_model_defaults.push_str("            counter: 0,\n");
-    }
+        // Generate render function
+        component_render_fns.push_str(&format!(
+            "/// Render the {} component\n",
+            comp.display_name
+        ));
+        component_render_fns.push_str(&format!(
+            "fn render_{}(data: &{}) -> Dom {{\n",
+            comp.name, struct_name
+        ));
+        if let Some(ref code) = comp.compiled_code {
+            component_render_fns.push_str(&format!("    {}\n", code));
+        } else {
+            component_render_fns.push_str(&format!(
+                "    Dom::div() // TODO: implement {} rendering\n",
+                comp.display_name
+            ));
+        }
+        component_render_fns.push_str("}\n\n");
 
-    // --- Build callback stubs ---
-    let mut callback_stubs = String::new();
-    for comp in components {
+        // Generate callback stubs
         for (slot_name, _cb_type) in &comp.callback_slots {
             callback_stubs.push_str(&format!(
                 r#"
@@ -4513,22 +4615,14 @@ extern "C" fn {slot_name}(data: &mut RefAny, info: &mut CallbackInfo) -> Update 
     } else {
         layout_body.push_str("    Dom::body()\n");
         for comp in components {
-            if let Some(ref code) = comp.compiled_code {
-                layout_body.push_str(&format!(
-                    "        .with_child({}) // {}\n",
-                    code, comp.display_name
-                ));
-            } else {
-                layout_body.push_str(&format!(
-                    "        .with_child(Dom::div()) // TODO: {} component\n",
-                    comp.display_name
-                ));
-            }
+            layout_body.push_str(&format!(
+                "        .with_child(render_{}(&{}::default()))\n",
+                comp.name, comp.data_model_name
+            ));
         }
         layout_body.push_str("        .style(Css::empty())\n");
     }
 
-    // --- Assemble main.rs ---
     let main_rs = format!(
         r#"//! Auto-generated by Azul debugger
 //! Customize this file to build your application.
@@ -4536,34 +4630,32 @@ extern "C" fn {slot_name}(data: &mut RefAny, info: &mut CallbackInfo) -> Update 
 extern crate azul;
 use azul::prelude::*;
 
-/// Application data model
-struct DataModel {{
-{fields}}}
+// =============================================================================
+// Component Data Models
+// =============================================================================
 
-impl Default for DataModel {{
-    fn default() -> Self {{
-        Self {{
-{defaults}        }}
-    }}
-}}
+{component_structs}
+// =============================================================================
+// Component Render Functions
+// =============================================================================
+
+{render_fns}
+// =============================================================================
+// Callbacks
+// =============================================================================
 {callbacks}
 /// Layout callback — returns the DOM tree for a window
 extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {{
-    let _data = match data.downcast_ref::<DataModel>() {{
-        Some(d) => d,
-        None => return StyledDom::default(),
-    }};
-
 {layout_body}}}
 
 fn main() {{
-    let app = App::new(RefAny::new(DataModel::default()), AppConfig::new(LayoutSolver::Default));
+    let app = App::new(RefAny::new(()), AppConfig::new(LayoutSolver::Default));
     let window = WindowCreateOptions::new(layout);
     app.run(window);
 }}
 "#,
-        fields = data_model_fields,
-        defaults = data_model_defaults,
+        component_structs = component_structs,
+        render_fns = component_render_fns,
         callbacks = callback_stubs,
         layout_body = layout_body,
     );
@@ -4577,70 +4669,72 @@ fn main() {{
 fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
-    // --- Build DataModel struct ---
-    let mut struct_fields = String::new();
-    let mut has_data_fields = false;
-
-    for comp in components {
-        for (field_name, field_type, _default) in &comp.data_fields {
-            has_data_fields = true;
-            let c_type = map_type_to_c(field_type);
-            struct_fields.push_str(&format!("    {} {};\n", c_type, field_name));
-        }
-    }
-
-    if !has_data_fields {
-        struct_fields.push_str("    size_t counter;\n");
-    }
-
-    // --- Build layout body ---
-    let mut layout_body = String::new();
-    if components.is_empty() {
-        layout_body.push_str("    AzDom body = AzDom_body();\n");
-        layout_body.push_str("    AzDom text = AzDom_text(AzString_fromConstStr(\"Hello from Azul!\"));\n");
-        layout_body.push_str("    AzDom_addChild(&body, text);\n");
-        layout_body.push_str("    return AzStyledDom_new(body, AzCss_empty());\n");
-    } else {
-        layout_body.push_str("    AzDom body = AzDom_body();\n");
-        for comp in components {
-            if let Some(ref code) = comp.compiled_code {
-                layout_body.push_str(&format!("    AzDom_addChild(&body, {}); /* {} */\n", code, comp.display_name));
-            } else {
-                layout_body.push_str(&format!("    AzDom_addChild(&body, AzDom_div()); /* TODO: {} */\n", comp.display_name));
-            }
-        }
-        layout_body.push_str("    return AzStyledDom_new(body, AzCss_empty());\n");
-    }
-
-    // --- Callback stubs ---
+    // --- Per-component typedefs ---
+    let mut component_typedefs = String::new();
+    let mut render_fns = String::new();
     let mut callback_stubs = String::new();
+
     for comp in components {
+        let struct_name = to_pascal_case(&comp.name);
+
+        component_typedefs.push_str(&format!("/* Data model for {} */\n", comp.display_name));
+        component_typedefs.push_str(&format!("typedef struct {{\n"));
+        for (field_name, field_type, _default) in &comp.data_fields {
+            let c_type = map_type_to_c(field_type);
+            component_typedefs.push_str(&format!("    {} {};\n", c_type, field_name));
+        }
+        for (slot_name, _desc) in &comp.slot_fields {
+            component_typedefs.push_str(&format!("    AzStyledDom {};\n", slot_name));
+        }
+        if comp.data_fields.is_empty() && comp.slot_fields.is_empty() {
+            component_typedefs.push_str("    int _placeholder;\n");
+        }
+        component_typedefs.push_str(&format!("}} {}Data;\n\n", struct_name));
+
+        // Render function
+        render_fns.push_str(&format!("/* Render {} */\n", comp.display_name));
+        render_fns.push_str(&format!("AzDom render_{}(const {}Data* data) {{\n", comp.name, struct_name));
+        if let Some(ref code) = comp.compiled_code {
+            render_fns.push_str(&format!("    return {};\n", code));
+        } else {
+            render_fns.push_str(&format!("    return AzDom_div(); /* TODO: implement {} */\n", comp.display_name));
+        }
+        render_fns.push_str("}\n\n");
+
         for (slot_name, _cb_type) in &comp.callback_slots {
             callback_stubs.push_str(&format!(
-                r#"
-AzUpdate {slot_name}(AzRefAny* data, AzCallbackInfo* info) {{
-    /* TODO: implement {slot_name} */
-    return AzUpdate_DoNothing;
-}}
-"#,
+                "AzUpdate {slot_name}(AzRefAny* data, AzCallbackInfo* info) {{\n    /* TODO: implement {slot_name} */\n    return AzUpdate_DoNothing;\n}}\n\n",
                 slot_name = slot_name
             ));
         }
     }
 
+    // Layout function
+    let mut layout_body = String::new();
+    layout_body.push_str("    AzDom body = AzDom_body();\n");
+    if components.is_empty() {
+        layout_body.push_str("    AzDom_addChild(&body, AzDom_text(AzString_fromConstStr(\"Hello from Azul!\")));\n");
+    } else {
+        for comp in components {
+            let struct_name = to_pascal_case(&comp.name);
+            layout_body.push_str(&format!("    {}Data {}_data = {{ 0 }};\n", struct_name, comp.name));
+            layout_body.push_str(&format!("    AzDom_addChild(&body, render_{}(&{}_data));\n", comp.name, comp.name));
+        }
+    }
+    layout_body.push_str("    return AzStyledDom_new(body, AzCss_empty());\n");
+
     let main_c = format!(
         r#"/* Auto-generated by Azul debugger */
 #include "azul.h"
 
-typedef struct {{
-{fields}}} DataModel;
+{typedefs}
+{render_fns}
 {callbacks}
 AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {{
 {layout_body}}}
 
 int main() {{
-    DataModel model = {{ 0 }};
-    AzRefAny ref_any = AzRefAny_newC(&model, sizeof(DataModel), 0, NULL, NULL, NULL);
+    AzRefAny ref_any = AzRefAny_newC(NULL, 0, 0, NULL, NULL, NULL);
     AzAppConfig config = AzAppConfig_new(AzLayoutSolver_Default);
     AzApp* app = AzApp_new(ref_any, config);
     AzWindowCreateOptions w = AzWindowCreateOptions_new(layout);
@@ -4648,7 +4742,8 @@ int main() {{
     return 0;
 }}
 "#,
-        fields = struct_fields,
+        typedefs = component_typedefs,
+        render_fns = render_fns,
         callbacks = callback_stubs,
         layout_body = layout_body,
     );
@@ -4661,77 +4756,70 @@ int main() {{
 fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
-    let mut struct_fields = String::new();
-    let mut has_data_fields = false;
+    let mut component_structs = String::new();
+    let mut render_fns = String::new();
 
     for comp in components {
+        let struct_name = to_pascal_case(&comp.name);
+
+        component_structs.push_str(&format!("// Data model for {}\n", comp.display_name));
+        component_structs.push_str(&format!("struct {}Data {{\n", struct_name));
         for (field_name, field_type, default_val) in &comp.data_fields {
-            has_data_fields = true;
-            let rust_type = map_type_to_rust(field_type);
-            let cpp_type = match rust_type {
-                "String" => "std::string",
-                "bool" => "bool",
-                "i32" => "int32_t",
-                "i64" => "int64_t",
-                "f32" => "float",
-                "f64" => "double",
-                "u32" => "uint32_t",
-                "u64" => "uint64_t",
-                "usize" => "size_t",
-                other => other,
-            };
+            let cpp_type = map_type_to_cpp(field_type);
             let default_str = match default_val.as_deref() {
                 Some(v) => format!(" = {}", v),
-                None => match rust_type {
-                    "String" => String::new(),
-                    "bool" => " = false".to_string(),
-                    _ => " = 0".to_string(),
-                },
+                None => cpp_default_init(field_type),
             };
-            struct_fields.push_str(&format!("    {} {}{};\n", cpp_type, field_name, default_str));
+            component_structs.push_str(&format!("    {} {}{};\n", cpp_type, field_name, default_str));
         }
-    }
+        for (slot_name, _desc) in &comp.slot_fields {
+            component_structs.push_str(&format!("    StyledDom {};\n", slot_name));
+        }
+        if comp.data_fields.is_empty() && comp.slot_fields.is_empty() {
+            component_structs.push_str("    int _placeholder = 0;\n");
+        }
+        component_structs.push_str("};\n\n");
 
-    if !has_data_fields {
-        struct_fields.push_str("    size_t counter = 0;\n");
+        render_fns.push_str(&format!("// Render {}\n", comp.display_name));
+        render_fns.push_str(&format!("Dom render_{}(const {}Data& data) {{\n", comp.name, struct_name));
+        if let Some(ref code) = comp.compiled_code {
+            render_fns.push_str(&format!("    return {};\n", code));
+        } else {
+            render_fns.push_str(&format!("    return Dom::div(); // TODO: {}\n", comp.display_name));
+        }
+        render_fns.push_str("}\n\n");
     }
 
     let mut layout_body = String::new();
+    layout_body.push_str("    auto body = Dom::body();\n");
     if components.is_empty() {
-        layout_body.push_str("    auto body = Dom::body();\n");
         layout_body.push_str("    body.add_child(Dom::text(\"Hello from Azul!\"));\n");
-        layout_body.push_str("    return body.style(Css::empty());\n");
     } else {
-        layout_body.push_str("    auto body = Dom::body();\n");
         for comp in components {
-            if let Some(ref code) = comp.compiled_code {
-                layout_body.push_str(&format!("    body.add_child({}); // {}\n", code, comp.display_name));
-            } else {
-                layout_body.push_str(&format!("    body.add_child(Dom::div()); // TODO: {}\n", comp.display_name));
-            }
+            let struct_name = to_pascal_case(&comp.name);
+            layout_body.push_str(&format!("    body.add_child(render_{}({}Data{{}}));\n", comp.name, struct_name));
         }
-        layout_body.push_str("    return body.style(Css::empty());\n");
     }
+    layout_body.push_str("    return body.style(Css::empty());\n");
 
     let main_cpp = format!(
         r#"// Auto-generated by Azul debugger
 #include "azul.hpp"
 using namespace Azul;
 
-struct DataModel {{
-{fields}}};
-
+{structs}
+{render_fns}
 StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {{
 {layout_body}}}
 
 int main() {{
-    DataModel model;
-    auto app = App(RefAny::new(model), AppConfig(LayoutSolver::Default));
+    auto app = App(RefAny(), AppConfig(LayoutSolver::Default));
     app.run(WindowCreateOptions(layout));
     return 0;
 }}
 "#,
-        fields = struct_fields,
+        structs = component_structs,
+        render_fns = render_fns,
         layout_body = layout_body,
     );
     files.push(("main.cpp".to_string(), main_cpp));
@@ -4743,85 +4831,109 @@ int main() {{
 fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
-    let mut class_fields = String::new();
-    let mut has_data_fields = false;
+    // --- Per-component data classes ---
+    let mut component_classes = String::new();
+    let mut render_fns = String::new();
 
     for comp in components {
+        let class_name = format!("{}Data", to_pascal_case(&comp.name));
+
+        // Data class with typed fields
+        component_classes.push_str(&format!("class {}:\n", class_name));
+        component_classes.push_str("    def __init__(self):\n");
+
+        let mut has_fields = false;
+
         for (field_name, field_type, default_val) in &comp.data_fields {
-            has_data_fields = true;
-            let default_str = match default_val.as_deref() {
-                Some(v) => match field_type.as_str() {
-                    "String" | "string" => format!("\"{}\"", v),
-                    _ => v.to_string(),
-                },
-                None => match field_type.as_str() {
-                    "String" | "string" => "\"\"".to_string(),
-                    "bool" | "Bool" | "boolean" => "False".to_string(),
-                    "f32" | "f64" | "float" | "double" | "Float" | "Double" => "0.0".to_string(),
-                    _ => "0".to_string(),
-                },
-            };
-            class_fields.push_str(&format!("        self.{} = {}\n", field_name, default_str));
+            has_fields = true;
+            let default_str = python_default_value(field_type, default_val.as_deref());
+            component_classes.push_str(&format!("        self.{} = {}\n", field_name, default_str));
         }
-    }
 
-    if !has_data_fields {
-        class_fields.push_str("        self.counter = 0\n");
-    }
+        for (slot_name, _slot_type) in &comp.slot_fields {
+            has_fields = true;
+            component_classes.push_str(&format!("        self.{} = None  # StyledDom slot\n", slot_name));
+        }
 
-    let mut layout_body = String::new();
-    if components.is_empty() {
-        layout_body.push_str("    body = Dom.body()\n");
-        layout_body.push_str("    body.add_child(Dom.text(\"Hello from Azul!\"))\n");
-        layout_body.push_str("    return body.style(Css.empty())\n");
-    } else {
-        layout_body.push_str("    body = Dom.body()\n");
-        for comp in components {
-            if let Some(ref code) = comp.compiled_code {
-                layout_body.push_str(&format!("    body.add_child({})  # {}\n", code, comp.display_name));
-            } else {
-                layout_body.push_str(&format!("    body.add_child(Dom.div())  # TODO: {}\n", comp.display_name));
+        for (cb_name, _cb_type) in &comp.callback_slots {
+            has_fields = true;
+            component_classes.push_str(&format!("        self.{} = None  # callback\n", cb_name));
+        }
+
+        if !has_fields {
+            component_classes.push_str("        pass\n");
+        }
+
+        component_classes.push_str("\n\n");
+
+        // Render function
+        render_fns.push_str(&format!("def render_{}(data):\n", comp.name));
+        render_fns.push_str(&format!("    \"\"\"Render the {} component.\"\"\"\n", comp.display_name));
+
+        if let Some(ref code) = comp.compiled_code {
+            for line in code.lines() {
+                render_fns.push_str(&format!("    {}\n", line));
             }
+        } else {
+            render_fns.push_str("    dom = Dom.div()\n");
+            render_fns.push_str("    # TODO: build DOM from component data\n");
+            render_fns.push_str("    return dom\n");
         }
-        layout_body.push_str("    return body.style(Css.empty())\n");
+
+        render_fns.push_str("\n\n");
     }
 
-    // --- Callback stubs ---
-    let mut callback_stubs = String::new();
-    for comp in components {
-        for (slot_name, _cb_type) in &comp.callback_slots {
-            callback_stubs.push_str(&format!(
-                r#"
-def {slot_name}(data, info):
-    """TODO: implement {slot_name}"""
-    return Update.DoNothing
-"#,
-                slot_name = slot_name
-            ));
+    // --- Layout function ---
+    let mut layout_body = String::new();
+    layout_body.push_str("    body = Dom.body()\n");
+    if components.is_empty() {
+        layout_body.push_str("    body.add_child(Dom.text(\"Hello from Azul!\"))\n");
+    } else {
+        for comp in components {
+            let class_name = format!("{}Data", to_pascal_case(&comp.name));
+            layout_body.push_str(&format!("    body.add_child(render_{}({}()))\n", comp.name, class_name));
         }
     }
+    layout_body.push_str("    return body.style(Css.empty())\n");
 
     let main_py = format!(
         r#"# Auto-generated by Azul debugger
 from azul import *
 
-class DataModel:
-    def __init__(self):
-{class_fields}
-{callbacks}
-def layout(data, info):
+{classes}{render_fns}def layout(data, info):
 {layout_body}
 
-model = DataModel()
-app = App(RefAny(model), AppConfig(LayoutSolver.Default))
+app = App(RefAny(None), AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(layout))
 "#,
-        class_fields = class_fields,
-        callbacks = callback_stubs,
+        classes = component_classes,
+        render_fns = render_fns,
         layout_body = layout_body,
     );
     files.push(("main.py".to_string(), main_py));
     files
+}
+
+/// Return a Python default value expression for a given field type
+#[cfg(feature = "std")]
+fn python_default_value(field_type: &str, default_val: Option<&str>) -> String {
+    match default_val {
+        Some(v) => match field_type {
+            "String" | "string" => format!("\"{}\"", v),
+            "bool" | "Bool" | "boolean" => {
+                if v == "true" { "True".to_string() } else { "False".to_string() }
+            }
+            _ => v.to_string(),
+        },
+        None => match field_type {
+            "String" | "string" => "\"\"".to_string(),
+            "bool" | "Bool" | "boolean" => "False".to_string(),
+            "f32" | "f64" | "float" | "double" | "Float" | "Double" => "0.0".to_string(),
+            "ColorU" => "ColorU(0, 0, 0, 255)".to_string(),
+            "StyledDom" => "Dom.div().style(Css.empty())".to_string(),
+            _ => "0".to_string(),
+        },
+    }
 }
 
 /// Returns universal HTML attributes that all elements support
@@ -5797,6 +5909,24 @@ fn process_debug_event(
                         azul_core::dom::OptionTabIndex::None => None,
                     };
 
+                    // Extract component origin (if this node was rendered by a component)
+                    let component = data.get_component_origin().map(|origin| {
+                        let mut dm = std::collections::HashMap::new();
+                        for (k, v) in &origin.data_model_values {
+                            dm.insert(k.as_str().to_string(), v.as_str().to_string());
+                        }
+                        ComponentOriginJson {
+                            component_id: origin.component_id.as_str().to_string(),
+                            data_model: dm,
+                        }
+                    });
+
+                    // Check if dataset is present
+                    let has_dataset = match &data.dataset {
+                        azul_core::refany::OptionRefAny::Some(_) => Some(true),
+                        azul_core::refany::OptionRefAny::None => None,
+                    };
+
                     nodes.push(HierarchyNodeInfo {
                         index: i,
                         node_type: node_type.to_string(),
@@ -5810,6 +5940,8 @@ fn process_debug_event(
                         rect,
                         tab_index,
                         contenteditable: data.contenteditable,
+                        component,
+                        has_dataset,
                     });
                 }
 

@@ -224,6 +224,37 @@ body {
     flex-shrink: 0;
 }
 
+.tree-component-badge {
+    display: inline-flex;
+    align-items: center;
+    background: #2b4a6f;
+    color: #7cb3f0;
+    font-size: 9px;
+    padding: 0 4px;
+    border-radius: 3px;
+    margin-left: 4px;
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+.tree-dataset-badge {
+    display: inline-flex;
+    align-items: center;
+    background: #4a3b20;
+    color: #e8c46a;
+    font-size: 9px;
+    padding: 0 3px;
+    border-radius: 3px;
+    margin-left: 3px;
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+.detail-component-id {
+    color: #7cb3f0;
+    font-weight: 600;
+}
+
 .tree-row[data-type="text"] .tree-label { background: var(--text-node-bg); padding: 0 4px; border-radius: 2px; }
 .tree-row[data-type="event"] .tree-label { background: var(--event-bg); padding: 0 4px; border-radius: 2px; }
 

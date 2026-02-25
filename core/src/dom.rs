@@ -1380,6 +1380,31 @@ impl Hash for NodeData {
     }
 }
 
+/// Tracks which component rendered a DOM subtree.
+///
+/// When a component's `render_fn` returns a `StyledDom`, the framework stamps the
+/// root node(s) of the output with a `ComponentOrigin`. This enables:
+/// - The debugger to show a "Component Tree" alongside the DOM tree
+/// - Code generation roundtrips (rendered DOM → component invocations → code)
+/// - Clicking a DOM node to navigate to the component that produced it
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ComponentOrigin {
+    /// Qualified component name, e.g. "shadcn:card", "builtin:div"
+    pub component_id: AzString,
+    /// Snapshot of the data model field values at render time.
+    /// Stored as (name, value_as_string) pairs for debugger display.
+    pub data_model_values: alloc::vec::Vec<(AzString, AzString)>,
+}
+
+impl Default for ComponentOrigin {
+    fn default() -> Self {
+        Self {
+            component_id: AzString::from_const_str(""),
+            data_model_values: alloc::vec::Vec::new(),
+        }
+    }
+}
+
 /// NOTE: NOT EXPOSED IN THE API! Stores extra,
 /// not commonly used information for the NodeData.
 /// This helps keep the primary `NodeData` struct smaller for common cases.
@@ -1406,7 +1431,12 @@ pub struct NodeDataExt {
     /// Callback to merge dataset state from a previous frame's node into the current node.
     /// This enables heavy resource preservation (video decoders, GL textures) across frames.
     pub dataset_merge_callback: Option<DatasetMergeCallback>,
-    // ... insert further API extensions here...
+    /// Tracks which component rendered this DOM subtree.
+    /// Set by the framework during component rendering — the root node(s) of a
+    /// component's output DOM get stamped with the component's qualified name.
+    /// Enables the debugger to reconstruct the component invocation tree from the
+    /// flat rendered DOM, and enables code generation roundtrips.
+    pub component_origin: Option<ComponentOrigin>,
 }
 
 /// A callback function used to merge the state of an old dataset into a new one.
@@ -2650,6 +2680,23 @@ impl NodeData {
     #[inline]
     pub fn get_merge_callback(&self) -> Option<DatasetMergeCallback> {
         self.extra.as_ref().and_then(|ext| ext.dataset_merge_callback.clone())
+    }
+
+    /// Sets the component origin for this node.
+    ///
+    /// This stamps the node with information about which component rendered it,
+    /// enabling the debugger to reconstruct the component invocation tree.
+    #[inline]
+    pub fn set_component_origin(&mut self, origin: ComponentOrigin) {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .component_origin = Some(origin);
+    }
+
+    /// Gets the component origin for this node, if set.
+    #[inline]
+    pub fn get_component_origin(&self) -> Option<&ComponentOrigin> {
+        self.extra.as_ref().and_then(|ext| ext.component_origin.as_ref())
     }
 
     #[inline]

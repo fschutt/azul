@@ -597,6 +597,30 @@ const app = {
                 label.appendChild(badge);
             }
 
+            // Component origin badge
+            if (node.component && node.component.component_id) {
+                var compBadge = document.createElement('span');
+                compBadge.className = 'tree-component-badge';
+                var shortName = node.component.component_id;
+                var lastColon = shortName.lastIndexOf(':');
+                if (lastColon >= 0) shortName = shortName.substring(lastColon + 1);
+                compBadge.textContent = shortName;
+                var dmKeys = Object.keys(node.component.data_model || {});
+                if (dmKeys.length) {
+                    compBadge.title = dmKeys.map(function(k) { return k + '=' + node.component.data_model[k]; }).join(', ');
+                }
+                label.appendChild(compBadge);
+            }
+
+            // Dataset badge
+            if (node.has_dataset) {
+                var dsBadge = document.createElement('span');
+                dsBadge.className = 'tree-dataset-badge';
+                dsBadge.textContent = 'D';
+                dsBadge.title = 'Has dataset';
+                label.appendChild(dsBadge);
+            }
+
             row.appendChild(label);
 
             // Click to select
@@ -648,6 +672,23 @@ const app = {
             if (node.id) html += '<div class="detail-row"><span class="detail-key">id</span><span class="detail-value">' + esc(node.id) + '</span></div>';
             if (node.classes && node.classes.length) html += '<div class="detail-row"><span class="detail-key">classes</span><span class="detail-value">' + esc(node.classes.join(' ')) + '</span></div>';
             if (node.text) html += '<div class="detail-row"><span class="detail-key">text</span><span class="detail-value">' + esc(node.text) + '</span></div>';
+
+            // Component origin
+            if (node.component && node.component.component_id) {
+                html += '<div class="detail-row"><span class="detail-key">component</span><span class="detail-value detail-component-id">' + esc(node.component.component_id) + '</span></div>';
+                var dm = node.component.data_model;
+                if (dm) {
+                    Object.keys(dm).forEach(function(k) {
+                        html += '<div class="detail-row" style="padding-left:12px"><span class="detail-key">' + esc(k) + '</span><span class="detail-value">' + esc(dm[k]) + '</span></div>';
+                    });
+                }
+            }
+
+            // Dataset indicator
+            if (node.has_dataset) {
+                html += '<div class="detail-row"><span class="detail-key">dataset</span><span class="detail-value" style="color:var(--warning)">present</span></div>';
+            }
+
             html += '</div>';
 
             // Right: Box Model (Chrome-style) — placeholder, filled by async fetch
