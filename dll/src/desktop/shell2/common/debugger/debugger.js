@@ -1825,16 +1825,10 @@ const app = {
             // === Badges ===
             var badgeDiv = document.createElement('div');
             badgeDiv.style.cssText = 'display:flex;gap:6px;margin-bottom:12px';
-            [component.source, component.child_policy].forEach(function(t) {
+            if (component.source) {
                 var b = document.createElement('span');
                 b.className = 'badge';
-                b.textContent = t;
-                badgeDiv.appendChild(b);
-            });
-            if (component.accepts_text) {
-                var b = document.createElement('span');
-                b.className = 'badge';
-                b.textContent = 'accepts text';
+                b.textContent = component.source;
                 badgeDiv.appendChild(b);
             }
             leftPanel.appendChild(badgeDiv);
@@ -1886,9 +1880,9 @@ const app = {
             }
 
             // === Scoped CSS (widget-based) ===
-            if (component.scoped_css || component.source === 'user_defined') {
+            if (component.css || component.source === 'user_defined') {
                 var cssDetails = document.createElement('details');
-                if (component.scoped_css) cssDetails.open = true;
+                if (component.css) cssDetails.open = true;
                 var cssSummary = document.createElement('summary');
                 cssSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0';
                 cssSummary.textContent = 'Scoped CSS';
@@ -1898,11 +1892,11 @@ const app = {
                 var cssEditor = app.widgets.CssEditor.render({
                     readOnly: !isEditable
                 }, {
-                    css: component.scoped_css || ''
+                    css: component.css || ''
                 }, {
                     onChange: function(newCss) {
                         // live update stored in memory
-                        component.scoped_css = newCss;
+                        component.css = newCss;
                     },
                     onSave: isEditable ? function(cssText) {
                         app.handlers._saveComponentCss(cssText);
@@ -1931,49 +1925,10 @@ const app = {
                 leftPanel.appendChild(uaDetails);
             }
 
-            // === Example XML (read-only) ===
-            if (component.example_xml) {
-                var xmlDetails = document.createElement('details');
-                var xmlSummary = document.createElement('summary');
-                xmlSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0';
-                xmlSummary.textContent = 'Example XML';
-                xmlDetails.appendChild(xmlSummary);
-                var xmlPre = document.createElement('pre');
-                xmlPre.style.cssText = 'background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px';
-                xmlPre.textContent = component.example_xml;
-                xmlDetails.appendChild(xmlPre);
-                leftPanel.appendChild(xmlDetails);
-            }
-
-            // === Right column: Template + Preview (widget-based) ===
+            // === Right column: Preview (widget-based) ===
             if (rightPanel) {
                 rightPanel.style.display = 'block';
                 rightPanel.innerHTML = '';
-
-                // Template section
-                var tplDiv = document.createElement('div');
-                tplDiv.style.marginBottom = '12px';
-                var tplH4 = document.createElement('h4');
-                tplH4.style.margin = '0 0 8px 0';
-                tplH4.textContent = 'Template';
-                tplDiv.appendChild(tplH4);
-                if (component.template) {
-                    var tplPre = document.createElement('pre');
-                    tplPre.style.cssText = 'background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;white-space:pre-wrap';
-                    tplPre.textContent = component.template;
-                    tplDiv.appendChild(tplPre);
-                } else if (component.source === 'builtin') {
-                    var tplDesc = document.createElement('div');
-                    tplDesc.style.cssText = 'color:var(--text-muted);font-size:12px;font-style:italic';
-                    tplDesc.textContent = 'Builtin element \u2014 renders directly as <' + component.tag + '>';
-                    tplDiv.appendChild(tplDesc);
-                } else {
-                    var tplNone = document.createElement('div');
-                    tplNone.style.cssText = 'color:var(--text-muted);font-size:12px;font-style:italic';
-                    tplNone.textContent = 'No template defined';
-                    tplDiv.appendChild(tplNone);
-                }
-                rightPanel.appendChild(tplDiv);
 
                 // Preview section (widget-based)
                 var previewH4 = document.createElement('h4');
@@ -2009,7 +1964,7 @@ const app = {
                     op: 'update_component',
                     library: app.state.selectedLibrary,
                     name: component.tag,
-                    scoped_css: cssText,
+                    css: cssText,
                 });
                 if (res.status === 'ok') {
                     app.log('CSS saved for ' + component.tag, 'info');
@@ -2834,7 +2789,7 @@ const app = {
                     var ft = field.field_type || {};
                     // Parse field_type if it comes as a plain string from the API
                     if (typeof ft === 'string') {
-                        ft = { type: ft };
+                        ft = app.widgets._parseFieldType(ft);
                     }
                     var val = fieldValues[field.name];
                     if (val === undefined && field.default != null) {
@@ -3010,6 +2965,43 @@ const app = {
         },
 
         /* ── Utility helpers ── */
+
+        /**
+         * Parse a flat field_type string from the API into a structured object.
+         * Examples:
+         *   "String"            → { type: "String" }
+         *   "Option<String>"    → { type: "Option", inner: { type: "String" } }
+         *   "Vec<i32>"          → { type: "Vec", inner: { type: "i32" } }
+         *   "Callback(Sig)"     → { type: "Callback", signature: "Sig" }
+         *   "bool"              → { type: "Bool" }
+         */
+        _parseFieldType: function(s) {
+            if (!s || typeof s !== 'string') return s && typeof s === 'object' ? s : { type: 'String' };
+            s = s.trim();
+            // Normalize lowercase builtins
+            var lcMap = { 'string': 'String', 'bool': 'Bool', 'i32': 'I32', 'i64': 'I64',
+                'u32': 'U32', 'u64': 'U64', 'usize': 'Usize', 'f32': 'F32', 'f64': 'F64' };
+            if (lcMap[s]) return { type: lcMap[s] };
+            if (lcMap[s.toLowerCase()]) return { type: lcMap[s.toLowerCase()] };
+            // Option<T>
+            var m = s.match(/^Option<(.+)>$/);
+            if (m) return { type: 'Option', inner: this._parseFieldType(m[1]) };
+            // Vec<T>
+            m = s.match(/^Vec<(.+)>$/);
+            if (m) return { type: 'Vec', inner: this._parseFieldType(m[1]) };
+            // Callback(Sig)
+            m = s.match(/^Callback\((.+)\)$/);
+            if (m) return { type: 'Callback', signature: m[1] };
+            // Known types
+            var known = ['String','Bool','I32','I64','U32','U64','Usize','F32','F64',
+                'ColorU','CssProperty','ImageRef','FontRef','StyledDom','RefAny'];
+            for (var i = 0; i < known.length; i++) {
+                if (s === known[i]) return { type: s };
+            }
+            // Assume StructRef for unknown capitalized names, else fallback
+            if (s[0] === s[0].toUpperCase()) return { type: 'StructRef', name: s };
+            return { type: 'String' };
+        },
 
         _colorUToHex: function(c) {
             return '#' + [c.r, c.g, c.b].map(function(v) {
