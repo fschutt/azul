@@ -285,14 +285,11 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
         "component",
         vec![
             "componentid",
-            "componentparam",
-            "componentcallbackslot",
             "componentdatafield",
             "componentdef",
             "componentlibrary",
             "componentmap",
             "componentsource",
-            "childpolicy",
             "compiletarget",
         ],
     );

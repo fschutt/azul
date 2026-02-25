@@ -76943,7 +76943,7 @@
                                 "returns": {
                                     "type": "ResultRefAnyString"
                                 },
-                                "fn_body": "object.deserialize_to_refany(deserialize_fn)"
+                                "fn_body": "azul_layout::json::json_deserialize_to_refany(json, deserialize_fn)"
                             }
                         },
                         "repr": "C"
@@ -78824,35 +78824,6 @@
                                 }
                             }
                         ],
-                        "repr": "C"
-                    },
-                    "ChildPolicy": {
-                        "external": "azul_core::xml::ChildPolicy",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "NoChildren": {},
-                                "AnyChildren": {},
-                                "TextOnly": {}
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "fn_args": [],
-                                "fn_body": "azul_core::xml::ChildPolicy::create()"
-                            }
-                        },
                         "repr": "C"
                     },
                     "ComponentSource": {

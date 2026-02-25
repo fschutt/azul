@@ -1102,46 +1102,6 @@ impl ComponentId {
     }
 }
 
-/// A parameter that a component accepts (for the GUI builder / code export).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct ComponentParam {
-    /// Parameter name, e.g. "label", "image", "size"
-    pub name: AzString,
-    /// Type name from the Azul type system, e.g. "String", "f32", "RefAny"
-    /// "RefAny" signals: this is a backreference slot
-    pub param_type: AzString,
-    /// Default value (as a string), or None if required
-    pub default_value: OptionString,
-    /// Human-readable description
-    pub description: AzString,
-}
-
-impl_vec!(ComponentParam, ComponentParamVec, ComponentParamVecDestructor, ComponentParamVecDestructorType, ComponentParamVecSlice, OptionComponentParam);
-impl_option!(ComponentParam, OptionComponentParam, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_vec_debug!(ComponentParam, ComponentParamVec);
-impl_vec_partialeq!(ComponentParam, ComponentParamVec);
-impl_vec_clone!(ComponentParam, ComponentParamVec, ComponentParamVecDestructor);
-
-/// A callback slot that a component exposes for parent wiring.
-/// References a `CallbackTypeDef` from the api.json type system.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct ComponentCallbackSlot {
-    /// Slot name, e.g. "on_click", "on_value_change", "on_focus_lost"
-    pub name: AzString,
-    /// The callback type name, e.g. "ButtonOnClickCallbackType"
-    pub callback_type: AzString,
-    /// Human-readable description
-    pub description: AzString,
-}
-
-impl_vec!(ComponentCallbackSlot, ComponentCallbackSlotVec, ComponentCallbackSlotVecDestructor, ComponentCallbackSlotVecDestructorType, ComponentCallbackSlotVecSlice, OptionComponentCallbackSlot);
-impl_option!(ComponentCallbackSlot, OptionComponentCallbackSlot, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_vec_debug!(ComponentCallbackSlot, ComponentCallbackSlotVec);
-impl_vec_partialeq!(ComponentCallbackSlot, ComponentCallbackSlotVec);
-impl_vec_clone!(ComponentCallbackSlot, ComponentCallbackSlotVec, ComponentCallbackSlotVecDestructor);
-
 // ============================================================================
 // Component type system — rich type descriptors for component fields
 // ============================================================================
@@ -1829,30 +1789,6 @@ impl ComponentDataModel {
     /// Deserialize a data model from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, alloc::string::String> {
         serde_json::from_str(json).map_err(|e| alloc::format!("{}", e))
-    }
-}
-
-/// What children a component accepts
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub enum ChildPolicy {
-    /// No children allowed (void elements: br, hr, img, input)
-    NoChildren,
-    /// Any children allowed (div, body, section)
-    AnyChildren,
-    /// Only text content (p, span, h1-h6)
-    TextOnly,
-}
-
-impl Default for ChildPolicy {
-    fn default() -> Self {
-        ChildPolicy::AnyChildren
-    }
-}
-
-impl ChildPolicy {
-    pub fn create() -> Self {
-        Self::default()
     }
 }
 
