@@ -1,70 +1,111 @@
 # Component Metadata Type System — Design Document
 
+> **Implementation Status (2025-02-25):**
+>
+> Most of this design is now **implemented**. Key changes from the original proposal:
+>
+> | Area | Status |
+> |------|--------|
+> | `ComponentFieldType` enum (§3.1) | ✅ Implemented — 20 variants in `core/src/xml.rs` |
+> | `ComponentCallbackSignature` (§3.2) | ✅ Implemented — `type_name` removed (not needed; `args` + `return_type` suffice) |
+> | `ComponentEnumModel` / `ComponentEnumVariant` (§3.3) | ✅ Implemented |
+> | `ComponentDataField` with structured `field_type` (§3.4) | ✅ Implemented |
+> | `ComponentDefaultValue` (§3.5) | ✅ Partially — `Json(AzString)` variant missing |
+> | `ComponentLibrary.enum_models` (§3.6) | ✅ Implemented |
+> | Parameters + callback_slots merged into data_model (§5.2) | ✅ Done — `ComponentDef` has 8 fields now |
+> | Old system removed (§12 Phase 6) | ✅ Done — `XmlComponentTrait`, `FilteredComponentArguments` removed |
+> | `template` field on `ComponentDef` | ❌ Removed by design — source-edit-recompile instead |
+> | `ChildPolicy` | ❌ Removed — child acceptance derived from data model shape |
+> | `ComponentParam` / `ComponentCallbackSlot` | 🗑️ Dead types — to be removed from code |
+> | Debug server structured JSON (§8.1) | ⚠️ Not done — `field_type_to_string()` still flattens to strings |
+> | `parse_field_type()` / `format_field_type()` (§7) | ⚠️ Not done — debugger.js has `_parseFieldType()` client-side |
+> | CRUD endpoints (§3.5 / §12) | ✅ All 5 exist + `GetComponentPreview` with CPU render |
+> | Code gen uses structured types (§11) | ⚠️ Not done — still uses string matching |
+>
+> See `COMPONENT_SYSTEM_STATUS.md` for the full checklist.
+
 ## 1. Problem Statement
 
-The current component system has two parallel implementations, both inadequate
-for the long-term vision of a GUI builder with drag-and-drop composition,
-live preview, and multi-language code generation:
+> **Status:** The old system (`XmlComponentTrait` + `XmlComponentMap`) has been
+> **removed**. The new system (`ComponentDef` + `ComponentMap`) has been upgraded
+> with structured `ComponentFieldType` replacing the string-based `field_type: AzString`.
+> The remaining gaps are: debug server JSON serialization (still flat strings),
+> code generation (still uses string matching), and some `ComponentFieldValue` variants.
 
-### Old system (`XmlComponentTrait` + `XmlComponentMap`)
+The component system had two parallel implementations, both inadequate
+for the long-term vision of a GUI builder with live preview and multi-language
+code generation:
 
-- Uses `BTreeMap<String, XmlComponent>` — **not FFI-safe**
-- Uses `Box<dyn XmlComponentTrait>` — **not FFI-safe**
-- `FilteredComponentArguments` stores values as `BTreeMap<String, String>` —
-  everything is stringly-typed, no Option/Callback/Dom support
-- `ComponentArgumentTypes = Vec<(String, String)>` — type is just a string name,
-  no structured type descriptor
-- Tightly coupled to Rust; cannot express types for C/Python code generation
+### Old system (`XmlComponentTrait` + `XmlComponentMap`) — ✅ REMOVED
 
-### New system (`ComponentDef` + `ComponentMap`)
+> These types have been removed from the codebase.
+
+- Used `BTreeMap<String, XmlComponent>` — **not FFI-safe**
+- Used `Box<dyn XmlComponentTrait>` — **not FFI-safe**
+- `FilteredComponentArguments` stored values as `BTreeMap<String, String>` —
+  everything was stringly-typed, no Option/Callback/Dom support
+- `ComponentArgumentTypes = Vec<(String, String)>` — type was just a string name
+- Tightly coupled to Rust; couldn't express types for C/Python code generation
+
+### New system (`ComponentDef` + `ComponentMap`) — ✅ UPGRADED
+
+> `ComponentDataField.field_type` is now `ComponentFieldType` (structured enum).
+> `ComponentRenderFn`/`ComponentCompileFn` no longer reference the old types.
+> Remaining gap: debug server serializes field_type as flat strings, not structured JSON.
 
 - Correctly `#[repr(C)]` with `ComponentDefVec`, `ComponentLibraryVec`, etc.
-- But `ComponentDataField.field_type` is still just `AzString` — a flat string.
-  The code generation layer (`map_type_to_rust`, `map_type_to_c`) only handles
-  a hardcoded set of primitives (`"String"`, `"bool"`, `"i32"`, `"f32"`, etc.)
-  and falls back to `"String"` for anything unknown.
-- No way to express: `Option<T>`, nested structs, enum variants, `StyledDom`
-  child slots, `RefAny` data bindings, or callback types with signatures.
-- `ComponentRenderFn` and `ComponentCompileFn` still take the old
-  `&XmlComponentMap` and `&FilteredComponentArguments` — blocking the removal
-  of the old system.
-- The debugger browser UI renders `field_type` as an opaque string badge — no
-  way to inspect callback signatures, drill into nested types, or show
-  type-appropriate input controls.
+- `ComponentDataField.field_type` is now `ComponentFieldType` — a structured
+  `#[repr(C, u8)]` enum with 20 variants (String, Bool, I32, Option, Vec,
+  StyledDom, Callback, RefAny, StructRef, EnumRef, etc.)
+- Parameters and callback_slots merged into `data_model` — single unified list
+- `ComponentDef` simplified to 8 fields: id, display_name, description, css,
+  source, data_model, render_fn, compile_fn
+- `template` field was considered but explicitly removed (source-edit-recompile
+  workflow instead)
+- `ChildPolicy` removed — child acceptance derived from data model shape
+  (StyledDom field → children, text: String → text, neither → no children)
 
-### What we need
+### What we still need
 
-A **structured component field type descriptor** (`ComponentFieldType` enum)
-that replaces the string-based `field_type: AzString` with a rich, `#[repr(C)]`,
-FFI-safe type system that:
+The structured `ComponentFieldType` exists in core types but the downstream
+consumers haven't caught up:
 
-1. Supports primitives, Option, Vec, nested structs, enum types
-2. Distinguishes StyledDom "child slots" from data fields
-3. Represents callback types with full signatures (args + return type)
-4. Carries enough metadata for multi-language code generation (Rust/C/C++/Python)
-5. Enables the browser debugger to render type-appropriate editing controls
-6. Supports default values per-type (not just strings)
-7. Is JSON-serializable for import/export and debugger communication
+1. ~~Supports primitives, Option, Vec, nested structs, enum types~~ ✅ Done
+2. ~~Distinguishes StyledDom "child slots" from data fields~~ ✅ Done
+3. ~~Represents callback types with full signatures (args + return type)~~ ✅ Done
+4. Carries enough metadata for multi-language code generation — ⚠️ code gen still uses string matching
+5. Enables the browser debugger to render type-appropriate editing controls — ⚠️ debugger still receives flat strings
+6. ~~Supports default values per-type (not just strings)~~ ✅ Done (`ComponentDefaultValue`)
+7. Is JSON-serializable for import/export and debugger communication — ⚠️ `field_type_to_string()` flattens to strings
 
 ---
 
 ## 2. Current Codebase Inventory
 
-### 2.1 Core types (core/src/xml.rs)
+### 2.1 Core types (core/src/xml.rs) — CURRENT STATE
 
 ```
 ComponentId          { collection: AzString, name: AzString }
-ComponentParam       { name, param_type: AzString, default_value, description }
-ComponentCallbackSlot{ name, callback_type: AzString, description }
-ComponentDataField   { name, field_type: AzString, default_value, description }
+ComponentDataField   { name, field_type: ComponentFieldType, default_value: OptionComponentDefaultValue, description, required }
 ComponentDataModel   { name, description, fields: ComponentDataFieldVec }
-ComponentDef         { id, display_name, description, parameters, accepts_text,
-                       child_policy, scoped_css, example_xml, source, data_model,
-                       callback_slots, template, render_fn, compile_fn, node_type }
-ComponentLibrary     { name, version, description, components, exportable,
-                       modifiable, data_models }
+ComponentFieldType   { String | Bool | I32 | ... | Option(Box) | Vec(Box) | StyledDom | Callback(sig) | RefAny | StructRef | EnumRef | ... }
+ComponentCallbackSignature { return_type, args: ComponentCallbackArgVec }  // no type_name
+ComponentCallbackArg { name, arg_type: ComponentFieldType }
+ComponentEnumModel   { name, description, variants: ComponentEnumVariantVec }
+ComponentEnumVariant { name, fields: ComponentDataFieldVec }  // no description field yet
+ComponentDefaultValue { String | Bool | I32 | ... | None | ComponentInstance | CallbackFnPointer }
+ComponentDef         { id, display_name, description, css, source, data_model, render_fn, compile_fn }
+ComponentLibrary     { name, version, description, components, exportable, modifiable, data_models, enum_models }
 ComponentMap         { libraries: ComponentLibraryVec }
 ```
+
+> **Removed types** (dead, still in code, to be cleaned up):
+> - `ComponentParam` — merged into data_model fields
+> - `ComponentCallbackSlot` — now `ComponentFieldType::Callback(sig)` fields
+> - `ChildPolicy` — child acceptance derived from data model shape
+>
+> **Removed fields** from `ComponentDef`:
+> - `parameters`, `callback_slots`, `accepts_text`, `child_policy`, `example_xml`, `template`, `node_type`
 
 ### 2.2 Callback typedefs (api.json pattern)
 
@@ -97,37 +138,34 @@ Widget-specific callbacks add extra args (the widget's state):
 }
 ```
 
-### 2.3 Debug server types (debug_server.rs)
+### 2.3 Debug server types (debug_server.rs) — CURRENT STATE
 
-- `ComponentDataFieldInfo  { name, field_type: String, default, description }`
-- `ComponentCallbackSlotInfo { name, callback_type: String, description }`
-- `RefAnyMetadata { type_id: u64, type_name, can_serialize, can_deserialize }`
-- `ExportedDataField { name, field_type: String, default, description }`
-- Code gen: `map_type_to_rust()`, `map_type_to_c()` — switch on string names
+- `ComponentInfo { tag, qualified_name, display_name, description, source, data_model, universal_attributes, callback_slots, css }`
+- `ComponentDataFieldInfo  { name, field_type: String, default, description }` — ⚠️ field_type is STILL a flat string
+- `ComponentCallbackSlotInfo { name, callback_type: String, description }` — ⚠️ callback_type flattened
+- `field_type_to_string()` at line ~4172 — flattens `ComponentFieldType` to strings like `"String"`, `"Option<String>"`, `"Callback"` (loses args info)
+- CRUD endpoints: CreateLibrary, DeleteLibrary, CreateComponent, DeleteComponent, UpdateComponent — ✅ all implemented
+- `GetComponentPreview` — ✅ fully implemented with CPU render pipeline (line ~8768)
+- Code gen: `map_type_to_rust()`, `map_type_to_c()` — still switches on string names
 
-### 2.4 Debugger browser UI (debugger.js)
+### 2.4 Debugger browser UI (debugger.js) — CURRENT STATE
 
-Shows component data model as a pseudo-struct:
+Shows component data model as a structured type view via `DataModelEditor` widget.
+Has `_parseFieldType()` (line ~3081) that parses string representations client-side.
+Callbacks shown in a separate table with type badges.
+`PreviewPanel` widget loads component preview image via `get_component_preview` API.
 
-```
-struct LinkData {
-    href: String,        // URL the link points to
-    target: String,      // Where to open...
-    rel: String,         // Relationship...
-}
-```
-
-Callbacks shown as a flat table: `| Slot | Type | Description |`
-
-No type-aware input controls — everything is text.
+Remaining gap: receives flat string field_type from server, parses client-side.
+Should receive structured JSON from server instead.
 
 ---
 
-## 3. Proposed Design: `ComponentFieldType`
+## 3. Proposed Design: `ComponentFieldType` — ✅ IMPLEMENTED
 
-### 3.1 Core enum
+> The types described in this section have been implemented in `core/src/xml.rs`.
+> Minor deviations from the proposal are noted inline.
 
-Replace the string-based `field_type: AzString` with a structured enum:
+### 3.1 Core enum — ✅ IMPLEMENTED
 
 ```rust
 /// Describes the type of a component data field.
@@ -207,28 +245,22 @@ pub enum ComponentFieldType {
 }
 ```
 
-### 3.2 Callback signature type
+### 3.2 Callback signature type — ✅ IMPLEMENTED (without `type_name`)
+
+> **Deviation:** `type_name` was removed — `args` + `return_type` are sufficient.
+> `extra_args` renamed to `args`. `description` was also removed (field-level
+> description covers it).
 
 ```rust
 /// Describes the full signature of a callback.
-/// Maps 1:1 to the api.json `callback_typedef` pattern.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentCallbackSignature {
-    /// The callback type name, e.g. "ButtonOnClickCallbackType".
-    /// If this matches a known api.json callback_typedef, the code
-    /// generator can use the existing type. Otherwise it generates
-    /// a new one from the args/return below.
-    pub type_name: AzString,
-    /// Function arguments (excluding the implicit &mut RefAny and
-    /// &mut CallbackInfo which are always present).
-    /// These are the "extra" args specific to this component.
-    pub extra_args: ComponentCallbackArgVec,
-    /// Return type. Almost always "Update", but some callbacks
-    /// return specialized types (e.g. OnTextInputReturn).
+    /// Function arguments (the "extra" args specific to this component,
+    /// beyond the implicit &mut RefAny and &mut CallbackInfo).
+    pub args: ComponentCallbackArgVec,
+    /// Return type. Almost always "Update".
     pub return_type: AzString,
-    // NOTE: no `description` field here — the surrounding
-    // ComponentDataField.description covers that.
 }
 
 /// A single argument in a callback signature (beyond RefAny + CallbackInfo).
@@ -245,7 +277,10 @@ pub struct ComponentCallbackArg {
 impl_vec!(ComponentCallbackArg, ComponentCallbackArgVec, ...);
 ```
 
-### 3.3 Enum model type
+### 3.3 Enum model type — ✅ IMPLEMENTED
+
+> **Deviation:** `ComponentEnumVariant.description` field is missing in the
+> current implementation. To be added.
 
 ```rust
 /// Defines an enum type in the component type system.
@@ -279,7 +314,7 @@ impl_vec!(ComponentEnumModel, ComponentEnumModelVec, ...);
 impl_vec!(ComponentEnumVariant, ComponentEnumVariantVec, ...);
 ```
 
-### 3.4 Updated `ComponentDataField`
+### 3.4 Updated `ComponentDataField` — ✅ IMPLEMENTED
 
 ```rust
 /// A field in the component's data model — with structured type info.
@@ -299,7 +334,10 @@ pub struct ComponentDataField {
 }
 ```
 
-### 3.5 Typed default values
+### 3.5 Typed default values — ✅ PARTIALLY IMPLEMENTED
+
+> **Deviation:** `ComponentDefaultValue::Json(AzString)` variant is missing.
+> `ComponentFieldValueSource::Literal` uses `AzString` instead of typed `ComponentFieldValue`.
 
 ```rust
 /// A typed default value for a component field.
@@ -393,7 +431,9 @@ impl_vec!(ComponentFieldOverride, ComponentFieldOverrideVec, ...);
 impl_option!(ComponentDefaultValue, OptionComponentDefaultValue, ...);
 ```
 
-### 3.6 Updated `ComponentLibrary`
+### 3.6 Updated `ComponentLibrary` — ✅ IMPLEMENTED
+
+> Matches the proposal. `enum_models` added.
 
 ```rust
 pub struct ComponentLibrary {
@@ -481,9 +521,14 @@ ComponentDataField {
 },
 ```
 
-### 4.2 Template syntax
+### 4.2 Template syntax — ❌ REMOVED BY DESIGN
 
-In the XML template, slots are referenced by field name with `<slot name="header"/>`:
+> The `template` field and XML `<slot>` syntax were considered but explicitly removed.
+> Components define their rendering in source code (Rust/C/Python), not XML templates.
+> The workflow is: edit source → recompile → hot-reload.
+> The `<slot>` concept is replaced by `StyledDom` fields in the data model.
+
+Original proposal (for reference only — NOT IMPLEMENTED):
 
 ```xml
 <component name="card">
@@ -551,15 +596,13 @@ current approach where `callback_type: AzString` is just a name.
 ComponentDataField {
     name: "onclick",
     field_type: ComponentFieldType::Callback(ComponentCallbackSignature {
-        type_name: "OnLinkClickCallbackType".into(),
-        extra_args: vec![
+        args: vec![
             ComponentCallbackArg {
                 name: "link_url".into(),
                 arg_type: ComponentFieldType::String,
             },
         ].into(),
         return_type: "Update".into(),
-        description: "Called when the link is clicked".into(),
     }),
     default_value: None,
     description: "Click handler".into(),
@@ -567,71 +610,29 @@ ComponentDataField {
 },
 ```
 
-### 5.2 Merging data_model and callback_slots
+### 5.2 Merging data_model and callback_slots — ✅ DONE
 
-Currently `ComponentDef` has separate `data_model` and `callback_slots` fields.
-With the new type system, callbacks become `ComponentFieldType::Callback(...)` fields
-inside `data_model`, so the separate `callback_slots: ComponentCallbackSlotVec` field
-is **no longer needed**.
+The separate `parameters` and `callback_slots` fields have been removed from
+`ComponentDef`. All inputs are unified in `data_model`.
 
-Similarly, `ComponentParam` duplicates `ComponentDataField` with slightly different
-field names. These should be unified: a component's "interface" is its data model,
-which includes value fields, child slots, and callback slots — all in one list.
-
-**Proposed simplification of `ComponentDef`:**
+**Current `ComponentDef`** (8 fields):
 
 ```rust
 pub struct ComponentDef {
     pub id: ComponentId,
     pub display_name: AzString,
     pub description: AzString,
-    /// The "main" data model struct for this component.
-    /// This is a NAMED struct (e.g. "ButtonData", "LinkData") so that
-    /// code gen can emit `struct ButtonData { ... }` and the live preview
-    /// can instantiate it with defaults.
-    ///
-    /// Contains ALL inputs: value fields, child slots, callbacks — unified.
-    pub data_model: ComponentDataModel,
-    pub accepts_text: bool,
-    pub child_policy: ChildPolicy,
-    /// Component-local CSS **template string**. May contain `{field_name}`
-    /// expressions (same syntax as `template`). Expanded via
-    /// `format_args_dynamic()` before parsing. See Section 16.
-    pub scoped_css: AzString,
-    pub example_xml: AzString,
+    pub css: AzString,                   // was scoped_css
     pub source: ComponentSource,
-    /// XML/HTML body **template string**. May contain `{field_name}`
-    /// expressions, expanded via `format_args_dynamic()` before rendering.
-    pub template: AzString,
+    pub data_model: ComponentDataModel,
     pub render_fn: ComponentRenderFn,
     pub compile_fn: ComponentCompileFn,
-    pub node_type: OptionNodeType,
 }
 ```
 
-The key change: `data_model` is a **`ComponentDataModel`** (named struct with
-`name`, `description`, `fields`) — not a bare `ComponentDataFieldVec`.
-This means every component has a single, named "main data model" struct that
-code generators use as the component's input type.
-
-**Example**: A `Button` component has `data_model.name = "ButtonData"`, so
-code gen emits:
-```rust
-struct ButtonData {
-    label: String,
-    variant: ButtonVariant,
-    on_click: Option<ButtonOnClickCallback>,
-}
-```
-
-The library's `data_models: ComponentDataModelVec` field holds **auxiliary**
-struct types that the main data model references via `StructRef("...")` —
-e.g. shared types like `UserProfile` used across multiple components.
-
-Removed fields:
-- `parameters: ComponentParamVec` — merged into `data_model.fields`
-- `callback_slots: ComponentCallbackSlotVec` — merged into `data_model.fields`
-  (any field with `ComponentFieldType::Callback(...)` is a callback slot)
+Removed fields: `parameters`, `callback_slots`, `accepts_text`, `child_policy`,
+`example_xml`, `template`, `node_type`. Child acceptance is now derived from
+data model shape (StyledDom field = children, text: String = text, neither = no children).
 
 ### 5.3 Debugger rendering
 
@@ -1029,7 +1030,11 @@ resulting string is **read-only** for compiled components.
 
 ---
 
-## 8. JSON Serialization Format
+## 8. JSON Serialization Format — ⚠️ NOT YET IMPLEMENTED
+
+> The debug server currently uses `field_type_to_string()` which flattens
+> `ComponentFieldType` to strings. The structured JSON format described here
+> is the TARGET format. See ACTION_PLAN.md for implementation steps.
 
 For the debugger API and import/export, the type system needs a JSON representation:
 
@@ -1052,12 +1057,10 @@ For the debugger API and import/export, the type system needs a JSON representat
 // Callback
 {
     "type": "Callback",
-    "type_name": "OnLinkClickCallbackType",
-    "extra_args": [
+    "args": [
         { "name": "link_url", "type": { "type": "String" } }
     ],
-    "return_type": "Update",
-    "description": "Called when link is clicked"
+    "return_type": "Update"
 }
 
 // Data binding
@@ -1139,8 +1142,7 @@ For the debugger API and import/export, the type system needs a JSON representat
                 "name": "onclick",
                 "field_type": {
                     "type": "Callback",
-                    "type_name": "OnLinkClickCallbackType",
-                    "extra_args": [
+                    "args": [
                         { "name": "link_url", "type": { "type": "String" } }
                     ],
                     "return_type": "Update"
@@ -1152,9 +1154,7 @@ For the debugger API and import/export, the type system needs a JSON representat
         ]
     },
     "accepts_text": true,
-    "child_policy": "any_children",
-    "source": "builtin",
-    "template": ""
+    "source": "builtin"
 }
 ```
 
@@ -1415,18 +1415,18 @@ typedef struct {
 
 ## 12. Migration Plan
 
-### Phase 1: Add new types (non-breaking)
+### Phase 1: Add new types (non-breaking) — ✅ DONE
 
-1. Define `ComponentFieldType`, `ComponentCallbackSignature`, `ComponentCallbackArg`,
+1. ✅ Define `ComponentFieldType`, `ComponentCallbackSignature`, `ComponentCallbackArg`,
    `ComponentEnumModel`, `ComponentEnumVariant`, `ComponentDefaultValue`,
    `ComponentFieldTypeBox`, `ComponentInstanceDefault`, `ComponentFieldOverride`,
    `ComponentFieldValueSource`, `ComponentFieldValue`, `ComponentFieldNamedValue`
    in `core/src/xml.rs`
-2. Add `impl_vec!`, `impl_option!` wrappers for all new types
-3. Add new types to `api.json`
-4. Run codegen to verify FFI safety
+2. ✅ Add `impl_vec!`, `impl_option!` wrappers for all new types
+3. ⚠️ Add new types to `api.json` — partially done
+4. ✅ Run codegen to verify FFI safety
 
-### Phase 2: Migrate ComponentDataField
+### Phase 2: Migrate ComponentDataField — ✅ DONE
 
 1. Change `ComponentDataField.field_type` from `AzString` to `ComponentFieldType`
 2. Change `ComponentDataField.default_value` from `OptionString` to
@@ -1436,14 +1436,18 @@ typedef struct {
    instead of `AzString::from("String")`
 5. Update `data_field()` helper
 
-### Phase 3: Unify parameters and callback_slots into data_model
+### Phase 3: Unify parameters and callback_slots into data_model — ✅ DONE
 
 1. Remove `ComponentDef.parameters` — migrate existing params into `data_model`
 2. Remove `ComponentDef.callback_slots` — migrate existing callbacks into
    `data_model` as `ComponentFieldType::Callback(...)` fields
 3. Update all callers
 
-### Phase 4: Update ComponentRenderFn / ComponentCompileFn
+### Phase 4: Update ComponentRenderFn / ComponentCompileFn — ⚠️ PARTIAL
+
+> `ComponentRenderFn`/`ComponentCompileFn` no longer reference old types.
+> However, the signature hasn't fully migrated to `ComponentFieldNamedValueVec` yet.
+> `user_defined_render_fn` and `user_defined_compile_fn` are stubs.
 
 1. Change `ComponentRenderFn` signature:
    ```rust
@@ -1461,7 +1465,12 @@ typedef struct {
 3. Update `builtin_render_fn`, `builtin_compile_fn`
 4. Update `build_exported_code()` in debug_server.rs
 
-### Phase 5: Update debug server + browser UI
+### Phase 5: Update debug server + browser UI — ⚠️ NOT DONE
+
+> This is the main remaining gap. `field_type_to_string()` at debug_server.rs:4172
+> flattens `ComponentFieldType` to strings. The debugger receives strings and
+> re-parses them client-side via `_parseFieldType()`. Should instead serialize
+> as structured JSON per §8.1.
 
 1. Change `ComponentDataFieldInfo.field_type` from `String` to structured JSON
 2. Update `build_component_registry()` to serialize `ComponentFieldType` → JSON
@@ -1470,14 +1479,15 @@ typedef struct {
    controls (dropdowns for enums, checkboxes for bools, drop zones for slots)
 5. Update code gen functions (`generate_scaffold`, `map_type_to_rust`, etc.)
 
-### Phase 6: Remove old system
+### Phase 6: Remove old system — ✅ MOSTLY DONE
 
-1. Remove `XmlComponentTrait`, `XmlComponent`, `XmlComponentMap`
-2. Remove `FilteredComponentArguments`, `ComponentArguments`
-3. Remove `ComponentArgumentTypes`, `ComponentArgumentName`, `ComponentArgumentType`
-4. Remove all `*Renderer` structs (`DivRenderer`, `BodyRenderer`, etc.)
-5. Remove `html_component!` macro
-6. Clean up api.json
+1. ✅ Remove `XmlComponentTrait`, `XmlComponent`, `XmlComponentMap`
+2. ✅ Remove `FilteredComponentArguments`, `ComponentArguments`
+3. ✅ Remove `ComponentArgumentTypes`, `ComponentArgumentName`, `ComponentArgumentType`
+4. ✅ Remove all `*Renderer` structs (`DivRenderer`, `BodyRenderer`, etc.)
+5. ✅ Remove `html_component!` macro
+6. ⚠️ Clean up api.json — partial
+7. 🗑️ Dead types to remove: `ComponentParam`, `ComponentCallbackSlot`, `ChildPolicy` + module_map entries
 
 ---
 
@@ -1871,14 +1881,14 @@ UserDefined component "UserCard"
 
 At each level, the component's `render_fn` receives the field values
 (`ComponentFieldNamedValueVec`) and produces a `StyledDom`. For user-defined
-components, the `render_fn` is the generic template-expansion function that:
-1. Reads the component's XML template
-2. Substitutes field values into `{{ field_name }}` expressions
-3. Recursively instantiates sub-components referenced in the template
-4. Returns the composed `StyledDom`
+components, the `render_fn` is the component's compiled source code that
+builds the DOM using the azul API (not an XML template). For compiled
+components, the `render_fn` is a native Rust function that builds the DOM
+directly (with full access to the Rust type system).
 
-For compiled components, the `render_fn` is a native Rust function that
-builds the DOM directly (with full access to the Rust type system).
+> **Note:** The earlier proposal for a "generic template-expansion function"
+> has been replaced with the source-edit-recompile approach. Each component's
+> render_fn is actual source code, not XML template expansion.
 
 ### 15.6 Dynamic → Compiled compilation pipeline
 

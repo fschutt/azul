@@ -1,7 +1,7 @@
 # Component System — Status & Updated Requirements
 
-**Date:** 2025-02-21
-**Baseline:** `doc/COMPONENT_SYSTEM_REPORT.md` (v2)
+**Date:** 2025-02-25
+**Baseline:** `doc/COMPONENT_SYSTEM_REPORT.md` (v2), `doc/PLAN_COMPONENT_HIERARCHY.md`, `doc/COMPONENT_TYPE_SYSTEM_DESIGN.md`
 
 ---
 
@@ -11,24 +11,24 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `ComponentDef` repr(C) struct | ✅ Done | `core/src/xml.rs:1327` — 15 fields including `render_fn`, `compile_fn`, `node_type` |
+| `ComponentDef` repr(C) struct | ✅ Done | `core/src/xml.rs:1974` — simplified: 8 fields (id, display_name, description, css, source, data_model, render_fn, compile_fn). Removed parameters, callback_slots, accepts_text, child_policy, example_xml, node_type, template. |
 | `ComponentId` (collection:name) | ✅ Done | `core/src/xml.rs:1127` — `collection` + `name` fields, `qualified_name()`, `builtin()`, `new()` |
-| `ComponentParam` | ✅ Done | `core/src/xml.rs:1160` — name, param_type, default_value, description |
-| `ComponentCallbackSlot` | ✅ Done | `core/src/xml.rs:1180` — name, callback_type, description |
-| `ComponentDataField` | ✅ Done | `core/src/xml.rs:1200` — name, field_type, default_value, description |
-| `ChildPolicy` enum | ✅ Done | `NoChildren`, `AnyChildren`, `TextOnly` (no `Specific(StringVec)` variant yet) |
+| `ComponentParam` | 🗑 Removed | Was dead type — merged into `ComponentDataField` with structured `ComponentFieldType` |
+| `ComponentCallbackSlot` | 🗑 Removed | Was dead type — callbacks are now `ComponentFieldType::Callback(sig)` fields in data_model |
+| `ComponentDataField` | ✅ Done | `core/src/xml.rs:1470` — name, **field_type: ComponentFieldType** (structured!), default_value: OptionComponentDefaultValue, required: bool, description |
+| `ChildPolicy` enum | 🗑 Removed | Was unused — child acceptance is now derived from data model shape (see PLAN_COMPONENT_HIERARCHY.md §3): `text: String` field → accepts text, `StyledDom` field → accepts children, neither → no children |
 | `ComponentSource` enum | ✅ Done | `Builtin`, `Compiled`, `UserDefined` |
 | `CompileTarget` enum | ✅ Done | `Rust`, `C`, `Cpp`, `Python` |
 | `ComponentRenderFn` / `ComponentCompileFn` type aliases | ✅ Done | Function pointer types in xml.rs |
 | `RegisterComponentFn` / `RegisterComponentLibraryFn` | ✅ Done | repr(C) callback structs with `cb` + `ctx` for FFI |
-| `ComponentLibrary` | ✅ Done | name, version, description, components, exportable |
+| `ComponentLibrary` | ✅ Done | name, version, description, components, exportable, **modifiable**, **data_models**, **enum_models** |
 | `ComponentMap` with qualified lookup | ✅ Done | `get(collection, name)`, `get_unqualified()`, `get_by_qualified_name()`, `get_exportable_libraries()` |
 | `impl_vec!` / `impl_option!` for all types | ✅ Done | Full FFI-compatible vector/option types |
 | 52 builtin components registered via `register_builtin_components()` | ✅ Done | `core/src/xml.rs:1623` — using `builtin_component_def()` helper |
 | `builtin_render_fn` / `builtin_compile_fn` | ✅ Done | NodeType-based rendering + multi-language codegen |
-| `user_defined_render_fn` / `user_defined_compile_fn` | ✅ Done | Placeholder for JSON-imported components |
-| Extend `split_dynamic_string` for format specifiers | ❌ Not started | `{var:?}`, `{var:.2}` etc. not yet parsed |
-| `ChildPolicy::Specific(StringVec)` | ❌ Not started | `ul -> ["li"]`, `table -> ["thead","tbody","tr"]` |
+| `user_defined_render_fn` / `user_defined_compile_fn` | ⚠️ Stub | Stub only — creates `<div>` + optional text. Real impl will use dynamic source editing + hot recompile (see ACTION_PLAN.md) |
+| Extend `split_dynamic_string` for format specifiers | ⚠️ Partial | `core/src/xml.rs:4086` parses `{var:spec}` syntax, but format_spec is captured as string only — not applied during rendering. Consumers ignore it. |
+| `ChildPolicy::Specific(StringVec)` | 🗑 Removed | ChildPolicy itself removed — validation of allowed children can be done at DOM insertion time via component data model introspection |
 
 ### Phase 2: JSON component definitions — PARTIALLY DONE
 
@@ -39,8 +39,8 @@
 | `ImportComponentLibrary` debug API endpoint | ✅ Done | JSON → ComponentDef conversion, inserts into ComponentMap |
 | `ExportComponentLibrary` debug API endpoint | ✅ Done | ComponentDef → JSON export for user-defined libraries |
 | `get_component_registry` / `get_libraries` / `get_library_components` endpoints | ✅ Done | Full REST-style API |
-| Template-based generic `render_fn` for JSON components | ❌ Stub only | `user_defined_render_fn` just creates a div — doesn't expand XML template |
-| Template-based generic `compile_fn` for JSON components | ❌ Stub only | `user_defined_compile_fn` just creates `Dom::div()` — doesn't expand template |
+| Dynamic `render_fn` for JSON components | ⚠️ Stub | `user_defined_render_fn` creates div+text. Vision: source code editing + hot recompile per component, not XML template expansion |
+| Dynamic `compile_fn` for JSON components | ⚠️ Stub | `user_defined_compile_fn` generates basic code. Vision: editable source per component in $lang, with default codegen from ComponentDef |
 
 ### Phase 3: Debugger UI — PARTIALLY DONE
 
@@ -52,13 +52,13 @@
 | Import Component Library menu item | ✅ Done | Import > Component Library... (file picker) |
 | Export Component Library menu item | ✅ Done | Export > Component Library (JSON) |
 | Export Code (Rust/C/C++/Python) menu items | ✅ Done | Export > Code (Rust/C/C++/Python) |
-| Library dropdown instead of list | ❌ Not done | Currently a list, should be a dropdown selector |
-| Component filter/search | ❌ Not done | No filter input |
-| "Create Component" from context menu | ❌ Not done | |
+| Library dropdown instead of list | ✅ Done | `<select id="library-selector">` dropdown in debugger.html |
+| Component filter/search | ✅ Done | `<input id="component-filter">` with client-side fuzzy match |
+| "Create Component" from context menu | ✅ Done | `+ Component` button, hidden when !modifiable |
 | Component tree editor (second column) | ❌ Not done | |
 | Drag-and-drop components into DOM tree | ❌ Not done | |
 | Grey rendering of component internals | ❌ Not done | |
-| Live preview with CPU render | ❌ Not done | |
+| Live preview with CPU render | ✅ Done | `get_component_preview` API endpoint + `PreviewPanel` widget in debugger.js + `cpurender::render_component_preview()` in layout |
 | Context menu: nested library → component insertion | ❌ Not done | |
 
 ### Phase 4: Code export — PARTIALLY DONE
@@ -144,28 +144,42 @@ The main editor area, when a component is selected, should show **two columns**:
   - Universal HTML attributes (id, class, style, tabindex, aria-*, contenteditable, draggable, hidden, lang, dir, title, role, data-*) should be in a **collapsed** `<details>` section labeled "Universal HTML Attributes"
   - Component-specific attributes (e.g., `href` for Link, `src` for Image) should be shown **first**, above the collapsed universal section
 
-**Right column — Component Tree / Preview:**
-- A mini DOM tree showing the **internal structure** of this component (its template)
-- For user-defined components: **editable** — drag-and-drop other components from the library list to build the template
-- For builtin components: read-only, showing that it maps to a single NodeType
-- Below the tree: a **preview image** rendered via the CPU renderer (see §2.7)
+**Right column — Mini HTML Tree + Preview:**
+- A **mini DOM tree** showing the live **output** of `render_fn` given the current data model values
+- Users can play with data model values (left column) to see the tree update
+- For user-defined components: **drag & drop** components from the library palette to edit the structure
+- For builtin components: read-only tree (just the NodeType mapping)
+- Below the tree: a **preview image** rendered via the CPU renderer — already implemented via `get_component_preview`
+- "Edit render_fn" / "Edit compile_fn → {language}" buttons open a popup source code editor (only for modifiable components)
 
-### 2.4 Component Tree Builder (Drag-and-Drop)
+### 2.4 Two Editing Modes: Structure (Drag & Drop) + Functionality (Popup Editor)
 
-The right column of the component detail is where users **build** custom components:
+The component detail view has **two distinct editing surfaces**:
 
-1. The library's component list (left sidebar) acts as a **palette**
-2. User drags a component (e.g., "Div") from the palette into the component tree (right column)
-3. Dropping inserts the component as a child (or sibling, depending on drop position)
-4. The tree shows the component's internal structure with indentation
-5. Each node in the tree can be:
-   - Selected (highlights, shows properties)
-   - Deleted (right-click → delete)
-   - Reordered (drag within the tree)
-6. Text content can be added by selecting a text-accepting node and typing in a text field
+**A) Structure editing (drag & drop in the mini HTML tree):**
+1. The component mini HTML tree shows the **output** of `render_fn` given current data model values
+2. The library's component list (left sidebar) acts as a **palette** — drag components into the tree
+3. Dropping inserts a component as child/sibling, changing the component's structure definition
+4. Each tree node can be selected, deleted (right-click), or reordered (drag within tree)
+5. Data model value changes instantly re-render the tree via `render_fn`
+6. Structure changes update the component definition → re-render preview
 
-**This is the core "GUI builder" feature:** users create component templates by composing
-other components visually, then export the result as code.
+**B) Functionality editing (popup source code editor):**
+1. "Edit render_fn" button opens a popup with the component's render function source code
+2. "Edit compile_fn → Python" (dropdown per language) opens the compile function source
+3. Callback functions on DOM nodes also get an "Edit" button → same popup editor
+4. Only available for `source == UserDefined` components (hidden for Builtin/Compiled)
+5. Custom source code **overrides** the default generic `render_fn` / `compile_fn`
+
+**Default render_fn / compile_fn:**
+All user-defined components start with the SAME default `render_fn` and `compile_fn`.
+The default `render_fn` interprets the `ComponentDef` structure generically — iterating
+data model fields, creating DOM nodes for StyledDom slots, and recursively instantiating
+sub-components via `ComponentMap`. When a user writes custom source in the popup editor,
+it replaces the default for that specific component.
+
+The default `compile_fn` generates source code that references predefined function names
+of other components. It does NOT need `ComponentMap` — just emits code.
 
 ### 2.5 Data Models as Structured Types (not flat attributes)
 
@@ -322,29 +336,21 @@ pub struct ComponentDataModel {
 This allows nesting: a field with `field_type = "UserProfile"` references a
 `ComponentDataModel` with `name = "UserProfile"` in the same library.
 
-### 3.3 `ComponentDef` Updates
+### 3.3 `ComponentDef` — Current Design (no template field)
 
-```rust
-pub struct ComponentDef {
-    // ... existing fields unchanged ...
+The `template` field was considered but **explicitly removed** per `PLAN_COMPONENT_HIERARCHY.md` §2.
+Instead of storing an XML template, the user's workflow is:
 
-    /// XML/HTML template body for user-defined components.
-    /// Used by the template-based render_fn/compile_fn.
-    /// Empty for builtin components (they render via node_type).
-    pub template: AzString,  // NEW: the component's XML template body
-}
-```
+1. Each component has a `source: AzString` field pointing to its source code file
+2. The user edits source code (Rust/C/Python) directly — either in their editor or via a popup in the debugger
+3. On save, a quick recompile is triggered, and the running app picks up the new `render_fn` via hot-reload
 
-The `template` field stores the component's internal DOM structure as XML. For example:
-```xml
-<div class="avatar" style="width: {size}; height: {size};">
-    <img src="{image}" />
-    <span class="fallback">{fallback}</span>
-</div>
-```
+This avoids the complexity of an XML template → code round-trip and keeps the source of truth
+in actual source code. The `compile_fn` generates initial scaffolding, after which the user
+owns the source file.
 
-This is what gets rendered in the component tree builder, and what the template-based
-`render_fn` / `compile_fn` expand.
+`ComponentDef` currently has 8 fields: `id`, `display_name`, `description`, `css`, `source`,
+`data_model`, `render_fn`, `compile_fn`. No `template` field.
 
 ### 3.4 Debug Server Response Updates
 
@@ -354,10 +360,8 @@ pub modifiable: bool,
 pub data_models: Vec<DataModelInfo>,
 ```
 
-`ComponentInfo` gains:
-```rust
-pub template: String,
-```
+`ComponentInfo` currently has: tag, qualified_name, display_name, description, source,
+data_model, universal_attributes, callback_slots, css. No `template` field (removed by design).
 
 `LibrarySummary` gains:
 ```rust
@@ -385,8 +389,7 @@ pub struct ComponentPreviewResponse {
 | `delete_library` | Delete a user-defined library |
 | `create_component` | Create a new empty component in a library |
 | `delete_component` | Delete a component from a library |
-| `update_component` | Update a component's template, CSS, data model, etc. |
-| `update_component_tree` | Update a component's internal DOM tree (drag-and-drop result) |
+| `update_component` | Update a component's CSS, data model, source, etc. |
 
 ---
 
@@ -396,32 +399,31 @@ pub struct ComponentPreviewResponse {
 
 Files: `core/src/xml.rs`
 
-1. Add `modifiable: bool` field to `ComponentLibrary`
-2. Add `ComponentDataModel` struct + `ComponentDataModelVec` (impl_vec!, impl_option!, etc.)
-3. Add `data_models: ComponentDataModelVec` field to `ComponentLibrary`
-4. Add `template: AzString` field to `ComponentDef`
-5. Update `register_builtin_components()`: set `modifiable: false`, `data_models: empty`, `template: empty` for builtins
-6. Update `builtin_component_def()`: add `template: AzString::from_const_str("")`
-7. Update `user_defined_render_fn` / `user_defined_compile_fn` to use the `template` field when non-empty (parse XML, expand variables, render/compile — leveraging existing `render_dom_from_body_node_inner` / `compile_node_to_rust_code_inner`)
+1. ✅ Add `modifiable: bool` field to `ComponentLibrary`
+2. ✅ Add `ComponentDataModel` struct + `ComponentDataModelVec` (impl_vec!, impl_option!, etc.)
+3. ✅ Add `data_models: ComponentDataModelVec` field to `ComponentLibrary`
+4. ❌ ~~Add `template: AzString` field to `ComponentDef`~~ — removed by design (see §3.3)
+5. ✅ Update `register_builtin_components()`: set `modifiable: false`, `data_models: empty` for builtins
+6. ✅ Update `builtin_component_def()`: fields correct
+7. ⚠️ `user_defined_render_fn` / `user_defined_compile_fn` are stubs — vision: source-edit-recompile (not template expansion)
 
 ### Step 2: Debug Server Updates
 
 Files: `dll/src/desktop/shell2/common/debug_server.rs`
 
-1. Update `ComponentLibraryInfo`, `LibrarySummary` to include `modifiable` + `data_models`
-2. Update `ComponentInfo` to include `template`
-3. Update `build_component_registry()` to populate new fields
-4. Separate component-specific attributes from universal HTML attributes in the response
-   (add `universal_attributes` and `specific_attributes` fields, or mark attributes with `is_universal: bool`)
-5. Add new debug event handlers:
-   - `CreateLibrary { name, description }`
-   - `DeleteLibrary { name }`
-   - `CreateComponent { library, name, display_name }`
-   - `DeleteComponent { library, component }`
-   - `UpdateComponent { library, component, template?, scoped_css?, data_model?, ... }`
-   - `GetComponentPreview { component, config }`
-6. Implement `GetComponentPreview`: construct DOM from render_fn, apply CSS, use CPU renderer, return base64 PNG
-7. Update `ExportedLibraryResponse` / `ExportedComponentDef` to include `template`, `data_models`
+1. ✅ Update `ComponentLibraryInfo`, `LibrarySummary` to include `modifiable` + `data_models`
+2. ❌ ~~Update `ComponentInfo` to include `template`~~ — removed by design (see §3.3)
+3. ✅ Update `build_component_registry()` to populate new fields
+4. ✅ Separate component-specific attributes from universal HTML attributes in the response
+5. ✅ Add new debug event handlers:
+   - `CreateLibrary { name, description }` — implemented
+   - `DeleteLibrary { name }` — implemented
+   - `CreateComponent { library, name, display_name }` — implemented
+   - `DeleteComponent { library, component }` — implemented
+   - `UpdateComponent { library, component, scoped_css?, data_model?, ... }` — implemented
+   - `GetComponentPreview { component, config }` — implemented
+6. ✅ Implement `GetComponentPreview`: construct DOM from render_fn, apply CSS, use CPU renderer, return base64 PNG (debug_server.rs:8768)
+7. ⚠️ Update `ExportedLibraryResponse` / `ExportedComponentDef` to include `data_models` (no template)
 
 ### Step 3: Debugger HTML Restructure
 
@@ -465,18 +467,18 @@ Files: `dll/src/desktop/shell2/common/debugger/debugger.js`, `debugger.css`
 5. For user-defined components: make description editable
 6. Add preview image container (loads via `get_component_preview`)
 
-### Step 6: Component Tree Editor
+### Step 6: Component Tree Editor + Popup Source Editor
 
 Files: `dll/src/desktop/shell2/common/debugger/debugger.js`, `debugger.css`
 
-1. Render the component's `template` as a mini DOM tree in the right column
-2. For user-defined components: make tree editable:
-   - Drag from component palette → drop into tree
-   - Right-click → delete node
-   - Drag within tree → reorder
-   - Select node → show inline property editor
-3. On tree change → post `update_component_tree` → re-render preview
-4. For builtin components: show read-only tree (just the NodeType mapping)
+1. Render the component's render_fn output as a mini DOM tree in the right column (using current data model values)
+2. For user-defined components: enable drag & drop from component palette into the tree
+3. Right-click context menu on tree nodes: delete, reorder, insert child
+4. "Edit render_fn" / "Edit compile_fn → {lang}" buttons → popup in-browser source editor
+5. "Edit callback" button on DOM nodes with attached callbacks → same popup editor
+6. Popup editor only shown when `component.source == UserDefined`
+7. Custom source overrides default generic render_fn/compile_fn
+8. For builtin components: show read-only tree (just the NodeType mapping), no edit buttons
 
 ### Step 7: Component Preview Rendering
 
@@ -540,8 +542,8 @@ From original `COMPONENT_SYSTEM_REPORT.md`:
 
 - [x] repr(C) ComponentDef with function pointers (§2.1)
 - [x] ComponentId with collection:name namespacing (§2.1)
-- [x] ComponentParam, ComponentCallbackSlot, ComponentDataField (§2.1, §5.3)
-- [x] ChildPolicy enum (§2.1) — missing `Specific(StringVec)` variant
+- [x] ComponentDataField (structured) merged params+callbacks into data_model (§2.1, §5.3) — ComponentParam/ComponentCallbackSlot removed (dead types)
+- [ ] ~~ChildPolicy enum (§2.1)~~ — removed: child acceptance derived from data model shape (StyledDom field → children, text: String → text, neither → no children)
 - [x] ComponentLibrary with version, description, exportable (§2.5)
 - [x] ComponentMap with qualified lookup (§2.6)
 - [x] RegisterComponentFn / RegisterComponentLibraryFn for C FFI (§1.2)
@@ -551,34 +553,79 @@ From original `COMPONENT_SYSTEM_REPORT.md`:
 - [x] Debugger: component sidebar with library grouping (§3.1)
 - [x] Debugger: component detail panel with params, data model, callbacks (§3.1)
 - [x] Debugger: Import/Export menus (§3.4)
-- [ ] Format specifiers in `split_dynamic_string` (§2.4)
+- [ ] Format specifiers in `split_dynamic_string` applied during rendering (§2.4) — parsing works, application not wired
 - [ ] `AzCompileDomContext` for structural components (§2.3)
-- [ ] `ComponentInstance` struct for DOM tree (§2.2)
-- [ ] Template-based render_fn/compile_fn for JSON components (§2.5)
+- [ ] `ComponentInstance` struct for DOM tree (§2.2) — `ComponentInstanceDefault` exists in core, full `ComponentInstance` for DOM not yet used
+- [ ] ~~Template-based render_fn/compile_fn~~ → source-edit-recompile workflow instead (see §2.4)
 - [ ] "Create Component" from DOM subtree (§3.2)
 - [ ] Grey rendering of component internals in DOM tree (§3.6)
 - [ ] Context menu: nested library → component insertion (§3.3)
-- [ ] Snapshot-based live preview (§3.5)
-- [ ] For/If/Map structural components (§5.4)
-- [ ] ZIP packaging for code export (§5.2)
+- [x] Snapshot-based live preview (§3.5) — `get_component_preview` with CPU renderer implemented
+- [ ] For/If/Map structural components (§5.4) — should be `builtin:if`, `builtin:for`, `builtin:map`
+- [ ] ZIP packaging for code export (§5.2) — zip.rs (598 lines) exists in layout, needs wiring
 - [ ] `source_file` tracking and user code preservation (Phase 6)
 
 From new user requirements (this session):
 
-- [ ] Library dropdown selector (not list) (§2.1)
-- [ ] `+ Library` / `+ Component` buttons with modifiable check (§2.1)
-- [ ] `modifiable` field on ComponentLibrary (§2.2)
-- [ ] Component filter input (§2.1)
-- [ ] Clean component list (no `<>` icon, no `<tag>` suffix) (§2.8)
-- [ ] Two-column component detail: properties + tree/preview (§2.3)
-- [ ] Universal HTML attributes collapsed separately (§2.3)
-- [ ] Component-level CSS display, editable for user components (§2.3)
-- [ ] Component tree builder via drag-and-drop (§2.4)
-- [ ] Nested/structured data models with `ComponentDataModel` (§2.5)
-- [ ] Default data model instantiation for preview (§2.5)
+- [x] Library dropdown selector (not list) (§2.1) — `<select id="library-selector">` in debugger.html
+- [x] `+ Library` / `+ Component` buttons with modifiable check (§2.1) — hidden when `!modifiable`
+- [x] `modifiable` field on ComponentLibrary (§2.2) — core/src/xml.rs, debug_server.rs
+- [x] Component filter input (§2.1) — `<input id="component-filter">` with client-side fuzzy match
+- [x] Clean component list (no `<>` icon, no `<tag>` suffix) (§2.8) — just `display_name`
+- [x] Two-column component detail: properties + tree/preview (§2.3) — left=properties, right=preview
+- [x] Universal HTML attributes collapsed separately (§2.3) — `<details>` element, closed by default
+- [x] Component-level CSS display, editable for user components (§2.3) — in showComponentDetail()
+- [ ] Component tree builder via drag & drop (§2.4A) — mini HTML tree shows render_fn output, drag components from palette to edit structure
+- [x] Nested/structured data models with `ComponentDataModel` (§2.5) — core types + debug server
+- [x] Default data model instantiation for preview (§2.5) — `GetComponentPreview` handler overrides defaults from data model
 - [ ] Component palette in Inspector view + drag-drop into DOM tree (§2.6)
-- [ ] `get_component_preview` API (CPU render) (§2.7)
-- [ ] Preview auto-updates on structure/CSS/data change (§2.7)
-- [ ] `template` field on ComponentDef (§3.3)
-- [ ] `data_models` field on ComponentLibrary (§3.1)
-- [ ] CRUD endpoints: create_library, delete_library, create_component, delete_component, update_component (§3.5)
+- [x] `get_component_preview` API (CPU render) (§2.7) — endpoint + handler + debugger JS integration
+- [ ] Preview auto-updates on structure/CSS/data change (§2.7) — preview loads once, no live re-render
+- [ ] ~~`template` field on ComponentDef (§3.3)~~ — removed by design (structure via drag & drop, functionality via popup source editor)
+- [x] `data_models` field on ComponentLibrary (§3.1) — core + debug server response
+- [x] CRUD endpoints: create_library, delete_library, create_component, delete_component, update_component (§3.5) — all 5 exist with handlers
+- [ ] Popup source editor for render_fn / compile_fn / callbacks (§2.4B) — in-browser editor, modifiable components only
+
+From debugger data inspection session:
+
+- [x] `Json` data type moved to `azul-core` (type definitions + serde methods behind `serde-json` feature flag)
+- [x] `azul-layout::json` simplified to re-exports + RefAny serialization
+- [x] `GetNodeDataset` debug API endpoint — serializes node's `dataset` RefAny to JSON
+- [x] Node Dataset panel in debugger HTML (below app-state viewer, same column)
+- [x] Node Dataset panel JS: auto-loads on node selection when `has_dataset=true`, readonly JSON tree
+- [x] `json.to_serde_value()` / `Json::from_serde_value()` for direct serde_json interop
+- [x] `ComponentOrigin` tracks `data_model_json: Json` for component instances in DOM
+
+From `COMPONENT_TYPE_SYSTEM_DESIGN.md` (type system implementation):
+
+- [x] `ComponentFieldType` enum with 20 structured variants (§3.1) — replaces string-based field_type
+- [x] `ComponentFieldTypeBox` for FFI-safe recursive types (§9.1) — ptr-based, manual Clone/Drop
+- [x] `ComponentCallbackSignature` with return_type + args (§3.2) — `type_name` not needed (args + return_type sufficient per user decision)
+- [x] `ComponentCallbackArg` with name + arg_type (§3.2)
+- [x] `ComponentEnumModel` + `ComponentEnumVariant` (§3.3) — variant missing `description` field
+- [x] `ComponentDefaultValue` enum with 13 typed variants (§3.5) — missing `Json(AzString)` variant
+- [x] `ComponentInstanceDefault` with library + component + field_overrides (§3.5)
+- [x] `ComponentFieldOverride` + `ComponentFieldValueSource` (§3.5) — Literal is AzString (not typed)
+- [x] `ComponentFieldValue` runtime value enum (§14.3) — missing Some/Vec/Callback/RefAny variants
+- [x] `ComponentFieldNamedValue` + impl_vec! (§14.3)
+- [x] `ComponentDataField.field_type` is now `ComponentFieldType` (§3.4) — structured, not AzString
+- [x] `ComponentDataField.required: bool` (§3.4)
+- [x] `ComponentDataField.default_value: OptionComponentDefaultValue` (§3.4)
+- [x] Parameters + callback_slots merged into data_model (§5.2) — ComponentDef simplified
+- [x] `enum_models: ComponentEnumModelVec` on ComponentLibrary (§3.6)
+- [x] Old XmlComponentTrait/XmlComponent/XmlComponentMap removed (§12 Phase 6)
+- [x] Old FilteredComponentArguments removed (§12 Phase 6)
+- [ ] ~~`ComponentCallbackSignature.type_name` field for api.json matching (§3.2)~~ — not needed, args + return_type sufficient
+- [ ] `ComponentEnumVariant.description` field (§3.3)
+- [ ] `ComponentDefaultValue::Json(AzString)` for complex defaults (§3.5)
+- [ ] `ComponentFieldValueSource::Literal` should be typed `ComponentFieldValue` not `AzString` (§3.5)
+- [ ] `ComponentFieldValue` missing Some/Vec/Callback/RefAny variants (§14.3)
+- [ ] `ComponentRenderFn` signature: should take `&ComponentFieldNamedValueVec` not `&ComponentDataModel` (§12 Phase 4)
+- [ ] `parse_field_type()` / `format_field_type()` public parser functions (§7)
+- [ ] Structured JSON serialization of ComponentFieldType in debug server (§8.1) — currently flat string
+- [ ] `enum_models` exposed in debug server JSON responses (§3.6)
+- [ ] `ExportedLibraryResponse` includes data_models + enum_models (§8)
+- [ ] ~~`ExportedComponentDef` includes template (§8)~~ — no template field, export source file path instead
+- [ ] ~~`UpdateComponentTree` debug API endpoint (§3.5)~~ — no template tree; source-edit-recompile instead
+- [ ] Code generation uses structured ComponentFieldType (not string matching) (§11)
+- [ ] Dead types cleanup: ~~ComponentParam, ComponentCallbackSlot~~ (marked for removal from xml.rs + module_map.rs), ChildPolicy (removed), ComponentArgument (§12 Phase 6)
