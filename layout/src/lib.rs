@@ -115,6 +115,7 @@ pub use icon::{
     create_default_icon_provider,
     register_material_icons,
     register_embedded_material_icons,
+    get_material_icons_font_bytes,
 };
 // Re-export core icon types
 pub use azul_core::icon::{

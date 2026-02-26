@@ -474,6 +474,25 @@ pub fn create_default_icon_provider() -> IconProviderHandle {
 }
 
 // ============================================================================
+// Embedded Font Bytes Access
+// ============================================================================
+
+/// Returns the raw TTF bytes of the embedded Material Icons font,
+/// or `None` if the `icons` feature is not enabled.
+///
+/// This is useful for serving the font over HTTP (e.g., in the debug server)
+/// so that the debugger UI does not need an internet connection to Google Fonts.
+#[cfg(feature = "icons")]
+pub fn get_material_icons_font_bytes() -> Option<&'static [u8]> {
+    Some(material_icons::FONT)
+}
+
+#[cfg(not(feature = "icons"))]
+pub fn get_material_icons_font_bytes() -> Option<&'static [u8]> {
+    None
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
