@@ -1212,6 +1212,55 @@ impl core::hash::Hash for ComponentFieldTypeBox {
     }
 }
 
+/// Heap-allocated box for recursive `ComponentFieldValue` (e.g. `Some(value)`).
+/// Uses raw pointer indirection to break the infinite size.
+#[repr(C)]
+pub struct ComponentFieldValueBox {
+    pub ptr: *mut ComponentFieldValue,
+}
+
+impl ComponentFieldValueBox {
+    pub fn new(v: ComponentFieldValue) -> Self {
+        Self { ptr: Box::into_raw(Box::new(v)) }
+    }
+
+    pub fn as_ref(&self) -> &ComponentFieldValue {
+        unsafe { &*self.ptr }
+    }
+}
+
+impl Clone for ComponentFieldValueBox {
+    fn clone(&self) -> Self {
+        Self::new(unsafe { (*self.ptr).clone() })
+    }
+}
+
+impl Drop for ComponentFieldValueBox {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe { let _ = Box::from_raw(self.ptr); }
+        }
+    }
+}
+
+impl fmt::Debug for ComponentFieldValueBox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.ptr.is_null() {
+            write!(f, "ComponentFieldValueBox(null)")
+        } else {
+            write!(f, "ComponentFieldValueBox({:?})", unsafe { &*self.ptr })
+        }
+    }
+}
+
+impl PartialEq for ComponentFieldValueBox {
+    fn eq(&self, other: &Self) -> bool {
+        if self.ptr.is_null() && other.ptr.is_null() { return true; }
+        if self.ptr.is_null() || other.ptr.is_null() { return false; }
+        unsafe { *self.ptr == *other.ptr }
+    }
+}
+
 /// Rich type descriptor for a component field.
 /// Replaces the old `AzString` type names ("String", "bool", etc.) with
 /// a structured enum that the debugger can use for type-aware editing.
@@ -1247,26 +1296,135 @@ pub enum ComponentFieldType {
     EnumRef(AzString),
 }
 
+impl ComponentFieldType {
+    /// Parse a field type string like "String", "Option<Bool>", "Vec<I32>",
+    /// "Callback(fn(LayoutCallbackInfo) -> Dom)", "StructRef(MyStruct)" etc.
+    /// Returns `None` if the string cannot be parsed.
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        match s {
+            "String" | "string" => return Some(ComponentFieldType::String),
+            "Bool" | "bool" => return Some(ComponentFieldType::Bool),
+            "I32" | "i32" => return Some(ComponentFieldType::I32),
+            "I64" | "i64" => return Some(ComponentFieldType::I64),
+            "U32" | "u32" => return Some(ComponentFieldType::U32),
+            "U64" | "u64" => return Some(ComponentFieldType::U64),
+            "Usize" | "usize" => return Some(ComponentFieldType::Usize),
+            "F32" | "f32" => return Some(ComponentFieldType::F32),
+            "F64" | "f64" => return Some(ComponentFieldType::F64),
+            "ColorU" => return Some(ComponentFieldType::ColorU),
+            "CssProperty" => return Some(ComponentFieldType::CssProperty),
+            "ImageRef" => return Some(ComponentFieldType::ImageRef),
+            "FontRef" => return Some(ComponentFieldType::FontRef),
+            "StyledDom" => return Some(ComponentFieldType::StyledDom),
+            "RefAny" => return Some(ComponentFieldType::RefAny(AzString::from(""))),
+            _ => {}
+        }
+
+        // Option<T>
+        if let Some(inner) = s.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
+            let inner_type = ComponentFieldType::parse(inner)?;
+            return Some(ComponentFieldType::OptionType(ComponentFieldTypeBox::new(inner_type)));
+        }
+
+        // Vec<T>
+        if let Some(inner) = s.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
+            let inner_type = ComponentFieldType::parse(inner)?;
+            return Some(ComponentFieldType::VecType(ComponentFieldTypeBox::new(inner_type)));
+        }
+
+        // Callback(signature)
+        if let Some(sig) = s.strip_prefix("Callback(").and_then(|r| r.strip_suffix(')')) {
+            return Some(ComponentFieldType::Callback(ComponentCallbackSignature {
+                return_type: AzString::from(sig),
+                args: Vec::new().into(),
+            }));
+        }
+
+        // RefAny(TypeHint)
+        if let Some(hint) = s.strip_prefix("RefAny(").and_then(|r| r.strip_suffix(')')) {
+            return Some(ComponentFieldType::RefAny(AzString::from(hint)));
+        }
+
+        // EnumRef(Name) — explicit
+        if let Some(name) = s.strip_prefix("EnumRef(").and_then(|r| r.strip_suffix(')')) {
+            return Some(ComponentFieldType::EnumRef(AzString::from(name)));
+        }
+
+        // StructRef(Name) — explicit
+        if let Some(name) = s.strip_prefix("StructRef(").and_then(|r| r.strip_suffix(')')) {
+            return Some(ComponentFieldType::StructRef(AzString::from(name)));
+        }
+
+        // If starts with uppercase, treat as StructRef
+        if s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            return Some(ComponentFieldType::StructRef(AzString::from(s)));
+        }
+
+        None
+    }
+
+    /// Format this field type to its canonical string representation.
+    /// This is the inverse of `parse`.
+    pub fn format(&self) -> String {
+        match self {
+            ComponentFieldType::String => "String".to_string(),
+            ComponentFieldType::Bool => "Bool".to_string(),
+            ComponentFieldType::I32 => "I32".to_string(),
+            ComponentFieldType::I64 => "I64".to_string(),
+            ComponentFieldType::U32 => "U32".to_string(),
+            ComponentFieldType::U64 => "U64".to_string(),
+            ComponentFieldType::Usize => "Usize".to_string(),
+            ComponentFieldType::F32 => "F32".to_string(),
+            ComponentFieldType::F64 => "F64".to_string(),
+            ComponentFieldType::ColorU => "ColorU".to_string(),
+            ComponentFieldType::CssProperty => "CssProperty".to_string(),
+            ComponentFieldType::ImageRef => "ImageRef".to_string(),
+            ComponentFieldType::FontRef => "FontRef".to_string(),
+            ComponentFieldType::StyledDom => "StyledDom".to_string(),
+            ComponentFieldType::Callback(sig) => format!("Callback({})", sig.return_type.as_str()),
+            ComponentFieldType::RefAny(hint) => {
+                if hint.as_str().is_empty() {
+                    "RefAny".to_string()
+                } else {
+                    format!("RefAny({})", hint.as_str())
+                }
+            }
+            ComponentFieldType::OptionType(inner) => format!("Option<{}>", inner.as_ref().format()),
+            ComponentFieldType::VecType(inner) => format!("Vec<{}>", inner.as_ref().format()),
+            ComponentFieldType::StructRef(name) => name.as_str().to_string(),
+            ComponentFieldType::EnumRef(name) => name.as_str().to_string(),
+        }
+    }
+}
+
+impl core::fmt::Display for ComponentFieldType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.format())
+    }
+}
+
 /// A single variant in a component enum model.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentEnumVariant {
     /// Variant name, e.g. "Admin", "Editor", "Viewer"
     pub name: AzString,
+    /// Human-readable description for this variant
+    pub description: AzString,
     /// Optional associated fields for this variant
     pub fields: ComponentDataFieldVec,
 }
 
 impl_vec!(ComponentEnumVariant, ComponentEnumVariantVec, ComponentEnumVariantVecDestructor, ComponentEnumVariantVecDestructorType, ComponentEnumVariantVecSlice, OptionComponentEnumVariant);
-impl_option!(ComponentEnumVariant, OptionComponentEnumVariant, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ComponentEnumVariant, OptionComponentEnumVariant, copy = false, [Debug, Clone, PartialEq]);
 impl_vec_debug!(ComponentEnumVariant, ComponentEnumVariantVec);
 impl_vec_partialeq!(ComponentEnumVariant, ComponentEnumVariantVec);
-impl_vec_partialord!(ComponentEnumVariant, ComponentEnumVariantVec);
 impl_vec_clone!(ComponentEnumVariant, ComponentEnumVariantVec, ComponentEnumVariantVecDestructor);
 
 /// A named enum model for code generation.
 /// Stored in `ComponentLibrary::enum_models`.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentEnumModel {
     /// Enum name, e.g. "UserRole"
@@ -1278,14 +1436,13 @@ pub struct ComponentEnumModel {
 }
 
 impl_vec!(ComponentEnumModel, ComponentEnumModelVec, ComponentEnumModelVecDestructor, ComponentEnumModelVecDestructorType, ComponentEnumModelVecSlice, OptionComponentEnumModel);
-impl_option!(ComponentEnumModel, OptionComponentEnumModel, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ComponentEnumModel, OptionComponentEnumModel, copy = false, [Debug, Clone, PartialEq]);
 impl_vec_debug!(ComponentEnumModel, ComponentEnumModelVec);
 impl_vec_partialeq!(ComponentEnumModel, ComponentEnumModelVec);
-impl_vec_partialord!(ComponentEnumModel, ComponentEnumModelVec);
 impl_vec_clone!(ComponentEnumModel, ComponentEnumModelVec, ComponentEnumModelVecDestructor);
 
 /// Default value for a component field.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum ComponentDefaultValue {
     /// No default value (field is required)
@@ -1314,12 +1471,14 @@ pub enum ComponentDefaultValue {
     ComponentInstance(ComponentInstanceDefault),
     /// Default callback function pointer name
     CallbackFnPointer(AzString),
+    /// JSON string representing a complex default value
+    Json(AzString),
 }
 
-impl_option!(ComponentDefaultValue, OptionComponentDefaultValue, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ComponentDefaultValue, OptionComponentDefaultValue, copy = false, [Debug, Clone, PartialEq]);
 
 /// Default component instance for a StyledDom slot.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentInstanceDefault {
     /// Library name, e.g. "builtin"
@@ -1331,7 +1490,7 @@ pub struct ComponentInstanceDefault {
 }
 
 /// An override for a single field in a component instance.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentFieldOverride {
     /// Field name to override
@@ -1341,22 +1500,18 @@ pub struct ComponentFieldOverride {
 }
 
 impl_vec!(ComponentFieldOverride, ComponentFieldOverrideVec, ComponentFieldOverrideVecDestructor, ComponentFieldOverrideVecDestructorType, ComponentFieldOverrideVecSlice, OptionComponentFieldOverride);
-impl_option!(ComponentFieldOverride, OptionComponentFieldOverride, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(ComponentFieldOverride, OptionComponentFieldOverride, copy = false, [Debug, Clone, PartialEq]);
 impl_vec_debug!(ComponentFieldOverride, ComponentFieldOverrideVec);
 impl_vec_partialeq!(ComponentFieldOverride, ComponentFieldOverrideVec);
-impl_vec_eq!(ComponentFieldOverride, ComponentFieldOverrideVec);
-impl_vec_partialord!(ComponentFieldOverride, ComponentFieldOverrideVec);
-impl_vec_ord!(ComponentFieldOverride, ComponentFieldOverrideVec);
-impl_vec_hash!(ComponentFieldOverride, ComponentFieldOverrideVec);
 impl_vec_clone!(ComponentFieldOverride, ComponentFieldOverrideVec, ComponentFieldOverrideVecDestructor);
 
 /// How a field value is sourced at the instance level.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum ComponentFieldValueSource {
     /// Use the component's default value
     Default,
-    /// Hardcoded literal value
+    /// Hardcoded literal value (as string, parsed at runtime)
     Literal(AzString),
     /// Bound to an app state path (e.g. "app_state.user.name")
     Binding(AzString),
@@ -1379,12 +1534,20 @@ pub enum ComponentFieldValue {
     ColorU(ColorU),
     /// Option<T> with no value
     None,
+    /// Option<T> with a value
+    Some(ComponentFieldValueBox),
+    /// Vec of values
+    Vec(ComponentFieldValueVec),
     /// StyledDom slot content
     StyledDom(StyledDom),
     /// Struct fields, in order
     Struct(ComponentFieldNamedValueVec),
     /// Enum variant
     Enum { variant: AzString, fields: ComponentFieldNamedValueVec },
+    /// Callback function reference (function name as string)
+    Callback(AzString),
+    /// Opaque reference-counted data
+    RefAny(crate::refany::RefAny),
 }
 
 /// Named field value: (field_name, value) pair.
@@ -1425,7 +1588,7 @@ impl_vec_partialeq!(ComponentFieldValue, ComponentFieldValueVec);
 impl_vec_clone!(ComponentFieldValue, ComponentFieldValueVec, ComponentFieldValueVecDestructor);
 
 /// A field in the component's internal data model.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentDataField {
     /// Field name, e.g. "counter", "text", "number"
@@ -1441,10 +1604,9 @@ pub struct ComponentDataField {
 }
 
 impl_vec!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor, ComponentDataFieldVecDestructorType, ComponentDataFieldVecSlice, OptionComponentDataField);
-impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug, Clone, PartialEq]);
 impl_vec_debug!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_partialeq!(ComponentDataField, ComponentDataFieldVec);
-impl_vec_partialord!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_clone!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor);
 
 /// A named data model (struct definition) for code generation.
@@ -1647,6 +1809,13 @@ mod serde_impl {
                 ComponentDefaultValue::CallbackFnPointer(name) => {
                     serializer.serialize_str(name.as_str())
                 }
+                ComponentDefaultValue::Json(json_str) => {
+                    // Serialize raw JSON string as-is by parsing and re-emitting
+                    match serde_json::from_str::<serde_json::Value>(json_str.as_str()) {
+                        Ok(v) => v.serialize(serializer),
+                        Err(_) => serializer.serialize_str(json_str.as_str()),
+                    }
+                }
             }
         }
     }
@@ -1843,13 +2012,15 @@ impl_result!(
 );
 
 /// Render function type: takes component definition + data model (with current values
-/// in `default_value` fields), returns StyledDom.
+/// in `default_value` fields) + component map for recursive sub-component instantiation,
+/// returns StyledDom.
 ///
 /// The `data` parameter is typically `def.data_model` cloned and with caller-provided
 /// values substituted into the `default_value` fields.
 pub type ComponentRenderFn = fn(
     &ComponentDef,
     &ComponentDataModel,
+    &ComponentMap,
 ) -> ResultStyledDomRenderDomError;
 
 /// Compile function type: takes component definition + target language + data model, returns source code.
@@ -1928,6 +2099,10 @@ pub struct ComponentDef {
     pub render_fn: ComponentRenderFn,
     /// Compile to source code in target language
     pub compile_fn: ComponentCompileFn,
+    /// Source code for render_fn (user-defined components only)
+    pub render_fn_source: OptionString,
+    /// Source code for compile_fn (user-defined components only)
+    pub compile_fn_source: OptionString,
 }
 
 impl fmt::Debug for ComponentDef {
@@ -2291,6 +2466,7 @@ fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
 fn builtin_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
+    _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
     let node_type = tag_to_node_type(def.id.name.as_str());
     let mut dom = Dom::create_node(node_type);
@@ -2349,24 +2525,160 @@ fn builtin_compile_fn(
 }
 
 /// Default render function for user-defined (JSON-imported) components.
-/// Renders the component as a div with a text label showing the component name.
+///
+/// Interprets the `ComponentDef` structure generically:
+/// 1. Creates a wrapper `<div>` with the component's CSS class
+/// 2. For each data field, renders content based on type:
+///    - String fields → text node with current value
+///    - Bool fields → conditional display
+///    - StyledDom fields → embeds the child DOM subtree
+///    - StructRef/EnumRef → recursively renders sub-components if found in ComponentMap
+///    - Other scalar fields → text display of the value
+/// 3. Applies the component's scoped CSS
 pub fn user_defined_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
+    component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
-    let mut dom = Dom::create_node(NodeType::Div);
-    if let Some(text_str) = data.get_default_string("text") {
-        let prepared = prepare_string(text_str);
-        if !prepared.is_empty() {
-            dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
+    use crate::dom::{Dom, NodeType};
+    use azul_css::css::Css;
+
+    let mut children: Vec<Dom> = Vec::new();
+
+    for field in data.fields.as_ref().iter() {
+        let field_name = field.name.as_str();
+
+        // Get the current value from default_value
+        match &field.default_value {
+            OptionComponentDefaultValue::None => {
+                // Required field with no value — skip in preview
+                continue;
+            }
+            OptionComponentDefaultValue::Some(default_val) => {
+                match default_val {
+                    ComponentDefaultValue::String(s) => {
+                        let text = s.as_str().trim();
+                        if !text.is_empty() {
+                            let label_dom = Dom::create_node(NodeType::Div)
+                                .with_children(alloc::vec![Dom::create_text(text.to_string())].into());
+                            children.push(label_dom);
+                        }
+                    }
+                    ComponentDefaultValue::Bool(b) => {
+                        // Render as a label showing "fieldName: true/false"
+                        let text = alloc::format!("{}: {}", field_name, b);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::I32(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::I64(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::U32(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::U64(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::Usize(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::F32(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::F64(v) => {
+                        let text = alloc::format!("{}: {}", field_name, v);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::ColorU(c) => {
+                        let text = alloc::format!("{}: #{:02x}{:02x}{:02x}{:02x}", field_name, c.r, c.g, c.b, c.a);
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::ComponentInstance(ci) => {
+                        // Recursively instantiate sub-component from ComponentMap
+                        if let Some(sub_comp) = component_map.get(ci.library.as_str(), ci.component.as_str()) {
+                            let sub_data = sub_comp.data_model.clone();
+                            match (sub_comp.render_fn)(sub_comp, &sub_data, component_map) {
+                                ResultStyledDomRenderDomError::Ok(_styled_dom) => {
+                                    // Sub-component rendered successfully — add a placeholder
+                                    // (StyledDom cannot be directly converted back to Dom)
+                                    let text = alloc::format!("[{}:{}]", ci.library.as_str(), ci.component.as_str());
+                                    children.push(Dom::create_node(NodeType::Div)
+                                        .with_children(alloc::vec![Dom::create_text(text)].into()));
+                                }
+                                ResultStyledDomRenderDomError::Err(_) => {
+                                    // On error, show a placeholder
+                                    let text = alloc::format!("[Error rendering {}:{}]", ci.library.as_str(), ci.component.as_str());
+                                    children.push(Dom::create_node(NodeType::Div)
+                                        .with_children(alloc::vec![Dom::create_text(text)].into()));
+                                }
+                            }
+                        } else {
+                            let text = alloc::format!("[Unknown component {}:{}]", ci.library.as_str(), ci.component.as_str());
+                            children.push(Dom::create_node(NodeType::Div)
+                                .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        }
+                    }
+                    ComponentDefaultValue::CallbackFnPointer(name) => {
+                        // Callbacks are not rendered, just acknowledged
+                        let text = alloc::format!("{}: fn({})", field_name, name.as_str());
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::Json(json_str) => {
+                        let text = alloc::format!("{}: {}", field_name, json_str.as_str());
+                        children.push(Dom::create_node(NodeType::Div)
+                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    }
+                    ComponentDefaultValue::None => {
+                        // No default, skip
+                        continue;
+                    }
+                }
+            }
         }
     }
-    let r: Result<StyledDom, RenderDomError> = Ok(dom.style(Css::empty()));
+
+    let mut wrapper = Dom::create_node(NodeType::Div);
+    if !children.is_empty() {
+        wrapper = wrapper.with_children(children.into());
+    }
+
+    // Apply component CSS
+    let css = if !def.css.as_str().is_empty() {
+        Css::from_string(def.css.clone())
+    } else {
+        Css::empty()
+    };
+
+    let r: Result<StyledDom, RenderDomError> = Ok(wrapper.style(css));
     r.into()
 }
 
 /// Default compile function for user-defined (JSON-imported) components.
-/// Generates code that creates a div node for the target language.
+///
+/// Generates source code that creates the component's DOM structure for the
+/// target language. For each data field, emits the appropriate code:
+/// - String fields → text node creation
+/// - Scalar fields → formatted display
+/// - ComponentInstance → function call to sub-component's render function
+/// - StyledDom slots → child parameter pass-through
 pub fn user_defined_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
@@ -2374,45 +2686,177 @@ pub fn user_defined_compile_fn(
     indent: usize,
 ) -> ResultStringCompileError {
     let tag = def.id.name.as_str();
-    let text = data.get_default_string("text");
+    let indent_str = " ".repeat(indent * 4);
+    let inner_indent = " ".repeat((indent + 1) * 4);
+
     let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
-            if let Some(text_str) = text {
-                Ok(format!(
-                    "Dom::create_node(NodeType::Div).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
-                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ).into())
-            } else {
-                Ok(format!("Dom::create_node(NodeType::Div) /* {} */", tag).into())
+            let mut lines = Vec::new();
+            lines.push(alloc::format!("{}// Component: {}", indent_str, tag));
+            lines.push(alloc::format!("{}let mut children: Vec<Dom> = Vec::new();", indent_str));
+
+            for field in data.fields.as_ref().iter() {
+                let fname = field.name.as_str();
+                match &field.default_value {
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
+                        let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
+                        lines.push(alloc::format!(
+                            "{}children.push(Dom::create_text(AzString::from_const_str(\"{}\")));",
+                            inner_indent, escaped
+                        ));
+                    }
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
+                        lines.push(alloc::format!(
+                            "{}children.push(Dom::create_text(AzString::from(format!(\"{{}}: {{}}\", \"{}\", {}).as_str())));",
+                            inner_indent, fname, b
+                        ));
+                    }
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
+                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                        lines.push(alloc::format!(
+                            "{}children.push({}()); // sub-component {}:{}",
+                            inner_indent, fn_name, ci.library.as_str(), ci.component.as_str()
+                        ));
+                    }
+                    _ => {
+                        // For other types, generate a placeholder comment
+                        lines.push(alloc::format!(
+                            "{}// field '{}': {:?}",
+                            inner_indent, fname, field.field_type
+                        ));
+                    }
+                }
             }
+
+            lines.push(alloc::format!(
+                "{}Dom::create_node(NodeType::Div).with_children(children.into())",
+                indent_str
+            ));
+            Ok(lines.join("\n").into())
         }
         CompileTarget::C => {
-            if let Some(text_str) = text {
-                Ok(format!(
-                    "AzDom_createText(AzString_fromConstStr(\"{}\"))",
-                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ).into())
-            } else {
-                Ok(format!("AzDom_createDiv() /* {} */", tag).into())
+            let mut lines = Vec::new();
+            lines.push(alloc::format!("{}/* Component: {} */", indent_str, tag));
+            lines.push(alloc::format!("{}AzDom root = AzDom_createDiv();", indent_str));
+
+            for field in data.fields.as_ref().iter() {
+                let fname = field.name.as_str();
+                match &field.default_value {
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
+                        let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
+                        lines.push(alloc::format!(
+                            "{}AzDom_addChild(&root, AzDom_createText(AzString_fromConstStr(\"{}\")));",
+                            inner_indent, escaped
+                        ));
+                    }
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
+                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                        lines.push(alloc::format!(
+                            "{}AzDom_addChild(&root, {}());",
+                            inner_indent, fn_name
+                        ));
+                    }
+                    _ => {
+                        lines.push(alloc::format!(
+                            "{}/* field '{}' */",
+                            inner_indent, fname
+                        ));
+                    }
+                }
             }
+
+            lines.push(alloc::format!("{}return root;", indent_str));
+            Ok(lines.join("\n").into())
         }
         CompileTarget::Cpp => {
-            Ok(format!("Dom::create_div() /* {} */", tag).into())
+            let mut lines = Vec::new();
+            lines.push(alloc::format!("{}// Component: {}", indent_str, tag));
+            lines.push(alloc::format!("{}auto root = Dom::create_div();", indent_str));
+
+            for field in data.fields.as_ref().iter() {
+                let fname = field.name.as_str();
+                match &field.default_value {
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
+                        let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
+                        lines.push(alloc::format!(
+                            "{}root.add_child(Dom::create_text(\"{}\"));",
+                            inner_indent, escaped
+                        ));
+                    }
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
+                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                        lines.push(alloc::format!(
+                            "{}root.add_child({}());",
+                            inner_indent, fn_name
+                        ));
+                    }
+                    _ => {
+                        lines.push(alloc::format!(
+                            "{}// field '{}'",
+                            inner_indent, fname
+                        ));
+                    }
+                }
+            }
+
+            lines.push(alloc::format!("{}return root;", indent_str));
+            Ok(lines.join("\n").into())
         }
         CompileTarget::Python => {
-            Ok(format!("Dom.div() # {}", tag).into())
+            let mut lines = Vec::new();
+            lines.push(alloc::format!("{}# Component: {}", indent_str, tag));
+            lines.push(alloc::format!("{}root = Dom.div()", indent_str));
+
+            for field in data.fields.as_ref().iter() {
+                let fname = field.name.as_str();
+                match &field.default_value {
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
+                        let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'");
+                        lines.push(alloc::format!(
+                            "{}root.add_child(Dom.text('{}'))",
+                            inner_indent, escaped
+                        ));
+                    }
+                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
+                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                        lines.push(alloc::format!(
+                            "{}root.add_child({}())",
+                            inner_indent, fn_name
+                        ));
+                    }
+                    _ => {
+                        lines.push(alloc::format!(
+                            "{}# field '{}'",
+                            inner_indent, fname
+                        ));
+                    }
+                }
+            }
+
+            lines.push(alloc::format!("{}return root", indent_str));
+            Ok(lines.join("\n").into())
         }
     };
     r.into()
 }
 
-/// Create a ComponentDef for a builtin HTML element
-fn builtin_component_def(tag: &str, display_name: &str, has_text: bool) -> ComponentDef {
+/// Create a ComponentDef for a builtin HTML element.
+///
+/// # Arguments
+/// * `tag` - HTML tag name (e.g. "button", "div")
+/// * `display_name` - Human-readable name (e.g. "Button", "Div")
+/// * `default_text` - Default text content for the preview, or `None` if the element has no text.
+///   Pass `Some("Button text")` for `<button>`, `Some("")` for text elements like `<span>` that
+///   accept text but have no meaningful default.
+/// * `css` - Component-level CSS string. For most builtin elements this is `""` because
+///   styling comes from `ua_css.rs` and the `SystemStyle`. Components that need extra
+///   styling (e.g. a future high-level button widget) can pass CSS here.
+fn builtin_component_def(tag: &str, display_name: &str, default_text: Option<&str>, css: &str) -> ComponentDef {
     let mut fields = builtin_data_model(tag);
-    // If this element accepts text content, add a "text" field to the data model
-    if has_text {
+    // If a default_text is provided, this element accepts text content
+    if let Some(text) = default_text {
         fields.push(data_field("text", ComponentFieldType::String,
-            Some(ComponentDefaultValue::String(AzString::from_const_str(""))),
+            Some(ComponentDefaultValue::String(AzString::from(text))),
             "Text content of the element"));
     }
     let model_name = format!("{}Data", display_name);
@@ -2420,7 +2864,7 @@ fn builtin_component_def(tag: &str, display_name: &str, has_text: bool) -> Compo
         id: ComponentId::builtin(tag),
         display_name: AzString::from(display_name),
         description: AzString::from(format!("HTML <{}> element", tag).as_str()),
-        css: AzString::from_const_str(""),
+        css: AzString::from(css),
         source: ComponentSource::Builtin,
         data_model: ComponentDataModel {
             name: AzString::from(model_name.as_str()),
@@ -2429,6 +2873,8 @@ fn builtin_component_def(tag: &str, display_name: &str, has_text: bool) -> Compo
         },
         render_fn: builtin_render_fn,
         compile_fn: builtin_compile_fn,
+        render_fn_source: None.into(),
+        compile_fn_source: None.into(),
     }
 }
 
@@ -2745,6 +3191,199 @@ pub fn xml_attrs_to_data_model(
     model
 }
 
+// ============================================================================
+// Structural builtin components: if, for, map (Phase F)
+// ============================================================================
+
+/// F1: `builtin:if` — conditional rendering.
+/// Takes `condition: Bool`, `then: StyledDom`, and optionally `else: StyledDom`.
+fn builtin_if_component() -> ComponentDef {
+    ComponentDef {
+        id: ComponentId::builtin("if"),
+        display_name: AzString::from_const_str("If"),
+        description: AzString::from_const_str("Conditional rendering: shows 'then' if condition is true, else shows 'else' (if provided)."),
+        css: AzString::from_const_str(""),
+        source: ComponentSource::Builtin,
+        data_model: ComponentDataModel {
+            name: AzString::from_const_str("IfData"),
+            description: AzString::from_const_str("Data for conditional rendering"),
+            fields: alloc::vec![
+                data_field("condition", ComponentFieldType::Bool, Some(ComponentDefaultValue::Bool(false)), "The boolean condition to evaluate"),
+            ].into(),
+        },
+        render_fn: builtin_if_render_fn,
+        compile_fn: builtin_if_compile_fn,
+        render_fn_source: None.into(),
+        compile_fn_source: None.into(),
+    }
+}
+
+fn builtin_if_render_fn(
+    _comp: &ComponentDef,
+    data_model: &ComponentDataModel,
+    _component_map: &ComponentMap,
+) -> ResultStyledDomRenderDomError {
+    // Evaluate the condition field
+    let condition = data_model.fields.iter().find(|f| f.name.as_str() == "condition")
+        .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => Some(*b), _ => None })
+        .unwrap_or(false);
+
+    let label = if condition { "if: true (then branch)" } else { "if: false (else branch)" };
+    let mut dom = Dom::create_node(NodeType::Div)
+        .with_children(alloc::vec![Dom::create_text(label)].into());
+    let css = Css::empty();
+    ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
+}
+
+fn builtin_if_compile_fn(
+    _comp: &ComponentDef,
+    target: &CompileTarget,
+    _data: &ComponentDataModel,
+    _indent: usize,
+) -> ResultStringCompileError {
+    match target {
+        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
+            "if data.condition {\n    // then branch\n    Dom::div()\n} else {\n    // else branch\n    Dom::div()\n}"
+        )),
+        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
+            "if (data.condition) {\n    // then branch\n    AzDom_createDiv();\n} else {\n    // else branch\n    AzDom_createDiv();\n}"
+        )),
+        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
+            "if (data.condition) {\n    // then branch\n    Dom::div();\n} else {\n    // else branch\n    Dom::div();\n}"
+        )),
+        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
+            "if data.condition:\n    # then branch\n    Dom.div()\nelse:\n    # else branch\n    Dom.div()"
+        )),
+    }
+}
+
+/// F2: `builtin:for` — iterative rendering.
+/// Takes `count: U32` (number of iterations), renders children N times.
+fn builtin_for_component() -> ComponentDef {
+    ComponentDef {
+        id: ComponentId::builtin("for"),
+        display_name: AzString::from_const_str("For Loop"),
+        description: AzString::from_const_str("Iterative rendering: repeats children 'count' times."),
+        css: AzString::from_const_str(""),
+        source: ComponentSource::Builtin,
+        data_model: ComponentDataModel {
+            name: AzString::from_const_str("ForData"),
+            description: AzString::from_const_str("Data for iterative rendering"),
+            fields: alloc::vec![
+                data_field("count", ComponentFieldType::U32, Some(ComponentDefaultValue::U32(3)), "Number of iterations"),
+            ].into(),
+        },
+        render_fn: builtin_for_render_fn,
+        compile_fn: builtin_for_compile_fn,
+        render_fn_source: None.into(),
+        compile_fn_source: None.into(),
+    }
+}
+
+fn builtin_for_render_fn(
+    _comp: &ComponentDef,
+    data_model: &ComponentDataModel,
+    _component_map: &ComponentMap,
+) -> ResultStyledDomRenderDomError {
+    let count = data_model.fields.iter().find(|f| f.name.as_str() == "count")
+        .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::U32(n)) => Some(*n), _ => None })
+        .unwrap_or(3);
+
+    let mut items: alloc::vec::Vec<Dom> = alloc::vec::Vec::new();
+    for i in 0..count {
+        items.push(Dom::create_node(NodeType::Div)
+            .with_children(alloc::vec![Dom::create_text(alloc::format!("Item {}", i))].into()));
+    }
+    let mut dom = Dom::create_node(NodeType::Div)
+        .with_children(items.into());
+    let css = Css::empty();
+    ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
+}
+
+fn builtin_for_compile_fn(
+    _comp: &ComponentDef,
+    target: &CompileTarget,
+    _data: &ComponentDataModel,
+    _indent: usize,
+) -> ResultStringCompileError {
+    match target {
+        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
+            "let mut children = Vec::new();\nfor i in 0..data.count {\n    children.push(Dom::div());\n}\nDom::div().with_children(children)"
+        )),
+        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
+            "AzDom container = AzDom_createDiv();\nfor (uint32_t i = 0; i < data.count; i++) {\n    AzDom_addChild(&container, AzDom_createDiv());\n}"
+        )),
+        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
+            "auto container = Dom::div();\nfor (uint32_t i = 0; i < data.count; i++) {\n    container.add_child(Dom::div());\n}"
+        )),
+        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
+            "container = Dom.div()\nfor i in range(data.count):\n    container.add_child(Dom.div())"
+        )),
+    }
+}
+
+/// F3: `builtin:map` — map data to DOM.
+/// Takes `data_json: String` (JSON array) + maps each element.
+fn builtin_map_component() -> ComponentDef {
+    ComponentDef {
+        id: ComponentId::builtin("map"),
+        display_name: AzString::from_const_str("Map"),
+        description: AzString::from_const_str("Map data to DOM: applies a template to each item in a collection."),
+        css: AzString::from_const_str(""),
+        source: ComponentSource::Builtin,
+        data_model: ComponentDataModel {
+            name: AzString::from_const_str("MapData"),
+            description: AzString::from_const_str("Data for map rendering"),
+            fields: alloc::vec![
+                data_field("data_json", ComponentFieldType::String, Some(ComponentDefaultValue::String(AzString::from_const_str("[]"))), "JSON array of items to map over"),
+            ].into(),
+        },
+        render_fn: builtin_map_render_fn,
+        compile_fn: builtin_map_compile_fn,
+        render_fn_source: None.into(),
+        compile_fn_source: None.into(),
+    }
+}
+
+fn builtin_map_render_fn(
+    _comp: &ComponentDef,
+    data_model: &ComponentDataModel,
+    _component_map: &ComponentMap,
+) -> ResultStyledDomRenderDomError {
+    // For now, render a placeholder — actual mapping requires callback support
+    let data_str = data_model.fields.iter().find(|f| f.name.as_str() == "data_json")
+        .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s.as_str().to_string()), _ => None })
+        .unwrap_or_else(|| "[]".to_string());
+
+    let label = alloc::format!("map: {} items", data_str.len());
+    let mut dom = Dom::create_node(NodeType::Div)
+        .with_children(alloc::vec![Dom::create_text(label)].into());
+    let css = Css::empty();
+    ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
+}
+
+fn builtin_map_compile_fn(
+    _comp: &ComponentDef,
+    target: &CompileTarget,
+    _data: &ComponentDataModel,
+    _indent: usize,
+) -> ResultStringCompileError {
+    match target {
+        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
+            "let items: Vec<serde_json::Value> = serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = items.iter().map(|item| {\n    Dom::div() // map template\n}).collect();\nDom::div().with_children(children)"
+        )),
+        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
+            "// Parse data.data_json and map each item\nAzDom container = AzDom_createDiv();\n// TODO: iterate parsed JSON array"
+        )),
+        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
+            "// Parse data.data_json and map each item\nauto container = Dom::div();\n// TODO: iterate parsed JSON array"
+        )),
+        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
+            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.div()\nfor item in items:\n    container.add_child(Dom.div())"
+        )),
+    }
+}
+
 /// Register the 52 built-in HTML element components.
 ///
 /// This is an `extern "C"` function pointer compatible with
@@ -2764,127 +3403,131 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
         enum_models: Vec::new().into(),
         components: alloc::vec![
             // Structural
-            builtin_component_def("html", "HTML", false),
-            builtin_component_def("head", "Head", false),
-            builtin_component_def("title", "Title", true),
-            builtin_component_def("body", "Body", false),
+            builtin_component_def("html", "HTML", None, ""),
+            builtin_component_def("head", "Head", None, ""),
+            builtin_component_def("title", "Title", Some(""), ""),
+            builtin_component_def("body", "Body", None, ""),
             // Block-level
-            builtin_component_def("div", "Div", false),
-            builtin_component_def("header", "Header", false),
-            builtin_component_def("footer", "Footer", false),
-            builtin_component_def("section", "Section", false),
-            builtin_component_def("article", "Article", false),
-            builtin_component_def("aside", "Aside", false),
-            builtin_component_def("nav", "Nav", false),
-            builtin_component_def("main", "Main", false),
-            builtin_component_def("figure", "Figure", false),
-            builtin_component_def("figcaption", "Figure Caption", true),
-            builtin_component_def("address", "Address", true),
-            builtin_component_def("details", "Details", false),
-            builtin_component_def("summary", "Summary", true),
-            builtin_component_def("dialog", "Dialog", false),
-            // Headings
-            builtin_component_def("h1", "Heading 1", true),
-            builtin_component_def("h2", "Heading 2", true),
-            builtin_component_def("h3", "Heading 3", true),
-            builtin_component_def("h4", "Heading 4", true),
-            builtin_component_def("h5", "Heading 5", true),
-            builtin_component_def("h6", "Heading 6", true),
+            builtin_component_def("div", "Div", None, ""),
+            builtin_component_def("header", "Header", None, ""),
+            builtin_component_def("footer", "Footer", None, ""),
+            builtin_component_def("section", "Section", None, ""),
+            builtin_component_def("article", "Article", None, ""),
+            builtin_component_def("aside", "Aside", None, ""),
+            builtin_component_def("nav", "Nav", None, ""),
+            builtin_component_def("main", "Main", None, ""),
+            builtin_component_def("figure", "Figure", None, ""),
+            builtin_component_def("figcaption", "Figure Caption", Some(""), ""),
+            builtin_component_def("address", "Address", Some(""), ""),
+            builtin_component_def("details", "Details", None, ""),
+            builtin_component_def("summary", "Summary", Some("Details"), ""),
+            builtin_component_def("dialog", "Dialog", None, ""),
+            // Headings — default text is the heading level name so preview is visible
+            builtin_component_def("h1", "Heading 1", Some("Heading 1"), ""),
+            builtin_component_def("h2", "Heading 2", Some("Heading 2"), ""),
+            builtin_component_def("h3", "Heading 3", Some("Heading 3"), ""),
+            builtin_component_def("h4", "Heading 4", Some("Heading 4"), ""),
+            builtin_component_def("h5", "Heading 5", Some("Heading 5"), ""),
+            builtin_component_def("h6", "Heading 6", Some("Heading 6"), ""),
             // Text content
-            builtin_component_def("p", "Paragraph", true),
-            builtin_component_def("span", "Span", true),
-            builtin_component_def("pre", "Preformatted", true),
-            builtin_component_def("code", "Code", true),
-            builtin_component_def("blockquote", "Blockquote", true),
-            builtin_component_def("br", "Line Break", false),
-            builtin_component_def("hr", "Horizontal Rule", false),
-            builtin_component_def("icon", "Icon", true),
+            builtin_component_def("p", "Paragraph", Some("Paragraph text"), ""),
+            builtin_component_def("span", "Span", Some(""), ""),
+            builtin_component_def("pre", "Preformatted", Some(""), ""),
+            builtin_component_def("code", "Code", Some(""), ""),
+            builtin_component_def("blockquote", "Blockquote", Some(""), ""),
+            builtin_component_def("br", "Line Break", None, ""),
+            builtin_component_def("hr", "Horizontal Rule", None, ""),
+            builtin_component_def("icon", "Icon", Some(""), ""),
             // Lists
-            builtin_component_def("ul", "Unordered List", false),
-            builtin_component_def("ol", "Ordered List", false),
-            builtin_component_def("li", "List Item", true),
-            builtin_component_def("dl", "Description List", false),
-            builtin_component_def("dt", "Description Term", true),
-            builtin_component_def("dd", "Description Details", true),
-            builtin_component_def("menu", "Menu", false),
-            builtin_component_def("menuitem", "Menu Item", true),
-            builtin_component_def("dir", "Directory List", false),
+            builtin_component_def("ul", "Unordered List", None, ""),
+            builtin_component_def("ol", "Ordered List", None, ""),
+            builtin_component_def("li", "List Item", Some("List item"), ""),
+            builtin_component_def("dl", "Description List", None, ""),
+            builtin_component_def("dt", "Description Term", Some(""), ""),
+            builtin_component_def("dd", "Description Details", Some(""), ""),
+            builtin_component_def("menu", "Menu", None, ""),
+            builtin_component_def("menuitem", "Menu Item", Some(""), ""),
+            builtin_component_def("dir", "Directory List", None, ""),
             // Tables
-            builtin_component_def("table", "Table", false),
-            builtin_component_def("caption", "Table Caption", true),
-            builtin_component_def("thead", "Table Head", false),
-            builtin_component_def("tbody", "Table Body", false),
-            builtin_component_def("tfoot", "Table Foot", false),
-            builtin_component_def("tr", "Table Row", false),
-            builtin_component_def("th", "Table Header Cell", true),
-            builtin_component_def("td", "Table Data Cell", true),
-            builtin_component_def("colgroup", "Column Group", false),
-            builtin_component_def("col", "Column", false),
+            builtin_component_def("table", "Table", None, ""),
+            builtin_component_def("caption", "Table Caption", Some(""), ""),
+            builtin_component_def("thead", "Table Head", None, ""),
+            builtin_component_def("tbody", "Table Body", None, ""),
+            builtin_component_def("tfoot", "Table Foot", None, ""),
+            builtin_component_def("tr", "Table Row", None, ""),
+            builtin_component_def("th", "Table Header Cell", Some("Header"), ""),
+            builtin_component_def("td", "Table Data Cell", Some(""), ""),
+            builtin_component_def("colgroup", "Column Group", None, ""),
+            builtin_component_def("col", "Column", None, ""),
             // Inline
-            builtin_component_def("a", "Link", true),
-            builtin_component_def("strong", "Strong", true),
-            builtin_component_def("em", "Emphasis", true),
-            builtin_component_def("b", "Bold", true),
-            builtin_component_def("i", "Italic", true),
-            builtin_component_def("u", "Underline", true),
-            builtin_component_def("s", "Strikethrough", true),
-            builtin_component_def("small", "Small", true),
-            builtin_component_def("mark", "Mark", true),
-            builtin_component_def("del", "Deleted Text", true),
-            builtin_component_def("ins", "Inserted Text", true),
-            builtin_component_def("sub", "Subscript", true),
-            builtin_component_def("sup", "Superscript", true),
-            builtin_component_def("samp", "Sample Output", true),
-            builtin_component_def("kbd", "Keyboard Input", true),
-            builtin_component_def("var", "Variable", true),
-            builtin_component_def("cite", "Citation", true),
-            builtin_component_def("dfn", "Definition", true),
-            builtin_component_def("abbr", "Abbreviation", true),
-            builtin_component_def("acronym", "Acronym", true),
-            builtin_component_def("q", "Inline Quote", true),
-            builtin_component_def("time", "Time", true),
-            builtin_component_def("big", "Big", true),
-            builtin_component_def("bdo", "BiDi Override", true),
-            builtin_component_def("bdi", "BiDi Isolate", true),
-            builtin_component_def("wbr", "Word Break Opportunity", false),
-            builtin_component_def("ruby", "Ruby Annotation", false),
-            builtin_component_def("rt", "Ruby Text", true),
-            builtin_component_def("rtc", "Ruby Text Container", false),
-            builtin_component_def("rp", "Ruby Parenthesis", true),
-            builtin_component_def("data", "Data", true),
+            builtin_component_def("a", "Link", Some("Link text"), ""),
+            builtin_component_def("strong", "Strong", Some(""), ""),
+            builtin_component_def("em", "Emphasis", Some(""), ""),
+            builtin_component_def("b", "Bold", Some(""), ""),
+            builtin_component_def("i", "Italic", Some(""), ""),
+            builtin_component_def("u", "Underline", Some(""), ""),
+            builtin_component_def("s", "Strikethrough", Some(""), ""),
+            builtin_component_def("small", "Small", Some(""), ""),
+            builtin_component_def("mark", "Mark", Some(""), ""),
+            builtin_component_def("del", "Deleted Text", Some(""), ""),
+            builtin_component_def("ins", "Inserted Text", Some(""), ""),
+            builtin_component_def("sub", "Subscript", Some(""), ""),
+            builtin_component_def("sup", "Superscript", Some(""), ""),
+            builtin_component_def("samp", "Sample Output", Some(""), ""),
+            builtin_component_def("kbd", "Keyboard Input", Some(""), ""),
+            builtin_component_def("var", "Variable", Some(""), ""),
+            builtin_component_def("cite", "Citation", Some(""), ""),
+            builtin_component_def("dfn", "Definition", Some(""), ""),
+            builtin_component_def("abbr", "Abbreviation", Some(""), ""),
+            builtin_component_def("acronym", "Acronym", Some(""), ""),
+            builtin_component_def("q", "Inline Quote", Some(""), ""),
+            builtin_component_def("time", "Time", Some(""), ""),
+            builtin_component_def("big", "Big", Some(""), ""),
+            builtin_component_def("bdo", "BiDi Override", Some(""), ""),
+            builtin_component_def("bdi", "BiDi Isolate", Some(""), ""),
+            builtin_component_def("wbr", "Word Break Opportunity", None, ""),
+            builtin_component_def("ruby", "Ruby Annotation", None, ""),
+            builtin_component_def("rt", "Ruby Text", Some(""), ""),
+            builtin_component_def("rtc", "Ruby Text Container", None, ""),
+            builtin_component_def("rp", "Ruby Parenthesis", Some(""), ""),
+            builtin_component_def("data", "Data", Some(""), ""),
             // Forms
-            builtin_component_def("form", "Form", false),
-            builtin_component_def("fieldset", "Field Set", false),
-            builtin_component_def("legend", "Legend", true),
-            builtin_component_def("label", "Label", true),
-            builtin_component_def("input", "Input", false),
-            builtin_component_def("button", "Button", true),
-            builtin_component_def("select", "Select", false),
-            builtin_component_def("optgroup", "Option Group", false),
-            builtin_component_def("option", "Option", true),
-            builtin_component_def("textarea", "Text Area", true),
-            builtin_component_def("output", "Output", true),
-            builtin_component_def("progress", "Progress", false),
-            builtin_component_def("meter", "Meter", false),
-            builtin_component_def("datalist", "Data List", false),
+            builtin_component_def("form", "Form", None, ""),
+            builtin_component_def("fieldset", "Field Set", None, ""),
+            builtin_component_def("legend", "Legend", Some("Legend"), ""),
+            builtin_component_def("label", "Label", Some("Label"), ""),
+            builtin_component_def("input", "Input", None, ""),
+            builtin_component_def("button", "Button", Some("Button text"), ""),
+            builtin_component_def("select", "Select", None, ""),
+            builtin_component_def("optgroup", "Option Group", None, ""),
+            builtin_component_def("option", "Option", Some(""), ""),
+            builtin_component_def("textarea", "Text Area", Some(""), ""),
+            builtin_component_def("output", "Output", Some(""), ""),
+            builtin_component_def("progress", "Progress", None, ""),
+            builtin_component_def("meter", "Meter", None, ""),
+            builtin_component_def("datalist", "Data List", None, ""),
             // Embedded content
-            builtin_component_def("canvas", "Canvas", false),
-            builtin_component_def("object", "Object", false),
-            builtin_component_def("param", "Parameter", false),
-            builtin_component_def("embed", "Embed", false),
-            builtin_component_def("audio", "Audio", false),
-            builtin_component_def("video", "Video", false),
-            builtin_component_def("source", "Source", false),
-            builtin_component_def("track", "Track", false),
-            builtin_component_def("map", "Image Map", false),
-            builtin_component_def("area", "Map Area", false),
-            builtin_component_def("svg", "SVG", false),
+            builtin_component_def("canvas", "Canvas", None, ""),
+            builtin_component_def("object", "Object", None, ""),
+            builtin_component_def("param", "Parameter", None, ""),
+            builtin_component_def("embed", "Embed", None, ""),
+            builtin_component_def("audio", "Audio", None, ""),
+            builtin_component_def("video", "Video", None, ""),
+            builtin_component_def("source", "Source", None, ""),
+            builtin_component_def("track", "Track", None, ""),
+            builtin_component_def("map", "Image Map", None, ""),
+            builtin_component_def("area", "Map Area", None, ""),
+            builtin_component_def("svg", "SVG", None, ""),
             // Metadata
-            builtin_component_def("meta", "Meta", false),
-            builtin_component_def("link", "Link (Resource)", false),
-            builtin_component_def("script", "Script", true),
-            builtin_component_def("style", "Style", true),
-            builtin_component_def("base", "Base URL", false),
+            builtin_component_def("meta", "Meta", None, ""),
+            builtin_component_def("link", "Link (Resource)", None, ""),
+            builtin_component_def("script", "Script", Some(""), ""),
+            builtin_component_def("style", "Style", Some(""), ""),
+            builtin_component_def("base", "Base URL", None, ""),
+            // Structural control-flow builtins (F1-F3)
+            builtin_if_component(),
+            builtin_for_component(),
+            builtin_map_component(),
         ].into(),
     }
 }

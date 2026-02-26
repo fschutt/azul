@@ -82,7 +82,14 @@ use azul_css::{
         },
         property::{CssProperty, CssPropertyType},
         style::{
-            border::{BorderStyle, LayoutBorderTopWidth, StyleBorderTopColor, StyleBorderTopStyle},
+            border::{
+                BorderStyle,
+                LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth,
+                StyleBorderBottomColor, StyleBorderBottomStyle,
+                StyleBorderLeftColor, StyleBorderLeftStyle,
+                StyleBorderRightColor, StyleBorderRightStyle,
+                StyleBorderTopColor, StyleBorderTopStyle,
+            },
             content::CounterReset,
             effects::StyleCursor,
             lists::StyleListStyleType,
@@ -469,6 +476,93 @@ static TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
     CssPropertyValue::Exact(StyleTextDecoration::Underline),
 );
 
+// --- Button Element Defaults ---
+// Per browser UA CSS, <button> has padding, border, and a system font size.
+// These ensure a button is visible even without author CSS.
+
+/// font-size: 13px (standard button font size on macOS/Linux)
+static FONT_SIZE_13PX: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    inner: PixelValue::const_px(13),
+}));
+
+/// padding-top: 5px (button)
+static PADDING_TOP_5PX: CssProperty =
+    CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
+        inner: PixelValue::const_px(5),
+    }));
+
+/// padding-bottom: 5px (button)
+static PADDING_BOTTOM_5PX: CssProperty =
+    CssProperty::PaddingBottom(CssPropertyValue::Exact(LayoutPaddingBottom {
+        inner: PixelValue::const_px(5),
+    }));
+
+/// padding-left: 10px (button)
+static PADDING_LEFT_10PX: CssProperty =
+    CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
+        inner: PixelValue::const_px(10),
+    }));
+
+/// padding-right: 10px (button)
+static PADDING_RIGHT_10PX: CssProperty =
+    CssProperty::PaddingRight(CssPropertyValue::Exact(LayoutPaddingRight {
+        inner: PixelValue::const_px(10),
+    }));
+
+/// Border color for button: #c8c8c8 (light gray)
+static BUTTON_BORDER_COLOR: ColorU = ColorU { r: 200, g: 200, b: 200, a: 255 };
+
+static BUTTON_BORDER_TOP_COLOR: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: BUTTON_BORDER_COLOR,
+    }));
+static BUTTON_BORDER_BOTTOM_COLOR: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: BUTTON_BORDER_COLOR,
+    }));
+static BUTTON_BORDER_LEFT_COLOR: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: BUTTON_BORDER_COLOR,
+    }));
+static BUTTON_BORDER_RIGHT_COLOR: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: BUTTON_BORDER_COLOR,
+    }));
+
+static BUTTON_BORDER_TOP_STYLE: CssProperty =
+    CssProperty::BorderTopStyle(CssPropertyValue::Exact(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    }));
+static BUTTON_BORDER_BOTTOM_STYLE: CssProperty =
+    CssProperty::BorderBottomStyle(CssPropertyValue::Exact(StyleBorderBottomStyle {
+        inner: BorderStyle::Solid,
+    }));
+static BUTTON_BORDER_LEFT_STYLE: CssProperty =
+    CssProperty::BorderLeftStyle(CssPropertyValue::Exact(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    }));
+static BUTTON_BORDER_RIGHT_STYLE: CssProperty =
+    CssProperty::BorderRightStyle(CssPropertyValue::Exact(StyleBorderRightStyle {
+        inner: BorderStyle::Solid,
+    }));
+
+static BUTTON_BORDER_TOP_WIDTH: CssProperty =
+    CssProperty::BorderTopWidth(CssPropertyValue::Exact(LayoutBorderTopWidth {
+        inner: PixelValue::const_px(1),
+    }));
+static BUTTON_BORDER_BOTTOM_WIDTH: CssProperty =
+    CssProperty::BorderBottomWidth(CssPropertyValue::Exact(LayoutBorderBottomWidth {
+        inner: PixelValue::const_px(1),
+    }));
+static BUTTON_BORDER_LEFT_WIDTH: CssProperty =
+    CssProperty::BorderLeftWidth(CssPropertyValue::Exact(LayoutBorderLeftWidth {
+        inner: PixelValue::const_px(1),
+    }));
+static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
+    CssProperty::BorderRightWidth(CssPropertyValue::Exact(LayoutBorderRightWidth {
+        inner: PixelValue::const_px(1),
+    }));
+
 /*
 const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightValue::Exact(
     LayoutLineHeight {
@@ -664,6 +758,23 @@ pub fn get_ua_property(
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Cursor) => Some(&CURSOR_POINTER),
+        (NT::Button, PT::FontSize) => Some(&FONT_SIZE_13PX),
+        (NT::Button, PT::PaddingTop) => Some(&PADDING_TOP_5PX),
+        (NT::Button, PT::PaddingBottom) => Some(&PADDING_BOTTOM_5PX),
+        (NT::Button, PT::PaddingLeft) => Some(&PADDING_LEFT_10PX),
+        (NT::Button, PT::PaddingRight) => Some(&PADDING_RIGHT_10PX),
+        (NT::Button, PT::BorderTopWidth) => Some(&BUTTON_BORDER_TOP_WIDTH),
+        (NT::Button, PT::BorderBottomWidth) => Some(&BUTTON_BORDER_BOTTOM_WIDTH),
+        (NT::Button, PT::BorderLeftWidth) => Some(&BUTTON_BORDER_LEFT_WIDTH),
+        (NT::Button, PT::BorderRightWidth) => Some(&BUTTON_BORDER_RIGHT_WIDTH),
+        (NT::Button, PT::BorderTopStyle) => Some(&BUTTON_BORDER_TOP_STYLE),
+        (NT::Button, PT::BorderBottomStyle) => Some(&BUTTON_BORDER_BOTTOM_STYLE),
+        (NT::Button, PT::BorderLeftStyle) => Some(&BUTTON_BORDER_LEFT_STYLE),
+        (NT::Button, PT::BorderRightStyle) => Some(&BUTTON_BORDER_RIGHT_STYLE),
+        (NT::Button, PT::BorderTopColor) => Some(&BUTTON_BORDER_TOP_COLOR),
+        (NT::Button, PT::BorderBottomColor) => Some(&BUTTON_BORDER_BOTTOM_COLOR),
+        (NT::Button, PT::BorderLeftColor) => Some(&BUTTON_BORDER_LEFT_COLOR),
+        (NT::Button, PT::BorderRightColor) => Some(&BUTTON_BORDER_RIGHT_COLOR),
         // Text nodes get I-beam cursor for text selection
         // The cursor resolution algorithm ensures that explicit cursor properties
         // on parent elements (e.g., cursor:pointer on button) take precedence

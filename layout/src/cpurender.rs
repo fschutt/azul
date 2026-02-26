@@ -1129,6 +1129,7 @@ pub fn render_component_preview(
     styled_dom: azul_core::styled_dom::StyledDom,
     font_manager: &FontManager<azul_css::props::basic::FontRef>,
     opts: ComponentPreviewOptions,
+    system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<ComponentPreviewResult, String> {
     use std::collections::BTreeMap;
     use azul_core::{
@@ -1242,7 +1243,7 @@ pub fn render_component_preview(
         dom_id,
         false, // cursor not visible
         None,  // no cursor location
-        None,  // no system style
+        system_style,
         get_system_time_fn,
     ).map_err(|e| format!("Layout failed: {:?}", e))?;
 
@@ -1259,8 +1260,13 @@ pub fn render_component_preview(
                 (w, h)
             }
             None => {
-                // Empty display list — render a 1x1 pixel
-                (1.0, 1.0)
+                // Empty display list — render a 0x0 transparent image
+                // Return an empty PNG with transparent background
+                return Ok(ComponentPreviewResult {
+                    png_data: Vec::new(),
+                    content_width: 0.0,
+                    content_height: 0.0,
+                });
             }
         }
     };
