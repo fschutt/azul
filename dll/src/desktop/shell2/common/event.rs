@@ -557,6 +557,11 @@ pub struct CommonWindowState {
     pub renderer: Option<webrender::Renderer>,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     pub frame_needs_regeneration: bool,
+    /// Whether a WebRender display list has ever been sent for this window.
+    /// Used to force a full display list build on the very first frame, even if
+    /// regenerate_layout() returns LayoutUnchanged (because create_window already
+    /// ran regenerate_layout for accessibility/font init).
+    pub display_list_initialized: bool,
 }
 
 /// Generates all 28 PlatformWindow getter/setter implementations

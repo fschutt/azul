@@ -862,6 +862,7 @@ impl X11Window {
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: true,
+                display_list_initialized: false,
             },
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             xrandr_event_base: None,

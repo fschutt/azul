@@ -866,6 +866,7 @@ impl WaylandWindow {
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: false,
+                display_list_initialized: false,
             },
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             keyboard_state: events::WaylandKeyboardState::new(),
@@ -2031,8 +2032,9 @@ impl WaylandWindow {
             }
         }
 
-        // Mark that frame needs regeneration (will be called once at event processing end)
-        self.common.frame_needs_regeneration = true;
+        // NOTE: Do NOT set frame_needs_regeneration here!
+        // The caller (generate_frame_if_needed) manages this flag.
+        // Setting it to true here would cause unnecessary re-layouts.
 
         // Update accessibility tree on Wayland
         #[cfg(feature = "a11y")]
@@ -3437,6 +3439,7 @@ impl WaylandPopup {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: true,
+            display_list_initialized: false,
             frame_callback_pending: false,
 
             resources: parent.resources.clone(),

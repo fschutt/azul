@@ -2716,6 +2716,7 @@ impl MacOSWindow {
                 fc_cache,
                 system_style,
                 frame_needs_regeneration: false,
+                display_list_initialized: false,
                 scrollbar_drag_state: None,
             },
             font_registry,
@@ -2949,8 +2950,9 @@ impl MacOSWindow {
             }
         }
 
-        // Mark that frame needs regeneration (will be called once at event processing end)
-        self.common.frame_needs_regeneration = true;
+        // NOTE: Do NOT set frame_needs_regeneration here!
+        // The caller (render_and_present_in_draw_rect) manages this flag.
+        // Setting it to true here would cause unnecessary re-layouts.
 
         // Update accessibility tree after layout
         #[cfg(feature = "a11y")]
@@ -4564,11 +4566,23 @@ impl MacOSWindow {
             };
             self.common.frame_needs_regeneration = false;
             // Layout was regenerated — rebuild display list unless layout result is identical
-            result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged
+            let needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
+            needs_rebuild
         } else {
             // No layout regeneration needed (e.g. scroll-only update) —
             // use lightweight transaction (scroll offsets + GPU values only)
             false
+        };
+
+        // BUGFIX: On the very first frame, WebRender has never received a display list.
+        // create_window() already ran regenerate_layout() (for accessibility/font init),
+        // so is_layout_equivalent() returns true (DOM unchanged), causing
+        // display_list_needs_rebuild=false. But WebRender needs at least one display list
+        // to render anything. Force a full display list build on the first frame.
+        let display_list_needs_rebuild = if !self.common.display_list_initialized {
+            true
+        } else {
+            display_list_needs_rebuild
         };
 
         // Get layout_window
@@ -4614,6 +4628,8 @@ impl MacOSWindow {
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
             })?;
+            // Mark that WebRender now has a valid display list
+            self.common.display_list_initialized = true;
         } else {
             // Lightweight: re-invoke image callbacks, update scroll offsets + GPU values
             // Skips scene builder (display lists haven't changed)

@@ -239,6 +239,7 @@ impl StubWindow {
                 render_api: None,
                 renderer: None,
                 frame_needs_regeneration: true,
+                display_list_initialized: false,
             },
             cpu_backend: CpuBackend::new(),
             is_open: true,
