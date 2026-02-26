@@ -2882,10 +2882,12 @@ unsafe extern "system" fn window_proc(
                         ProcessEventResult::ShouldRegenerateDomCurrentWindow
                         | ProcessEventResult::ShouldRegenerateDomAllWindows
                         | ProcessEventResult::ShouldIncrementalRelayout
-                        | ProcessEventResult::ShouldReRenderCurrentWindow
                         | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                             window.common.frame_needs_regeneration = true;
+                            (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                        }
+                        ProcessEventResult::ShouldReRenderCurrentWindow => {
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         ProcessEventResult::DoNothing => {
@@ -3156,9 +3158,6 @@ impl Win32Window {
     }
 
     pub fn request_redraw(&mut self) {
-        // Mark that frame needs regeneration
-        self.common.frame_needs_regeneration = true;
-
         // Post WM_PAINT message to trigger redraw
         unsafe {
             use self::dlopen::constants::WM_PAINT;

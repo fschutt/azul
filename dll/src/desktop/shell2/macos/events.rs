@@ -514,8 +514,11 @@ impl MacOSWindow {
         }
 
         // Request redraw if needed
-        if overall_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+        if overall_result > ProcessEventResult::ShouldReRenderCurrentWindow {
             self.common.frame_needs_regeneration = true;
+            self.request_redraw();
+        } else if overall_result == ProcessEventResult::ShouldReRenderCurrentWindow {
+            self.request_redraw();
         }
     }
 

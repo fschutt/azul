@@ -1403,10 +1403,12 @@ impl WaylandWindow {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
                 | ProcessEventResult::ShouldIncrementalRelayout
-                | ProcessEventResult::ShouldReRenderCurrentWindow
                 | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                     self.common.frame_needs_regeneration = true;
+                    self.request_redraw();
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow => {
                     self.request_redraw();
                 }
                 ProcessEventResult::DoNothing => {
@@ -1524,12 +1526,10 @@ impl WaylandWindow {
                 }
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
             }
             _ => {}
         }
-
-        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer motion event
@@ -1547,7 +1547,7 @@ impl WaylandWindow {
             use crate::desktop::shell2::common::event::PlatformWindow;
             let result = PlatformWindow::handle_scrollbar_drag(self, logical_pos);
             if !matches!(result, ProcessEventResult::DoNothing) {
-                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
             }
             return;
         }
@@ -1603,15 +1603,16 @@ impl WaylandWindow {
                 }
             }
             ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.request_redraw();
             }
             ProcessEventResult::DoNothing => {}
         }
-
-        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer button event
@@ -1643,7 +1644,7 @@ impl WaylandWindow {
                 let result =
                     PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
                 if !matches!(result, ProcessEventResult::DoNothing) {
-                    self.common.frame_needs_regeneration = true;
+                    self.request_redraw();
                 }
                 return;
             }
@@ -1653,7 +1654,7 @@ impl WaylandWindow {
                 if let Some(hit_node) = self.common.last_hovered_node {
                     if self.try_show_context_menu(hit_node, position) {
                         // Context menu was shown, consume the event
-                        self.common.frame_needs_regeneration = true;
+                        self.request_redraw();
                         return;
                     }
                 }
@@ -1662,7 +1663,7 @@ impl WaylandWindow {
             // End scrollbar drag if active
             if self.common.scrollbar_drag_state.is_some() {
                 self.common.scrollbar_drag_state = None;
-                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
                 return;
             }
         }
@@ -1706,15 +1707,16 @@ impl WaylandWindow {
                 }
             }
             ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.request_redraw();
             }
             ProcessEventResult::DoNothing => {}
         }
-
-        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer axis (scroll) event
@@ -1807,15 +1809,16 @@ impl WaylandWindow {
                 }
             }
             ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.request_redraw();
             }
             ProcessEventResult::DoNothing => {}
         }
-
-        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer enter event
@@ -1825,7 +1828,7 @@ impl WaylandWindow {
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
-        self.common.frame_needs_regeneration = true;
+        self.request_redraw();
     }
 
     /// Handle keyboard leave event (window lost focus)
@@ -1833,7 +1836,7 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
-        self.common.frame_needs_regeneration = true;
+        self.request_redraw();
     }
 
     /// Handle pointer leave event
@@ -1850,7 +1853,7 @@ impl WaylandWindow {
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
         }
-        self.common.frame_needs_regeneration = true;
+        self.request_redraw();
     }
 
     /// Update hit test at current cursor position

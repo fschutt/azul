@@ -1230,10 +1230,12 @@ impl X11Window {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
                 | ProcessEventResult::ShouldIncrementalRelayout
-                | ProcessEventResult::ShouldReRenderCurrentWindow
                 | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                     self.common.frame_needs_regeneration = true;
+                    self.request_redraw();
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow => {
                     self.request_redraw();
                 }
                 ProcessEventResult::DoNothing => {
