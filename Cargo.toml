@@ -16,8 +16,9 @@ gleam = "0.15.1"
 
 [profile.release]
 opt-level = 3
-strip = true      # Automatically strip symbols from the binary.
-lto = true        # Enable Link Time Optimization (removes dead code).
+debug = 1         # Line-level debug info only (smaller than full debug=2).
+strip = false     # Don't strip symbols so samply can resolve them.
+lto = false       # Disable LTO temporarily (saves disk space for profiling).
 codegen-units = 1 # Reduces parallel builds but allows better optimization.
 panic = "abort"   # Removes stack unwinding code (drastic size reduction).
 

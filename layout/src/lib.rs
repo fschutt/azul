@@ -34,10 +34,12 @@ pub mod desktop;
 #[cfg(feature = "extra")]
 pub mod extra;
 
-// ICU4X internationalization support
-#[cfg(feature = "icu")]
+// ICU internationalization support.
+// Active with the ICU4X backend (`icu` feature) or the macOS Foundation
+// backend (`icu_macos` feature on macOS).
+#[cfg(any(feature = "icu", all(target_os = "macos", feature = "icu_macos")))]
 pub mod icu;
-#[cfg(feature = "icu")]
+#[cfg(any(feature = "icu", all(target_os = "macos", feature = "icu_macos")))]
 pub use icu::{
     DateTimeFieldSet, FormatLength, IcuDate, IcuDateTime, IcuError,
     IcuLocalizer, IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime,

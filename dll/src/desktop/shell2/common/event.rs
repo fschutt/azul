@@ -3766,6 +3766,7 @@ pub trait PlatformWindow {
 
         let (timer_changes_result, timer_results) = self.invoke_expired_timers();
         let mut needs_redraw = timer_changes_result != ProcessEventResult::DoNothing;
+        let mut needs_layout_regeneration = false;
 
         for update in &timer_results {
             // apply_user_change was already called inside invoke_expired_timers
@@ -3773,6 +3774,7 @@ pub trait PlatformWindow {
             match update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
+                    needs_layout_regeneration = true;
                 }
                 _ => {}
             }
@@ -3786,6 +3788,7 @@ pub trait PlatformWindow {
             match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
+                    needs_layout_regeneration = true;
                 }
                 _ => {}
             }
@@ -3794,7 +3797,11 @@ pub trait PlatformWindow {
         // Also sync window state after all changes
         self.sync_window_state();
 
-        if needs_redraw {
+        // IMPORTANT: Only regenerate layout when DOM actually changed
+        // (RefreshDom / RefreshDomAllWindows). A mere ShouldReRenderCurrentWindow
+        // from image-callback updates does NOT require a full layout pass —
+        // it only needs to re-invoke image callbacks and repaint.
+        if needs_layout_regeneration {
             self.mark_frame_needs_regeneration();
         }
 

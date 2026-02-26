@@ -431,7 +431,8 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    if macos_window.process_timers_and_threads() {
+                    let needs_redraw = macos_window.process_timers_and_threads();
+                    if needs_redraw {
                         let _: () = msg_send![self, setNeedsDisplay: true];
                     }
                 }
@@ -4493,10 +4494,7 @@ impl MacOSWindow {
         // Note: invoke_thread_callbacks already calls apply_user_change internally
         if let Some((thread_changes_result, thread_update)) = self.invoke_thread_callbacks() {
             use azul_core::callbacks::Update;
-            use azul_core::events::ProcessEventResult;
-            if thread_changes_result != ProcessEventResult::DoNothing {
-                self.common.frame_needs_regeneration = true;
-            }
+            // Only regenerate layout when DOM actually changed, not for mere re-renders
             match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     self.common.frame_needs_regeneration = true;
