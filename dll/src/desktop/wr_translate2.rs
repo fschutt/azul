@@ -574,16 +574,118 @@ pub fn fullhittest_new_webrender(
                 cursor_relative_to_dom.y * hidpi_factor.inner.get(),
             );
             let wr_result = wr_hittester.hit_test(physical_pos);
-
             // TAG_TYPE constants for filtering hit test results
             const TAG_TYPE_DOM_NODE: u16 = 0x0100;
             const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
             const TAG_TYPE_CURSOR: u16 = 0x0400;
             const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
+            // Detect items from foreign pipelines (IFrame child DOMs).
+            // WebRender returns ALL pipeline items together but when cursor
+            // is over an IFrame, the IFrame content (child pipeline) occludes
+            // the parent pipeline's hit-test areas. We must detect this and
+            // synthetically add the parent IFrame scroll node.
+            let mut foreign_child_dom_ids: Vec<DomId> = Vec::new();
+            {
+                let mut seen_foreign = std::collections::BTreeSet::new();
+                for i in &wr_result.items {
+                    let item_dom_inner = i.pipeline.0 as usize;
+                    if item_dom_inner != dom_id.inner && seen_foreign.insert(item_dom_inner) {
+                        let child_dom_id = DomId { inner: item_dom_inner };
+                        foreign_child_dom_ids.push(child_dom_id);
+                    }
+                }
+            }
+
+            // If we detected foreign pipeline hits, the cursor is over an IFrame.
+            // Add the IFrame parent scroll node(s) for this DOM so the scroll
+            // manager can find them during trackpad/wheel events.
+            if !foreign_child_dom_ids.is_empty() {
+                use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
+
+                // Queue child DOMs for processing in the next iteration
+                for child_dom_id in &foreign_child_dom_ids {
+                    new_dom_ids.push((*child_dom_id, *cursor_relative_to_dom));
+                }
+
+                // Find IFrame scroll nodes in the current DOM and add them to
+                // scroll_hit_test_nodes. These nodes have overflow:scroll/auto
+                // and are IFrame containers — their Pipeline 0 hit-test area
+                // was occluded by the child pipeline content.
+                for (&scroll_id, &node_id) in &layout_result.scroll_id_to_node_id {
+                    // Check if this scrollable node is an IFrame type
+                    let is_iframe = layout_result
+                        .styled_dom
+                        .node_data
+                        .as_container()
+                        .get(node_id)
+                        .map_or(false, |nd| {
+                            matches!(nd.get_node_type(), azul_core::dom::NodeType::IFrame(_))
+                        });
+
+                    if !is_iframe {
+                        continue;
+                    }
+
+                    let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                        Some(i) => i,
+                        None => continue,
+                    };
+                    let layout_idx = match layout_indices.first() {
+                        Some(&idx) => idx,
+                        None => continue,
+                    };
+                    let layout_node = match layout_result.layout_tree.get(layout_idx) {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    let node_pos = layout_result
+                        .calculated_positions
+                        .get(layout_idx)
+                        .copied()
+                        .unwrap_or_default();
+                    let node_size = layout_node.used_size.unwrap_or_default();
+                    let parent_rect = LogicalRect::new(node_pos, node_size);
+                    let child_rect = parent_rect;
+
+                    let scroll_node = OverflowingScrollNode {
+                        parent_rect,
+                        child_rect,
+                        virtual_child_rect: child_rect,
+                        parent_external_scroll_id: azul_core::hit_test::ExternalScrollId(
+                            scroll_id,
+                            pipeline_id,
+                        ),
+                        parent_dom_hash: azul_core::dom::DomNodeHash {
+                            inner: node_id.index() as u64,
+                        },
+                        scroll_tag_id: azul_core::dom::ScrollTagId {
+                            inner: azul_core::dom::TagId {
+                                inner: node_id.index() as u64,
+                            },
+                        },
+                    };
+
+                    ret.hovered_nodes
+                        .entry(*dom_id)
+                        .or_insert_with(|| azul_core::hit_test::HitTest::empty())
+                        .scroll_hit_test_nodes
+                        .insert(node_id, ScrollHitTestItem {
+                            point_in_viewport: *cursor_relative_to_dom,
+                            point_relative_to_item: *cursor_relative_to_dom,
+                            scroll_node,
+                        });
+                }
+            }
+
             // First pass: Process scroll container tags (TAG_TYPE_SCROLL_CONTAINER = 0x0500)
             // These are hit-test areas for scrollable containers, enabling trackpad/wheel scrolling
+            // Only process items from this DOM's pipeline.
             for (depth, i) in wr_result.items.iter().enumerate() {
+                if i.pipeline != wr_translate_pipeline_id(PipelineId(
+                    dom_id.inner as u32, document_id.id)) {
+                    continue;
+                }
                 let tag_type_marker = i.tag.1 & 0xFF00;
                 if tag_type_marker != TAG_TYPE_SCROLL_CONTAINER {
                     continue;
@@ -658,8 +760,12 @@ pub fn fullhittest_new_webrender(
             }
 
             // Second pass: Process cursor tags (TAG_TYPE_CURSOR = 0x0400)
-            // These are hit-test areas for text runs with cursor properties
+            // Only process items from this DOM's pipeline.
             for (depth, i) in wr_result.items.iter().enumerate() {
+                if i.pipeline != wr_translate_pipeline_id(PipelineId(
+                    dom_id.inner as u32, document_id.id)) {
+                    continue;
+                }
                 let tag_type_marker = i.tag.1 & 0xFF00;
                 if tag_type_marker != TAG_TYPE_CURSOR {
                     continue;
@@ -684,9 +790,8 @@ pub fn fullhittest_new_webrender(
                     });
             }
 
-            // Third pass: Convert regular DOM node hit test results
-            // WebRender returns items in z-order (front to back), so we use
-            // enumerate() to capture this ordering in hit_depth.
+            // Third pass: Convert regular DOM node hit test results.
+            // Only process items from this DOM's pipeline.
             //
             // BUG-4 fix: Build a HashMap for O(1) tag→node lookup instead of O(n) linear search.
             // BUG-5 fix: Use positive filter (== TAG_TYPE_DOM_NODE) instead of negative blacklist.
@@ -697,11 +802,18 @@ pub fn fullhittest_new_webrender(
                 .filter_map(|m| m.node_id.into_crate_internal().map(|nid| (m.tag_id.inner, nid)))
                 .collect();
 
+            let wr_pipeline_for_dom = wr_translate_pipeline_id(PipelineId(
+                dom_id.inner as u32, document_id.id));
+
             let hit_items = wr_result
                 .items
                 .iter()
                 .enumerate()
                 .filter_map(|(depth, i)| {
+                    // Only process items from THIS DOM's pipeline
+                    if i.pipeline != wr_pipeline_for_dom {
+                        return None;
+                    }
                     let tag_type_marker = i.tag.1 & 0xFF00;
                     // Only process DOM node tags (0x0100) — skip everything else
                     if tag_type_marker != TAG_TYPE_DOM_NODE {
@@ -711,11 +823,6 @@ pub fn fullhittest_new_webrender(
                     // Map WebRender tag to DOM node ID via O(1) HashMap lookup
                     let node_id = *tag_to_node.get(&i.tag.0)?;
 
-                    // Use point_relative_to_item from WebRender - this correctly accounts for
-                    // all CSS transforms, scroll offsets, and stacking contexts.
-                    // NOTE: WebRender returns point_relative_to_item in device pixels (because
-                    // we passed physical_pos = logical * hidpi_factor to hit_test), so we must
-                    // convert back to logical pixels by dividing by hidpi_factor.
                     let hidpi = hidpi_factor.inner.get();
                     let point_relative_to_item = LogicalPosition::new(
                         i.point_relative_to_item.x / hidpi,
@@ -727,7 +834,7 @@ pub fn fullhittest_new_webrender(
                         HitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
                             point_relative_to_item,
-                            is_iframe_hit: None, // IFrames handled via DisplayListItem::IFrame
+                            is_iframe_hit: None,
                             is_focusable: layout_result
                                 .styled_dom
                                 .node_data
@@ -744,12 +851,6 @@ pub fn fullhittest_new_webrender(
             // Process all hit items for this DOM
             for (node_id, item) in hit_items.into_iter() {
                 use azul_core::hit_test::{HitTest, OverflowingScrollNode, ScrollHitTestItem};
-
-                // If this is an iframe, queue it for next iteration
-                if let Some(i) = item.is_iframe_hit.as_ref() {
-                    new_dom_ids.push(*i);
-                    continue;
-                }
 
                 // Update focused node if this item is focusable
                 if item.is_focusable {
@@ -770,7 +871,6 @@ pub fn fullhittest_new_webrender(
                     .insert(node_id, item);
 
                 // Check if this node is scrollable using the scroll_id_to_node_id mapping
-                // This mapping was precomputed during layout and only contains scrollable nodes
                 let is_scrollable = layout_result
                     .scroll_id_to_node_id
                     .values()
@@ -796,7 +896,6 @@ pub fn fullhittest_new_webrender(
                     None => continue,
                 };
 
-                // Get node's calculated layout position and size
                 let node_pos = layout_result
                     .calculated_positions
                     .get(layout_idx)
@@ -804,14 +903,9 @@ pub fn fullhittest_new_webrender(
                     .unwrap_or_default();
 
                 let node_size = layout_node.used_size.unwrap_or_default();
-
                 let parent_rect = LogicalRect::new(node_pos, node_size);
-
-                // Content size is the child bounds
-                // TODO: Calculate actual content bounds from children
                 let child_rect = parent_rect;
 
-                // Get the scroll ID from the precomputed mapping
                 let scroll_id = layout_result
                     .scroll_ids
                     .get(&layout_idx)
@@ -836,8 +930,6 @@ pub fn fullhittest_new_webrender(
                     },
                 };
 
-                // NOTE: item.point_relative_to_item is already in logical pixels
-                // because it was converted during the DOM node hit test processing above.
                 ret.hovered_nodes
                     .entry(*dom_id)
                     .or_insert_with(|| HitTest::empty())

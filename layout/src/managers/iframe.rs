@@ -136,6 +136,20 @@ impl IFrameManager {
             .unwrap_or(false)
     }
 
+    /// Returns the virtual scroll size for an IFrame (if set by the callback)
+    pub fn get_virtual_scroll_size(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalSize> {
+        self.states
+            .get(&(dom_id, node_id))
+            .and_then(|s| s.iframe_virtual_scroll_size)
+    }
+
+    /// Returns the scroll size for an IFrame (actual content size, if set by the callback)
+    pub fn get_scroll_size(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalSize> {
+        self.states
+            .get(&(dom_id, node_id))
+            .and_then(|s| s.iframe_scroll_size)
+    }
+
     /// Updates the IFrame's content size information
     ///
     /// Called after the IFrame callback returns to record the actual content

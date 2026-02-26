@@ -1185,13 +1185,15 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     let scrollbar_width_px =
         crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, styled_node_state);
 
-    fc::check_scrollbar_necessity(
+    let result = fc::check_scrollbar_necessity(
         content_size,
         container_size,
         to_overflow_behavior(overflow_x),
         to_overflow_behavior(overflow_y),
         scrollbar_width_px,
-    )
+    );
+
+    result
 }
 
 /// Checks if scrollbars changed compared to previous layout and if reflow is needed.

@@ -818,14 +818,40 @@ impl LayoutWindow {
                 system_callbacks,
                 debug_messages,
             ) {
-                // Insert an IFrame primitive that the renderer will use
-                display_list
-                    .items
-                    .push(crate::solver3::display_list::DisplayListItem::IFrame {
-                        child_dom_id,
-                        bounds,
-                        clip_rect: bounds,
-                    });
+                // Replace the IFramePlaceholder with the real IFrame item.
+                // The placeholder was emitted by generate_display_list() at the
+                // correct position (outside any scroll frame, inside the parent clip).
+                let mut replaced = false;
+                for item in display_list.items.iter_mut() {
+                    if let crate::solver3::display_list::DisplayListItem::IFramePlaceholder {
+                        node_id: ref placeholder_nid,
+                        bounds: ref placeholder_bounds,
+                        clip_rect: ref placeholder_clip,
+                        ..
+                    } = item
+                    {
+                        if *placeholder_nid == node_id {
+                            *item = crate::solver3::display_list::DisplayListItem::IFrame {
+                                child_dom_id,
+                                bounds: *placeholder_bounds,
+                                clip_rect: *placeholder_clip,
+                            };
+                            replaced = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !replaced {
+                    // Fallback: if no placeholder found (shouldn't happen), append at end
+                    display_list
+                        .items
+                        .push(crate::solver3::display_list::DisplayListItem::IFrame {
+                            child_dom_id,
+                            bounds,
+                            clip_rect: bounds,
+                        });
+                }
             }
         }
 
@@ -1119,6 +1145,7 @@ impl LayoutWindow {
             .scroll_manager
             .get_current_offset(parent_dom_id, node_id)
             .unwrap_or_default();
+
         let hidpi_factor = window_state.size.get_hidpi_factor();
 
         // Create IFrameCallbackInfo with the most up-to-date state

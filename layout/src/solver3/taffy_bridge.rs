@@ -387,6 +387,23 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
 }
 
 // Helper function to convert plain PixelValue to LengthPercentage
+/// Converts Azul's CSS overflow value to Taffy's Overflow enum.
+///
+/// Taffy only has Visible, Clip, Hidden, Scroll (no Auto).
+/// CSS `auto` behaves like `scroll` from a layout perspective —
+/// it constrains the container and enables scrolling.
+fn azul_overflow_to_taffy(ov: MultiValue<azul_css::props::layout::LayoutOverflow>) -> taffy::Overflow {
+    use azul_css::props::layout::LayoutOverflow;
+    match ov {
+        MultiValue::Exact(LayoutOverflow::Visible) => taffy::Overflow::Visible,
+        MultiValue::Exact(LayoutOverflow::Hidden) => taffy::Overflow::Hidden,
+        MultiValue::Exact(LayoutOverflow::Scroll) => taffy::Overflow::Scroll,
+        MultiValue::Exact(LayoutOverflow::Auto) => taffy::Overflow::Scroll, // Auto acts like scroll for layout
+        MultiValue::Exact(LayoutOverflow::Clip) => taffy::Overflow::Clip,
+        _ => taffy::Overflow::Visible, // default
+    }
+}
+
 fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
     pixel_value_to_pixels_fallback(&pv)
         .map(taffy::LengthPercentage::length)
@@ -512,6 +529,19 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.size = taffy::Size {
             width: taffy_width,
             height: taffy_height,
+        };
+
+        // Overflow — CRITICAL for scroll containers.
+        // Without this, Taffy's flexbox algorithm uses content size as automatic
+        // minimum size, causing flex containers with overflow:auto/scroll to
+        // expand to fit all content instead of clipping at the explicit size.
+        // With overflow: Hidden/Scroll, Taffy sets automatic min size to 0 and
+        // constrains the container.
+        let overflow_x = get_overflow_x(styled_dom, id, node_state);
+        let overflow_y = get_overflow_y(styled_dom, id, node_state);
+        taffy_style.overflow = taffy::Point {
+            x: azul_overflow_to_taffy(overflow_x),
+            y: azul_overflow_to_taffy(overflow_y),
         };
 
         // Min/Max Size
@@ -1285,7 +1315,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
             .map(|s| s.formatting_context.clone())
             .unwrap_or_default();
 
-        let result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
+        let mut result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
                 .tree
@@ -1302,18 +1332,159 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
             }
         });
 
-        // DEBUG: Log the computed result
-        if self.ctx.debug_messages.is_some() {
-            self.ctx.debug_info_inner(format!(
-                "[TAFFY compute_child_layout RESULT] node_idx={} result_size=({:?}, {:?})",
-                node_idx, result.size.width, result.size.height
-            ));
-        }
-
         // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
         if let Some(node) = self.tree.get_mut(node_idx) {
             let size = translate_taffy_size_back(result.size);
             node.used_size = Some(size);
+        }
+
+        // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll and an explicit
+        // CSS height/width, Taffy expands the container to fit all children (it doesn't
+        // know about overflow). We must:
+        // 1. Compute scrollbar_info using CSS-specified size vs actual content size
+        // 2. Clamp used_size back to the CSS-specified size so the container clips
+        //
+        // Without this, a flex container with `overflow: auto; height: 400px` and
+        // 15000px of children would render at 15000px instead of 400px with a scrollbar.
+        if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
+            let needs_scrollbar_check = self.tree.get(node_idx)
+                .map(|n| n.scrollbar_info.is_none())
+                .unwrap_or(false);
+
+            if needs_scrollbar_check {
+                // For flex/grid containers with overflow:auto/scroll + explicit size,
+                // Taffy may expand the container to fit all children (no clamping).
+                // We need to compare the CSS-specified size against the actual content.
+                //
+                // content_size from Taffy's result may be 0 when the container was expanded
+                // to fit everything (no overflow from Taffy's perspective). In that case,
+                // use result.size minus padding/border as the content size.
+                let taffy_content_width = result.content_size.width;
+                let taffy_content_height = result.content_size.height;
+
+                // Get node info for scrollbar computation
+                let scrollbar_info = {
+                    let node = self.tree.get(node_idx);
+                    node.and_then(|n| n.dom_node_id)
+                        .map(|dom_id| {
+                            let styled_node_state = self
+                                .ctx
+                                .styled_dom
+                                .styled_nodes
+                                .as_container()
+                                .get(dom_id)
+                                .map(|s| s.styled_node_state.clone())
+                                .unwrap_or_default();
+                            let overflow_x =
+                                get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+                            let overflow_y =
+                                get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+
+                            let (padding_width, padding_height, border_width, border_height) = self
+                                .tree
+                                .get(node_idx)
+                                .map(|node| {
+                                    let bp = &node.box_props;
+                                    let pw = bp.padding.left + bp.padding.right;
+                                    let ph = bp.padding.top + bp.padding.bottom;
+                                    let bw = bp.border.left + bp.border.right;
+                                    let bh = bp.border.top + bp.border.bottom;
+                                    (pw, ph, bw, bh)
+                                })
+                                .unwrap_or((0.0, 0.0, 0.0, 0.0));
+
+                            // For scrollbar detection, use CSS-specified size as the
+                            // container constraint (same approach as compute_non_flex_layout).
+                            let css_height =
+                                get_css_height(self.ctx.styled_dom, dom_id, &styled_node_state);
+                            let css_width =
+                                get_css_width(self.ctx.styled_dom, dom_id, &styled_node_state);
+
+                            let height_to_px =
+                                |h: azul_css::props::layout::LayoutHeight| -> Option<f32> {
+                                    match h {
+                                        azul_css::props::layout::LayoutHeight::Px(px) => {
+                                            pixel_value_to_pixels_fallback(&px)
+                                        }
+                                        _ => None,
+                                    }
+                                };
+                            let width_to_px =
+                                |w: azul_css::props::layout::LayoutWidth| -> Option<f32> {
+                                    match w {
+                                        azul_css::props::layout::LayoutWidth::Px(px) => {
+                                            pixel_value_to_pixels_fallback(&px)
+                                        }
+                                        _ => None,
+                                    }
+                                };
+
+                            // Determine container size: use CSS constraint if set,
+                            // otherwise fall back to Taffy's result (content-box).
+                            let result_content_w = result.size.width - padding_width - border_width;
+                            let result_content_h = result.size.height - padding_height - border_height;
+
+                            let css_container_h = css_height.exact()
+                                .and_then(|h| height_to_px(h))
+                                .unwrap_or(result_content_h);
+                            let css_container_w = css_width.exact()
+                                .and_then(|w| width_to_px(w))
+                                .unwrap_or(result_content_w);
+
+                            // Content size: use Taffy's content_size if non-zero,
+                            // else result size minus padding/border (Taffy expanded to fit).
+                            let content_w = if taffy_content_width > 0.0 {
+                                taffy_content_width
+                            } else {
+                                result_content_w.max(0.0)
+                            };
+                            let content_h = if taffy_content_height > 0.0 {
+                                taffy_content_height
+                            } else {
+                                result_content_h.max(0.0)
+                            };
+
+                            let content_size = LogicalSize::new(content_w, content_h);
+                            let container_size = LogicalSize::new(
+                                css_container_w.max(0.0),
+                                css_container_h.max(0.0),
+                            );
+
+                            let scrollbar_width_px =
+                                crate::solver3::getters::get_layout_scrollbar_width_px(
+                                    self.ctx, dom_id, &styled_node_state,
+                                );
+
+                            crate::solver3::fc::check_scrollbar_necessity(
+                                content_size,
+                                container_size,
+                                crate::solver3::cache::to_overflow_behavior(overflow_x),
+                                crate::solver3::cache::to_overflow_behavior(overflow_y),
+                                scrollbar_width_px,
+                            )
+                        })
+                        .unwrap_or_default()
+                };
+
+                // Compute effective content size for storing  
+                let (eff_content_w, eff_content_h) = self.tree.get(node_idx)
+                    .map(|n| {
+                        let bp = &n.box_props;
+                        let rw = result.size.width - bp.padding.left - bp.padding.right - bp.border.left - bp.border.right;
+                        let rh = result.size.height - bp.padding.top - bp.padding.bottom - bp.border.top - bp.border.bottom;
+                        (
+                            if taffy_content_width > 0.0 { taffy_content_width } else { rw.max(0.0) },
+                            if taffy_content_height > 0.0 { taffy_content_height } else { rh.max(0.0) },
+                        )
+                    })
+                    .unwrap_or((0.0, 0.0));
+
+                if let Some(node) = self.tree.get_mut(node_idx) {
+                    node.scrollbar_info = Some(scrollbar_info);
+                    node.overflow_content_size = Some(LogicalSize::new(eff_content_w, eff_content_h));
+                }
+
+            }
         }
 
         result

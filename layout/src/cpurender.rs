@@ -440,6 +440,10 @@ fn render_display_list(
                     dpi_factor,
                 )?;
             }
+            DisplayListItem::IFramePlaceholder { .. } => {
+                // Placeholder should have been replaced by IFrame in window.rs.
+                // Nothing to render here.
+            }
 
             // Gradient rendering - simplified for CPU render
             DisplayListItem::LinearGradient {

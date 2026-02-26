@@ -18,6 +18,7 @@ azul.hpp
 .idea/*
 out.txt
 output.log
+scrolling_test
 *.dll
 *.so
 *.out

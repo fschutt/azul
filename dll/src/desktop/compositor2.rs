@@ -1105,17 +1105,15 @@ pub fn translate_displaylist_to_wr(
                     }
                 }
 
-                // Scale clip_rect from logical to physical pixels
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        scale_px(clip_rect.origin.x, dpi_scale),
-                        scale_px(clip_rect.origin.y, dpi_scale),
-                    ),
-                    LayoutSize::new(
-                        scale_px(clip_rect.size.width, dpi_scale),
-                        scale_px(clip_rect.size.height, dpi_scale),
-                    ),
-                );
+                // Scale clip_rect from logical to physical pixels, then apply
+                // the offset stack so text coordinates are relative to the
+                // current scroll frame (matching how Rect items are handled).
+                let raw_rect = scale_bounds_to_layout_rect(&azul_core::geom::LogicalRect {
+                    origin: clip_rect.origin,
+                    size: clip_rect.size,
+                }, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -1129,10 +1127,11 @@ pub fn translate_displaylist_to_wr(
                 // translate_add_font_instance
                 let font_size_au = azul_core::resources::Au::from_px(*font_size_px);
 
-                // Scale container origin for glyph positioning
+                // Scale container origin for glyph positioning, then subtract
+                // the offset so glyphs land inside the scroll frame.
                 let scaled_origin = azul_core::geom::LogicalPosition::new(
-                    scale_px(clip_rect.origin.x, dpi_scale),
-                    scale_px(clip_rect.origin.y, dpi_scale),
+                    scale_px(clip_rect.origin.x, dpi_scale) - current_offset.0,
+                    scale_px(clip_rect.origin.y, dpi_scale) - current_offset.1,
                 );
 
                 push_text(
@@ -1144,7 +1143,8 @@ pub fn translate_displaylist_to_wr(
                     renderer_resources,
                     dpi,
                     font_size_au,
-                    scaled_origin, // Pass scaled container origin to offset glyphs
+                    scaled_origin, // Pass offset-corrected origin to position glyphs
+                    current_offset, // Pass scroll frame offset for glyph position correction
                 );
             }
 
@@ -1155,7 +1155,9 @@ pub fn translate_displaylist_to_wr(
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);
 
-                    let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                    let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                    let current_offset = current_offset!();
+                    let rect = apply_offset(raw_rect, current_offset);
 
                     let info = CommonItemProperties {
                         clip_rect: rect,
@@ -1406,6 +1408,16 @@ pub fn translate_displaylist_to_wr(
                         child_dom_id
                     );
                 }
+            }
+
+            DisplayListItem::IFramePlaceholder { node_id, .. } => {
+                // IFramePlaceholder should have been replaced by IFrame in window.rs.
+                // If we reach here, the IFrame callback was not invoked for this node.
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] WARNING: IFramePlaceholder for node {:?} was not replaced",
+                    node_id
+                );
             }
 
             DisplayListItem::TextLayout { .. } => {
@@ -2177,6 +2189,7 @@ fn push_text(
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
     container_origin: azul_core::geom::LogicalPosition, // Container origin (already scaled)
+    scroll_offset: (f32, f32), // Offset to subtract from glyph positions for scroll frames
 ) {
     let dpi_scale = dpi.inner.get();
 
@@ -2218,14 +2231,15 @@ fn push_text(
     };
 
     // Glyph positions are already absolute (container origin was added in paint_inline_content).
-    // We only need to scale from logical to physical pixels here.
+    // Scale from logical to physical pixels, then subtract the scroll frame offset
+    // so glyphs render at the correct position inside scroll frames.
     let wr_glyphs: Vec<_> = glyphs
         .iter()
         .map(|g| webrender::api::GlyphInstance {
             index: g.index,
             point: webrender::api::units::LayoutPoint::new(
-                g.point.x * dpi_scale,
-                g.point.y * dpi_scale,
+                g.point.x * dpi_scale - scroll_offset.0,
+                g.point.y * dpi_scale - scroll_offset.1,
             ),
         })
         .collect();

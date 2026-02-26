@@ -421,7 +421,8 @@ impl ScrollManager {
 
         for (dom_id, hit_node) in &hit_test.hovered_nodes {
             for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
-                if !self.is_node_scrollable(*dom_id, *node_id) {
+                let scrollable = self.is_node_scrollable(*dom_id, *node_id);
+                if !scrollable {
                     continue;
                 }
                 let input = ScrollInput {
@@ -501,7 +502,7 @@ impl ScrollManager {
     /// overflow check, so IFrame nodes with large virtual content are correctly
     /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        self.states.get(&(dom_id, node_id)).map_or(false, |state| {
+        let result = self.states.get(&(dom_id, node_id)).map_or(false, |state| {
             let effective_width = state.virtual_scroll_size
                 .map(|s| s.width)
                 .unwrap_or(state.content_rect.size.width);
@@ -511,7 +512,8 @@ impl ScrollManager {
             let has_horizontal = effective_width > state.container_rect.size.width;
             let has_vertical = effective_height > state.container_rect.size.height;
             has_horizontal || has_vertical
-        })
+        });
+        result
     }
 
     /// Sets scroll position immediately (no animation)
@@ -610,6 +612,9 @@ impl ScrollManager {
     /// Called after IFrame callback returns to propagate the virtual content size
     /// to the ScrollManager. Clamp logic then uses `virtual_scroll_size` (when set)
     /// instead of `content_rect` for max scroll bounds.
+    ///
+    /// If no scroll state exists yet for this node (because `register_or_update_scroll_node`
+    /// hasn't been called yet), this creates a default state so the virtual size is preserved.
     pub fn update_virtual_scroll_bounds(
         &mut self,
         dom_id: DomId,
@@ -617,12 +622,25 @@ impl ScrollManager {
         virtual_scroll_size: LogicalSize,
         virtual_scroll_offset: Option<LogicalPosition>,
     ) {
-        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
-            state.virtual_scroll_size = Some(virtual_scroll_size);
-            state.virtual_scroll_offset = virtual_scroll_offset;
-            // Re-clamp with new virtual bounds
-            state.current_offset = state.clamp(state.current_offset);
-        }
+        let key = (dom_id, node_id);
+        let state = self.states.entry(key).or_insert_with(|| {
+            AnimatedScrollState {
+                current_offset: LogicalPosition::zero(),
+                animation: None,
+                last_activity: std::time::Instant::now().into(),
+                container_rect: LogicalRect::zero(),
+                content_rect: LogicalRect::zero(),
+                virtual_scroll_size: None,
+                virtual_scroll_offset: None,
+                overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+                overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+                overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
+            }
+        });
+        state.virtual_scroll_size = Some(virtual_scroll_size);
+        state.virtual_scroll_offset = virtual_scroll_offset;
+        // Re-clamp with new virtual bounds
+        state.current_offset = state.clamp(state.current_offset);
     }
 
     /// Returns the current scroll offset for a node
@@ -1099,52 +1117,42 @@ impl ScrollManager {
         dom_id: DomId,
         node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
     ) {
-        // Remap states
-        let states_to_update: Vec<_> = self.states.keys()
-            .filter(|(d, _)| *d == dom_id)
-            .cloned()
-            .collect();
+        // Only remap nodes that actually moved (old_id != new_id).
+        // Nodes NOT in the map are stable (kept same NodeId) — don't touch them.
+        // We cannot distinguish "not moved" from "removed" with just node_moves,
+        // so we conservatively keep states that aren't in the map.
         
-        for (d, old_node_id) in states_to_update {
-            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
-                if let Some(state) = self.states.remove(&(d, old_node_id)) {
-                    self.states.insert((d, new_node_id), state);
+        // Remap states
+        for (&old_node_id, &new_node_id) in node_id_map.iter() {
+            if old_node_id != new_node_id {
+                if let Some(state) = self.states.remove(&(dom_id, old_node_id)) {
+                    self.states.insert((dom_id, new_node_id), state);
                 }
-            } else {
-                // Node was removed, remove its scroll state
-                self.states.remove(&(d, old_node_id));
             }
         }
         
         // Remap external_scroll_ids
-        let scroll_ids_to_update: Vec<_> = self.external_scroll_ids.keys()
-            .filter(|(d, _)| *d == dom_id)
-            .cloned()
-            .collect();
-        
-        for (d, old_node_id) in scroll_ids_to_update {
-            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
-                if let Some(scroll_id) = self.external_scroll_ids.remove(&(d, old_node_id)) {
-                    self.external_scroll_ids.insert((d, new_node_id), scroll_id);
+        for (&old_node_id, &new_node_id) in node_id_map.iter() {
+            if old_node_id != new_node_id {
+                if let Some(scroll_id) = self.external_scroll_ids.remove(&(dom_id, old_node_id)) {
+                    self.external_scroll_ids.insert((dom_id, new_node_id), scroll_id);
                 }
-            } else {
-                self.external_scroll_ids.remove(&(d, old_node_id));
             }
         }
         
         // Remap scrollbar_states
-        let scrollbar_states_to_update: Vec<_> = self.scrollbar_states.keys()
-            .filter(|(d, _, _)| *d == dom_id)
+        let scrollbar_states_to_remap: Vec<_> = self.scrollbar_states.keys()
+            .filter(|(d, node_id, _)| {
+                *d == dom_id && node_id_map.get(node_id).map_or(false, |new_id| new_id != node_id)
+            })
             .cloned()
             .collect();
         
-        for (d, old_node_id, orientation) in scrollbar_states_to_update {
+        for (d, old_node_id, orientation) in scrollbar_states_to_remap {
             if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
                 if let Some(state) = self.scrollbar_states.remove(&(d, old_node_id, orientation)) {
                     self.scrollbar_states.insert((d, new_node_id, orientation), state);
                 }
-            } else {
-                self.scrollbar_states.remove(&(d, old_node_id, orientation));
             }
         }
     }
