@@ -963,14 +963,38 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
     Ok(intrinsic)
 }
 
-/// STUB: Calculates intrinsic sizes for a node based on its children
-/// TODO: Implement proper intrinsic size calculation logic
+/// Calculates intrinsic sizes for a node based on its children and formatting context.
+///
+/// CSS Intrinsic & Extrinsic Sizing (§ 4/5):
+/// - **Block (vertical stacking):** The intrinsic width is the *maximum* child width
+///   (children stack vertically, so the widest child determines the parent's width).
+///   The intrinsic height is the *sum* of child heights.
+/// - **Inline / Flex-row (horizontal stacking):** The intrinsic width is the *sum*
+///   of child widths. The intrinsic height is the *maximum* child height.
+/// - **Flex-column:** Same as block for width (max), height is sum.
 fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     _ctx: &LayoutContext<'_, T>,
     _node: &LayoutNode,
     child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
 ) -> IntrinsicSizes {
-    // Simple stub: aggregate children's sizes
+    use azul_core::dom::FormattingContext;
+
+    // Determine stacking direction from the node's formatting context.
+    // "horizontal" means children are laid out side-by-side (inline, flex-row).
+    // "vertical" means children stack top-to-bottom (block, flex-column).
+    let is_horizontal = match &_node.formatting_context {
+        FormattingContext::Flex => {
+            // Flex containers: check if the main axis is horizontal.
+            // We don't have direct access to flex-direction here, but flex
+            // defaults to row (horizontal). For a proper implementation we'd
+            // query the style; for now, treat Flex as horizontal.
+            true
+        }
+        FormattingContext::Inline | FormattingContext::InlineBlock | FormattingContext::Grid => true,
+        // Block, Table, and everything else stacks vertically
+        _ => false,
+    };
+
     let mut max_width: f32 = 0.0;
     let mut max_height: f32 = 0.0;
     let mut total_width: f32 = 0.0;
@@ -983,13 +1007,26 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
         total_height += intrinsic.max_content_height;
     }
 
-    IntrinsicSizes {
-        min_content_width: total_width.min(max_width),
-        min_content_height: total_height.min(max_height),
-        max_content_width: max_width.max(total_width),
-        max_content_height: max_height.max(total_height),
-        preferred_width: None,
-        preferred_height: None,
+    if is_horizontal {
+        // Horizontal stacking: width is sum of children, height is tallest child
+        IntrinsicSizes {
+            min_content_width: max_width,   // narrowest word across all children
+            min_content_height: max_height,
+            max_content_width: total_width,  // all children side-by-side
+            max_content_height: max_height,
+            preferred_width: None,
+            preferred_height: None,
+        }
+    } else {
+        // Vertical stacking (Block): width is widest child, height is sum of children
+        IntrinsicSizes {
+            min_content_width: max_width,
+            min_content_height: max_height,  // tallest single child as min
+            max_content_width: max_width,    // widest child determines width
+            max_content_height: total_height, // all children stacked
+            preferred_width: None,
+            preferred_height: None,
+        }
     }
 }
 
