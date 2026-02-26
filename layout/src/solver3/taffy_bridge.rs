@@ -515,19 +515,25 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Min/Max Size
+        // NOTE: In CSS, the default min-width/min-height for flex items is `auto`
+        // (which resolves to `min-content`), preventing them from shrinking below
+        // their content size. We must map Auto to Dimension::Auto, NOT to 0px.
+        let min_width_css = get_css_min_width(styled_dom, id, node_state);
+        let min_height_css = get_css_min_height(styled_dom, id, node_state);
+
         taffy_style.min_size = taffy::Size {
-            width: pixel_to_lp(
-                get_css_min_width(styled_dom, id, node_state)
-                    .unwrap_or_default()
-                    .inner,
-            )
-            .into(),
-            height: pixel_to_lp(
-                get_css_min_height(styled_dom, id, node_state)
-                    .unwrap_or_default()
-                    .inner,
-            )
-            .into(),
+            width: match min_width_css {
+                MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+                    taffy::Dimension::auto()
+                }
+                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+            },
+            height: match min_height_css {
+                MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+                    taffy::Dimension::auto()
+                }
+                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+            },
         };
 
         // For max-size, we need to handle Auto specially - it should translate to Taffy's auto, not
