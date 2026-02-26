@@ -65481,7 +65481,7 @@
                         "repr": "C, u8"
                     },
                     "JsonVec": {
-                        "external": "azul_layout::json::JsonVec",
+                        "external": "azul_core::json::JsonVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -65696,7 +65696,7 @@
                         "repr": "C"
                     },
                     "JsonVecDestructor": {
-                        "external": "azul_layout::json::JsonVecDestructor",
+                        "external": "azul_core::json::JsonVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -65712,7 +65712,7 @@
                         "repr": "C, u8"
                     },
                     "JsonVecDestructorType": {
-                        "external": "azul_layout::json::JsonVecDestructorType",
+                        "external": "azul_core::json::JsonVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -65952,7 +65952,7 @@
                         "repr": "C, u8"
                     },
                     "JsonKeyValueVec": {
-                        "external": "azul_layout::json::JsonKeyValueVec",
+                        "external": "azul_core::json::JsonKeyValueVec",
                         "custom_impls": [
                             "Clone",
                             "Debug"
@@ -66166,7 +66166,7 @@
                         "repr": "C"
                     },
                     "JsonKeyValueVecDestructorType": {
-                        "external": "azul_layout::json::JsonKeyValueVecDestructorType",
+                        "external": "azul_core::json::JsonKeyValueVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -66179,7 +66179,7 @@
                         "repr": "C"
                     },
                     "JsonKeyValueVecDestructor": {
-                        "external": "azul_layout::json::JsonKeyValueVecDestructor",
+                        "external": "azul_core::json::JsonKeyValueVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -67308,8 +67308,7 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "derive": [
                             "Debug"
@@ -68176,8 +68175,7 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "derive": [
                             "Debug"
@@ -68388,8 +68386,7 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "derive": [
                             "Debug"
@@ -68799,11 +68796,7 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "derive": [
                             "Debug"
@@ -70223,7 +70216,7 @@
                         "repr": "C, u8"
                     },
                     "OptionI64": {
-                        "external": "azul_layout::json::OptionI64",
+                        "external": "azul_core::json::OptionI64",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -70966,7 +70959,7 @@
                         "repr": "C, u8"
                     },
                     "OptionJson": {
-                        "external": "azul_layout::json::OptionJson",
+                        "external": "azul_core::json::OptionJson",
                         "derive": [
                             "Clone",
                             "Debug",
@@ -71512,7 +71505,7 @@
                         "repr": "C, u8"
                     },
                     "OptionJsonKeyValue": {
-                        "external": "azul_layout::json::OptionJsonKeyValue",
+                        "external": "azul_core::json::OptionJsonKeyValue",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -72153,7 +72146,7 @@
                         "repr": "C, u8"
                     },
                     "OptionJsonVec": {
-                        "external": "azul_layout::json::OptionJsonVec",
+                        "external": "azul_core::json::OptionJsonVec",
                         "derive": [
                             "Clone",
                             "Debug"
@@ -72169,7 +72162,7 @@
                         "repr": "C, u8"
                     },
                     "OptionJsonKeyValueVec": {
-                        "external": "azul_layout::json::OptionJsonKeyValueVec",
+                        "external": "azul_core::json::OptionJsonKeyValueVec",
                         "derive": [
                             "Clone",
                             "Debug"
@@ -72491,8 +72484,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -72539,8 +72531,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -72564,8 +72555,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -72589,8 +72579,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -72607,11 +72596,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -74058,7 +74043,7 @@
                         "repr": "C, u8"
                     },
                     "JsonParseError": {
-                        "external": "azul_layout::json::JsonParseError",
+                        "external": "azul_core::json::JsonParseError",
                         "custom_impls": [
                             "Display"
                         ],
@@ -74083,7 +74068,7 @@
                         "repr": "C"
                     },
                     "ResultJsonJsonParseError": {
-                        "external": "azul_layout::json::ResultJsonJsonParseError",
+                        "external": "azul_core::json::ResultJsonJsonParseError",
                         "derive": [
                             "Debug",
                             "Clone"
@@ -76464,7 +76449,7 @@
                         "repr": "C"
                     },
                     "Json": {
-                        "external": "azul_layout::json::Json",
+                        "external": "azul_core::json::Json",
                         "custom_impls": [
                             "Display"
                         ],
@@ -76949,7 +76934,7 @@
                         "repr": "C"
                     },
                     "JsonType": {
-                        "external": "azul_layout::json::JsonType",
+                        "external": "azul_core::json::JsonType",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -76970,7 +76955,7 @@
                         "repr": "C"
                     },
                     "JsonInternal": {
-                        "external": "azul_layout::json::JsonInternal",
+                        "external": "azul_core::json::JsonInternal",
                         "custom_impls": [
                             "Default"
                         ],
@@ -77097,7 +77082,7 @@
                         "repr": "C"
                     },
                     "JsonKeyValue": {
-                        "external": "azul_layout::json::JsonKeyValue",
+                        "external": "azul_core::json::JsonKeyValue",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -77492,7 +77477,7 @@
                         "repr": "C"
                     },
                     "JsonKeyValueVecSlice": {
-                        "external": "azul_layout::json::JsonKeyValueVecSlice",
+                        "external": "azul_core::json::JsonKeyValueVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -77544,7 +77529,7 @@
                         "repr": "C"
                     },
                     "JsonVecSlice": {
-                        "external": "azul_layout::json::JsonVecSlice",
+                        "external": "azul_core::json::JsonVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -78802,8 +78787,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
@@ -78910,6 +78894,12 @@
                                 },
                                 "compile_fn": {
                                     "type": "ComponentCompileFn"
+                                },
+                                "render_fn_source": {
+                                    "type": "OptionString"
+                                },
+                                "compile_fn_source": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -78980,6 +78970,10 @@
                                 },
                                 {
                                     "type": "ComponentDataModel",
+                                    "ref_kind": "ref"
+                                },
+                                {
+                                    "type": "ComponentMap",
                                     "ref_kind": "ref"
                                 }
                             ],
@@ -79120,12 +79114,14 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
                                 "name": {
+                                    "type": "String"
+                                },
+                                "description": {
                                     "type": "String"
                                 },
                                 "fields": {
@@ -79192,8 +79188,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
@@ -79290,6 +79285,9 @@
                     },
                     "ComponentFieldType": {
                         "external": "azul_core::xml::ComponentFieldType",
+                        "custom_impls": [
+                            "Display"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -79390,11 +79388,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
@@ -79413,11 +79407,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
@@ -79485,8 +79475,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -79526,6 +79515,9 @@
                                 },
                                 "CallbackFnPointer": {
                                     "type": "String"
+                                },
+                                "Json": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -79536,11 +79528,7 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
