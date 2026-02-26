@@ -1196,12 +1196,10 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
 
 /// Checks if scrollbars changed compared to previous layout and if reflow is needed.
 ///
-/// To prevent oscillation, we only trigger reflow when scrollbars are *added*,
-/// never when they would be *removed*. This is because:
-/// 1. Adding scrollbars reduces available space → content reflows → may fit
-/// 2. Removing scrollbars increases space → content reflows → may overflow again
-/// This creates an infinite loop. By only allowing transitions *to* scrollbars,
-/// we reach a stable state where scrollbars are present if ever needed.
+/// Detects both addition AND removal of scrollbars. Oscillation (add → remove → add)
+/// is prevented by the outer layout loop's iteration limit (`loop_count > 10` in mod.rs),
+/// not by suppressing removal detection here. This allows scrollbars to correctly
+/// disappear when content shrinks or the window is resized larger.
 fn check_scrollbar_change(
     tree: &LayoutTree,
     node_index: usize,
@@ -1219,59 +1217,26 @@ fn check_scrollbar_change(
     match &current_node.scrollbar_info {
         None => scrollbar_info.needs_reflow(),
         Some(old_info) => {
-            // Only trigger reflow if scrollbars are being ADDED, not removed
-            let adding_horizontal = !old_info.needs_horizontal && scrollbar_info.needs_horizontal;
-            let adding_vertical = !old_info.needs_vertical && scrollbar_info.needs_vertical;
-            adding_horizontal || adding_vertical
+            // Trigger reflow if scrollbar state changed in either direction
+            let horizontal_changed = old_info.needs_horizontal != scrollbar_info.needs_horizontal;
+            let vertical_changed = old_info.needs_vertical != scrollbar_info.needs_vertical;
+            horizontal_changed || vertical_changed
         }
     }
 }
 
-/// Merges new scrollbar info with existing info, keeping scrollbars once needed.
+/// Returns the new scrollbar info directly, replacing any previous state.
 ///
-/// This prevents the oscillation problem where content reflows to fit without
-/// scrollbars, but then overflows again when scrollbars are removed.
+/// Previous versions used `||` to make scrollbars "sticky" (never removed once added).
+/// This prevented oscillation but caused scrollbars to persist forever—even after
+/// content shrinks or the window grows. The outer layout loop's iteration cap
+/// now handles oscillation safety, so we can faithfully reflect the current state.
 fn merge_scrollbar_info(
-    tree: &LayoutTree,
-    node_index: usize,
+    _tree: &LayoutTree,
+    _node_index: usize,
     new_info: &ScrollbarRequirements,
 ) -> ScrollbarRequirements {
-    let Some(current_node) = tree.get(node_index) else {
-        return new_info.clone();
-    };
-
-    match &current_node.scrollbar_info {
-        Some(old) => {
-            // Use whichever width is non-zero (prefer new_info since it has the
-            // most up-to-date per-node CSS resolution)
-            let effective_width = if new_info.scrollbar_width > 0.0 {
-                new_info.scrollbar_width
-            } else {
-                old.scrollbar_width
-            };
-            let effective_height = if new_info.scrollbar_height > 0.0 {
-                new_info.scrollbar_height
-            } else {
-                old.scrollbar_height
-            };
-
-            ScrollbarRequirements {
-                needs_horizontal: old.needs_horizontal || new_info.needs_horizontal,
-                needs_vertical: old.needs_vertical || new_info.needs_vertical,
-                scrollbar_width: if old.needs_vertical || new_info.needs_vertical {
-                    effective_width
-                } else {
-                    0.0
-                },
-                scrollbar_height: if old.needs_horizontal || new_info.needs_horizontal {
-                    effective_height
-                } else {
-                    0.0
-                },
-            }
-        }
-        None => new_info.clone(),
-    }
+    new_info.clone()
 }
 
 /// Calculates the content-box position from a margin-box position.
