@@ -279,7 +279,8 @@ pub fn translate_displaylist_to_wr(
                 border_radius,
                 color,
             } => {
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let rect = apply_offset(raw_rect, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -298,7 +299,8 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::CursorRect { bounds, color } => {
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let rect = apply_offset(raw_rect, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -323,7 +325,8 @@ pub fn translate_displaylist_to_wr(
                 styles,
                 border_radius,
             } => {
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let rect = apply_offset(raw_rect, current_offset!());
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -936,7 +939,8 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::HitTestArea { bounds, tag } => {
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let rect = apply_offset(raw_rect, current_offset!());
 
                 // DEBUG: Draw a semi-transparent red rectangle to visualize hit-test areas
                 #[cfg(debug_assertions)]
@@ -980,7 +984,7 @@ pub fn translate_displaylist_to_wr(
                 color,
                 thickness,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
+                let raw_rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
                         scale_px(bounds.origin.y, dpi_scale),
@@ -990,6 +994,7 @@ pub fn translate_displaylist_to_wr(
                         scale_px(*thickness, dpi_scale),
                     ),
                 );
+                let rect = apply_offset(raw_rect, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -1012,7 +1017,7 @@ pub fn translate_displaylist_to_wr(
                 color,
                 thickness,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
+                let raw_rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
                         scale_px(bounds.origin.y, dpi_scale),
@@ -1022,6 +1027,7 @@ pub fn translate_displaylist_to_wr(
                         scale_px(*thickness, dpi_scale),
                     ),
                 );
+                let rect = apply_offset(raw_rect, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -1044,7 +1050,7 @@ pub fn translate_displaylist_to_wr(
                 color,
                 thickness,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
+                let raw_rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
                         scale_px(bounds.origin.y, dpi_scale),
@@ -1054,6 +1060,7 @@ pub fn translate_displaylist_to_wr(
                         scale_px(*thickness, dpi_scale),
                     ),
                 );
+                let rect = apply_offset(raw_rect, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
