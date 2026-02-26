@@ -523,14 +523,33 @@ pub enum DisplayListItem {
     },
 
     /// An embedded IFrame that references a child DOM with its own display list.
-    /// This mirrors webrender's IframeDisplayItem. The renderer will look up
-    /// the child display list by child_dom_id and render it within the bounds.
+    /// The renderer will look up the child display list by child_dom_id and
+    /// render it within the bounds. The IFrame viewport is rendered in parent
+    /// coordinate space (NOT inside a scroll frame) so it stays stationary.
+    /// Scroll offset is communicated to the IFrame callback, not via WebRender.
     IFrame {
         /// The DomId of the child DOM (similar to webrender's pipeline_id)
         child_dom_id: DomId,
         /// The bounds where the IFrame should be rendered
         bounds: LogicalRect,
         /// The clip rect for the IFrame content
+        clip_rect: LogicalRect,
+    },
+
+    /// Placeholder emitted during display list generation for IFrame nodes.
+    /// `window.rs` replaces this with a real `IFrame` item after invoking
+    /// the IFrame callback. This avoids the need for post-hoc scroll frame
+    /// scanning — `window.rs` simply finds the placeholder by `node_id`.
+    ///
+    /// Unlike regular scrollable nodes, IFrame nodes do NOT get a
+    /// PushScrollFrame/PopScrollFrame pair. Scroll state is managed by
+    /// `ScrollManager` and passed to the IFrame callback as `scroll_offset`.
+    IFramePlaceholder {
+        /// The DOM NodeId of the IFrame element in the parent DOM
+        node_id: NodeId,
+        /// The layout bounds of the IFrame container
+        bounds: LogicalRect,
+        /// The clip rect (same as bounds initially, may be adjusted)
         clip_rect: LogicalRect,
     },
 
@@ -1044,6 +1063,18 @@ impl DisplayListBuilder {
     }
     pub fn pop_scroll_frame(&mut self) {
         self.push_item(DisplayListItem::PopScrollFrame);
+    }
+    pub fn push_iframe_placeholder(
+        &mut self,
+        node_id: NodeId,
+        bounds: LogicalRect,
+        clip_rect: LogicalRect,
+    ) {
+        self.push_item(DisplayListItem::IFramePlaceholder {
+            node_id,
+            bounds,
+            clip_rect,
+        });
     }
     pub fn push_border(
         &mut self,
@@ -1849,8 +1880,23 @@ where
         }
 
         // After painting the node and all its descendants, pop any contexts it pushed.
+        // For IFrame nodes, emit the placeholder INSIDE the clip (before PopClip)
+        // so the iframe viewport is clipped to the container.
         if did_push_clip_or_scroll {
+            // Emit IFramePlaceholder before popping the clip so it's inside PushClip/PopClip
+            if let Some(dom_id) = node.dom_node_id {
+                if self.is_iframe_node(dom_id) {
+                    builder.push_iframe_placeholder(dom_id, node_bounds, node_bounds);
+                }
+            }
             self.pop_node_clips(builder, node)?;
+        } else {
+            // Even without clips, emit IFramePlaceholder for IFrame nodes
+            if let Some(dom_id) = node.dom_node_id {
+                if self.is_iframe_node(dom_id) {
+                    builder.push_iframe_placeholder(dom_id, node_bounds, node_bounds);
+                }
+            }
         }
 
         // Paint scrollbars AFTER popping the clip, so they appear on top of content
@@ -1975,6 +2021,14 @@ where
             // Paint descendants inside the clip/scroll frame
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
+            // For IFrame children: emit placeholder INSIDE the clip
+            if let Some(dom_id) = child_node.dom_node_id {
+                if self.is_iframe_node(dom_id) {
+                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
+                    builder.push_iframe_placeholder(dom_id, child_bounds, child_bounds);
+                }
+            }
+
             // Pop the child's clips.
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
@@ -2031,6 +2085,14 @@ where
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
+            // For IFrame children: emit placeholder INSIDE the clip
+            if let Some(dom_id) = child_node.dom_node_id {
+                if self.is_iframe_node(dom_id) {
+                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
+                    builder.push_iframe_placeholder(dom_id, child_bounds, child_bounds);
+                }
+            }
+
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
             }
@@ -2086,6 +2148,14 @@ where
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
+            // For IFrame children: emit placeholder INSIDE the clip
+            if let Some(dom_id) = child_node.dom_node_id {
+                if self.is_iframe_node(dom_id) {
+                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
+                    builder.push_iframe_placeholder(dom_id, child_bounds, child_bounds);
+                }
+            }
+
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
             }
@@ -2102,8 +2172,22 @@ where
         Ok(())
     }
 
+    /// Returns true if the given DOM node is an IFrame node.
+    fn is_iframe_node(&self, dom_id: NodeId) -> bool {
+        let node_data_container = self.ctx.styled_dom.node_data.as_container();
+        node_data_container
+            .get(dom_id)
+            .map(|nd| matches!(nd.get_node_type(), NodeType::IFrame(_)))
+            .unwrap_or(false)
+    }
+
     /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
     /// Returns true if any command was pushed.
+    ///
+    /// For IFrame nodes with `overflow: scroll/auto`, we intentionally skip
+    /// `PushScrollFrame` / `PopScrollFrame`. IFrame scroll state is managed by
+    /// `ScrollManager`, not WebRender's APZ. Instead we emit only a `PushClip`
+    /// and later an `IFramePlaceholder` (see `generate_for_stacking_context`).
     fn push_node_clips(
         &self,
         builder: &mut DisplayListBuilder,
@@ -2167,14 +2251,23 @@ where
             },
         };
 
+        let is_iframe = self.is_iframe_node(dom_id);
+
         if overflow_x.is_scroll() || overflow_y.is_scroll() {
-            // For scroll/auto: push BOTH a clip AND a scroll frame
-            // The clip ensures content is clipped (in parent space)
-            // The scroll frame enables scrolling (creates new spatial node)
-            builder.push_clip(clip_rect, border_radius);
-            let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
-            let content_size = get_scroll_content_size(node);
-            builder.push_scroll_frame(clip_rect, content_size, scroll_id);
+            if is_iframe {
+                // IFrame nodes: only push a clip, NO scroll frame.
+                // Scroll state is managed by ScrollManager and passed to the
+                // IFrame callback as scroll_offset. The IFramePlaceholder is
+                // emitted after pop_node_clips in generate_for_stacking_context.
+                builder.push_clip(clip_rect, border_radius);
+            } else {
+                // Regular scrollable nodes: push clip AND scroll frame.
+                // WebRender's APZ manages the scroll offset via define_scroll_frame.
+                builder.push_clip(clip_rect, border_radius);
+                let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
+                let content_size = get_scroll_content_size(node);
+                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
+            }
         } else {
             // Simple clip for hidden/clip
             builder.push_clip(clip_rect, border_radius);
@@ -2219,13 +2312,15 @@ where
         let needs_clip =
             overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
 
+        let is_iframe = self.is_iframe_node(dom_id);
+
         if needs_clip {
-            if overflow_x.is_scroll() || overflow_y.is_scroll() {
-                // For scroll or auto overflow, pop both scroll frame AND clip
+            if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_iframe {
+                // For regular (non-IFrame) scroll/auto, pop both scroll frame AND clip
                 builder.pop_scroll_frame();
                 builder.pop_clip();
             } else {
-                // For hidden/clip, pop the simple clip
+                // For hidden/clip, or IFrame scroll (which only pushed a clip)
                 builder.pop_clip();
             }
         }
@@ -2346,9 +2441,21 @@ where
                 );
 
                 if !parent_is_flex_or_grid {
-                    // text3 will handle this via InlineShape (for inline-block)
-                    // or glyph runs with background_color (for inline)
-                    return Ok(());
+                    // Normally, text3 handles inline/inline-block backgrounds via
+                    // InlineShape (inline-block) or glyph runs (inline). However,
+                    // if this inline-block establishes a stacking context (e.g.
+                    // position:relative + z-index, opacity < 1, transform), we MUST
+                    // paint its background here. generate_for_stacking_context paints
+                    // background (step 1) → children (steps 3-6). If we skip the
+                    // background, paint_inline_shape in the parent's paint_node_content
+                    // would paint it AFTER the children, obscuring them.
+                    if display == LayoutDisplay::InlineBlock
+                        && self.establishes_stacking_context(node_index)
+                    {
+                        // Fall through to paint background/border now
+                    } else {
+                        return Ok(());
+                    }
                 }
                 // Fall through to paint this element - it's a flex/grid item
             }
@@ -3313,6 +3420,18 @@ where
             return Ok(());
         };
 
+        // If this inline-block establishes a stacking context, its background was
+        // already painted by paint_node_background_and_border (called from
+        // generate_for_stacking_context). Painting again here would cause
+        // double-rendering. Skip it.
+        if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
+            if let Some(&idx) = indices.first() {
+                if self.establishes_stacking_context(idx) {
+                    return Ok(());
+                }
+            }
+        }
+
         let styled_node_state =
             &self.ctx.styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
 
@@ -3753,7 +3872,8 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PushScrollFrame { .. }
         | DisplayListItem::PopScrollFrame
         | DisplayListItem::PushStackingContext { .. }
-        | DisplayListItem::PopStackingContext => None,
+        | DisplayListItem::PopStackingContext
+        | DisplayListItem::IFramePlaceholder { .. } => None,
 
         // Gradient items - simple bounds check
         DisplayListItem::LinearGradient {
@@ -4780,6 +4900,15 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             clip_rect,
         } => DisplayListItem::IFrame {
             child_dom_id: *child_dom_id,
+            bounds: offset_rect_y(*bounds, y_offset),
+            clip_rect: offset_rect_y(*clip_rect, y_offset),
+        },
+        DisplayListItem::IFramePlaceholder {
+            node_id,
+            bounds,
+            clip_rect,
+        } => DisplayListItem::IFramePlaceholder {
+            node_id: *node_id,
             bounds: offset_rect_y(*bounds, y_offset),
             clip_rect: offset_rect_y(*clip_rect, y_offset),
         },
