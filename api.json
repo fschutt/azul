@@ -32707,6 +32707,79 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "SvgTransform": {
+                        "external": "azul_core::svg::SvgTransform",
+                        "derive": [
+                            "Default",
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "sx": {
+                                    "type": "f32"
+                                },
+                                "kx": {
+                                    "type": "f32"
+                                },
+                                "ky": {
+                                    "type": "f32"
+                                },
+                                "sy": {
+                                    "type": "f32"
+                                },
+                                "tx": {
+                                    "type": "f32"
+                                },
+                                "ty": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgFillStyle": {
+                        "external": "azul_core::svg::SvgFillStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "line_join": {
+                                    "type": "SvgLineJoin"
+                                },
+                                "miter_limit": {
+                                    "type": "f32"
+                                },
+                                "tolerance": {
+                                    "type": "f32"
+                                },
+                                "fill_rule": {
+                                    "type": "SvgFillRule"
+                                },
+                                "transform": {
+                                    "type": "SvgTransform"
+                                },
+                                "anti_alias": {
+                                    "type": "bool"
+                                },
+                                "high_quality_aa": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -50840,6 +50913,726 @@
                             {
                                 "ptr": {
                                     "type": "CssPathSelector",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgLineJoin": {
+                        "external": "azul_core::svg::SvgLineJoin",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Hash",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Miter": {},
+                                "MiterClip": {},
+                                "Round": {},
+                                "Bevel": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgFillRule": {
+                        "external": "azul_core::svg::SvgFillRule",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Winding": {},
+                                "EvenOdd": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgDashPattern": {
+                        "external": "azul_core::svg::SvgDashPattern",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "offset": {
+                                    "type": "f32"
+                                },
+                                "length_1": {
+                                    "type": "f32"
+                                },
+                                "gap_1": {
+                                    "type": "f32"
+                                },
+                                "length_2": {
+                                    "type": "f32"
+                                },
+                                "gap_2": {
+                                    "type": "f32"
+                                },
+                                "length_3": {
+                                    "type": "f32"
+                                },
+                                "gap_3": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgStrokeStyle": {
+                        "external": "azul_core::svg::SvgStrokeStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "start_cap": {
+                                    "type": "SvgLineCap"
+                                },
+                                "end_cap": {
+                                    "type": "SvgLineCap"
+                                },
+                                "line_join": {
+                                    "type": "SvgLineJoin"
+                                },
+                                "dash_pattern": {
+                                    "type": "OptionSvgDashPattern"
+                                },
+                                "line_width": {
+                                    "type": "f32"
+                                },
+                                "miter_limit": {
+                                    "type": "f32"
+                                },
+                                "tolerance": {
+                                    "type": "f32"
+                                },
+                                "apply_line_width": {
+                                    "type": "bool"
+                                },
+                                "transform": {
+                                    "type": "SvgTransform"
+                                },
+                                "anti_alias": {
+                                    "type": "bool"
+                                },
+                                "high_quality_aa": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgLineCap": {
+                        "external": "azul_core::svg::SvgLineCap",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Hash",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Butt": {},
+                                "Square": {},
+                                "Round": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgLine": {
+                        "external": "azul_core::svg::SvgLine",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "start": {
+                                    "type": "SvgPoint"
+                                },
+                                "end": {
+                                    "type": "SvgPoint"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgCubicCurve": {
+                        "external": "azul_css::props::basic::animation::SvgCubicCurve",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "start": {
+                                    "type": "SvgPoint"
+                                },
+                                "ctrl_1": {
+                                    "type": "SvgPoint"
+                                },
+                                "ctrl_2": {
+                                    "type": "SvgPoint"
+                                },
+                                "end": {
+                                    "type": "SvgPoint"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgVector": {
+                        "external": "azul_css::props::basic::animation::SvgVector",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f64"
+                                },
+                                "y": {
+                                    "type": "f64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgQuadraticCurve": {
+                        "external": "azul_css::props::basic::animation::SvgQuadraticCurve",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "start": {
+                                    "type": "SvgPoint"
+                                },
+                                "ctrl": {
+                                    "type": "SvgPoint"
+                                },
+                                "end": {
+                                    "type": "SvgPoint"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgPathElement": {
+                        "external": "azul_core::svg::SvgPathElement",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Line": {
+                                    "type": "SvgLine"
+                                },
+                                "QuadraticCurve": {
+                                    "type": "SvgQuadraticCurve"
+                                },
+                                "CubicCurve": {
+                                    "type": "SvgCubicCurve"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "line": {
+                                "doc": [
+                                    "Creates a line path element from a SvgLine"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "l": "SvgLine"
+                                    }
+                                ],
+                                "fn_body": "azul_core::svg::SvgPathElement::line(l)"
+                            },
+                            "quadratic_curve": {
+                                "doc": [
+                                    "Creates a quadratic curve path element from a SvgQuadraticCurve"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "qc": "SvgQuadraticCurve"
+                                    }
+                                ],
+                                "fn_body": "azul_core::svg::SvgPathElement::quadratic_curve(qc)"
+                            },
+                            "cubic_curve": {
+                                "doc": [
+                                    "Creates a cubic curve path element from a SvgCubicCurve"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cc": "SvgCubicCurve"
+                                    }
+                                ],
+                                "fn_body": "azul_core::svg::SvgPathElement::cubic_curve(cc)"
+                            }
+                        },
+                        "functions": {
+                            "set_last": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "point": "SvgPoint"
+                                    }
+                                ],
+                                "fn_body": "object.set_last(point)"
+                            },
+                            "set_first": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "point": "SvgPoint"
+                                    }
+                                ],
+                                "fn_body": "object.set_first(point)"
+                            },
+                            "reverse": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.reverse()"
+                            },
+                            "get_start": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPoint"
+                                },
+                                "fn_body": "object.get_start()"
+                            },
+                            "get_end": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPoint"
+                                },
+                                "fn_body": "object.get_end()"
+                            },
+                            "get_bounds": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgRect"
+                                },
+                                "fn_body": "object.get_bounds()"
+                            },
+                            "get_length": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.get_length()"
+                            },
+                            "get_t_at_offset": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "offset": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.get_t_at_offset(offset)"
+                            },
+                            "get_tangent_vector_at_t": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "t": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgVector"
+                                },
+                                "fn_body": "object.get_tangent_vector_at_t(t)"
+                            },
+                            "get_x_at_t": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "t": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.get_x_at_t(t)"
+                            },
+                            "get_y_at_t": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "t": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.get_y_at_t(t)"
+                            }
+                        },
+                        "repr": "C, u8"
+                    },
+                    "SvgRect": {
+                        "external": "azul_css::props::basic::animation::SvgRect",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "f32"
+                                },
+                                "height": {
+                                    "type": "f32"
+                                },
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                },
+                                "radius_top_left": {
+                                    "type": "f32"
+                                },
+                                "radius_top_right": {
+                                    "type": "f32"
+                                },
+                                "radius_bottom_left": {
+                                    "type": "f32"
+                                },
+                                "radius_bottom_right": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgPoint": {
+                        "external": "azul_css::props::basic::animation::SvgPoint",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgPath": {
+                        "external": "azul_core::svg::SvgPath",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "items": {
+                                    "type": "SvgPathElementVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a new SvgPath from a vector of path elements"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "items": "SvgPathElementVec"
+                                    }
+                                ],
+                                "fn_body": "azul_core::svg::SvgPath::new(items)"
+                            }
+                        },
+                        "functions": {
+                            "get_start": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSvgPoint"
+                                },
+                                "fn_body": "object.get_start().into()"
+                            },
+                            "get_end": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSvgPoint"
+                                },
+                                "fn_body": "object.get_end().into()"
+                            },
+                            "close": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "is_closed": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_closed()"
+                            },
+                            "reverse": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.reverse()"
+                            },
+                            "join_with": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "path": "SvgPath"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.join_with(path).is_some()"
+                            },
+                            "get_bounds": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgRect"
+                                },
+                                "fn_body": "object.get_bounds()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SvgMultiPolygon": {
+                        "external": "azul_core::svg::SvgMultiPolygon",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "rings": {
+                                    "type": "SvgPathVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a new SvgMultiPolygon from a vector of paths (rings)",
+                                    "NOTE: If a ring represents a hole, simply reverse the order of points"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "rings": "SvgPathVec"
+                                    }
+                                ],
+                                "fn_body": "azul_core::svg::SvgMultiPolygon::new(rings)"
+                            }
+                        },
+                        "functions": {
+                            "get_bounds": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgRect"
+                                },
+                                "fn_body": "object.get_bounds()"
+                            },
+                            "tessellate_fill": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "fill_style": "SvgFillStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TessellatedSvgNode"
+                                },
+                                "fn_body": "object.tessellate_fill(fill_style)"
+                            },
+                            "tessellate_stroke": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "stroke_style": "SvgStrokeStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TessellatedSvgNode"
+                                },
+                                "fn_body": "object.tessellate_stroke(stroke_style)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SvgPathVecSlice": {
+                        "external": "azul_core::svg::SvgPathVecSlice",
+                        "derive": [
+                            "Clone",
+                            "Copy",
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SvgPath",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgPathElementVecSlice": {
+                        "external": "azul_core::svg::SvgPathElementVecSlice",
+                        "derive": [
+                            "Clone",
+                            "Copy",
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SvgPathElement",
                                     "ref_kind": "constptr"
                                 },
                                 "len": {
@@ -68988,6 +69781,428 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "SvgPathElementVecDestructor": {
+                        "external": "azul_core::svg::SvgPathElementVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SvgPathElementVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SvgPathElementVecDestructorType": {
+                        "external": "azul_core::svg::SvgPathElementVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "SvgPathElementVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "SvgPathElementVec": {
+                        "external": "azul_core::svg::SvgPathElementVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SvgPathElement",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SvgPathElementVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `SvgPathElementVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "SvgPathElementVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `SvgPathElementVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathElementVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "svg_path_element_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "svg_path_element_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "svg_path_element_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `SvgPathElementVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "SvgPathElement"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathElementVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `SvgPathElementVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const SvgPathElement"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathElementVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSvgPathElement"
+                                },
+                                "fn_body": "svg_path_element_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `SvgPathElementVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathElementVecSlice"
+                                },
+                                "fn_body": "svg_path_element_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathElementVecSlice"
+                                },
+                                "fn_body": "svg_path_element_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SvgPathVecDestructor": {
+                        "external": "azul_core::svg::SvgPathVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SvgPathVecDestructorType"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SvgPathVecDestructorType": {
+                        "external": "azul_core::svg::SvgPathVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "SvgPathVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "SvgPathVec": {
+                        "external": "azul_core::svg::SvgPathVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SvgPath",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SvgPathVecDestructor"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `SvgPathVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "SvgPathVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `SvgPathVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "svg_path_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "svg_path_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "svg_path_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `SvgPathVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "SvgPath"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `SvgPathVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const SvgPath"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSvgPath"
+                                },
+                                "fn_body": "svg_path_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `SvgPathVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathVecSlice"
+                                },
+                                "fn_body": "svg_path_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPathVecSlice"
+                                },
+                                "fn_body": "svg_path_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -72637,6 +73852,87 @@
                                     "type": "ComponentCallbackArg",
                                     "doc": [
                                         "Some value of type ComponentCallbackArg"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSvgDashPattern": {
+                        "external": "azul_core::svg::OptionSvgDashPattern",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SvgDashPattern"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSvgPoint": {
+                        "external": "azul_css::props::basic::animation::OptionSvgPoint",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SvgPoint"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSvgPath": {
+                        "external": "azul_core::svg::OptionSvgPath",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SvgPath"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSvgPathElement": {
+                        "external": "azul_core::svg::OptionSvgPathElement",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "SvgPathElement",
+                                    "doc": [
+                                        "Some value of type SvgPathElement"
                                     ]
                                 }
                             }

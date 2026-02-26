@@ -228,7 +228,7 @@ bool parse_and_tessellate(OpenGlState* state) {
             if (path_elements.len > 0) {
                 AzSvgPathElementVec elem_vec = AzSvgPathElementVec_copyFromPtr(
                     path_elements.items, path_elements.len);
-                AzSvgPath svg_path = AzSvgPath_create(elem_vec);
+                AzSvgPath svg_path = AzSvgPath_new(elem_vec);
                 path_push(&rings, svg_path);
             }
             free(path_elements.items);
@@ -241,7 +241,7 @@ bool parse_and_tessellate(OpenGlState* state) {
         // Create SvgMultiPolygon and tessellate (like Rust example)
         if (rings.len > 0) {
             AzSvgPathVec rings_vec = AzSvgPathVec_copyFromPtr(rings.items, rings.len);
-            AzSvgMultiPolygon mp = AzSvgMultiPolygon_create(rings_vec);
+            AzSvgMultiPolygon mp = AzSvgMultiPolygon_new(rings_vec);
             
             // Tessellate fill (like Rust: mp.tessellate_fill(SvgFillStyle::default()))
             AzTessellatedSvgNode fill_node = AzSvgMultiPolygon_tessellateFill(&mp, fill_style);
