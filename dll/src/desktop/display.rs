@@ -1209,16 +1209,13 @@ mod linux {
 
             #[cfg(feature = "desktop")]
             {
-                // Parse wlr-randr text output using regex
-                let re =
-                    regex::Regex::new(r#"(?m)^(\S+)\s+"[^"]*"\s+\(focused\)|(?m)^(\S+)\s+"[^"]*""#)
-                        .unwrap();
-
-                let pos_re = regex::Regex::new(r"Position:\s*(\d+),(\d+)").unwrap();
-
-                let size_re = regex::Regex::new(r"current\s+(\d+)x(\d+)\s+px").unwrap();
-
-                let scale_re = regex::Regex::new(r"Scale:\s*([\d.]+)").unwrap();
+                // Parse wlr-randr text output using string ops (no regex).
+                // Header lines are non-indented, non-empty, and contain a quoted name, e.g.:
+                //   HDMI-A-1 "Dell U2415" (focused)
+                // Property lines are indented, e.g.:
+                //   Position: 0,0
+                //   1920x1200 px, 59.95 Hz (preferred, current)
+                //   Scale: 1.000000
 
                 let mut displays = Vec::new();
                 let lines: Vec<&str> = stdout.lines().collect();
@@ -1227,58 +1224,59 @@ mod linux {
                 while i < lines.len() {
                     let line = lines[i];
 
-                    // Check if this is an output header
-                    if let Some(cap) = re.captures(line) {
-                        let name = cap
-                            .get(1)
-                            .or_else(|| cap.get(2))
-                            .map(|m| m.as_str().to_string())
-                            .unwrap_or_default();
+                    // Check if this is an output header: non-indented, non-empty, contains '"'
+                    let is_header = !line.starts_with(' ')
+                        && !line.is_empty()
+                        && line.contains('"');
+
+                    if is_header {
+                        // Extract output name (first whitespace-delimited token)
+                        let name = line
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or_default()
+                            .to_string();
 
                         let is_focused = line.contains("(focused)");
 
                         // Look for properties in the next few lines
-                        let mut x = 0.0;
-                        let mut y = 0.0;
-                        let mut width = 0.0;
-                        let mut height = 0.0;
-                        let mut scale = 1.0;
+                        let mut x = 0.0f32;
+                        let mut y = 0.0f32;
+                        let mut width = 0.0f32;
+                        let mut height = 0.0f32;
+                        let mut scale = 1.0f32;
 
                         for j in (i + 1)..((i + 10).min(lines.len())) {
                             let prop_line = lines[j];
 
-                            // Stop if we hit another output
+                            // Stop if we hit another output header
                             if !prop_line.starts_with(' ') && !prop_line.is_empty() {
                                 break;
                             }
 
-                            if let Some(cap) = pos_re.captures(prop_line) {
-                                x = cap
-                                    .get(1)
-                                    .and_then(|m| m.as_str().parse().ok())
-                                    .unwrap_or(0.0);
-                                y = cap
-                                    .get(2)
-                                    .and_then(|m| m.as_str().parse().ok())
-                                    .unwrap_or(0.0);
+                            let trimmed = prop_line.trim();
+
+                            // Parse "Position: X,Y"
+                            if let Some(rest) = trimmed.strip_prefix("Position:") {
+                                if let Some((xs, ys)) = rest.trim().split_once(',') {
+                                    x = xs.trim().parse().unwrap_or(0.0);
+                                    y = ys.trim().parse().unwrap_or(0.0);
+                                }
                             }
 
-                            if let Some(cap) = size_re.captures(prop_line) {
-                                width = cap
-                                    .get(1)
-                                    .and_then(|m| m.as_str().parse().ok())
-                                    .unwrap_or(0.0);
-                                height = cap
-                                    .get(2)
-                                    .and_then(|m| m.as_str().parse().ok())
-                                    .unwrap_or(0.0);
+                            // Parse mode lines like "1920x1200 px, 59.95 Hz (preferred, current)"
+                            if trimmed.contains("current") && trimmed.contains("px") {
+                                if let Some(wh) = trimmed.split_whitespace().next() {
+                                    if let Some((ws, hs)) = wh.split_once('x') {
+                                        width = ws.parse().unwrap_or(0.0);
+                                        height = hs.parse().unwrap_or(0.0);
+                                    }
+                                }
                             }
 
-                            if let Some(cap) = scale_re.captures(prop_line) {
-                                scale = cap
-                                    .get(1)
-                                    .and_then(|m| m.as_str().parse().ok())
-                                    .unwrap_or(1.0);
+                            // Parse "Scale: 1.000000"
+                            if let Some(rest) = trimmed.strip_prefix("Scale:") {
+                                scale = rest.trim().parse().unwrap_or(1.0);
                             }
                         }
 
