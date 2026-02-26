@@ -146,6 +146,8 @@ pub enum ResponseData {
     ComponentPreview(ComponentPreviewResponse),
     /// Node dataset (RefAny serialized to JSON)
     NodeDataset(NodeDatasetResponse),
+    /// Generic JSON data (for endpoints that return arbitrary JSON)
+    Json(serde_json::Value),
 }
 
 /// Response for GetComponentPreview — CPU-rendered component image.
@@ -290,6 +292,8 @@ pub struct ComponentLibraryInfo {
     pub modifiable: bool,
     /// Named data model types defined by this library
     pub data_models: Vec<DataModelInfo>,
+    /// Named enum types defined by this library
+    pub enum_models: Vec<EnumModelInfo>,
     /// Components in this library
     pub components: Vec<ComponentInfo>,
 }
@@ -352,12 +356,47 @@ pub struct ComponentCallbackSlotInfo {
 pub struct ComponentDataFieldInfo {
     /// Field name
     pub name: String,
-    /// Field type
+    /// Flat type string (for backwards compat / display)
     pub field_type: String,
+    /// Structured type descriptor
+    pub field_type_structured: StructuredFieldType,
     /// Default value
     pub default: Option<String>,
+    /// Whether this field is required (must be provided by the parent)
+    pub required: bool,
     /// Description
     pub description: String,
+}
+
+/// Structured type descriptor for component field types.
+/// Replaces flat string matching with typed JSON.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind")]
+pub enum StructuredFieldType {
+    #[serde(rename = "primitive")]
+    Primitive { name: String },
+    #[serde(rename = "callback")]
+    Callback { args: Vec<CallbackArgInfo>, return_type: String },
+    #[serde(rename = "ref_any")]
+    RefAny { type_hint: String },
+    #[serde(rename = "option")]
+    OptionType { inner: Box<StructuredFieldType> },
+    #[serde(rename = "vec")]
+    VecType { inner: Box<StructuredFieldType> },
+    #[serde(rename = "struct_ref")]
+    StructRef { name: String },
+    #[serde(rename = "enum_ref")]
+    EnumRef { name: String },
+}
+
+/// Info about a callback argument
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CallbackArgInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub arg_type: String,
 }
 
 /// Response for GetLibraries — list of registered component libraries (without component details)
@@ -391,6 +430,30 @@ pub struct DataModelInfo {
     pub fields: Vec<ComponentDataFieldInfo>,
 }
 
+/// A named enum model in a library
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnumModelInfo {
+    /// Enum name, e.g. "UserRole"
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Variants
+    pub variants: Vec<EnumVariantInfo>,
+}
+
+/// A single enum variant
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnumVariantInfo {
+    /// Variant name
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Associated fields (empty for unit variants)
+    pub fields: Vec<ComponentDataFieldInfo>,
+}
+
 /// Response for GetLibraryComponents — components within a specific library
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -421,8 +484,45 @@ pub struct ExportedLibraryResponse {
     pub version: String,
     /// Library description
     pub description: String,
+    /// Named data model types (struct definitions)
+    #[serde(default)]
+    pub data_models: Vec<ExportedDataModelDef>,
+    /// Named enum model types
+    #[serde(default)]
+    pub enum_models: Vec<ExportedEnumModelDef>,
     /// Component definitions (JSON-serializable subset)
     pub components: Vec<ExportedComponentDef>,
+}
+
+/// A named data model (struct) for export/import
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedDataModelDef {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub fields: Vec<ExportedDataField>,
+}
+
+/// A named enum model for export/import
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedEnumModelDef {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub variants: Vec<ExportedEnumVariantDef>,
+}
+
+/// A single enum variant for export/import
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedEnumVariantDef {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub fields: Vec<ExportedDataField>,
 }
 
 /// A component definition in JSON-serializable form (for import/export).
@@ -1679,6 +1779,15 @@ pub enum DebugEvent {
         /// Target language: "rust", "c", "cpp", "python"
         language: String,
     },
+    /// Export code as a downloadable ZIP file (base64-encoded).
+    /// Contains: generated source files, component CSS, build configuration.
+    ExportCodeZip {
+        /// Target language: "rust", "c", "cpp", "python"
+        language: String,
+        /// Optional library to export (if omitted, exports all)
+        #[serde(default)]
+        library: Option<String>,
+    },
     /// Import a component library from JSON definition.
     /// Components are added to the runtime component map as user-defined.
     ImportComponentLibrary {
@@ -1771,6 +1880,54 @@ pub enum DebugEvent {
         /// Missing fields use their default_value from the data model.
         #[serde(default)]
         args: Option<std::collections::HashMap<String, serde_json::Value>>,
+        /// Override OS for @os() CSS at-rules: "windows", "mac", "linux"
+        #[serde(default)]
+        override_os: Option<String>,
+        /// Override theme for @theme() CSS: "light", "dark"
+        #[serde(default)]
+        override_theme: Option<String>,
+        /// Override language/locale: e.g. "en", "de", "fr"
+        #[serde(default)]
+        override_lang: Option<String>,
+    },
+    /// Get the render output of a component as a structured tree (for the mini HTML tree widget).
+    GetComponentRenderTree {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+    },
+    /// Get the source code of a component's render_fn or compile_fn.
+    GetComponentSource {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+        /// "render_fn" or "compile_fn"
+        source_type: String,
+        /// Target language for compile_fn (ignored for render_fn). E.g. "rust", "c", "cpp", "python".
+        #[serde(default)]
+        language: Option<String>,
+    },
+    /// Update a component's render_fn source code.
+    UpdateComponentRenderFn {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+        /// New source code for the render_fn
+        source: String,
+    },
+    /// Update a component's compile_fn source code for a specific language.
+    UpdateComponentCompileFn {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+        /// New source code for the compile_fn
+        source: String,
+        /// Target language: "rust", "c", "cpp", "python"
+        language: String,
     },
     /// Open a source file in the user's editor (best-effort)
     OpenFile {
@@ -2444,6 +2601,38 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
     let method = parts[0];
     let path = parts[1];
 
+    // ── Route: GET /material-icons.ttf → serve embedded Material Icons font ──
+    if method == "GET" && path == "/material-icons.ttf" {
+        if let Some(font_bytes) = azul_layout::icon::get_material_icons_font_bytes() {
+            let header = format!(
+                "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                font_bytes.len()
+            );
+            stream.set_nodelay(true).ok();
+            let _ = stream.write_all(header.as_bytes());
+            for chunk in font_bytes.chunks(8192) {
+                if stream.write_all(chunk).is_err() { return; }
+            }
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            let mut drain = [0u8; 64];
+            while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        } else {
+            let body = "Material Icons font not available (icons feature not enabled)";
+            let header = format!(
+                "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            let mut drain = [0u8; 64];
+            while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        }
+        return;
+    }
+
     // ── Route: GET /debugger.css → serve CSS ──
     if method == "GET" && path == "/debugger.css" {
         let css = include_str!("debugger/debugger.css");
@@ -2547,7 +2736,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
 
         _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /health → status, POST / → debug commands (incl. run_e2e_tests)".to_string(),
+            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /material-icons.ttf → font, GET /health → status, POST / → debug commands (incl. run_e2e_tests)".to_string(),
         })),
     };
 
@@ -3793,7 +3982,9 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 .map(|f| ComponentDataFieldInfo {
                     name: f.name.as_str().to_string(),
                     field_type: field_type_to_string(&f.field_type),
+                    field_type_structured: field_type_to_structured(&f.field_type),
                     default: default_value_to_opt_string(&f.default_value),
+                    required: f.required,
                     description: f.description.as_str().to_string(),
                 })
                 .collect();
@@ -3806,7 +3997,9 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                         data_model.push(ComponentDataFieldInfo {
                             name: attr_name.to_string(),
                             field_type: attr_type.to_string(),
+                            field_type_structured: StructuredFieldType::Primitive { name: attr_type.to_string() },
                             default: None,
+                            required: false,
                             description: String::new(),
                         });
                     }
@@ -3871,8 +4064,34 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                     .map(|f| ComponentDataFieldInfo {
                         name: f.name.as_str().to_string(),
                         field_type: field_type_to_string(&f.field_type),
+                        field_type_structured: field_type_to_structured(&f.field_type),
                         default: default_value_to_opt_string(&f.default_value),
+                        required: f.required,
                         description: f.description.as_str().to_string(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        // Build enum model infos from library-level enum models
+        let enum_models: Vec<EnumModelInfo> = lib.enum_models.as_ref().iter()
+            .map(|em| EnumModelInfo {
+                name: em.name.as_str().to_string(),
+                description: em.description.as_str().to_string(),
+                variants: em.variants.as_ref().iter()
+                    .map(|v| EnumVariantInfo {
+                        name: v.name.as_str().to_string(),
+                        description: v.description.as_str().to_string(),
+                        fields: v.fields.as_ref().iter()
+                            .map(|f| ComponentDataFieldInfo {
+                                name: f.name.as_str().to_string(),
+                                field_type: field_type_to_string(&f.field_type),
+                                field_type_structured: field_type_to_structured(&f.field_type),
+                                default: default_value_to_opt_string(&f.default_value),
+                                required: f.required,
+                                description: f.description.as_str().to_string(),
+                            })
+                            .collect(),
                     })
                     .collect(),
             })
@@ -3885,6 +4104,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
             exportable: lib.exportable,
             modifiable: lib.modifiable,
             data_models,
+            enum_models,
             components,
         });
     }
@@ -3892,6 +4112,100 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
     ComponentRegistryResponse { libraries }
 }
 
+
+/// Convert a StyledDom into a JSON-serializable render tree for the mini HTML tree widget.
+/// The result is a JSON object with a "nodes" array of root-level nodes,
+/// each with "tag", "text", "classes", "children" fields.
+#[cfg(feature = "std")]
+fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> serde_json::Value {
+    use serde_json::json;
+    use azul_core::id::node_id::NodeId;
+
+    let node_data_vec = &styled_dom.node_data;
+    let node_hierarchy = &styled_dom.node_hierarchy;
+
+    if node_data_vec.is_empty() || node_hierarchy.is_empty() {
+        return json!({ "nodes": [] });
+    }
+
+    // Build a recursive tree from the flat node arrays
+    fn build_tree(
+        node_id: NodeId,
+        node_data_vec: &azul_core::dom::NodeDataVec,
+        node_hierarchy: &azul_core::styled_dom::NodeHierarchyItemVec,
+    ) -> serde_json::Value {
+        use serde_json::json;
+
+        let idx = node_id.index();
+        let nd = match node_data_vec.as_ref().get(idx) {
+            Some(nd) => nd,
+            None => return json!({}),
+        };
+
+        let tag = match &nd.node_type {
+            azul_core::dom::NodeType::Div => "div".to_string(),
+            azul_core::dom::NodeType::Body => "body".to_string(),
+            azul_core::dom::NodeType::Br => "br".to_string(),
+            azul_core::dom::NodeType::Text(s) => {
+                return json!({
+                    "tag": "__text__",
+                    "text": s.as_str(),
+                    "children": [],
+                    "classes": []
+                });
+            },
+            azul_core::dom::NodeType::Image(_) => "img".to_string(),
+            azul_core::dom::NodeType::IFrame(_) => "iframe".to_string(),
+            azul_core::dom::NodeType::P => "p".to_string(),
+            azul_core::dom::NodeType::Label => "label".to_string(),
+            azul_core::dom::NodeType::Span => "span".to_string(),
+            azul_core::dom::NodeType::Button => "button".to_string(),
+            _ => {
+                // Use Debug format to get tag name for other types
+                let tag_str = format!("{:?}", nd.node_type);
+                tag_str.to_lowercase()
+            },
+        };
+
+        let classes: Vec<String> = nd.ids_and_classes.as_ref().iter().filter_map(|ic| {
+            match ic {
+                azul_core::dom::IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                _ => None,
+            }
+        }).collect();
+
+        // Collect children
+        let mut children = Vec::new();
+        let hierarchy = node_hierarchy.as_ref();
+        if let Some(h) = hierarchy.get(idx) {
+            if let Some(first_child) = h.first_child_id(node_id) {
+                let mut child_id = first_child;
+                loop {
+                    children.push(build_tree(child_id, node_data_vec, node_hierarchy));
+                    if let Some(h_child) = hierarchy.get(child_id.index()) {
+                        if let Some(next) = h_child.next_sibling_id() {
+                            child_id = next;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        json!({
+            "tag": tag,
+            "children": children,
+            "classes": classes
+        })
+    }
+
+    // Build from root (node 0)
+    let root = build_tree(NodeId::ZERO, node_data_vec, node_hierarchy);
+    json!({ "nodes": [root] })
+}
 
 /// Clone the component's `data_model` and override `default_value` fields from the
 /// provided JSON args map. Returns a `ComponentDataModel` ready to pass to `render_fn`.
@@ -4167,7 +4481,7 @@ struct ScaffoldComponentInfo {
     slot_fields: Vec<(String, String)>,
 }
 
-/// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol.
+/// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat format).
 #[cfg(feature = "std")]
 fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
     use azul_core::xml::ComponentFieldType;
@@ -4195,6 +4509,55 @@ fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
     }
 }
 
+/// Convert a `ComponentFieldType` to a structured JSON descriptor.
+#[cfg(feature = "std")]
+fn field_type_to_structured(ft: &azul_core::xml::ComponentFieldType) -> StructuredFieldType {
+    use azul_core::xml::ComponentFieldType;
+    match ft {
+        ComponentFieldType::String => StructuredFieldType::Primitive { name: "String".to_string() },
+        ComponentFieldType::Bool => StructuredFieldType::Primitive { name: "bool".to_string() },
+        ComponentFieldType::I32 => StructuredFieldType::Primitive { name: "i32".to_string() },
+        ComponentFieldType::I64 => StructuredFieldType::Primitive { name: "i64".to_string() },
+        ComponentFieldType::U32 => StructuredFieldType::Primitive { name: "u32".to_string() },
+        ComponentFieldType::U64 => StructuredFieldType::Primitive { name: "u64".to_string() },
+        ComponentFieldType::Usize => StructuredFieldType::Primitive { name: "usize".to_string() },
+        ComponentFieldType::F32 => StructuredFieldType::Primitive { name: "f32".to_string() },
+        ComponentFieldType::F64 => StructuredFieldType::Primitive { name: "f64".to_string() },
+        ComponentFieldType::ColorU => StructuredFieldType::Primitive { name: "ColorU".to_string() },
+        ComponentFieldType::CssProperty => StructuredFieldType::Primitive { name: "CssProperty".to_string() },
+        ComponentFieldType::ImageRef => StructuredFieldType::Primitive { name: "ImageRef".to_string() },
+        ComponentFieldType::FontRef => StructuredFieldType::Primitive { name: "FontRef".to_string() },
+        ComponentFieldType::StyledDom => StructuredFieldType::Primitive { name: "StyledDom".to_string() },
+        ComponentFieldType::Callback(signature) => {
+            let args: Vec<CallbackArgInfo> = signature.args.as_ref().iter().map(|a| {
+                CallbackArgInfo {
+                    name: a.name.as_str().to_string(),
+                    arg_type: field_type_to_string(&a.arg_type),
+                }
+            }).collect();
+            StructuredFieldType::Callback {
+                args,
+                return_type: signature.return_type.as_str().to_string(),
+            }
+        }
+        ComponentFieldType::RefAny(type_hint) => StructuredFieldType::RefAny {
+            type_hint: type_hint.as_str().to_string(),
+        },
+        ComponentFieldType::OptionType(inner) => StructuredFieldType::OptionType {
+            inner: Box::new(field_type_to_structured(inner.as_ref())),
+        },
+        ComponentFieldType::VecType(inner) => StructuredFieldType::VecType {
+            inner: Box::new(field_type_to_structured(inner.as_ref())),
+        },
+        ComponentFieldType::StructRef(name) => StructuredFieldType::StructRef {
+            name: name.as_str().to_string(),
+        },
+        ComponentFieldType::EnumRef(name) => StructuredFieldType::EnumRef {
+            name: name.as_str().to_string(),
+        },
+    }
+}
+
 /// Convert `OptionComponentDefaultValue` to `Option<String>` for JSON serialization.
 #[cfg(feature = "std")]
 fn default_value_to_opt_string(dv: &azul_core::xml::OptionComponentDefaultValue) -> Option<String> {
@@ -4215,6 +4578,7 @@ fn default_value_to_opt_string(dv: &azul_core::xml::OptionComponentDefaultValue)
             ComponentDefaultValue::ColorU(c) => format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a),
             ComponentDefaultValue::ComponentInstance(ci) => format!("instance:{}", ci.component.as_str()),
             ComponentDefaultValue::CallbackFnPointer(s) => format!("fn:{}", s.as_str()),
+            ComponentDefaultValue::Json(s) => s.as_str().to_string(),
         }),
     }
 }
@@ -8439,6 +8803,78 @@ fn process_debug_event(
             }
         }
 
+        DebugEvent::ExportCodeZip { language, library: _lib_filter } => {
+            // G1/G3: Package exported code into a downloadable ZIP
+            let map_guard = component_map.lock().unwrap();
+            let result = build_exported_code(&language, &*map_guard);
+
+            // Also collect component CSS
+            let mut css_files = Vec::new();
+            for lib in map_guard.libraries.iter() {
+                if lib.exportable {
+                    for comp in lib.components.iter() {
+                        if !comp.css.as_str().is_empty() {
+                            let css_path = format!("css/{}.css", comp.id.name.as_str());
+                            css_files.push((css_path, comp.css.as_str().as_bytes().to_vec()));
+                        }
+                    }
+                }
+            }
+            drop(map_guard);
+
+            match result {
+                Ok(response) => {
+                    // Build ZIP entries from exported files (scaffold already includes build config)
+                    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
+                    let mut seen_paths = std::collections::HashSet::new();
+
+                    // Add generated source files (from generate_scaffold — includes Cargo.toml etc.)
+                    for (path, content) in &response.files {
+                        if seen_paths.insert(path.clone()) {
+                            zip_entries.push((path.clone(), content.as_bytes().to_vec()));
+                        }
+                    }
+
+                    // Add component CSS files (skip duplicates)
+                    for (path, data) in css_files {
+                        if seen_paths.insert(path.clone()) {
+                            zip_entries.push((path, data));
+                        }
+                    }
+
+                    // Add warnings as README
+                    if !response.warnings.is_empty() {
+                        let warnings_text = response.warnings.join("\n");
+                        let path = "WARNINGS.txt".to_string();
+                        if seen_paths.insert(path.clone()) {
+                            zip_entries.push((path, warnings_text.into_bytes()));
+                        }
+                    }
+
+                    // Create ZIP
+                    let config = azul_layout::zip::ZipWriteConfig::default();
+                    match azul_layout::zip::zip_create_from_files(zip_entries, &config) {
+                        Ok(zip_bytes) => {
+                            let base64_str = azul_layout::callbacks::base64_encode(&zip_bytes);
+                            let data_uri = format!("data:application/zip;base64,{}", base64_str);
+                            send_ok(request, None, Some(ResponseData::Json(serde_json::json!({
+                                "download_url": data_uri,
+                                "filename": format!("azul-export-{}.zip", language),
+                                "size_bytes": zip_bytes.len(),
+                                "file_count": response.files.len(),
+                            }))));
+                        }
+                        Err(e) => {
+                            send_err(request, &format!("ZIP creation failed: {:?}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    send_err(request, &format!("Export failed: {}", e));
+                }
+            }
+        }
+
         DebugEvent::ImportComponentLibrary { library: lib_json } => {
             use azul_core::xml::{
                 ComponentDef, ComponentId, ComponentDataModel,
@@ -8480,6 +8916,8 @@ fn process_debug_event(
                     },
                     render_fn: azul_core::xml::user_defined_render_fn,
                     compile_fn: azul_core::xml::user_defined_compile_fn,
+                    render_fn_source: None.into(),
+                    compile_fn_source: None.into(),
                 });
             }
 
@@ -8549,6 +8987,8 @@ fn process_debug_event(
                     name: lib.name.clone(),
                     version: lib.version.clone(),
                     description: lib.description.clone(),
+                    data_models: Vec::new(),
+                    enum_models: Vec::new(),
                     components: lib.components.iter().map(|c| {
                         // Build unified fields from data_model + callback_slots
                         let mut fields: Vec<ExportedDataField> = c.data_model.iter().map(|f| ExportedDataField {
@@ -8662,6 +9102,8 @@ fn process_debug_event(
                         },
                         render_fn: azul_core::xml::user_defined_render_fn,
                         compile_fn: azul_core::xml::user_defined_compile_fn,
+                        render_fn_source: None.into(),
+                        compile_fn_source: None.into(),
                     };
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     comps.push(new_def);
@@ -8774,6 +9216,9 @@ fn process_debug_event(
             background,
             css_override,
             args,
+            override_os,
+            override_theme,
+            override_lang,
         } => {
             // --- 1. Look up the component ---
             let map_guard = component_map.lock().unwrap();
@@ -8811,7 +9256,8 @@ fn process_debug_event(
             };
 
             // --- 3. Render the component to a StyledDom ---
-            let styled_dom = match (comp.render_fn)(&comp, &render_data_model) {
+            let map_guard = component_map.lock().unwrap();
+            let styled_dom = match (comp.render_fn)(&comp, &render_data_model, &map_guard) {
                 azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                 azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
                     send_err(request, &format!(
@@ -8820,6 +9266,7 @@ fn process_debug_event(
                     return needs_update;
                 }
             };
+            drop(map_guard);
 
             // --- 4. Apply CSS (component css or overridden) ---
             let css_text = css_override
@@ -8857,15 +9304,17 @@ fn process_debug_event(
                 background_color: bg_color,
             };
 
-            // --- 7. Get the font manager from the running window ---
+            // --- 7. Get the font manager and system style from the running window ---
             let layout_window = callback_info.get_layout_window();
             let font_manager = &layout_window.font_manager;
+            let system_style = callback_info.get_system_style();
 
             // --- 8. Render to PNG ---
             match azul_layout::cpurender::render_component_preview(
                 styled_dom,
                 font_manager,
                 opts,
+                Some(system_style),
             ) {
                 Ok(result) => {
                     // Base64-encode the PNG data
@@ -8884,6 +9333,173 @@ fn process_debug_event(
                 Err(e) => {
                     send_err(request, &format!("Preview render failed: {}", e));
                 }
+            }
+        }
+
+        DebugEvent::GetComponentRenderTree { library, name } => {
+            // Look up the component
+            let map_guard = component_map.lock().unwrap();
+            let comp_found = map_guard.libraries.iter().find_map(|lib| {
+                if lib.name.as_str() == library.as_str() {
+                    lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
+                } else {
+                    None
+                }
+            }).cloned();
+
+            if let Some(comp) = comp_found {
+                // Build default data model
+                let render_data_model = match override_data_model_defaults(
+                    &comp.data_model,
+                    None,
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        drop(map_guard);
+                        send_err(request, &format!(
+                            "Failed to build data model for '{}': {}", name, e
+                        ));
+                        return needs_update;
+                    }
+                };
+
+                // Render the component to StyledDom
+                let styled_dom = match (comp.render_fn)(&comp, &render_data_model, &map_guard) {
+                    azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
+                    azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
+                        drop(map_guard);
+                        send_err(request, &format!(
+                            "render_fn failed for '{}': {:?}", name, e
+                        ));
+                        return needs_update;
+                    }
+                };
+                drop(map_guard);
+
+                // Convert StyledDom to a JSON-serializable tree
+                let tree_json = styled_dom_to_render_tree(&styled_dom);
+                send_ok(request, None, Some(ResponseData::Json(tree_json)));
+            } else {
+                drop(map_guard);
+                send_err(request, &format!(
+                    "Component '{}' not found in library '{}'", name, library
+                ));
+            }
+        }
+
+        DebugEvent::GetComponentSource { library, name, source_type, language } => {
+            // E4: Return the source code of render_fn or compile_fn
+            let map_guard = component_map.lock().unwrap();
+            let comp_found = map_guard.libraries.iter().find_map(|lib| {
+                if lib.name.as_str() == library.as_str() {
+                    lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
+                } else {
+                    None
+                }
+            }).cloned();
+            drop(map_guard);
+
+            if let Some(comp) = comp_found {
+                let source_code = match source_type.as_str() {
+                    "render_fn" => {
+                        // For user-defined components, the source is stored; for builtins, return a description
+                        comp.render_fn_source.as_ref()
+                            .map(|s| s.as_str().to_string())
+                            .unwrap_or_else(|| format!("// Built-in render function for '{}'", name))
+                    },
+                    "compile_fn" => {
+                        // Generate the compile_fn output for the requested language
+                        let lang = language.as_deref().unwrap_or("rust");
+                        let target = match lang {
+                            "c" => azul_core::xml::CompileTarget::C,
+                            "cpp" | "c++" => azul_core::xml::CompileTarget::Cpp,
+                            "python" => azul_core::xml::CompileTarget::Python,
+                            _ => azul_core::xml::CompileTarget::Rust,
+                        };
+                        let map_guard = component_map.lock().unwrap();
+                        let result = (comp.compile_fn)(&comp, &target, &comp.data_model, 0);
+                        drop(map_guard);
+                        match result {
+                            azul_core::xml::ResultStringCompileError::Ok(s) => s.as_str().to_string(),
+                            azul_core::xml::ResultStringCompileError::Err(e) => format!("// Compile error: {:?}", e),
+                        }
+                    },
+                    _ => format!("// Unknown source_type: {}", source_type),
+                };
+                send_ok(request, None, Some(ResponseData::Json(serde_json::json!({
+                    "source": source_code
+                }))));
+            } else {
+                send_err(request, &format!(
+                    "Component '{}' not found in library '{}'", name, library
+                ));
+            }
+        }
+
+        DebugEvent::UpdateComponentRenderFn { library, name, source } => {
+            // E4: Store the render_fn source code (hot-replacement not yet supported)
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+
+            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+                if !lib.modifiable {
+                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                } else {
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
+                        comp.render_fn_source = Some(azul_css::corety::AzString::from(source.as_str())).into();
+                        lib.components = comps.into();
+                        map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        send_ok(request, None, None);
+                        needs_update = true;
+                    } else {
+                        lib.components = comps.into();
+                        map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        send_err(request, &format!("Component '{}' not found", name));
+                    }
+                }
+            } else {
+                map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' not found", library));
+            }
+        }
+
+        DebugEvent::UpdateComponentCompileFn { library, name, source, language } => {
+            // E4: Store compile_fn source for a specific language
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+
+            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+                if !lib.modifiable {
+                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                } else {
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
+                        comp.compile_fn_source = Some(azul_css::corety::AzString::from(source.as_str())).into();
+                        lib.components = comps.into();
+                        map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        send_ok(request, None, None);
+                    } else {
+                        lib.components = comps.into();
+                        map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        send_err(request, &format!("Component '{}' not found", name));
+                    }
+                }
+            } else {
+                map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' not found", library));
             }
         }
 

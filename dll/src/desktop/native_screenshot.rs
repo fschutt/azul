@@ -90,48 +90,12 @@ impl NativeScreenshotExt for CallbackInfo {
     fn take_native_screenshot_base64(&self) -> Result<AzString, AzString> {
         // Explicitly call the trait method, not the inherent method on CallbackInfo
         let png_bytes = NativeScreenshotExt::take_native_screenshot_bytes(self)?;
-        let base64_str = base64_encode(&png_bytes);
+        let base64_str = azul_layout::callbacks::base64_encode(&png_bytes);
         Ok(AzString::from(format!(
             "data:image/png;base64,{}",
             base64_str
         )))
     }
-}
-
-// ============================================================================
-// Base64 encoding helper
-// ============================================================================
-
-const BASE64_ALPHABET: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-fn base64_encode(input: &[u8]) -> String {
-    let mut output = String::with_capacity((input.len() + 2) / 3 * 4);
-
-    for chunk in input.chunks(3) {
-        let b0 = chunk[0] as usize;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-
-        let n = (b0 << 16) | (b1 << 8) | b2;
-
-        output.push(BASE64_ALPHABET[(n >> 18) & 0x3F] as char);
-        output.push(BASE64_ALPHABET[(n >> 12) & 0x3F] as char);
-
-        if chunk.len() > 1 {
-            output.push(BASE64_ALPHABET[(n >> 6) & 0x3F] as char);
-        } else {
-            output.push('=');
-        }
-
-        if chunk.len() > 2 {
-            output.push(BASE64_ALPHABET[n & 0x3F] as char);
-        } else {
-            output.push('=');
-        }
-    }
-
-    output
 }
 
 // ============================================================================

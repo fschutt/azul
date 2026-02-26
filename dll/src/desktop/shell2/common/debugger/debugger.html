@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Azul Debugger</title>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link rel="stylesheet" href="./debugger.css">
 </head>
 <body>
@@ -48,21 +47,28 @@
                     Component Library (JSON)
                 </div>
                 <div class="menu-dropdown-separator"></div>
-                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('rust')">
+                <div class="menu-dropdown-item has-submenu">
                     <span class="material-icons mi">code</span>
-                    Code (Rust)
-                </div>
-                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('c')">
-                    <span class="material-icons mi">code</span>
-                    Code (C)
-                </div>
-                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('cpp')">
-                    <span class="material-icons mi">code</span>
-                    Code (C++)
-                </div>
-                <div class="menu-dropdown-item" onclick="app.handlers.exportCode('python')">
-                    <span class="material-icons mi">code</span>
-                    Code (Python)
+                    Code
+                    <span class="material-icons" style="font-size:14px;margin-left:auto">chevron_right</span>
+                    <div class="menu-submenu">
+                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('rust')">
+                            <span class="material-icons mi">code</span>
+                            Rust
+                        </div>
+                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('c')">
+                            <span class="material-icons mi">code</span>
+                            C
+                        </div>
+                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('cpp')">
+                            <span class="material-icons mi">code</span>
+                            C++
+                        </div>
+                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('python')">
+                            <span class="material-icons mi">code</span>
+                            Python
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -104,14 +110,26 @@
                 <div class="placeholder-text">Click refresh to load.</div>
             </div>
             <div id="snapshots-container" style="padding:0;"></div>
-            <!-- Dataset Panel (visible when selected node has a dataset) -->
-            <div id="dataset-panel" style="display:none;">
+            <!-- Dataset Panel (always visible, shows dataset when node has one) -->
+            <div id="dataset-panel">
                 <div class="sidebar-header" style="border-top:1px solid var(--border)">
                     <span>Node Dataset</span>
                     <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.loadNodeDataset()" title="Refresh">refresh</span>
                 </div>
                 <div id="dataset-tree" class="sidebar-content" style="padding:0;">
-                    <div class="placeholder-text">No dataset.</div>
+                    <div class="placeholder-text">Select a node to inspect its dataset.</div>
+                </div>
+            </div>
+            <!-- Window State Panel (editable JSON at bottom of column) -->
+            <div id="window-state-panel">
+                <div class="sidebar-header" style="border-top:1px solid var(--border)">
+                    <span>Window State</span>
+                    <div style="display:flex;gap:4px;align-items:center">
+                        <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.loadWindowState()" title="Refresh">refresh</span>
+                    </div>
+                </div>
+                <div id="window-state-tree" class="sidebar-content" style="padding:0;">
+                    <div class="placeholder-text">Click refresh to load.</div>
                 </div>
             </div>
         </div>
@@ -124,9 +142,19 @@
                 <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.refreshSidebar()" title="Refresh">refresh</span>
             </div>
 
-            <div id="sidebar-inspector" class="sidebar-content">
-                <div id="dom-tree-container" class="dom-tree">
+            <div id="sidebar-inspector" class="sidebar-content" style="display:flex;flex-direction:column;">
+                <div id="dom-tree-container" class="dom-tree" style="flex:1;overflow:auto;">
                     <div class="placeholder-text">Loading DOM tree...</div>
+                </div>
+                <!-- Component Palette (drag-and-drop source for the DOM tree) -->
+                <div id="inspector-component-palette" style="border-top:1px solid var(--border);">
+                    <div class="sidebar-header" style="cursor:pointer" onclick="app.ui.togglePalette()">
+                        <span>Components</span>
+                        <span class="material-icons" style="font-size:14px" id="palette-toggle-icon">expand_less</span>
+                    </div>
+                    <div id="palette-component-list" style="max-height:200px;overflow:auto;padding:4px 8px;">
+                        <div class="placeholder-text" style="font-size:11px">Loading...</div>
+                    </div>
                 </div>
             </div>
 
@@ -223,9 +251,9 @@
                     <span style="color:var(--accent); margin-right:5px;">&gt;</span>
                     <input type="text" id="terminal-cmd" class="terminal-input" placeholder='/get_state  or  {"op": "get_state"}'
                         oninput="app.handlers.terminalInput(this)"
-                        onkeydown="if(event.key==='Enter') app.handlers.terminalEnter(this); if(event.key==='Escape') app._hideAutocomplete();"
+                        onkeydown="app.handlers.terminalKeydown(event, this)"
                         onfocus="if(this.value.startsWith('/')) app.handlers.terminalInput(this)"
-                        onblur="setTimeout(()=>app._hideAutocomplete(), 150)">
+                        onblur="setTimeout(()=>app._hideAutocomplete(), 200)">
                 </div>
             </div>
         </div>
@@ -239,6 +267,8 @@
         <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('p')">Insert child p</div>
         <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('button')">Insert child button</div>
         <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('text')">Insert child (text)</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick="app.handlers.ctxCreateComponentFromSubtree()">Create component from subtree</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" onclick="app.handlers.ctxDeleteNode()">Delete node</div>
     </div>

@@ -63,6 +63,10 @@ const app = {
         // Node dataset state
         datasetJson: null,
         datasetNodeId: null,
+        // Preview environment overrides (H4)
+        previewOs: null,       // null = native, "windows", "mac", "linux"
+        previewTheme: null,    // null = native, "light", "dark"
+        previewLang: null,     // null = native, e.g. "en", "de", "fr"
     },
 
     /* ================================================================
@@ -155,11 +159,20 @@ const app = {
             'import_component_library':  { desc: 'Import component library (JSON)', examples: ['/import_component_library'],                    params: [{ name: 'library', type: 'text', placeholder: '{"name":"mylib","version":"1.0","components":[]}' }] },
             'export_component_library':  { desc: 'Export component library (JSON)', examples: ['/export_component_library library mylib'],       params: [{ name: 'library', type: 'text', placeholder: 'mylib' }] },
             'export_code':               { desc: 'Export app code for language',     examples: ['/export_code language rust'],                    params: [{ name: 'language', type: 'text', placeholder: 'rust' }] },
+            'export_code_zip':           { desc: 'Export code as ZIP download',     examples: ['/export_code_zip language rust'],                 params: [{ name: 'language', type: 'text', placeholder: 'rust' }, { name: 'library', type: 'text', placeholder: 'mylib' }] },
             'create_library':            { desc: 'Create new component library',    examples: ['/create_library name mylib'],                    params: [{ name: 'name', type: 'text', placeholder: 'mylib' }] },
             'delete_library':            { desc: 'Delete a component library',      examples: ['/delete_library name mylib'],                    params: [{ name: 'name', type: 'text', placeholder: 'mylib' }] },
             'create_component':          { desc: 'Create component in library',     examples: ['/create_component library mylib name mycomp'],   params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
             'delete_component':          { desc: 'Delete component from library',   examples: ['/delete_component library mylib name mycomp'],   params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
             'update_component':          { desc: 'Update component properties',     examples: ['/update_component library mylib name mycomp'],   params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
+            'get_component_preview':      { desc: 'Render component to PNG image',  examples: ['/get_component_preview library builtin name button', '/get_component_preview library mylib name card width 400 height 300', '/get_component_preview library mylib name card width 400 height 300 dpi 2 background #ffffff override_os mac override_theme dark override_lang en'], params: [{ name: 'library', type: 'text', placeholder: 'builtin' }, { name: 'name', type: 'text', placeholder: 'button' }, { name: 'width', type: 'number', placeholder: '400', optional: true }, { name: 'height', type: 'number', placeholder: '300', optional: true }, { name: 'dpi', type: 'number', placeholder: '1', optional: true }, { name: 'background', type: 'text', placeholder: '#ffffff', optional: true }, { name: 'css_override', type: 'text', placeholder: '.root { color: red; }', optional: true }, { name: 'args', type: 'text', placeholder: '{"label":"Click"}', optional: true }, { name: 'override_os', type: 'text', placeholder: 'mac', optional: true }, { name: 'override_theme', type: 'text', placeholder: 'dark', optional: true }, { name: 'override_lang', type: 'text', placeholder: 'en', optional: true }], variants: ['library+name', 'library+name+size', 'library+name+all'] },
+            'get_component_render_tree': { desc: 'Get component render output tree', examples: ['/get_component_render_tree library mylib name mycomp'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
+            'get_component_source':      { desc: 'Get component source code',       examples: ['/get_component_source library mylib name mycomp source_type render_fn', '/get_component_source library mylib name mycomp source_type compile_fn language rust'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source_type', type: 'text', placeholder: 'render_fn' }, { name: 'language', type: 'text', placeholder: 'rust', optional: true }] },
+            'update_component_render_fn': { desc: 'Update component render_fn',     examples: ['/update_component_render_fn library mylib name mycomp source "fn render..."'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source', type: 'text', placeholder: '...' }] },
+            'update_component_compile_fn': { desc: 'Update component compile_fn',   examples: ['/update_component_compile_fn library mylib name mycomp language rust source "fn compile..."'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source', type: 'text', placeholder: '...' }, { name: 'language', type: 'text', placeholder: 'rust' }] },
+
+            // ── File ──
+            'open_file':      { desc: 'Open source file in editor',             examples: ['/open_file file /path/to/file.rs', '/open_file file /path/to/file.rs line 42'], params: [{ name: 'file', type: 'text', placeholder: '/path/to/file.rs' }, { name: 'line', type: 'number', placeholder: '0', optional: true }] },
 
             // ── Snapshots ──
             'restore_snapshot': { desc: 'Restore saved app state snapshot',       examples: ['/restore_snapshot alias initial-state'],         params: [{ name: 'alias', type: 'text', placeholder: 'initial-state' }] },
@@ -192,6 +205,16 @@ const app = {
                 if (s.tests) this.state.tests = s.tests;
                 if (s.cssOverrides) this.state.cssOverrides = s.cssOverrides;
                 if (s.snapshots) this.state.snapshots = s.snapshots;
+                // Restore extra persistent state
+                if (s.currentView) this.state.currentView = s.currentView;
+                if (s.activeTestId) this.state.activeTestId = s.activeTestId;
+                if (s.selectedLibrary) this.state.selectedLibrary = s.selectedLibrary;
+                if (s.selectedNodeId != null) this.state.selectedNodeId = s.selectedNodeId;
+                if (s.selectedComponentIdx != null) this.state.selectedComponentIdx = s.selectedComponentIdx;
+                if (s.collapsedNodes && Array.isArray(s.collapsedNodes)) this.state.collapsedNodes = new Set(s.collapsedNodes);
+                if (s.previewOs !== undefined) this.state.previewOs = s.previewOs;
+                if (s.previewTheme !== undefined) this.state.previewTheme = s.previewTheme;
+                if (s.previewLang !== undefined) this.state.previewLang = s.previewLang;
             } catch(e) { console.warn('[dbg] bad localStorage:', e); }
         }
         if (!this.state.tests.length) this.handlers.newTest();
@@ -219,6 +242,12 @@ const app = {
         this.ui.renderTestList();
         this.handlers.refreshSidebar();
         this.handlers.loadAppState();
+        this.handlers.loadWindowState();
+
+        // Restore view from persisted state
+        if (this.state.currentView && this.state.currentView !== 'inspector') {
+            this.ui.switchView(this.state.currentView);
+        }
     },
 
     _initMenubar: function() {
@@ -310,9 +339,25 @@ const app = {
     /* ================================================================
      * AUTOCOMPLETE (slash commands in terminal)
      * ================================================================ */
+    _acSelectedIndex: -1,
+
+    _buildSlashTemplate: function(cmd) {
+        var schema = this.schema.commands[cmd];
+        if (!schema) return '/' + cmd;
+        var parts = ['/' + cmd];
+        var params = schema.params || [];
+        params.forEach(function(p) {
+            var val = (p.value != null) ? String(p.value) : (p.placeholder || '');
+            parts.push(p.name);
+            parts.push(val);
+        });
+        return parts.join(' ');
+    },
+
     _showAutocomplete: function(filter) {
         var existing = document.getElementById('autocomplete-popup');
         if (existing) existing.remove();
+        this._acSelectedIndex = -1;
 
         var cmdNames = Object.keys(this.schema.commands);
         var matches = filter
@@ -325,36 +370,60 @@ const app = {
         menu.className = 'autocomplete-menu';
 
         var self = this;
-        matches.forEach(function(cmd) {
+        matches.forEach(function(cmd, idx) {
             var schema = self.schema.commands[cmd];
             var item = document.createElement('div');
             item.className = 'autocomplete-item';
+            item.dataset.idx = idx;
+            item.dataset.cmd = cmd;
             var examplesArr = schema.examples || (schema.example ? [schema.example] : []);
-            var firstExample = examplesArr[0] || '';
-            var extraExamples = examplesArr.slice(1);
+            var extraExamples = examplesArr.slice(0);
+
+            // Build template string with all params (including optional)
+            var template = self._buildSlashTemplate(cmd);
 
             var html = '<div class="autocomplete-main">' +
                 '<span class="autocomplete-cmd">/' + esc(cmd) + '</span>' +
                 '<span class="autocomplete-desc">' + esc(schema.desc || '') + '</span>' +
                 '</div>';
-            // First example on main line
-            if (firstExample) {
-                html += '<div class="autocomplete-example">' + esc(firstExample) + '</div>';
-            }
-            // Additional variant examples
+
+            // Clickable examples — each one pastes into terminal on click
             if (extraExamples.length) {
-                html += '<div class="autocomplete-variants">';
+                html += '<div class="autocomplete-examples">';
                 extraExamples.forEach(function(ex) {
-                    html += '<div class="autocomplete-variant">' + esc(ex) + '</div>';
+                    html += '<div class="autocomplete-example-item" data-example="' + esc(ex) + '" title="Click to paste into terminal">' + esc(ex) + '</div>';
                 });
                 html += '</div>';
             }
+
+            // Show optional params hint
+            var optParams = (schema.params || []).filter(function(p) { return p.optional; });
+            if (optParams.length) {
+                var optNames = optParams.map(function(p) { return p.name; }).join(', ');
+                html += '<div class="autocomplete-optional">optional: ' + esc(optNames) + '</div>';
+            }
+
             item.innerHTML = html;
+
+            // Clicking the main item pastes the full template (with all params)
             item.addEventListener('mousedown', function(e) {
+                // If clicking directly on an example line, paste that example instead
+                var exEl = e.target.closest('.autocomplete-example-item');
+                if (exEl) {
+                    e.preventDefault();
+                    var input = document.getElementById('terminal-cmd');
+                    input.value = exEl.dataset.example;
+                    input.focus();
+                    // Place cursor at end
+                    input.setSelectionRange(input.value.length, input.value.length);
+                    self._hideAutocomplete();
+                    return;
+                }
                 e.preventDefault();
                 var input = document.getElementById('terminal-cmd');
-                input.value = '/' + cmd + ' ';
+                input.value = template;
                 input.focus();
+                input.setSelectionRange(input.value.length, input.value.length);
                 self._hideAutocomplete();
             });
             menu.appendChild(item);
@@ -372,6 +441,45 @@ const app = {
     _hideAutocomplete: function() {
         var el = document.getElementById('autocomplete-popup');
         if (el) el.remove();
+        this._acSelectedIndex = -1;
+    },
+
+    _acNavigate: function(direction) {
+        var menu = document.getElementById('autocomplete-popup');
+        if (!menu) return false;
+        var items = menu.querySelectorAll('.autocomplete-item');
+        if (!items.length) return false;
+
+        // Remove current highlight
+        if (this._acSelectedIndex >= 0 && this._acSelectedIndex < items.length) {
+            items[this._acSelectedIndex].classList.remove('ac-selected');
+        }
+
+        if (direction === 'up') {
+            this._acSelectedIndex = this._acSelectedIndex <= 0 ? items.length - 1 : this._acSelectedIndex - 1;
+        } else {
+            this._acSelectedIndex = this._acSelectedIndex >= items.length - 1 ? 0 : this._acSelectedIndex + 1;
+        }
+
+        items[this._acSelectedIndex].classList.add('ac-selected');
+        items[this._acSelectedIndex].scrollIntoView({ block: 'nearest' });
+        return true;
+    },
+
+    _acAccept: function() {
+        var menu = document.getElementById('autocomplete-popup');
+        if (!menu) return false;
+        var items = menu.querySelectorAll('.autocomplete-item');
+        if (this._acSelectedIndex < 0 || this._acSelectedIndex >= items.length) return false;
+        var item = items[this._acSelectedIndex];
+        var cmd = item.dataset.cmd;
+        var template = this._buildSlashTemplate(cmd);
+        var input = document.getElementById('terminal-cmd');
+        input.value = template;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+        this._hideAutocomplete();
+        return true;
     },
 
     /* ================================================================
@@ -472,6 +580,7 @@ const app = {
     ui: {
         switchView: function(view) {
             app.state.currentView = view;
+            app.handlers.save();
             document.querySelectorAll('.activity-icon').forEach(function(el) {
                 el.classList.toggle('active', el.dataset.view === view);
             });
@@ -486,6 +595,11 @@ const app = {
             var titles = { inspector: 'DOM Explorer', testing: 'Test Explorer', components: 'Component Libraries' };
             document.getElementById('sidebar-title').innerText = titles[view] || view;
             var tabTitles = { inspector: 'Inspector', testing: 'runner.e2e', components: 'Component Details' };
+            // For testing view, use active test name if available
+            if (view === 'testing' && app.state.activeTestId) {
+                var activeTest = app.state.tests.find(function(t) { return t.id === app.state.activeTestId; });
+                if (activeTest) tabTitles.testing = activeTest.name;
+            }
             document.getElementById('tab-title').innerText = tabTitles[view] || view;
             // Hide App State panel and bottom console when in components view
             var appstatePanel = document.getElementById('appstate-panel');
@@ -509,6 +623,19 @@ const app = {
             document.getElementById('panel-debug').classList.toggle('hidden', panel !== 'debug');
         },
 
+        togglePalette: function() {
+            var list = document.getElementById('palette-component-list');
+            var icon = document.getElementById('palette-toggle-icon');
+            if (!list) return;
+            if (list.style.display === 'none') {
+                list.style.display = '';
+                if (icon) icon.textContent = 'expand_less';
+            } else {
+                list.style.display = 'none';
+                if (icon) icon.textContent = 'expand_more';
+            }
+        },
+
         /* ── DOM Tree rendering ── */
         renderDomTree: function(hierarchy, root) {
             var container = document.getElementById('dom-tree-container');
@@ -523,17 +650,20 @@ const app = {
             var byIndex = {};
             hierarchy.forEach(function(n) { byIndex[n.index] = n; });
             var rootNode = byIndex[root] || hierarchy[0];
-            this._renderTreeNode(container, rootNode, byIndex, 0);
+            this._renderTreeNode(container, rootNode, byIndex, 0, false);
         },
 
-        _renderTreeNode: function(container, node, byIndex, depth) {
+        _renderTreeNode: function(container, node, byIndex, depth, insideComponent) {
             if (!node) return;
             var hasChildren = node.children && node.children.length > 0;
             var isCollapsed = app.state.collapsedNodes.has(node.index);
             var isSelected = app.state.selectedNodeId === node.index;
 
+            var isComponentRoot = !insideComponent && node.component && node.component.component_id;
+            var isComponentChild = insideComponent;
+
             var row = document.createElement('div');
-            row.className = 'tree-row' + (isSelected ? ' selected' : '');
+            row.className = 'tree-row' + (isSelected ? ' selected' : '') + (isComponentChild ? ' component-internal' : '') + (isComponentRoot ? ' component-root' : '');
             row.dataset.nodeId = node.index;
             row.dataset.type = node.type === 'Text' ? 'text' : 'element';
 
@@ -654,8 +784,9 @@ const app = {
             // Children
             if (hasChildren && !isCollapsed) {
                 var self = this;
+                var childInsideComponent = insideComponent || !!isComponentRoot;
                 node.children.forEach(function(childIdx) {
-                    self._renderTreeNode(container, byIndex[childIdx], byIndex, depth + 1);
+                    self._renderTreeNode(container, byIndex[childIdx], byIndex, depth + 1, childInsideComponent);
                 });
             }
         },
@@ -670,7 +801,7 @@ const app = {
 
             var html = '';
 
-            // Top section: Node info + Box Model side by side
+            // Top section: Node info + Screenshot side by side
             html += '<div class="detail-top-row">';
 
             // Left: Node info
@@ -707,8 +838,14 @@ const app = {
 
             html += '</div>';
 
-            // Right: Box Model (Chrome-style) — placeholder, filled by async fetch
-            html += '<div id="node-box-model" class="detail-box-model-col">';
+            // Right: Native screenshot — placeholder, filled by async fetch
+            html += '<div id="node-screenshot" class="detail-screenshot-col">';
+            html += '<div class="detail-section-header">Screenshot</div>';
+            html += '<div class="placeholder-text" style="text-align:center">Loading...</div>';
+            html += '</div>';
+
+            // Box Model (Chrome-style) — next to screenshot, filled by async fetch
+            html += '<div id="node-box-model" class="detail-layout-col">';
             html += '<div class="detail-section-header">Layout</div>';
             html += '<div class="placeholder-text">Loading...</div>';
             html += '</div>';
@@ -754,7 +891,8 @@ const app = {
 
             panel.innerHTML = html;
 
-            // Fetch layout (for box model) and CSS properties async
+            // Fetch screenshot, layout (for box model) and CSS properties async
+            app._loadNodeScreenshot();
             app._loadNodeBoxModel(node.index);
             app._loadNodeCssProperties(node.index);
             app._loadNodeClipInfo(node.index);
@@ -790,6 +928,10 @@ const app = {
                         test.name = inp.value.trim() || test.name;
                         app.handlers.save();
                         app.ui.renderTestList();
+                        // Sync tab title if this is the active test
+                        if (app.state.activeTestId === test.id) {
+                            document.getElementById('tab-title').innerText = test.name;
+                        }
                     };
                     inp.onkeydown = function(ev) {
                         if (ev.key === 'Enter') inp.blur();
@@ -1027,6 +1169,33 @@ const app = {
                 document.getElementById('step-response-tree').innerHTML = '<div class="placeholder-text">Not executed</div>';
             }
         },
+    },
+
+    /* ================================================================
+     * NODE SCREENSHOT (native OS screenshot displayed in inspector)
+     * ================================================================ */
+    _loadNodeScreenshot: async function() {
+        var section = document.getElementById('node-screenshot');
+        if (!section) return;
+        try {
+            var res = await this.api.post({ op: 'take_native_screenshot' });
+            if (res.status === 'ok' && res.data) {
+                var d = res.data.value || res.data;
+                var imgData = d.data || d.image || d.png || null;
+                if (imgData) {
+                    var html = '<div class="detail-section-header">Screenshot</div>';
+                    html += '<img src="' + imgData + '" style="max-width:100%;max-height:300px;object-fit:contain;border:1px solid var(--border);border-radius:4px;cursor:pointer" ';
+                    html += 'title="Click to enlarge" onclick="document.getElementById(\'screenshot-modal-img\').src=this.src;document.getElementById(\'screenshot-modal\').classList.add(\'active\')" />';
+                    section.innerHTML = html;
+                } else {
+                    section.innerHTML = '<div class="detail-section-header">Screenshot</div><div class="placeholder-text">No image data</div>';
+                }
+            } else {
+                section.innerHTML = '<div class="detail-section-header">Screenshot</div><div class="placeholder-text" style="color:var(--text-muted)">Screenshot not available</div>';
+            }
+        } catch(e) {
+            section.innerHTML = '<div class="detail-section-header">Screenshot</div><div class="placeholder-text" style="color:var(--text-muted)">Screenshot not available</div>';
+        }
     },
 
     /* ================================================================
@@ -1418,7 +1587,47 @@ const app = {
 
         exportCode: async function(language) {
             try {
-                var res = await app.api.post({ op: 'export_code', language: language });
+                // Try ZIP endpoint first for a proper downloadable archive
+                var payload = { op: 'export_code_zip', language: language };
+                // If a user library is selected, include it
+                if (app.state.selectedLibrary) payload.library = app.state.selectedLibrary;
+
+                var res;
+                try {
+                    // Attempt binary fetch for ZIP
+                    var response = await fetch(app.config.apiUrl, {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    var ct = response.headers.get('content-type') || '';
+                    if (ct.indexOf('application/zip') !== -1 || ct.indexOf('application/octet-stream') !== -1) {
+                        // Binary ZIP response — download directly
+                        var blob = await response.blob();
+                        var url = URL.createObjectURL(blob);
+                        var a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'azul_export_' + language + '.zip';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        app.log('Exported code (' + language + ') as ZIP', 'info');
+                        return;
+                    }
+                    // JSON response — fall through
+                    try { res = await response.json(); } catch(jsonErr) {
+                        var txt = await response.text();
+                        res = JSON.parse(txt);
+                    }
+                } catch(zipErr) {
+                    // ZIP endpoint not available, fall back to export_code
+                    console.log('[dbg] export_code_zip failed, falling back to export_code:', zipErr.message);
+                    res = null;
+                }
+
+                // Fallback: use plain export_code endpoint
+                if (!res || res.status !== 'ok') {
+                    res = await app.api.post({ op: 'export_code', language: language });
+                }
+
                 if (res.status === 'ok') {
                     var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
                     var files = data.files || {};
@@ -1443,7 +1652,7 @@ const app = {
                         a.href = url; a.download = fname; a.click();
                         URL.revokeObjectURL(url);
                     } else {
-                        // Multiple files: download as JSON bundle
+                        // Multiple files: download as JSON bundle (no JSZip dependency needed)
                         _downloadJSON(files, 'azul_export_' + language + '.json');
                     }
                     app.log('Exported code (' + language + '): ' + fileNames.join(', '), 'info');
@@ -1471,6 +1680,9 @@ const app = {
             app.state.executionStatus = 'idle';
             app.ui.renderTestList();
             app.ui.renderSteps();
+            // Update tab title to show the selected test name
+            var test = app.state.tests.find(function(t) { return t.id === id; });
+            if (test) document.getElementById('tab-title').innerText = test.name;
         },
 
         addStepFromForm: function() {
@@ -1516,6 +1728,49 @@ const app = {
                 }
             } catch(e) {
                 document.getElementById('dom-tree-container').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load DOM tree.</div>';
+            }
+            // Load component palette for inspector
+            app.handlers._loadPaletteComponents();
+        },
+
+        _loadPaletteComponents: async function() {
+            var container = document.getElementById('palette-component-list');
+            if (!container) return;
+            try {
+                var res = await app.api.post({ op: 'get_component_registry' });
+                var reg = null;
+                if (res.data) reg = res.data.value || res.data;
+                if (!reg || !reg.libraries) {
+                    container.innerHTML = '<div class="placeholder-text" style="font-size:11px">No components.</div>';
+                    return;
+                }
+                var html = '';
+                reg.libraries.forEach(function(lib) {
+                    if (!lib.components || !lib.components.length) return;
+                    html += '<div style="font-size:10px;color:var(--text-muted);margin:4px 0 2px;text-transform:uppercase">' + esc(lib.name) + '</div>';
+                    lib.components.forEach(function(comp) {
+                        html += '<div class="palette-item" draggable="true" '
+                            + 'data-library="' + esc(lib.name) + '" '
+                            + 'data-component="' + esc(comp.tag || comp.name) + '" '
+                            + 'title="' + esc(comp.description || comp.display_name || comp.tag) + '">';
+                        html += '<span class="material-icons" style="font-size:12px;margin-right:4px">widgets</span>';
+                        html += '<span>' + esc(comp.display_name || comp.tag || comp.name) + '</span>';
+                        html += '</div>';
+                    });
+                });
+                container.innerHTML = html || '<div class="placeholder-text" style="font-size:11px">No components.</div>';
+                // Setup drag events
+                container.querySelectorAll('.palette-item').forEach(function(item) {
+                    item.addEventListener('dragstart', function(e) {
+                        e.dataTransfer.setData('text/plain', JSON.stringify({
+                            library: item.dataset.library,
+                            component: item.dataset.component
+                        }));
+                        e.dataTransfer.effectAllowed = 'copy';
+                    });
+                });
+            } catch(e) {
+                container.innerHTML = '<div class="placeholder-text" style="font-size:11px">Failed to load.</div>';
             }
         },
 
@@ -1684,6 +1939,98 @@ const app = {
             }
         },
 
+        // H6: Create a new component from the selected DOM subtree
+        ctxCreateComponentFromSubtree: async function() {
+            var nodeId = app.state.contextMenuNodeId;
+            if (nodeId == null) return;
+
+            // Find the node in hierarchy
+            var node = null;
+            if (app.state.hierarchy) {
+                var byIndex = {};
+                app.state.hierarchy.forEach(function(n) { byIndex[n.index] = n; });
+                node = byIndex[nodeId];
+            }
+            if (!node) {
+                app.log('Cannot find node #' + nodeId + ' in hierarchy', 'error');
+                return;
+            }
+
+            // Pick target library (only modifiable ones)
+            var modLibs = (app.state.libraryList || []).filter(function(l) { return l.modifiable !== false; });
+            var targetLibrary = 'user';
+            if (modLibs.length === 0) {
+                // No mutable libraries — create one called "user"
+                try { await app.api.post({ op: 'create_library', name: 'user' }); } catch(e2) {}
+                targetLibrary = 'user';
+            } else if (modLibs.length === 1) {
+                targetLibrary = modLibs[0].name;
+            } else {
+                // Multiple modifiable libs — let user choose
+                var libChoices = modLibs.map(function(l) { return l.name; }).join(', ');
+                var chosen = prompt('Which library? (' + libChoices + '):', modLibs[0].name);
+                if (!chosen || !chosen.trim()) return;
+                chosen = chosen.trim();
+                if (!modLibs.some(function(l) { return l.name === chosen; })) {
+                    app.log('Unknown library "' + chosen + '". Available: ' + libChoices, 'error');
+                    return;
+                }
+                targetLibrary = chosen;
+            }
+
+            // Prompt for component name
+            var tagName = prompt('Component tag name (lowercase, e.g. "my-card"):');
+            if (!tagName || !tagName.trim()) return;
+            tagName = tagName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+
+            // Build a simplified render tree from the subtree
+            function extractSubtree(n, byIdx) {
+                var result = {
+                    tag: (n.tag || n.type || 'div').toLowerCase(),
+                    classes: n.classes || [],
+                    children: []
+                };
+                if (n.type === 'Text') {
+                    result.tag = '__text__';
+                    result.text = n.text || '';
+                }
+                if (n.children && n.children.length) {
+                    n.children.forEach(function(cIdx) {
+                        if (byIdx[cIdx]) {
+                            result.children.push(extractSubtree(byIdx[cIdx], byIdx));
+                        }
+                    });
+                }
+                return result;
+            }
+
+            var byIndex2 = {};
+            app.state.hierarchy.forEach(function(n) { byIndex2[n.index] = n; });
+            var subtree = extractSubtree(node, byIndex2);
+
+            try {
+                var res = await app.api.post({
+                    op: 'create_component',
+                    library: targetLibrary,
+                    name: tagName,
+                    display_name: tagName.replace(/-/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); }),
+                    description: 'Created from DOM subtree',
+                    render_tree: subtree,
+                });
+                if (res.status === 'ok') {
+                    app.log('Component "' + tagName + '" created in library "' + targetLibrary + '"', 'info');
+                    // Switch to components view and select it
+                    app.state.currentView = 'components';
+                    app.ui.showView('components');
+                    app.handlers.selectLibrary(targetLibrary);
+                } else {
+                    app.log('Failed to create component: ' + (res.message || ''), 'error');
+                }
+            } catch(e) {
+                app.log('Create component failed: ' + e.message, 'error');
+            }
+        },
+
         /* ── App State (JSON tree in left panel) ── */
         loadAppState: async function() {
             try {
@@ -1722,6 +2069,23 @@ const app = {
             }
         },
 
+        /* ── Window State (editable JSON tree in left panel bottom) ── */
+        loadWindowState: async function() {
+            try {
+                var res = await app.api.post({ op: 'get_state' });
+                var data = null;
+                if (res.window_state) {
+                    data = res.window_state;
+                } else if (res.data) {
+                    data = res.data.value || res.data;
+                }
+                app.state.windowStateJson = data;
+                app.json.render('window-state-tree', data, true);
+            } catch(e) {
+                document.getElementById('window-state-tree').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load window state.</div>';
+            }
+        },
+
         /* ── Node Dataset (read-only JSON tree for node's RefAny dataset) ── */
         loadNodeDataset: async function(nodeId) {
             var nid = (nodeId != null) ? nodeId : app.state.selectedNodeId;
@@ -1751,12 +2115,13 @@ const app = {
         _updateDatasetPanel: function() {
             var panel = document.getElementById('dataset-panel');
             if (!panel) return;
+            var treeEl = document.getElementById('dataset-tree');
             if (app.state.datasetJson != null) {
-                panel.style.display = '';
                 app.json.render('dataset-tree', app.state.datasetJson, true);
+            } else if (app.state.selectedNodeId != null) {
+                treeEl.innerHTML = '<div class="placeholder-text">Selected node has no dataset.</div>';
             } else {
-                panel.style.display = 'none';
-                document.getElementById('dataset-tree').innerHTML = '<div class="placeholder-text">No dataset.</div>';
+                treeEl.innerHTML = '<div class="placeholder-text">Select a node to inspect its dataset.</div>';
             }
         },
 
@@ -1850,7 +2215,10 @@ const app = {
             filtered.forEach(function(c) {
                 // Find original index for showComponentDetail
                 var origIdx = components.indexOf(c);
-                html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + origIdx + ')">';
+                var lib = app.state.selectedLibrary || '';
+                html += '<div class="list-item" draggable="true" onclick="app.handlers.showComponentDetail(' + origIdx + ')"';
+                html += ' ondragstart="event.dataTransfer.setData(\'text/plain\', JSON.stringify({type:\'component\',library:\'' + esc(lib) + '\',component:\'' + esc(c.tag || '') + '\'}));event.dataTransfer.effectAllowed=\'copy\'"';
+                html += '>';
                 html += '<span style="font-weight:500">' + esc(c.display_name || c.tag) + '</span>';
                 html += '</div>';
             });
@@ -1957,6 +2325,14 @@ const app = {
                 }, {
                     onFieldChange: function(name, newVal) {
                         app.log('Field changed: ' + name + ' = ' + JSON.stringify(newVal), 'info');
+                        // D4: Live preview update on value change
+                        if (app.handlers._previewDebounce) clearTimeout(app.handlers._previewDebounce);
+                        app.handlers._previewDebounce = setTimeout(function() {
+                            var previewEl = document.getElementById('component-preview-widget');
+                            app.handlers._loadComponentPreview(component, previewEl);
+                            // Also refresh the mini tree
+                            app.handlers._loadMiniTree(component);
+                        }, 300);
                     }
                 });
                 dmDetails.appendChild(dmEditor);
@@ -2000,6 +2376,12 @@ const app = {
                     onChange: function(newCss) {
                         // live update stored in memory
                         component.css = newCss;
+                        // H2: Auto-preview on CSS change
+                        if (app.handlers._cssPreviewDebounce) clearTimeout(app.handlers._cssPreviewDebounce);
+                        app.handlers._cssPreviewDebounce = setTimeout(function() {
+                            var previewEl = document.getElementById('component-preview-widget');
+                            app.handlers._loadComponentPreview(component, previewEl);
+                        }, 500);
                     },
                     onSave: isEditable ? function(cssText) {
                         app.handlers._saveComponentCss(cssText);
@@ -2007,6 +2389,43 @@ const app = {
                 });
                 cssDetails.appendChild(cssEditor);
                 leftPanel.appendChild(cssDetails);
+            }
+
+            // === Source Code Editors (E1, E2, E3) ===
+            if (component.source === 'user_defined') {
+                var srcDetails = document.createElement('details');
+                var srcSummary = document.createElement('summary');
+                srcSummary.style.cssText = 'font-weight:600;margin:12px 0 6px 0';
+                srcSummary.textContent = 'Source Code';
+                srcDetails.appendChild(srcSummary);
+
+                // E1: Edit render_fn button
+                var renderBtn = document.createElement('button');
+                renderBtn.className = 'azd-btn-small';
+                renderBtn.style.marginRight = '8px';
+                renderBtn.textContent = 'Edit render_fn';
+                renderBtn.addEventListener('click', function() {
+                    app.handlers._openRenderFnEditor(component);
+                });
+                srcDetails.appendChild(renderBtn);
+
+                // E2: Edit compile_fn dropdown
+                var compileBtn = document.createElement('button');
+                compileBtn.className = 'azd-btn-small';
+                compileBtn.style.marginRight = '8px';
+                compileBtn.textContent = 'Edit compile_fn \u25BE';
+                compileBtn.addEventListener('click', function() {
+                    var rect = compileBtn.getBoundingClientRect();
+                    app.widgets.ContextMenu.show(rect.left, rect.bottom + 2, [
+                        { label: 'Rust', action: function() { app.handlers._openCompileFnEditor(component, 'rust'); } },
+                        { label: 'C', action: function() { app.handlers._openCompileFnEditor(component, 'c'); } },
+                        { label: 'C++', action: function() { app.handlers._openCompileFnEditor(component, 'cpp'); } },
+                        { label: 'Python', action: function() { app.handlers._openCompileFnEditor(component, 'python'); } },
+                    ]);
+                });
+                srcDetails.appendChild(compileBtn);
+
+                leftPanel.appendChild(srcDetails);
             }
 
             // === Universal HTML Attributes (innerHTML — read-only table, collapsed) ===
@@ -2028,7 +2447,7 @@ const app = {
                 leftPanel.appendChild(uaDetails);
             }
 
-            // === Right column: Preview (widget-based) ===
+            // === Right column: Preview + Mini HTML Tree + Palette (widget-based) ===
             if (rightPanel) {
                 rightPanel.style.display = 'block';
                 rightPanel.innerHTML = '';
@@ -2038,6 +2457,57 @@ const app = {
                 previewH4.style.margin = '12px 0 8px 0';
                 previewH4.textContent = 'Preview';
                 rightPanel.appendChild(previewH4);
+
+                // H4: Preview environment selectors (OS / Theme / Language)
+                var envRow = document.createElement('div');
+                envRow.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;align-items:center;flex-wrap:wrap';
+
+                function makeEnvSelect(label, options, stateKey) {
+                    var wrap = document.createElement('label');
+                    wrap.style.cssText = 'font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:3px';
+                    wrap.textContent = label;
+                    var sel = document.createElement('select');
+                    sel.style.cssText = 'font-size:11px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:1px 4px';
+                    options.forEach(function(o) {
+                        var opt = document.createElement('option');
+                        opt.value = o.value;
+                        opt.textContent = o.label;
+                        if (app.state[stateKey] === o.value || (!app.state[stateKey] && o.value === '')) sel.selectedIndex = sel.options.length;
+                        sel.appendChild(opt);
+                    });
+                    sel.addEventListener('change', function() {
+                        app.state[stateKey] = sel.value || null;
+                        var pe = document.getElementById('component-preview-widget');
+                        app.handlers._loadComponentPreview(component, pe);
+                    });
+                    wrap.appendChild(sel);
+                    return wrap;
+                }
+
+                envRow.appendChild(makeEnvSelect('OS:', [
+                    { value: '', label: 'Native' },
+                    { value: 'windows', label: 'Windows' },
+                    { value: 'mac', label: 'macOS' },
+                    { value: 'linux', label: 'Linux' }
+                ], 'previewOs'));
+
+                envRow.appendChild(makeEnvSelect('Theme:', [
+                    { value: '', label: 'Native' },
+                    { value: 'light', label: 'Light' },
+                    { value: 'dark', label: 'Dark' }
+                ], 'previewTheme'));
+
+                envRow.appendChild(makeEnvSelect('Lang:', [
+                    { value: '', label: 'Native' },
+                    { value: 'en', label: 'English' },
+                    { value: 'de', label: 'Deutsch' },
+                    { value: 'fr', label: 'Français' },
+                    { value: 'es', label: 'Español' },
+                    { value: 'ja', label: '日本語' },
+                    { value: 'zh', label: '中文' }
+                ], 'previewLang'));
+
+                rightPanel.appendChild(envRow);
 
                 var previewEl = app.widgets.PreviewPanel.render({}, { loading: true }, {
                     onRefresh: function() {
@@ -2049,6 +2519,43 @@ const app = {
 
                 // Load the actual preview image
                 app.handlers._loadComponentPreview(component, previewEl);
+
+                // === Mini HTML Tree (D1) ===
+                var treeH4 = document.createElement('h4');
+                treeH4.style.margin = '16px 0 8px 0';
+                treeH4.textContent = 'Render Output';
+                rightPanel.appendChild(treeH4);
+
+                var treeContainer = document.createElement('div');
+                treeContainer.id = 'component-mini-tree-container';
+                rightPanel.appendChild(treeContainer);
+
+                // Load render output tree
+                app.handlers._loadMiniTree(component, treeContainer);
+
+                // === Component Palette (D2) ===
+                if (component.source === 'user_defined') {
+                    var palH4 = document.createElement('h4');
+                    palH4.style.margin = '16px 0 8px 0';
+                    palH4.textContent = 'Component Palette';
+                    rightPanel.appendChild(palH4);
+
+                    var allComps = [];
+                    var currentLib = app.state.selectedLibrary || '';
+                    var currentComps = (app.state.componentData && app.state.componentData.components) || [];
+                    currentComps.forEach(function(c) {
+                        if (c.tag !== component.tag) {
+                            allComps.push({ tag: c.tag, display_name: c.display_name, library: currentLib });
+                        }
+                    });
+
+                    var palette = app.widgets.ComponentPalette.render(
+                        { library: currentLib },
+                        { components: allComps },
+                        {}
+                    );
+                    rightPanel.appendChild(palette);
+                }
             }
         },
 
@@ -2082,22 +2589,47 @@ const app = {
 
         _loadComponentPreview: async function(component, previewEl) {
             if (!previewEl) previewEl = document.getElementById('component-preview-widget');
-            if (!previewEl) return;
+            if (!previewEl) { console.warn('[dbg] preview: no previewEl found'); return; }
             try {
                 var payload = {
                     op: 'get_component_preview',
                     library: app.state.selectedLibrary || 'builtin',
                     name: component.tag,
                 };
+                // H4: pass environment overrides if set
+                if (app.state.previewOs) payload.override_os = app.state.previewOs;
+                if (app.state.previewTheme) payload.override_theme = app.state.previewTheme;
+                if (app.state.previewLang) payload.override_lang = app.state.previewLang;
+                console.log('[dbg] preview: posting', JSON.stringify(payload));
                 var res = await app.api.post(payload);
+                console.log('[dbg] preview: response status=' + res.status, 'data keys=', res.data ? Object.keys(res.data) : 'none');
                 if (res.status === 'ok' && res.data && res.data.value) {
                     var preview = res.data.value;
+                    console.log('[dbg] preview: got value, keys=', Object.keys(preview), 'has data=', !!preview.data, 'w=', preview.width, 'h=', preview.height);
                     app.widgets.PreviewPanel.update(previewEl, {
                         imageDataUri: preview.data,
                         width: preview.width,
                         height: preview.height,
                         loading: false
                     });
+                } else if (res.status === 'ok' && res.data) {
+                    // Try alternate response format — data directly on res.data
+                    var alt = res.data;
+                    if (alt.data || alt.image || alt.png) {
+                        console.log('[dbg] preview: using alt format');
+                        app.widgets.PreviewPanel.update(previewEl, {
+                            imageDataUri: alt.data || alt.image || alt.png,
+                            width: alt.width || 0,
+                            height: alt.height || 0,
+                            loading: false
+                        });
+                    } else {
+                        app.widgets.PreviewPanel.update(previewEl, {
+                            error: 'Preview: unexpected response format',
+                            loading: false
+                        });
+                        console.warn('[dbg] preview: unexpected data format', JSON.stringify(res.data).substring(0, 300));
+                    }
                 } else {
                     app.widgets.PreviewPanel.update(previewEl, {
                         error: 'Preview failed: ' + (res.message || 'Unknown error'),
@@ -2112,12 +2644,432 @@ const app = {
             }
         },
 
+        /* ── Mini HTML Tree (D1, D3, D4, D5, D6) ── */
+
+        _miniTreeCollapsed: new Set(),
+        _miniTreeSelectedIdx: null,
+        _miniTreeNodes: null,
+
+        _loadMiniTree: async function(component, container) {
+            if (!container) container = document.getElementById('component-mini-tree-container');
+            if (!container) return;
+            container.innerHTML = '<span class="azd-muted">Loading render tree\u2026</span>';
+            try {
+                var res = await app.api.post({
+                    op: 'get_component_render_tree',
+                    library: app.state.selectedLibrary || 'builtin',
+                    name: component.tag,
+                });
+                if (res.status === 'ok' && res.data && res.data.value) {
+                    var treeData = res.data.value;
+                    var nodes = treeData.nodes || (treeData.root ? [treeData.root] : []);
+                    app.handlers._miniTreeNodes = nodes;
+                    app.handlers._renderMiniTree(component, container, nodes);
+                } else {
+                    // Fallback: build a placeholder from the component's data model
+                    var nodes = app.handlers._buildPlaceholderTree(component);
+                    app.handlers._miniTreeNodes = nodes;
+                    app.handlers._renderMiniTree(component, container, nodes);
+                }
+            } catch(e) {
+                // Fallback: placeholder tree from data model
+                var nodes = app.handlers._buildPlaceholderTree(component);
+                app.handlers._miniTreeNodes = nodes;
+                app.handlers._renderMiniTree(component, container, nodes);
+            }
+        },
+
+        _buildPlaceholderTree: function(component) {
+            // Build a simple tree from the component's data model
+            var root = { tag: component.tag || 'div', children: [], classes: [] };
+            var dm = component.data_model || [];
+            dm.forEach(function(field) {
+                var ft = field.field_type_structured || field.field_type;
+                if (typeof ft === 'string') ft = app.widgets._parseFieldType(ft);
+                if (!ft) ft = { type: 'String' };
+                var kind = ft.kind || ft.type || 'String';
+                if (kind === 'Primitive' && ft.name === 'String' || kind === 'String') {
+                    root.children.push({ tag: 'p', text: '{' + field.name + '}', children: [] });
+                } else if (kind === 'Primitive' && ft.name === 'Bool' || kind === 'Bool') {
+                    root.children.push({ tag: 'span', text: field.name + ': {bool}', children: [] });
+                } else if (kind === 'StructRef') {
+                    root.children.push({ tag: ft.name || 'component', children: [], classes: ['component-ref'] });
+                } else {
+                    root.children.push({ tag: 'span', text: field.name, children: [] });
+                }
+            });
+            return [root];
+        },
+
+        _renderMiniTree: function(component, container, nodes) {
+            if (!container) container = document.getElementById('component-mini-tree-container');
+            if (!container) return;
+            container.innerHTML = '';
+            var isEditable = component.source === 'user_defined';
+
+            var tree = app.widgets.MiniHtmlTree.render(
+                { editable: isEditable },
+                {
+                    nodes: nodes,
+                    collapsed: app.handlers._miniTreeCollapsed,
+                    selectedIdx: app.handlers._miniTreeSelectedIdx
+                },
+                {
+                    onSelect: function(idx) {
+                        app.handlers._miniTreeSelectedIdx = idx;
+                        app.handlers._renderMiniTree(component, container, nodes);
+                    },
+                    onToggle: function(idx) {
+                        app.handlers._renderMiniTree(component, container, nodes);
+                    },
+                    onDrop: function(data, parentIdx, position) {
+                        app.handlers._handleTreeDrop(component, data, parentIdx, position);
+                    },
+                    onContextMenu: function(e, node) {
+                        app.handlers._showTreeContextMenu(e, component, node);
+                    }
+                }
+            );
+            container.appendChild(tree);
+        },
+
+        _handleTreeDrop: async function(component, data, parentIdx, position) {
+            if (!data || data.type !== 'component') return;
+            app.log('Drop: ' + data.component + ' into parent=' + parentIdx + ' pos=' + position, 'info');
+
+            // Find the parent node and insert a new child
+            var nodes = app.handlers._miniTreeNodes;
+            if (!nodes) return;
+
+            var targetNode = null;
+            function findByIdx(node) {
+                if (node._idx === parentIdx) { targetNode = node; return; }
+                if (node.children) node.children.forEach(findByIdx);
+            }
+            if (parentIdx === -1) {
+                // Insert at root level
+                nodes.splice(position, 0, {
+                    tag: data.component,
+                    children: [],
+                    classes: ['component-instance'],
+                    _component: { library: data.library, component: data.component }
+                });
+            } else {
+                nodes.forEach(findByIdx);
+                if (targetNode) {
+                    if (!targetNode.children) targetNode.children = [];
+                    targetNode.children.splice(position, 0, {
+                        tag: data.component,
+                        children: [],
+                        classes: ['component-instance'],
+                        _component: { library: data.library, component: data.component }
+                    });
+                }
+            }
+
+            // Re-render tree
+            var container = document.getElementById('component-mini-tree-container');
+            app.handlers._renderMiniTree(component, container, nodes);
+
+            // Notify server (D6)
+            app.handlers._syncTreeToServer(component);
+        },
+
+        _showTreeContextMenu: function(e, component, node) {
+            var items = [];
+            if (component.source === 'user_defined') {
+                items.push({
+                    icon: 'add',
+                    label: 'Insert Child\u2026',
+                    action: function() {
+                        var tag = prompt('Child tag name:', 'div');
+                        if (!tag) return;
+                        if (!node.children) node.children = [];
+                        node.children.push({ tag: tag, children: [], text: '' });
+                        var container = document.getElementById('component-mini-tree-container');
+                        app.handlers._renderMiniTree(component, container, app.handlers._miniTreeNodes);
+                        app.handlers._syncTreeToServer(component);
+                    }
+                });
+                items.push({
+                    icon: 'content_copy',
+                    label: 'Duplicate',
+                    action: function() {
+                        var clone = JSON.parse(JSON.stringify(node));
+                        delete clone._idx;
+                        // Find parent and insert after
+                        var nodes = app.handlers._miniTreeNodes;
+                        function insertAfter(parent, children) {
+                            for (var i = 0; i < children.length; i++) {
+                                if (children[i]._idx === node._idx) {
+                                    children.splice(i + 1, 0, clone);
+                                    return true;
+                                }
+                                if (children[i].children && insertAfter(children[i], children[i].children)) return true;
+                            }
+                            return false;
+                        }
+                        insertAfter(null, nodes);
+                        var container = document.getElementById('component-mini-tree-container');
+                        app.handlers._renderMiniTree(component, container, nodes);
+                        app.handlers._syncTreeToServer(component);
+                    }
+                });
+                items.push({
+                    icon: 'arrow_upward',
+                    label: 'Move Up',
+                    action: function() {
+                        app.handlers._moveTreeNode(component, node._idx, -1);
+                    }
+                });
+                items.push({
+                    icon: 'arrow_downward',
+                    label: 'Move Down',
+                    action: function() {
+                        app.handlers._moveTreeNode(component, node._idx, 1);
+                    }
+                });
+                items.push({ separator: true });
+                items.push({
+                    icon: 'delete',
+                    label: 'Delete',
+                    danger: true,
+                    action: function() {
+                        var nodes = app.handlers._miniTreeNodes;
+                        function removeNode(children) {
+                            for (var i = 0; i < children.length; i++) {
+                                if (children[i]._idx === node._idx) {
+                                    children.splice(i, 1);
+                                    return true;
+                                }
+                                if (children[i].children && removeNode(children[i].children)) return true;
+                            }
+                            return false;
+                        }
+                        removeNode(nodes);
+                        var container = document.getElementById('component-mini-tree-container');
+                        app.handlers._renderMiniTree(component, container, nodes);
+                        app.handlers._syncTreeToServer(component);
+                    }
+                });
+            }
+            if (items.length) {
+                app.widgets.ContextMenu.show(e.clientX, e.clientY, items);
+            }
+        },
+
+        _moveTreeNode: function(component, nodeIdx, direction) {
+            var nodes = app.handlers._miniTreeNodes;
+            function findAndMove(children) {
+                for (var i = 0; i < children.length; i++) {
+                    if (children[i]._idx === nodeIdx) {
+                        var newPos = i + direction;
+                        if (newPos < 0 || newPos >= children.length) return false;
+                        var tmp = children[i];
+                        children[i] = children[newPos];
+                        children[newPos] = tmp;
+                        return true;
+                    }
+                    if (children[i].children && findAndMove(children[i].children)) return true;
+                }
+                return false;
+            }
+            findAndMove(nodes);
+            var container = document.getElementById('component-mini-tree-container');
+            app.handlers._renderMiniTree(component, container, nodes);
+            app.handlers._syncTreeToServer(component);
+        },
+
+        _syncTreeToServer: async function(component) {
+            // D6: Send tree structure change to server
+            try {
+                var res = await app.api.post({
+                    op: 'update_component',
+                    library: app.state.selectedLibrary,
+                    name: component.tag,
+                    // Send the structure as JSON for the server to interpret
+                    render_tree: app.handlers._miniTreeNodes
+                });
+                if (res.status === 'ok') {
+                    // Re-render preview
+                    var previewEl = document.getElementById('component-preview-widget');
+                    app.handlers._loadComponentPreview(component, previewEl);
+                } else {
+                    app.log('Sync failed: ' + (res.message || ''), 'error');
+                }
+            } catch(e) {
+                app.log('Sync error: ' + e.message, 'error');
+            }
+        },
+
+        /* ── Source Code Editors (E1-E3) ── */
+
+        _openRenderFnEditor: async function(component) {
+            // E1: Load render_fn source and open popup editor
+            var code = '';
+            try {
+                var res = await app.api.post({
+                    op: 'get_component_source',
+                    library: app.state.selectedLibrary,
+                    name: component.tag,
+                    source_type: 'render_fn',
+                });
+                if (res.status === 'ok' && res.data && res.data.value) {
+                    code = res.data.value.source || '';
+                }
+            } catch(e) {
+                app.log('Failed to load render_fn source: ' + e.message, 'error');
+            }
+
+            app.widgets.SourceEditor.open(
+                { title: 'Edit render_fn — ' + (component.display_name || component.tag), language: 'rust' },
+                { code: code },
+                {
+                    onSave: async function(newCode) {
+                        try {
+                            var res = await app.api.post({
+                                op: 'update_component_render_fn',
+                                library: app.state.selectedLibrary,
+                                name: component.tag,
+                                source: newCode,
+                            });
+                            if (res.status === 'ok') {
+                                app.log('render_fn saved for ' + component.tag, 'info');
+                                app.widgets.SourceEditor.close();
+                                // Refresh preview
+                                var previewEl = document.getElementById('component-preview-widget');
+                                app.handlers._loadComponentPreview(component, previewEl);
+                                app.handlers._loadMiniTree(component);
+                            } else {
+                                app.log('Save failed: ' + (res.message || ''), 'error');
+                            }
+                        } catch(e) {
+                            app.log('Save error: ' + e.message, 'error');
+                        }
+                    },
+                    onClose: function() {}
+                }
+            );
+        },
+
+        _openCompileFnEditor: async function(component, language) {
+            // E2: Load compile_fn source for given language and open popup editor
+            var code = '';
+            try {
+                var res = await app.api.post({
+                    op: 'get_component_source',
+                    library: app.state.selectedLibrary,
+                    name: component.tag,
+                    source_type: 'compile_fn',
+                    language: language,
+                });
+                if (res.status === 'ok' && res.data && res.data.value) {
+                    code = res.data.value.source || '';
+                }
+            } catch(e) {
+                app.log('Failed to load compile_fn source: ' + e.message, 'error');
+            }
+
+            var languages = ['rust', 'c', 'cpp', 'python'];
+            app.widgets.SourceEditor.open(
+                {
+                    title: 'Edit compile_fn — ' + (component.display_name || component.tag),
+                    language: language,
+                    languages: languages
+                },
+                { code: code },
+                {
+                    onSave: async function(newCode) {
+                        try {
+                            var res = await app.api.post({
+                                op: 'update_component_compile_fn',
+                                library: app.state.selectedLibrary,
+                                name: component.tag,
+                                source: newCode,
+                                language: language,
+                            });
+                            if (res.status === 'ok') {
+                                app.log('compile_fn (' + language + ') saved for ' + component.tag, 'info');
+                                app.widgets.SourceEditor.close();
+                            } else {
+                                app.log('Save failed: ' + (res.message || ''), 'error');
+                            }
+                        } catch(e) {
+                            app.log('Save error: ' + e.message, 'error');
+                        }
+                    },
+                    onLanguageChange: function(newLang) {
+                        app.widgets.SourceEditor.close();
+                        app.handlers._openCompileFnEditor(component, newLang);
+                    },
+                    onClose: function() {}
+                }
+            );
+        },
+
         /* ── Terminal ── */
+        terminalKeydown: function(event, input) {
+            var menu = document.getElementById('autocomplete-popup');
+            if (menu) {
+                if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    app._acNavigate('up');
+                    return;
+                }
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    app._acNavigate('down');
+                    return;
+                }
+                if (event.key === 'Tab') {
+                    event.preventDefault();
+                    if (app._acSelectedIndex >= 0) {
+                        app._acAccept();
+                    } else {
+                        app._acNavigate('down');
+                    }
+                    return;
+                }
+                if (event.key === 'Enter') {
+                    if (app._acSelectedIndex >= 0) {
+                        event.preventDefault();
+                        app._acAccept();
+                        return;
+                    }
+                    // No selection — fall through to send command
+                }
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    app._hideAutocomplete();
+                    return;
+                }
+            } else {
+                if (event.key === 'Escape') return;
+            }
+            if (event.key === 'Enter') {
+                app.handlers.terminalEnter(input);
+            }
+        },
+
         terminalInput: function(input) {
             var val = input.value;
             if (val.startsWith('/')) {
-                var filter = val.substring(1).split(' ')[0];
-                app._showAutocomplete(filter);
+                // Only show autocomplete while user is still typing the command name
+                // (i.e., no space yet, or they just typed "/")
+                var spaceIdx = val.indexOf(' ');
+                if (spaceIdx === -1) {
+                    var filter = val.substring(1);
+                    app._showAutocomplete(filter);
+                } else {
+                    // Already past command name — only show if filter still matches commands
+                    var cmdPart = val.substring(1, spaceIdx);
+                    var exact = app.schema.commands[cmdPart];
+                    if (!exact) {
+                        app._showAutocomplete(cmdPart);
+                    } else {
+                        app._hideAutocomplete();
+                    }
+                }
             } else {
                 app._hideAutocomplete();
             }
@@ -2162,6 +3114,16 @@ const app = {
                 tests: app.state.tests,
                 cssOverrides: app.state.cssOverrides,
                 snapshots: app.state.snapshots,
+                // Extra persistent state
+                currentView: app.state.currentView,
+                activeTestId: app.state.activeTestId,
+                selectedLibrary: app.state.selectedLibrary,
+                selectedNodeId: app.state.selectedNodeId,
+                selectedComponentIdx: app.state.selectedComponentIdx,
+                collapsedNodes: Array.from(app.state.collapsedNodes || []),
+                previewOs: app.state.previewOs,
+                previewTheme: app.state.previewTheme,
+                previewLang: app.state.previewLang,
             }));
         },
     },
@@ -3052,6 +4014,11 @@ const app = {
                 if (wrap) {
                     if (newState.loading) wrap.classList.add('azd-loading');
                     else wrap.classList.remove('azd-loading');
+                    // Remove "Loading preview..." text when image arrives
+                    if (!newState.loading) {
+                        var loadText = wrap.querySelector('.azd-muted');
+                        if (loadText) loadText.remove();
+                    }
                 }
                 var errEl = el.querySelector('.azd-preview-error');
                 if (errEl && newState.error) {
@@ -3139,6 +4106,449 @@ const app = {
                 if (models[i].name === name) return models[i];
             }
             return null;
+        },
+
+        /* ── W9: MiniHtmlTree — navigable DOM tree of render_fn output (D1, D3, D5) ── */
+        MiniHtmlTree: {
+            render: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-mini-tree';
+                var nodes = state.nodes || [];
+                var collapsed = state.collapsed || new Set();
+                var selectedIdx = state.selectedIdx;
+                var self = this;
+
+                function buildNode(node, depth, parentIdx, siblingIdx) {
+                    // Drop zone BEFORE this node (sibling insertion)
+                    if (config.editable) {
+                        var dz = document.createElement('div');
+                        dz.className = 'azd-drop-zone';
+                        dz.setAttribute('data-parent', parentIdx);
+                        dz.setAttribute('data-pos', siblingIdx);
+                        dz.addEventListener('dragover', function(e) { e.preventDefault(); dz.classList.add('azd-drop-hover'); });
+                        dz.addEventListener('dragleave', function() { dz.classList.remove('azd-drop-hover'); });
+                        dz.addEventListener('drop', function(e) {
+                            e.preventDefault(); dz.classList.remove('azd-drop-hover');
+                            try {
+                                var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                if (callbacks.onDrop) callbacks.onDrop(data, parseInt(dz.getAttribute('data-parent')), parseInt(dz.getAttribute('data-pos')));
+                            } catch(err) {}
+                        });
+                        wrap.appendChild(dz);
+                    }
+
+                    var row = document.createElement('div');
+                    row.className = 'azd-mini-tree-node';
+                    row.style.paddingLeft = (depth * 14 + 6) + 'px';
+                    if (node._idx === selectedIdx) row.classList.add('azd-selected');
+
+                    // Toggle
+                    var hasChildren = node.children && node.children.length > 0;
+                    var toggle = document.createElement('span');
+                    toggle.className = 'azd-mini-tree-toggle';
+                    if (hasChildren) {
+                        var isCollapsed = collapsed.has(node._idx);
+                        toggle.textContent = isCollapsed ? '\u25B6' : '\u25BC';
+                        toggle.addEventListener('click', function(e) {
+                            e.stopPropagation();
+                            if (collapsed.has(node._idx)) collapsed.delete(node._idx);
+                            else collapsed.add(node._idx);
+                            if (callbacks.onToggle) callbacks.onToggle(node._idx);
+                        });
+                    } else {
+                        toggle.innerHTML = '&nbsp;';
+                    }
+                    row.appendChild(toggle);
+
+                    // Tag name
+                    var tag = document.createElement('span');
+                    tag.className = 'azd-mini-tree-tag';
+                    tag.textContent = '<' + (node.tag || 'div') + '>';
+                    row.appendChild(tag);
+
+                    // Text content preview
+                    if (node.text) {
+                        var textSpan = document.createElement('span');
+                        textSpan.className = 'azd-mini-tree-text';
+                        textSpan.textContent = node.text.length > 30 ? node.text.substring(0, 30) + '\u2026' : node.text;
+                        row.appendChild(textSpan);
+                    }
+
+                    // Classes
+                    if (node.classes && node.classes.length) {
+                        var cls = document.createElement('span');
+                        cls.className = 'azd-mini-tree-class';
+                        cls.textContent = '.' + node.classes.join('.');
+                        row.appendChild(cls);
+                    }
+
+                    // Click to select
+                    row.addEventListener('click', function() {
+                        if (callbacks.onSelect) callbacks.onSelect(node._idx);
+                    });
+
+                    // Right-click context menu (D5)
+                    if (config.editable) {
+                        row.addEventListener('contextmenu', function(e) {
+                            e.preventDefault();
+                            if (callbacks.onContextMenu) callbacks.onContextMenu(e, node);
+                        });
+
+                        // Drop INTO this node (as child)
+                        row.addEventListener('dragover', function(e) {
+                            e.preventDefault();
+                            row.classList.add('azd-drop-into');
+                        });
+                        row.addEventListener('dragleave', function() {
+                            row.classList.remove('azd-drop-into');
+                        });
+                        row.addEventListener('drop', function(e) {
+                            e.preventDefault(); row.classList.remove('azd-drop-into');
+                            try {
+                                var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                var childCount = (node.children || []).length;
+                                if (callbacks.onDrop) callbacks.onDrop(data, node._idx, childCount);
+                            } catch(err) {}
+                        });
+                    }
+
+                    wrap.appendChild(row);
+
+                    // Recurse children
+                    if (hasChildren && !collapsed.has(node._idx)) {
+                        node.children.forEach(function(child, ci) {
+                            buildNode(child, depth + 1, node._idx, ci);
+                        });
+                        // Final drop zone after last child
+                        if (config.editable) {
+                            var dzLast = document.createElement('div');
+                            dzLast.className = 'azd-drop-zone';
+                            dzLast.setAttribute('data-parent', node._idx);
+                            dzLast.setAttribute('data-pos', node.children.length);
+                            dzLast.addEventListener('dragover', function(e) { e.preventDefault(); dzLast.classList.add('azd-drop-hover'); });
+                            dzLast.addEventListener('dragleave', function() { dzLast.classList.remove('azd-drop-hover'); });
+                            dzLast.addEventListener('drop', function(e) {
+                                e.preventDefault(); dzLast.classList.remove('azd-drop-hover');
+                                try {
+                                    var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                    if (callbacks.onDrop) callbacks.onDrop(data, parseInt(dzLast.getAttribute('data-parent')), parseInt(dzLast.getAttribute('data-pos')));
+                                } catch(err) {}
+                            });
+                            wrap.appendChild(dzLast);
+                        }
+                    }
+                }
+
+                // Index nodes for lookup
+                var idx = 0;
+                function indexNodes(node) {
+                    node._idx = idx++;
+                    if (node.children) node.children.forEach(indexNodes);
+                }
+                nodes.forEach(indexNodes);
+
+                // Build tree
+                nodes.forEach(function(rootNode, ri) {
+                    buildNode(rootNode, 0, -1, ri);
+                });
+
+                if (!nodes.length) {
+                    var empty = document.createElement('div');
+                    empty.className = 'azd-muted';
+                    empty.style.padding = '8px';
+                    empty.textContent = 'No render output available.';
+                    wrap.appendChild(empty);
+                }
+
+                return wrap;
+            }
+        },
+
+        /* ── W10: ComponentPalette — draggable component items (D2) ── */
+        ComponentPalette: {
+            render: function(config, state, callbacks) {
+                var wrap = document.createElement('div');
+                wrap.className = 'azd-component-palette';
+                var items = state.components || [];
+                var filter = (state.filter || '').toLowerCase();
+
+                items.forEach(function(comp) {
+                    var name = (comp.display_name || comp.tag || '').toLowerCase();
+                    if (filter && name.indexOf(filter) === -1) return;
+
+                    var item = document.createElement('div');
+                    item.className = 'azd-palette-item';
+                    item.draggable = true;
+                    item.setAttribute('data-library', comp.library || '');
+                    item.setAttribute('data-component', comp.tag || '');
+
+                    var icon = document.createElement('div');
+                    icon.className = 'azd-palette-icon';
+                    icon.textContent = (comp.tag || 'C')[0].toUpperCase();
+                    item.appendChild(icon);
+
+                    var label = document.createElement('span');
+                    label.className = 'azd-palette-label';
+                    label.textContent = comp.display_name || comp.tag;
+                    item.appendChild(label);
+
+                    if (comp.tag) {
+                        var tagSpan = document.createElement('span');
+                        tagSpan.className = 'azd-palette-tag';
+                        tagSpan.textContent = comp.tag;
+                        item.appendChild(tagSpan);
+                    }
+
+                    // Drag start
+                    item.addEventListener('dragstart', function(e) {
+                        e.dataTransfer.setData('text/plain', JSON.stringify({
+                            type: 'component',
+                            library: comp.library || config.library || '',
+                            component: comp.tag || ''
+                        }));
+                        e.dataTransfer.effectAllowed = 'copy';
+                    });
+
+                    wrap.appendChild(item);
+                });
+
+                if (!items.length) {
+                    var empty = document.createElement('div');
+                    empty.className = 'azd-muted';
+                    empty.style.padding = '8px';
+                    empty.textContent = 'No components available.';
+                    wrap.appendChild(empty);
+                }
+
+                return wrap;
+            }
+        },
+
+        /* ── W11: ContextMenu — right-click context menu (D5) ── */
+        ContextMenu: {
+            _el: null,
+
+            show: function(x, y, items) {
+                this.hide();
+                var menu = document.createElement('div');
+                menu.className = 'azd-context-menu';
+                menu.style.left = x + 'px';
+                menu.style.top = y + 'px';
+
+                items.forEach(function(item) {
+                    if (item.separator) {
+                        var sep = document.createElement('div');
+                        sep.className = 'azd-context-menu-sep';
+                        menu.appendChild(sep);
+                        return;
+                    }
+                    var el = document.createElement('div');
+                    el.className = 'azd-context-menu-item';
+                    if (item.danger) el.classList.add('azd-danger');
+                    if (item.icon) {
+                        var iconEl = document.createElement('span');
+                        iconEl.className = 'material-icons';
+                        iconEl.style.fontSize = '14px';
+                        iconEl.textContent = item.icon;
+                        el.appendChild(iconEl);
+                    }
+                    var label = document.createElement('span');
+                    label.textContent = item.label;
+                    el.appendChild(label);
+                    el.addEventListener('click', function() {
+                        app.widgets.ContextMenu.hide();
+                        if (item.action) item.action();
+                    });
+                    menu.appendChild(el);
+                });
+
+                document.body.appendChild(menu);
+                this._el = menu;
+
+                // Close on click outside
+                var self = this;
+                setTimeout(function() {
+                    document.addEventListener('click', self._onOutsideClick);
+                    document.addEventListener('contextmenu', self._onOutsideClick);
+                }, 0);
+            },
+
+            hide: function() {
+                if (this._el) {
+                    this._el.remove();
+                    this._el = null;
+                }
+                document.removeEventListener('click', this._onOutsideClick);
+                document.removeEventListener('contextmenu', this._onOutsideClick);
+            },
+
+            _onOutsideClick: function() {
+                app.widgets.ContextMenu.hide();
+            }
+        },
+
+        /* ── W12: SourceEditor — popup code editor (E1-E5) ── */
+        SourceEditor: {
+            _overlay: null,
+
+            /**
+             * Open a source code editor popup.
+             * @param {Object} config - { title, language, readOnly }
+             * @param {Object} state  - { code }
+             * @param {Object} callbacks - { onSave(code), onClose() }
+             */
+            open: function(config, state, callbacks) {
+                this.close();
+                var overlay = document.createElement('div');
+                overlay.className = 'azd-popup-overlay';
+
+                var popup = document.createElement('div');
+                popup.className = 'azd-popup';
+
+                // Header
+                var header = document.createElement('div');
+                header.className = 'azd-popup-header';
+                var titleEl = document.createElement('span');
+                titleEl.textContent = config.title || 'Source Editor';
+                header.appendChild(titleEl);
+                var closeBtn = document.createElement('button');
+                closeBtn.className = 'azd-popup-close';
+                closeBtn.textContent = '\u00D7';
+                closeBtn.addEventListener('click', function() {
+                    app.widgets.SourceEditor.close();
+                    if (callbacks.onClose) callbacks.onClose();
+                });
+                header.appendChild(closeBtn);
+                popup.appendChild(header);
+
+                // Language tabs (for compile_fn)
+                if (config.languages && config.languages.length > 1) {
+                    var tabs = document.createElement('div');
+                    tabs.className = 'azd-lang-tabs';
+                    config.languages.forEach(function(lang) {
+                        var tab = document.createElement('div');
+                        tab.className = 'azd-lang-tab';
+                        if (lang === config.language) tab.classList.add('active');
+                        tab.textContent = lang;
+                        tab.addEventListener('click', function() {
+                            if (callbacks.onLanguageChange) callbacks.onLanguageChange(lang);
+                        });
+                        tabs.appendChild(tab);
+                    });
+                    popup.appendChild(tabs);
+                }
+
+                // Body — code textarea
+                var body = document.createElement('div');
+                body.className = 'azd-popup-body';
+                var textarea = document.createElement('textarea');
+                textarea.className = 'azd-code-editor';
+                textarea.value = state.code || '';
+                textarea.readOnly = !!config.readOnly;
+                textarea.spellcheck = false;
+                textarea.setAttribute('data-lang', config.language || 'rust');
+
+                // Tab key support in textarea
+                textarea.addEventListener('keydown', function(e) {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        var start = textarea.selectionStart;
+                        var end = textarea.selectionEnd;
+                        textarea.value = textarea.value.substring(0, start) + '    ' + textarea.value.substring(end);
+                        textarea.selectionStart = textarea.selectionEnd = start + 4;
+                    }
+                    // Ctrl+S / Cmd+S to save
+                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                        e.preventDefault();
+                        if (!config.readOnly && callbacks.onSave) {
+                            callbacks.onSave(textarea.value);
+                        }
+                    }
+                    // Escape to close
+                    if (e.key === 'Escape') {
+                        app.widgets.SourceEditor.close();
+                        if (callbacks.onClose) callbacks.onClose();
+                    }
+                });
+                body.appendChild(textarea);
+                popup.appendChild(body);
+
+                // Footer
+                var footer = document.createElement('div');
+                footer.className = 'azd-popup-footer';
+                if (!config.readOnly && callbacks.onSave) {
+                    var saveBtn = document.createElement('button');
+                    saveBtn.className = 'azd-btn-small';
+                    saveBtn.textContent = 'Save';
+                    saveBtn.addEventListener('click', function() {
+                        callbacks.onSave(textarea.value);
+                    });
+                    footer.appendChild(saveBtn);
+                }
+                var cancelBtn = document.createElement('button');
+                cancelBtn.className = 'azd-btn-small';
+                cancelBtn.style.background = 'var(--bg-alt)';
+                cancelBtn.textContent = 'Close';
+                cancelBtn.addEventListener('click', function() {
+                    app.widgets.SourceEditor.close();
+                    if (callbacks.onClose) callbacks.onClose();
+                });
+                footer.appendChild(cancelBtn);
+                popup.appendChild(footer);
+
+                overlay.appendChild(popup);
+                document.body.appendChild(overlay);
+                this._overlay = overlay;
+
+                // Focus the textarea
+                setTimeout(function() { textarea.focus(); }, 50);
+
+                // Close on overlay click (outside popup)
+                overlay.addEventListener('click', function(e) {
+                    if (e.target === overlay) {
+                        app.widgets.SourceEditor.close();
+                        if (callbacks.onClose) callbacks.onClose();
+                    }
+                });
+            },
+
+            close: function() {
+                if (this._overlay) {
+                    this._overlay.remove();
+                    this._overlay = null;
+                }
+            },
+
+            /**
+             * Basic syntax highlighting (E5).
+             * Returns HTML with keyword/string/comment spans.
+             */
+            highlight: function(code, language) {
+                if (!code) return '';
+                var h = esc(code);
+                // Comments
+                h = h.replace(/(\/\/[^\n]*)/g, '<span class="azd-code-comment">$1</span>');
+                h = h.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="azd-code-comment">$1</span>');
+                h = h.replace(/(#[^\n]*)/g, '<span class="azd-code-comment">$1</span>');
+                // Strings
+                h = h.replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)/g, '<span class="azd-code-string">$1</span>');
+                // Numbers
+                h = h.replace(/\b(\d+\.?\d*)\b/g, '<span class="azd-code-number">$1</span>');
+                // Keywords per language
+                var kwList = [];
+                if (language === 'rust') {
+                    kwList = ['fn','let','mut','pub','struct','enum','impl','use','mod','return','if','else','for','while','match','self','Self','true','false','const','static','type','where','trait','async','await','move','ref','loop','break','continue','unsafe','extern','crate','super','as','in','dyn','Box','Vec','Option','Result','Some','None','Ok','Err','String'];
+                } else if (language === 'c' || language === 'cpp' || language === 'c++') {
+                    kwList = ['void','int','char','float','double','bool','struct','enum','typedef','return','if','else','for','while','do','switch','case','break','continue','const','static','extern','sizeof','NULL','true','false','auto','class','public','private','protected','virtual','override','new','delete','namespace','using','template','typename'];
+                } else if (language === 'python') {
+                    kwList = ['def','class','return','if','elif','else','for','while','import','from','as','with','try','except','finally','raise','pass','break','continue','None','True','False','self','lambda','yield','global','nonlocal','and','or','not','in','is'];
+                }
+                if (kwList.length) {
+                    var kwRegex = new RegExp('\\b(' + kwList.join('|') + ')\\b', 'g');
+                    h = h.replace(kwRegex, '<span class="azd-code-keyword">$1</span>');
+                }
+                return h;
+            }
         }
     },
 
