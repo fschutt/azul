@@ -90,7 +90,7 @@ dirs = { version = "6.0", default-features = false, optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS Foundation ICU backend — enabled via the `icu_macos` feature
 objc2 = { version = "0.6.0", optional = true }
-objc2-foundation = { version = "0.3.0", default-features = false, optional = true, features = [
+objc2-foundation = { version = "0.3.0", default-features = true, optional = true, features = [
     "std",
     "NSArray",
     "NSCalendar",
@@ -101,6 +101,7 @@ objc2-foundation = { version = "0.3.0", default-features = false, optional = tru
     "NSNumberFormatter",
     "NSObjCRuntime",
     "NSString",
+    "NSValue",
 ] }
 
 [features]
@@ -191,6 +192,12 @@ icu = ["dep:icu", "dep:icu_provider_blob", "dep:writeable", "std"]
 # NSListFormatter instead of bundling ICU4X data blobs (~3.3 MB savings).
 # On non-macOS platforms this feature is a no-op.
 icu_macos = ["objc2", "objc2-foundation"]
+
+# Windows NLS ICU backend — uses GetNumberFormatEx / GetDateFormatEx /
+# GetTimeFormatEx / CompareStringEx from kernel32.dll (dynamically loaded).
+# No new crate dependencies; no ICU data blobs bundled (~3.3 MB savings).
+# On non-Windows platforms this feature is a no-op.
+icu_windows = []
 
 # Add chrono support for Date.now() style APIs (optional with ICU)
 icu_chrono = ["icu", "dep:chrono"]

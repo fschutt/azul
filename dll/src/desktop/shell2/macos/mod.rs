@@ -3105,68 +3105,6 @@ impl MacOSWindow {
         Ok(())
     }
 
-    /// Perform GPU scrolling - updates scroll transforms without full relayout
-    pub fn gpu_scroll(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        delta_x: f32,
-        delta_y: f32,
-    ) -> Result<(), String> {
-        use azul_core::{
-            events::EasingFunction,
-            geom::LogicalPosition,
-        };
-
-        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
-
-        let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-
-        // Apply scroll using scroll_by
-        layout_window.scroll_manager.scroll_by(
-            dom_id,
-            node_id,
-            LogicalPosition::new(delta_x, delta_y),
-            azul_core::task::Duration::System(
-                azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
-            ),
-            EasingFunction::Linear,
-            (external.get_system_time_fn.cb)(),
-        );
-
-        // 2. Recalculate scrollbar states after scroll update
-        // This updates scrollbar thumb positions based on new scroll offsets
-        layout_window.scroll_manager.calculate_scrollbar_states();
-
-        // 3. Update WebRender scroll layers and GPU transforms
-        let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-
-        // Scroll all nodes in the scroll manager to WebRender
-        // This updates external scroll IDs with new offsets
-        crate::desktop::wr_translate2::scroll_all_nodes(layout_window, &mut txn);
-
-        // Synchronize GPU-animated values (transforms, opacities, scrollbar positions)
-        // Note: We need mutable access for gpu_state_manager updates
-        crate::desktop::wr_translate2::synchronize_gpu_values(layout_window, &mut txn);
-
-        // Generate frame (without rebuilding display list)
-        crate::desktop::wr_translate2::generate_frame(
-            &mut txn,
-            layout_window,
-            self.common.render_api.as_mut().unwrap(),
-            false, // Display list not rebuilt, just transforms updated
-            &self.common.gl_context_ptr,
-        );
-
-        // Send transaction
-        self.common.render_api.as_mut().unwrap().send_transaction(
-            crate::desktop::wr_translate2::wr_translate_document_id(self.common.document_id.unwrap()),
-            txn,
-        );
-
-        Ok(())
-    }
-
     /// Apply initial window state at startup for fields not set during window creation.
     ///
     /// During new(), the following are already applied directly:
@@ -4606,7 +4544,7 @@ impl MacOSWindow {
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
-        let layout_unchanged = if self.common.frame_needs_regeneration {
+        let display_list_needs_rebuild = if self.common.frame_needs_regeneration {
             log_trace!(
                 LogCategory::Layout,
                 "[build_atomic_txn] Regenerating layout"
@@ -4625,8 +4563,11 @@ impl MacOSWindow {
                 }
             };
             self.common.frame_needs_regeneration = false;
-            result == crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged
+            // Layout was regenerated — rebuild display list unless layout result is identical
+            result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged
         } else {
+            // No layout regeneration needed (e.g. scroll-only update) —
+            // use lightweight transaction (scroll offsets + GPU values only)
             false
         };
 
@@ -4660,20 +4601,8 @@ impl MacOSWindow {
             "[build_atomic_txn] Building transaction"
         );
 
-        // Build transaction: full rebuild if layout changed, lightweight if unchanged
-        if layout_unchanged {
-            // DOM structure didn't change — only re-invoke image callbacks
-            // (skip font/image resources, display list translation, root pipeline setup)
-            crate::desktop::wr_translate2::build_image_only_transaction(
-                &mut txn,
-                layout_window,
-                self.common.render_api.as_mut().unwrap(),
-                &self.common.gl_context_ptr,
-            )
-            .map_err(|e| {
-                WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e).into())
-            })?;
-        } else {
+        // Build transaction: full rebuild if display list changed, lightweight otherwise
+        if display_list_needs_rebuild {
             // Full rebuild: fonts, images, display lists, everything
             crate::desktop::wr_translate2::build_webrender_transaction(
                 &mut txn,
@@ -4684,6 +4613,18 @@ impl MacOSWindow {
             )
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
+            })?;
+        } else {
+            // Lightweight: re-invoke image callbacks, update scroll offsets + GPU values
+            // Skips scene builder (display lists haven't changed)
+            crate::desktop::wr_translate2::build_image_only_transaction(
+                &mut txn,
+                layout_window,
+                self.common.render_api.as_mut().unwrap(),
+                &self.common.gl_context_ptr,
+            )
+            .map_err(|e| {
+                WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e).into())
             })?;
         }
 

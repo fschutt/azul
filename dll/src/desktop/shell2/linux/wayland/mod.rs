@@ -170,6 +170,10 @@ pub struct WaylandWindow {
 
     // V2 Event system state
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
+    /// Set to true when a visual update is needed but no layout regeneration is required.
+    /// This happens when scroll offsets change (timer callbacks) or GPU values are updated.
+    /// The next `render_frame_if_ready()` will send a lightweight transaction.
+    pub needs_redraw: bool,
 
     // Native timer support via timerfd (Linux-specific)
     // Maps TimerId -> (timerfd file descriptor)
@@ -523,8 +527,9 @@ impl WaylandWindow {
         self.is_open = false;
     }
     pub fn request_redraw(&mut self) {
+        self.needs_redraw = true;
         if self.configured {
-            self.present().ok();
+            self.generate_frame_if_needed();
         }
     }
 
@@ -866,6 +871,7 @@ impl WaylandWindow {
             keyboard_state: events::WaylandKeyboardState::new(),
             pointer_state: events::PointerState::new(),
             frame_callback_pending: false,
+            needs_redraw: false,
             timer_fds: std::collections::BTreeMap::new(),
             #[cfg(feature = "a11y")]
             accessibility_adapter: LinuxAccessibilityAdapter::new(),
@@ -2493,15 +2499,19 @@ impl WaylandWindow {
         }
     }
 
-    /// Generate frame if needed and reset flag
+    /// Render a frame if needed, sending the appropriate WebRender transaction.
     ///
-    /// This method implements the Wayland frame callback pattern for VSync:
-    /// 1. Send WebRender transaction with updated display list
-    /// 2. Render to WebRender
-    /// 3. Swap buffers (if GPU mode)
-    /// 4. Set up frame callback for next frame
+    /// Two paths:
+    /// 1. **Full path** (`frame_needs_regeneration = true`): Regenerate layout, build full
+    ///    transaction (fonts, images, display lists, scroll offsets, GPU values).
+    /// 2. **Lightweight path** (`needs_redraw = true`, layout unchanged): Build lightweight
+    ///    transaction (image callbacks, scroll offsets, GPU values only — skip scene builder).
+    ///
+    /// After sending the transaction, renders via WebRender and swaps buffers.
+    /// Sets up Wayland frame callback for VSync.
     pub fn generate_frame_if_needed(&mut self) {
-        if !self.common.frame_needs_regeneration || self.frame_callback_pending {
+        let needs_work = self.common.frame_needs_regeneration || self.needs_redraw;
+        if !needs_work || self.frame_callback_pending {
             return;
         }
 
@@ -2512,19 +2522,69 @@ impl WaylandWindow {
             gl_context.make_current();
         }
 
-        // Send the WebRender transaction BEFORE rendering
-        if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
-            self.common.layout_window.as_mut(),
-            self.common.render_api.as_mut(),
-            self.common.document_id,
-        ) {
-            crate::desktop::shell2::common::layout::generate_frame(
-                layout_window,
-                render_api,
-                document_id,
-                &self.common.gl_context_ptr,
-            );
+        if self.common.frame_needs_regeneration {
+            // FULL PATH: Regenerate layout + build full transaction
+            if let Err(e) = self.regenerate_layout() {
+                log_error!(
+                    LogCategory::Layout,
+                    "[Wayland] Layout regeneration failed: {:?}",
+                    e
+                );
+            }
+            self.common.frame_needs_regeneration = false;
+
+            // Send the full transaction (regenerate_layout only re-runs layout, doesn't
+            // build/send the WebRender transaction on Wayland)
+            if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+                self.common.document_id,
+            ) {
+                crate::desktop::shell2::common::layout::generate_frame(
+                    layout_window,
+                    render_api,
+                    document_id,
+                    &self.common.gl_context_ptr,
+                );
+            }
+        } else {
+            // LIGHTWEIGHT PATH: Scroll offsets + GPU values + image callbacks only
+            if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+                self.common.document_id,
+            ) {
+                // Advance easing-based scroll animations
+                {
+                    #[cfg(feature = "std")]
+                    let now = azul_core::task::Instant::System(std::time::Instant::now().into());
+                    #[cfg(not(feature = "std"))]
+                    let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+                    let _tick_result = layout_window.scroll_manager.tick(now);
+                }
+
+                let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
+                if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
+                    &mut txn,
+                    layout_window,
+                    render_api,
+                    &self.common.gl_context_ptr,
+                ) {
+                    log_error!(
+                        LogCategory::Rendering,
+                        "[Wayland] Failed to build lightweight transaction: {}",
+                        e
+                    );
+                }
+
+                render_api.send_transaction(
+                    crate::desktop::wr_translate2::wr_translate_document_id(document_id),
+                    txn,
+                );
+            }
         }
+
+        self.needs_redraw = false;
 
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, _) => {
@@ -2788,7 +2848,7 @@ extern "C" fn frame_done_callback(
     window.frame_callback_pending = false;
 
     // If there are more changes pending, request another frame
-    if window.common.frame_needs_regeneration {
+    if window.common.frame_needs_regeneration || window.needs_redraw {
         window.generate_frame_if_needed();
     }
 }
@@ -2993,9 +3053,14 @@ impl WaylandWindow {
 
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
+    /// If any timer/thread callback requested a visual update, mark needs_redraw
+    /// and attempt to render immediately (if no frame callback is pending).
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event::PlatformWindow;
-        self.process_timers_and_threads();
+        if self.process_timers_and_threads() {
+            self.needs_redraw = true;
+            self.generate_frame_if_needed();
+        }
     }
 
     /// Returns the logical size of the window's surface.

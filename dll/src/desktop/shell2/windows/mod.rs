@@ -545,8 +545,12 @@ impl Win32Window {
         // NOTE: We do NOT show the window here! The window will be shown by run.rs
         // after this function returns and after waiting for new_frame_ready signal.
         {
-            result.common.frame_needs_regeneration = true;
-            let _ = result.render_and_present();
+            // Send first frame: regenerate layout + full transaction
+            if let Err(e) = result.regenerate_layout() {
+                log_error!(LogCategory::Layout, "First frame layout error: {:?}", e);
+            }
+            result.common.frame_needs_regeneration = false;
+            let _ = result.render_and_present(true);
         }
         timing_log!("Render first frame (async - not waiting for completion)");
 
@@ -654,7 +658,14 @@ impl Win32Window {
     }
 
     /// Render and present a frame
-    pub fn render_and_present(&mut self) -> Result<(), WindowError> {
+    /// Render and present a frame.
+    ///
+    /// When `layout_was_regenerated = true`, the full WebRender transaction (display lists,
+    /// fonts, images, scroll offsets, GPU values) was already sent by `regenerate_layout()`.
+    /// When `layout_was_regenerated = false` (scroll-only update, image callback update),
+    /// we send a lightweight transaction with just scroll offsets, GPU values and image
+    /// callback re-invocations — no display list rebuild.
+    pub fn render_and_present(&mut self, layout_was_regenerated: bool) -> Result<(), WindowError> {
         let renderer = self
             .renderer
             .as_mut()
@@ -687,7 +698,54 @@ impl Win32Window {
                 }
             }
 
+            // If layout was NOT regenerated, we still need to send a lightweight
+            // transaction so scroll offsets and GPU values reach WebRender.
+            // When layout WAS regenerated, regenerate_layout() already sent the
+            // full transaction via common::layout::generate_frame().
+            if !layout_was_regenerated {
+                if let (Some(layout_window), Some(render_api)) = (
+                    self.common.layout_window.as_mut(),
+                    self.common.render_api.as_mut(),
+                ) {
+                    // Advance easing-based scroll animations
+                    {
+                        #[cfg(feature = "std")]
+                        let now = azul_core::task::Instant::System(std::time::Instant::now().into());
+                        #[cfg(not(feature = "std"))]
+                        let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+                        let _tick_result = layout_window.scroll_manager.tick(now);
+                    }
+
+                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
+                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
+                        &mut txn,
+                        layout_window,
+                        render_api,
+                        &self.common.gl_context_ptr,
+                    ) {
+                        log_error!(
+                            LogCategory::Rendering,
+                            "[Win32] Failed to build lightweight transaction: {}",
+                            e
+                        );
+                    }
+
+                    if let Some(document_id) = self.common.document_id {
+                        render_api.send_transaction(
+                            crate::desktop::wr_translate2::wr_translate_document_id(document_id),
+                            txn,
+                        );
+                        render_api.flush_scene_builder();
+                    }
+                }
+            }
+
             // Update WebRender
+            // NOTE: renderer was moved into unsafe block scope, re-borrow
+            let renderer = self
+                .renderer
+                .as_mut()
+                .ok_or_else(|| WindowError::PlatformError("No renderer available".into()))?;
             renderer.update();
 
             // Render frame
@@ -1367,67 +1425,6 @@ impl Win32Window {
         self.common.current_window_state.size.get_hidpi_factor()
     }
 
-    /// GPU scroll implementation (similar to macOS)
-    pub fn gpu_scroll(
-        &mut self,
-        dom_id: u64,
-        node_id: u64,
-        scroll_x: f32,
-        scroll_y: f32,
-    ) -> Result<(), String> {
-        let layout_window = match self.common.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return Err("No layout window".into()),
-        };
-
-        use azul_core::dom::{DomId, NodeId};
-
-        let dom_id = DomId {
-            inner: dom_id as usize,
-        };
-        let node_id = match NodeId::from_usize(node_id as usize) {
-            Some(nid) => nid,
-            None => return Err("Invalid node ID".into()),
-        };
-
-        // Apply scroll delta
-        // TODO: ScrollManager API changed - need to update this
-        /*
-        layout_window
-            .scroll_manager
-            .scroll_node_with_id(dom_id, node_id, scroll_x, scroll_y);
-        */
-
-        // CRITICAL: Make OpenGL context current BEFORE generate_frame
-        // The image callbacks (RenderImageCallback) need the GL context to be current
-        if let Some(hglrc) = self.gl_context {
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !self.hdc.is_null() {
-                    self.hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    hglrc as winapi::shared::windef::HGLRC,
-                );
-            }
-        }
-
-        // Generate frame with updated scroll state
-        crate::desktop::shell2::common::layout::generate_frame(
-            layout_window,
-            self.common.render_api.as_mut().unwrap(),
-            self.common.document_id.unwrap(),
-            &self.common.gl_context_ptr,
-        );
-        self.common.render_api.as_mut().unwrap().flush_scene_builder();
-
-        Ok(())
-    }
-
     /// Non-blocking event polling for Windows.
     /// Processes one event if available, returns immediately if not.
     pub fn poll_event_internal(&mut self) -> bool {
@@ -1445,7 +1442,10 @@ impl Win32Window {
 
         if frame_ready {
             // A frame is ready in WebRender's backbuffer - present it
-            if let Err(e) = self.render_and_present() {
+            // No layout regeneration happened here, but the transaction was already
+            // sent when frame_needs_regeneration was processed in WM_PAINT.
+            // If no transaction was pending, this is a no-op render.
+            if let Err(e) = self.render_and_present(false) {
                 log_error!(LogCategory::Rendering, "Failed to present frame: {:?}", e);
             }
         }
@@ -1809,16 +1809,18 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_PAINT => {
-            // Render frame if needed
-            if window.common.frame_needs_regeneration {
-                // Initial render: build display list and generate frame
+            // Determine if layout needs regeneration (DOM changed)
+            let layout_was_regenerated = if window.common.frame_needs_regeneration {
                 if let Err(e) = window.regenerate_layout() {
                     log_error!(LogCategory::Layout, "Layout regeneration error: {:?}", e);
                 }
                 window.common.frame_needs_regeneration = false;
-            }
+                true
+            } else {
+                false
+            };
 
-            match window.render_and_present() {
+            match window.render_and_present(layout_was_regenerated) {
                 Ok(_) => {}
                 Err(e) => {
                     log_error!(LogCategory::Rendering, "Render error: {:?}", e);
@@ -3140,7 +3142,9 @@ impl Win32Window {
     }
 
     pub fn present(&mut self) -> Result<(), WindowError> {
-        self.render_and_present()
+        // present() is called from external code — always send lightweight transaction
+        // to ensure any pending scroll/GPU changes are flushed
+        self.render_and_present(false)
             .map_err(|e| WindowError::PlatformError(format!("Present failed: {}", e)))
     }
 

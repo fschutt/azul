@@ -2896,8 +2896,15 @@ pub trait PlatformWindow {
 
     /// GPU-accelerated smooth scrolling.
     ///
-    /// This applies a scroll delta to a node and updates WebRender's display list
-    /// for smooth GPU-based scrolling.
+    /// Updates the ScrollManager state with the scroll delta. Does NOT set
+    /// `frame_needs_regeneration` — scrolling only requires a lightweight
+    /// WebRender transaction (scroll offsets + GPU values), not a full layout
+    /// regeneration or display list rebuild.
+    ///
+    /// Callers (`handle_scrollbar_click`, `handle_scrollbar_drag`) return
+    /// `ShouldReRenderCurrentWindow` which triggers `request_redraw()`. The
+    /// platform render function then sends a lightweight transaction via
+    /// `build_image_only_transaction` (which includes `scroll_all_nodes`).
     ///
     /// ## Parameters
     /// * `dom_id` - The DOM ID containing the scrollable node
@@ -2924,7 +2931,7 @@ pub trait PlatformWindow {
 
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
 
-        // Apply scroll
+        // Apply scroll delta to ScrollManager
         layout_window.scroll_manager.scroll_by(
             dom_id,
             node_id,
@@ -2936,7 +2943,15 @@ pub trait PlatformWindow {
             (external.get_system_time_fn.cb)(),
         );
 
-        self.mark_frame_needs_regeneration();
+        // Recalculate scrollbar thumb positions after offset change
+        layout_window.scroll_manager.calculate_scrollbar_states();
+
+        // NOTE: We intentionally do NOT call mark_frame_needs_regeneration() here.
+        // Scroll offset changes are frame-level operations in WebRender
+        // (FrameMsg::SetScrollOffsets), not scene-level changes. The platform
+        // render function will send scroll offsets via build_image_only_transaction
+        // which calls scroll_all_nodes() + synchronize_gpu_values() +
+        // txn.skip_scene_builder() + txn.generate_frame().
         Ok(())
     }
 

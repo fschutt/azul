@@ -31,19 +31,19 @@ use std::sync::Mutex;
 use azul_css::AzString;
 
 // ICU4X-only imports (not used in the macOS Foundation backend)
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use icu::collator::{Collator, options::CollatorOptions};
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use icu::decimal::input::Decimal;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use icu::decimal::DecimalFormatter;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use icu::list::{ListFormatter, options::ListFormatterOptions};
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use icu::locale::Locale;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use icu::plurals::PluralRules;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 use writeable::Writeable;
 
 // macOS Foundation backend
@@ -51,13 +51,18 @@ use writeable::Writeable;
 #[path = "icu_macos.rs"]
 mod icu_macos;
 
+// Windows NLS backend
+#[cfg(all(target_os = "windows", feature = "icu_windows"))]
+#[path = "icu_windows.rs"]
+mod icu_windows;
+
 // Import FmtArg types from fmt module for format_string_icu
 use crate::fmt::{FmtArg, FmtArgVec, FmtValue};
 
 // Re-export ICU4X locale/plural types (only available with the ICU4X backend)
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 pub use icu::locale::locale;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 pub use icu::plurals::{PluralCategory as IcuPluralCategory, PluralRules as IcuPluralRules};
 
 /// Error type for ICU operations
@@ -119,7 +124,7 @@ pub enum PluralCategory {
     Other,
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 impl From<IcuPluralCategory> for PluralCategory {
     fn from(cat: IcuPluralCategory) -> Self {
         match cat {
@@ -356,9 +361,14 @@ impl IcuDateTime {
 #[cfg(all(target_os = "macos", feature = "icu_macos"))]
 pub use icu_macos::IcuLocalizer;
 
+// ─── Windows NLS backend ──────────────────────────────────────────────────────
+// When building for Windows with `icu_windows` feature, use Win32 NLS functions.
+#[cfg(all(target_os = "windows", feature = "icu_windows"))]
+pub use icu_windows::IcuLocalizer;
+
 // ─── ICU4X backend ────────────────────────────────────────────────────────────
-// Used on all other platforms (or on macOS when `icu_macos` is not enabled).
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+// Used on all other platforms (or when no OS-native backend is enabled).
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 /// The main ICU localizer that holds formatters for the current locale.
 ///
 /// This struct is thread-safe and can be shared across callbacks.
@@ -384,7 +394,7 @@ pub struct IcuLocalizer {
     collator: Option<Collator>,
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 impl core::fmt::Debug for IcuLocalizer {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("IcuLocalizer")
@@ -394,7 +404,7 @@ impl core::fmt::Debug for IcuLocalizer {
     }
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 impl IcuLocalizer {
     /// Create a new localizer with the given locale string (BCP 47 format).
     ///
@@ -871,14 +881,14 @@ impl IcuLocalizer {
     }
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 impl Default for IcuLocalizer {
     fn default() -> Self {
         Self::new("en-US")
     }
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos"))))]
+#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
 impl Clone for IcuLocalizer {
     fn clone(&self) -> Self {
         // Clone without cached formatters (they'll be recreated on demand)

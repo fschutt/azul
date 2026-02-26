@@ -1518,13 +1518,16 @@ impl X11Window {
     /// 3. Call renderer.update() and renderer.render()
     /// 4. Swap buffers to show the rendered frame
     pub fn render_and_present(&mut self) -> Result<(), WindowError> {
-        // Step 1: Regenerate layout if needed
-        if self.common.frame_needs_regeneration {
+        // Step 1: Regenerate layout if needed, otherwise send lightweight transaction
+        let layout_was_regenerated = if self.common.frame_needs_regeneration {
             if let Err(e) = self.regenerate_layout() {
                 return Err(WindowError::PlatformError(format!("Layout failed: {}", e)));
             }
             self.common.frame_needs_regeneration = false;
-        }
+            true
+        } else {
+            false
+        };
 
         // Step 2: Make sure we have required components
         let renderer = match self.common.renderer.as_mut() {
@@ -1539,7 +1542,55 @@ impl X11Window {
             gl_context.make_current();
         }
 
-        // Step 4: Update WebRender
+        // Step 3.5: If layout was NOT regenerated, send lightweight transaction
+        // for scroll offsets + GPU values + image callback updates.
+        // When layout WAS regenerated, regenerate_layout() already sent the full
+        // transaction via common::layout::generate_frame().
+        if !layout_was_regenerated {
+            if let (Some(layout_window), Some(render_api)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+            ) {
+                // Advance easing-based scroll animations
+                {
+                    #[cfg(feature = "std")]
+                    let now = azul_core::task::Instant::System(std::time::Instant::now().into());
+                    #[cfg(not(feature = "std"))]
+                    let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+                    let _tick_result = layout_window.scroll_manager.tick(now);
+                }
+
+                let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
+                if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
+                    &mut txn,
+                    layout_window,
+                    render_api,
+                    &self.common.gl_context_ptr,
+                ) {
+                    log_error!(
+                        LogCategory::Rendering,
+                        "[X11] Failed to build lightweight transaction: {}",
+                        e
+                    );
+                }
+
+                if let Some(document_id) = self.common.document_id {
+                    render_api.send_transaction(
+                        crate::desktop::wr_translate2::wr_translate_document_id(document_id),
+                        txn,
+                    );
+                    render_api.flush_scene_builder();
+                }
+            }
+        }
+
+        // Step 4: Update WebRender (re-borrow renderer after layout_window borrow)
+        let renderer = match self.common.renderer.as_mut() {
+            Some(r) => r,
+            None => {
+                return Err(WindowError::PlatformError("No renderer available".into()));
+            }
+        };
         renderer.update();
 
         // Step 5: Render frame
@@ -2554,9 +2605,13 @@ impl X11Window {
 impl X11Window {
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
+    /// If any timer/thread callback requested a visual update, trigger a redraw
+    /// so that scroll offsets / GPU values are sent to WebRender.
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event::PlatformWindow;
-        self.process_timers_and_threads();
+        if self.process_timers_and_threads() {
+            self.request_redraw();
+        }
     }
 
     /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)

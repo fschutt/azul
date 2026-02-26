@@ -163,11 +163,13 @@ build-dll = [
     "clipboard-win",
     # Windows needs libm
     "libm",
-    # ICU: Foundation backend on macOS (icu_macos), ICU4X on Linux/Windows (icu).
-    # Both are listed; the cfg conditions in layout/src/icu.rs ensure only one
-    # backend is compiled per platform.
+    # ICU backends: each platform picks the best one via cfg conditions.
+    # macOS  → icu_macos  (Foundation, no data blobs)
+    # Windows → icu_windows (Win32 NLS, no data blobs)
+    # Linux  → icu        (ICU4X, data blobs — no system alternative)
     "icu",
     "icu_macos",
+    "icu_windows",
     # Fluent localization support
     "fluent",
     # HTTP client support
@@ -277,6 +279,10 @@ icu_chrono = ["icu", "azul-layout/icu_chrono"]
 # macOS Foundation ICU backend (replaces ICU4X data blobs on macOS, ~3.3 MB savings).
 # On non-macOS platforms this feature is a no-op.
 icu_macos = ["azul-layout", "azul-layout/icu_macos"]
+
+# Windows NLS ICU backend (replaces ICU4X data blobs on Windows, ~3.3 MB savings).
+# On non-Windows platforms this feature is a no-op.
+icu_windows = ["azul-layout", "azul-layout/icu_windows"]
 
 # Project Fluent localization support (FTL files, language packs)
 fluent = ["azul-layout", "azul-layout/fluent"]
