@@ -115,25 +115,36 @@ pub fn get_element_font_size(
         .unwrap_or(DEFAULT_FONT_SIZE)
 }
 
-/// Helper function to get parent's computed font-size
+/// Helper function to get parent's computed font-size.
+///
+/// Retrieves the parent's own `StyledNodeState` so that pseudo-class-specific
+/// font-size rules (e.g. `div:hover { font-size: 32px }`) are resolved
+/// against the parent's actual state, not the child's.
 pub fn get_parent_font_size(
     styled_dom: &StyledDom,
     dom_id: NodeId,
-    node_state: &StyledNodeState,
+    _node_state: &StyledNodeState, // child's state — intentionally unused
 ) -> f32 {
     styled_dom
         .node_hierarchy
         .as_container()
         .get(dom_id)
         .and_then(|node| node.parent_id())
-        .map(|parent_id| get_element_font_size(styled_dom, parent_id, node_state))
+        .map(|parent_id| {
+            let parent_state = &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state;
+            get_element_font_size(styled_dom, parent_id, parent_state)
+        })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
 }
 
-/// Helper function to get root element's font-size
-pub fn get_root_font_size(styled_dom: &StyledDom, node_state: &StyledNodeState) -> f32 {
-    // Root is always NodeId(0) in Azul
-    get_element_font_size(styled_dom, NodeId::new(0), node_state)
+/// Helper function to get root element's font-size.
+///
+/// Uses the root element's own `StyledNodeState` so that pseudo-class-specific
+/// rules are resolved correctly regardless of which node triggered the call.
+pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState) -> f32 {
+    let root_id = NodeId::new(0);
+    let root_state = &styled_dom.styled_nodes.as_container()[root_id].styled_node_state;
+    get_element_font_size(styled_dom, root_id, root_state)
 }
 
 /// A value that can be Auto, Initial, Inherit, or an explicit value.
