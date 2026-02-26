@@ -300,7 +300,7 @@ fn test_tessellate_path_stroke_square() {
 #[test]
 fn test_tessellate_multi_polygon_fill() {
     let path = create_square_path();
-    let polygon = SvgMultiPolygon::new(vec![path].into());
+    let polygon = SvgMultiPolygon::create(vec![path].into());
 
     let fill_style = SvgFillStyle::default();
     let result = tessellate_multi_polygon_fill(&polygon, fill_style);

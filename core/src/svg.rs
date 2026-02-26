@@ -301,7 +301,7 @@ impl_option!(
 impl SvgPath {
     /// Creates a new SvgPath from a vector of path elements
     #[inline]
-    pub const fn new(items: SvgPathElementVec) -> Self {
+    pub const fn create(items: SvgPathElementVec) -> Self {
         Self { items }
     }
 
@@ -423,7 +423,7 @@ impl SvgMultiPolygon {
     /// Creates a new SvgMultiPolygon from a vector of paths (rings)
     /// NOTE: If a ring represents a hole, simply reverse the order of points
     #[inline]
-    pub const fn new(rings: SvgPathVec) -> Self {
+    pub const fn create(rings: SvgPathVec) -> Self {
         Self { rings }
     }
 

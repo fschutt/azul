@@ -51440,7 +51440,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a new SvgPath from a vector of path elements"
                                 ],
@@ -51449,7 +51449,7 @@
                                         "items": "SvgPathElementVec"
                                     }
                                 ],
-                                "fn_body": "azul_core::svg::SvgPath::new(items)"
+                                "fn_body": "azul_core::svg::SvgPath::create(items)"
                             }
                         },
                         "functions": {
@@ -51546,7 +51546,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a new SvgMultiPolygon from a vector of paths (rings)",
                                     "NOTE: If a ring represents a hole, simply reverse the order of points"
@@ -51556,7 +51556,7 @@
                                         "rings": "SvgPathVec"
                                     }
                                 ],
-                                "fn_body": "azul_core::svg::SvgMultiPolygon::new(rings)"
+                                "fn_body": "azul_core::svg::SvgMultiPolygon::create(rings)"
                             }
                         },
                         "functions": {
