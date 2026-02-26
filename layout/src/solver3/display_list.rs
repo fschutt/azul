@@ -117,6 +117,60 @@ pub struct StyleBorderStyles {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BorderBoxRect(pub LogicalRect);
 
+/// A `LogicalRect` known to be in **absolute window coordinates** (as output
+/// by the layout engine).  All spatial bounds stored in [`DisplayListItem`] use
+/// this type so that the compositor is *forced* to convert them to
+/// frame-relative coordinates before passing them to WebRender.
+///
+/// ## Coordinate-space contract
+///
+/// * **Layout engine** produces `WindowLogicalRect` values.
+/// * **Compositor** converts via `resolve_rect()` → WebRender `LayoutRect`.
+/// * Passing a `WindowLogicalRect` directly to a WebRender push function is a
+///   **type error** (it wraps `LogicalRect`, not `LayoutRect`).
+///
+/// See `doc/SCROLL_COORDINATE_ARCHITECTURE.md` for background.
+#[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct WindowLogicalRect(pub LogicalRect);
+
+impl WindowLogicalRect {
+    #[inline]
+    pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
+        Self(LogicalRect::new(origin, size))
+    }
+
+    #[inline]
+    pub const fn zero() -> Self {
+        Self(LogicalRect::zero())
+    }
+
+    /// Access the inner `LogicalRect` (still in window space – the caller is
+    /// responsible for applying any offset conversion).
+    #[inline]
+    pub const fn inner(&self) -> &LogicalRect {
+        &self.0
+    }
+
+    #[inline]
+    pub const fn into_inner(self) -> LogicalRect {
+        self.0
+    }
+
+    // Convenience accessors
+    #[inline] pub fn origin(&self) -> LogicalPosition { self.0.origin }
+    #[inline] pub fn size(&self)   -> LogicalSize     { self.0.size }
+}
+
+impl From<LogicalRect> for WindowLogicalRect {
+    #[inline]
+    fn from(r: LogicalRect) -> Self { Self(r) }
+}
+
+impl From<WindowLogicalRect> for LogicalRect {
+    #[inline]
+    fn from(w: WindowLogicalRect) -> Self { w.0 }
+}
+
 /// Simple struct for passing element dimensions to border-radius calculation
 #[derive(Debug, Clone, Copy)]
 pub struct PhysicalSizeImport {
@@ -134,19 +188,19 @@ pub struct PhysicalSizeImport {
 #[derive(Debug, Clone)]
 pub struct ScrollbarDrawInfo {
     /// Overall bounds of the entire scrollbar (including track and buttons)
-    pub bounds: LogicalRect,
+    pub bounds: WindowLogicalRect,
     /// Scrollbar orientation (horizontal or vertical)
     pub orientation: ScrollbarOrientation,
 
     // Track area (the background rail)
     /// Bounds of the track area
-    pub track_bounds: LogicalRect,
+    pub track_bounds: WindowLogicalRect,
     /// Color of the track background
     pub track_color: ColorU,
 
     // Thumb (the draggable part)
     /// Bounds of the thumb
-    pub thumb_bounds: LogicalRect,
+    pub thumb_bounds: WindowLogicalRect,
     /// Color of the thumb
     pub thumb_color: ColorU,
     /// Border radius for rounded thumb corners
@@ -154,9 +208,9 @@ pub struct ScrollbarDrawInfo {
 
     // Optional buttons (arrows at ends)
     /// Optional decrement button bounds (up/left arrow)
-    pub button_decrement_bounds: Option<LogicalRect>,
+    pub button_decrement_bounds: Option<WindowLogicalRect>,
     /// Optional increment button bounds (down/right arrow)
-    pub button_increment_bounds: Option<LogicalRect>,
+    pub button_increment_bounds: Option<WindowLogicalRect>,
     /// Color for buttons
     pub button_color: ColorU,
 
@@ -263,7 +317,7 @@ impl DisplayList {
                     writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},", 
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
                     writeln!(json, "      \"border_radius\": {{ \"tl\": {:.1}, \"tr\": {:.1}, \"bl\": {:.1}, \"br\": {:.1} }},",
                         border_radius.top_left, border_radius.top_right,
                         border_radius.bottom_left, border_radius.bottom_right).unwrap();
@@ -291,8 +345,8 @@ impl DisplayList {
                     writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"clip_bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        clip_bounds.origin.x, clip_bounds.origin.y,
-                        clip_bounds.size.width, clip_bounds.size.height).unwrap();
+                        clip_bounds.0.origin.x, clip_bounds.0.origin.y,
+                        clip_bounds.0.size.width, clip_bounds.0.size.height).unwrap();
                     writeln!(
                         json,
                         "      \"content_size\": {{ \"w\": {:.1}, \"h\": {:.1} }},",
@@ -320,7 +374,7 @@ impl DisplayList {
                     writeln!(json, "      \"stacking_depth\": {},", stacking_depth).unwrap();
                     writeln!(json, "      \"z_index\": {},", z_index).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
                 }
                 DisplayListItem::PopStackingContext => {
@@ -348,7 +402,7 @@ impl DisplayList {
                     writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
                     writeln!(
                         json,
                         "      \"color\": \"rgba({},{},{},{})\",",
@@ -365,7 +419,7 @@ impl DisplayList {
                     writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
                     writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
                 }
@@ -377,8 +431,8 @@ impl DisplayList {
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"orientation\": \"{:?}\",", info.orientation).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
-                        info.bounds.origin.x, info.bounds.origin.y,
-                        info.bounds.size.width, info.bounds.size.height).unwrap();
+                        info.bounds.0.origin.x, info.bounds.0.origin.y,
+                        info.bounds.0.size.width, info.bounds.0.size.height).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
                 }
                 _ => {
@@ -422,8 +476,8 @@ pub enum DisplayListItem {
     /// A filled rectangle with optional rounded corners.
     /// Used for backgrounds, colored boxes, and other solid fills.
     Rect {
-        /// The rectangle bounds in logical coordinates
-        bounds: LogicalRect,
+        /// The rectangle bounds in absolute window coordinates
+        bounds: WindowLogicalRect,
         /// The fill color (RGBA)
         color: ColorU,
         /// Corner radii for rounded rectangles
@@ -432,8 +486,8 @@ pub enum DisplayListItem {
     /// A selection highlight rectangle (e.g., for text selection).
     /// Rendered behind text to show selected regions.
     SelectionRect {
-        /// The rectangle bounds in logical coordinates
-        bounds: LogicalRect,
+        /// The rectangle bounds in absolute window coordinates
+        bounds: WindowLogicalRect,
         /// Corner radii for rounded selection
         border_radius: BorderRadius,
         /// The selection highlight color (typically semi-transparent)
@@ -443,7 +497,7 @@ pub enum DisplayListItem {
     /// Typically a thin vertical line indicating text insertion point.
     CursorRect {
         /// The cursor bounds (usually narrow width)
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         /// The cursor color
         color: ColorU,
     },
@@ -451,7 +505,7 @@ pub enum DisplayListItem {
     /// Supports different styles per side (solid, dashed, dotted, etc.).
     Border {
         /// The border-box bounds
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         /// Border widths for each side
         widths: StyleBorderWidths,
         /// Border colors for each side
@@ -466,7 +520,7 @@ pub enum DisplayListItem {
     /// the original text, glyph-to-unicode mapping, and positioning info
     TextLayout {
         layout: Arc<dyn std::any::Any + Send + Sync>, // Type-erased UnifiedLayout
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         font_hash: FontHash,
         font_size_px: f32,
         color: ColorU,
@@ -477,34 +531,34 @@ pub enum DisplayListItem {
         font_hash: FontHash, // Changed from FontRef - just store the hash
         font_size_px: f32,
         color: ColorU,
-        clip_rect: LogicalRect,
+        clip_rect: WindowLogicalRect,
     },
     /// Underline decoration for text (CSS text-decoration: underline)
     Underline {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         color: ColorU,
         thickness: f32,
     },
     /// Strikethrough decoration for text (CSS text-decoration: line-through)
     Strikethrough {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         color: ColorU,
         thickness: f32,
     },
     /// Overline decoration for text (CSS text-decoration: overline)
     Overline {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         color: ColorU,
         thickness: f32,
     },
     Image {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         image: ImageRef,
     },
     /// A dedicated primitive for a scrollbar with optional GPU-animated opacity.
     /// This is a simple single-color scrollbar used for basic rendering.
     ScrollBar {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         color: ColorU,
         orientation: ScrollbarOrientation,
         /// Optional opacity key for GPU-side fading animation.
@@ -531,9 +585,9 @@ pub enum DisplayListItem {
         /// The DomId of the child DOM (similar to webrender's pipeline_id)
         child_dom_id: DomId,
         /// The bounds where the IFrame should be rendered
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         /// The clip rect for the IFrame content
-        clip_rect: LogicalRect,
+        clip_rect: WindowLogicalRect,
     },
 
     /// Placeholder emitted during display list generation for IFrame nodes.
@@ -548,16 +602,16 @@ pub enum DisplayListItem {
         /// The DOM NodeId of the IFrame element in the parent DOM
         node_id: NodeId,
         /// The layout bounds of the IFrame container
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         /// The clip rect (same as bounds initially, may be adjusted)
-        clip_rect: LogicalRect,
+        clip_rect: WindowLogicalRect,
     },
 
     // --- State-Management Commands ---
     /// Pushes a new clipping rectangle onto the renderer's clip stack.
     /// All subsequent primitives will be clipped by this rect until a PopClip.
     PushClip {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         border_radius: BorderRadius,
     },
     /// Pops the current clip from the renderer's clip stack.
@@ -567,7 +621,7 @@ pub enum DisplayListItem {
     /// establishes a new coordinate system for its children, which can be offset.
     PushScrollFrame {
         /// The clip rect in the parent's coordinate space.
-        clip_bounds: LogicalRect,
+        clip_bounds: WindowLogicalRect,
         /// The total size of the scrollable content.
         content_size: LogicalSize,
         /// An ID for the renderer to track this scrollable area between frames.
@@ -582,7 +636,7 @@ pub enum DisplayListItem {
         /// The z-index for this stacking context (for debugging/validation)
         z_index: i32,
         /// The bounds of the stacking context root element
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
     },
     /// Pops the current stacking context.
     PopStackingContext,
@@ -596,33 +650,33 @@ pub enum DisplayListItem {
         /// The initial transform value (identity for drag, computed for CSS transform)
         initial_transform: ComputedTransform3D,
         /// The bounds of the reference frame (origin = transform origin)
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
     },
     /// Pops the current reference frame.
     PopReferenceFrame,
 
     /// Defines a region for hit-testing.
     HitTestArea {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         tag: DisplayListTagId, // This would be a renderer-agnostic ID type
     },
 
     // --- Gradient Primitives ---
     /// A linear gradient fill.
     LinearGradient {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         gradient: LinearGradient,
         border_radius: BorderRadius,
     },
     /// A radial gradient fill.
     RadialGradient {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         gradient: RadialGradient,
         border_radius: BorderRadius,
     },
     /// A conic (angular) gradient fill.
     ConicGradient {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         gradient: ConicGradient,
         border_radius: BorderRadius,
     },
@@ -630,7 +684,7 @@ pub enum DisplayListItem {
     // --- Shadow Effects ---
     /// A box shadow (either outset or inset).
     BoxShadow {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         shadow: StyleBoxShadow,
         border_radius: BorderRadius,
     },
@@ -638,7 +692,7 @@ pub enum DisplayListItem {
     // --- Filter Effects ---
     /// Push a filter effect that applies to subsequent content.
     PushFilter {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         filters: Vec<StyleFilter>,
     },
     /// Pop a previously pushed filter.
@@ -646,7 +700,7 @@ pub enum DisplayListItem {
 
     /// Push a backdrop filter (applies to content behind the element).
     PushBackdropFilter {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         filters: Vec<StyleFilter>,
     },
     /// Pop a previously pushed backdrop filter.
@@ -654,7 +708,7 @@ pub enum DisplayListItem {
 
     /// Push an opacity layer.
     PushOpacity {
-        bounds: LogicalRect,
+        bounds: WindowLogicalRect,
         opacity: f32,
     },
     /// Pop an opacity layer.
@@ -778,7 +832,7 @@ impl DisplayListBuilder {
     }
 
     pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: DisplayListTagId) {
-        self.push_item(DisplayListItem::HitTestArea { bounds, tag });
+        self.push_item(DisplayListItem::HitTestArea { bounds: bounds.into(), tag });
     }
 
     /// Push a simple single-color scrollbar (legacy method).
@@ -793,7 +847,7 @@ impl DisplayListBuilder {
         if color.a > 0 || opacity_key.is_some() {
             // Optimization: Don't draw fully transparent items without opacity keys.
             self.push_item(DisplayListItem::ScrollBar {
-                bounds,
+                bounds: bounds.into(),
                 color,
                 orientation,
                 opacity_key,
@@ -816,7 +870,7 @@ impl DisplayListBuilder {
         if color.a > 0 {
             // Optimization: Don't draw fully transparent items.
             self.push_item(DisplayListItem::Rect {
-                bounds,
+                bounds: bounds.into(),
                 color,
                 border_radius,
             });
@@ -986,7 +1040,7 @@ impl DisplayListBuilder {
         border_radius: BorderRadius,
     ) {
         self.push_item(DisplayListItem::LinearGradient {
-            bounds,
+            bounds: bounds.into(),
             gradient,
             border_radius,
         });
@@ -1000,7 +1054,7 @@ impl DisplayListBuilder {
         border_radius: BorderRadius,
     ) {
         self.push_item(DisplayListItem::RadialGradient {
-            bounds,
+            bounds: bounds.into(),
             gradient,
             border_radius,
         });
@@ -1014,7 +1068,7 @@ impl DisplayListBuilder {
         border_radius: BorderRadius,
     ) {
         self.push_item(DisplayListItem::ConicGradient {
-            bounds,
+            bounds: bounds.into(),
             gradient,
             border_radius,
         });
@@ -1028,7 +1082,7 @@ impl DisplayListBuilder {
     ) {
         if color.a > 0 {
             self.push_item(DisplayListItem::SelectionRect {
-                bounds,
+                bounds: bounds.into(),
                 color,
                 border_radius,
             });
@@ -1037,12 +1091,12 @@ impl DisplayListBuilder {
 
     pub fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
         if color.a > 0 {
-            self.push_item(DisplayListItem::CursorRect { bounds, color });
+            self.push_item(DisplayListItem::CursorRect { bounds: bounds.into(), color });
         }
     }
     pub fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
         self.push_item(DisplayListItem::PushClip {
-            bounds,
+            bounds: bounds.into(),
             border_radius,
         });
     }
@@ -1056,7 +1110,7 @@ impl DisplayListBuilder {
         scroll_id: LocalScrollId,
     ) {
         self.push_item(DisplayListItem::PushScrollFrame {
-            clip_bounds,
+            clip_bounds: clip_bounds.into(),
             content_size,
             scroll_id,
         });
@@ -1072,8 +1126,8 @@ impl DisplayListBuilder {
     ) {
         self.push_item(DisplayListItem::IFramePlaceholder {
             node_id,
-            bounds,
-            clip_rect,
+            bounds: bounds.into(),
+            clip_rect: clip_rect.into(),
         });
     }
     pub fn push_border(
@@ -1099,7 +1153,7 @@ impl DisplayListBuilder {
 
         if has_visible_border {
             self.push_item(DisplayListItem::Border {
-                bounds,
+                bounds: bounds.into(),
                 widths,
                 colors,
                 styles,
@@ -1109,7 +1163,7 @@ impl DisplayListBuilder {
     }
 
     pub fn push_stacking_context(&mut self, z_index: i32, bounds: LogicalRect) {
-        self.push_item(DisplayListItem::PushStackingContext { z_index, bounds });
+        self.push_item(DisplayListItem::PushStackingContext { z_index, bounds: bounds.into() });
     }
 
     pub fn pop_stacking_context(&mut self) {
@@ -1125,7 +1179,7 @@ impl DisplayListBuilder {
         self.push_item(DisplayListItem::PushReferenceFrame {
             transform_key,
             initial_transform,
-            bounds,
+            bounds: bounds.into(),
         });
     }
 
@@ -1158,7 +1212,7 @@ impl DisplayListBuilder {
                 font_hash,
                 font_size_px,
                 color,
-                clip_rect,
+                clip_rect: clip_rect.into(),
             });
         } else {
             self.debug_log(format!(
@@ -1180,7 +1234,7 @@ impl DisplayListBuilder {
         if color.a > 0 {
             self.push_item(DisplayListItem::TextLayout {
                 layout,
-                bounds,
+                bounds: bounds.into(),
                 font_hash,
                 font_size_px,
                 color,
@@ -1191,7 +1245,7 @@ impl DisplayListBuilder {
     pub fn push_underline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.push_item(DisplayListItem::Underline {
-                bounds,
+                bounds: bounds.into(),
                 color,
                 thickness,
             });
@@ -1201,7 +1255,7 @@ impl DisplayListBuilder {
     pub fn push_strikethrough(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.push_item(DisplayListItem::Strikethrough {
-                bounds,
+                bounds: bounds.into(),
                 color,
                 thickness,
             });
@@ -1211,7 +1265,7 @@ impl DisplayListBuilder {
     pub fn push_overline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.push_item(DisplayListItem::Overline {
-                bounds,
+                bounds: bounds.into(),
                 color,
                 thickness,
             });
@@ -1219,7 +1273,7 @@ impl DisplayListBuilder {
     }
 
     pub fn push_image(&mut self, bounds: LogicalRect, image: ImageRef) {
-        self.push_item(DisplayListItem::Image { bounds, image });
+        self.push_item(DisplayListItem::Image { bounds: bounds.into(), image });
     }
 }
 
@@ -1766,7 +1820,7 @@ where
 
             if opacity < 1.0 {
                 builder.push_item(DisplayListItem::PushOpacity {
-                    bounds: node_bounds,
+                    bounds: node_bounds.into(),
                     opacity,
                 });
                 pushed_opacity = true;
@@ -1780,7 +1834,7 @@ where
                     let filters: Vec<_> = filter_vec.as_ref().to_vec();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushFilter {
-                            bounds: node_bounds,
+                            bounds: node_bounds.into(),
                             filters,
                         });
                         pushed_filter = true;
@@ -1796,7 +1850,7 @@ where
                     let filters: Vec<_> = filter_vec.as_ref().to_vec();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushBackdropFilter {
-                            bounds: node_bounds,
+                            bounds: node_bounds.into(),
                             filters,
                         });
                         pushed_backdrop_filter = true;
@@ -2525,7 +2579,7 @@ where
                 ) {
                     if let Some(shadow) = shadow_value.get_property() {
                         builder.push_item(DisplayListItem::BoxShadow {
-                            bounds: paint_rect,
+                            bounds: paint_rect.into(),
                             shadow: shadow.clone(),
                             border_radius: simple_border_radius,
                         });
@@ -3018,15 +3072,15 @@ where
             let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
 
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
-                bounds: track_bounds,
+                bounds: track_bounds.into(),
                 orientation: ScrollbarOrientation::Vertical,
-                track_bounds,
+                track_bounds: track_bounds.into(),
                 track_color: scrollbar_style.track_color,
-                thumb_bounds,
+                thumb_bounds: thumb_bounds.into(),
                 thumb_color: scrollbar_style.thumb_color,
                 thumb_border_radius,
-                button_decrement_bounds,
-                button_increment_bounds,
+                button_decrement_bounds: button_decrement_bounds.map(|b| b.into()),
+                button_increment_bounds: button_increment_bounds.map(|b| b.into()),
                 button_color: debug_button_color,
                 opacity_key,
                 hit_id,
@@ -3101,15 +3155,15 @@ where
             let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
 
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
-                bounds: track_bounds,
+                bounds: track_bounds.into(),
                 orientation: ScrollbarOrientation::Horizontal,
-                track_bounds,
+                track_bounds: track_bounds.into(),
                 track_color: scrollbar_style.track_color,
-                thumb_bounds,
+                thumb_bounds: thumb_bounds.into(),
                 thumb_color: scrollbar_style.thumb_color,
                 thumb_border_radius,
-                button_decrement_bounds,
-                button_increment_bounds,
+                button_decrement_bounds: button_decrement_bounds.map(|b| b.into()),
+                button_increment_bounds: button_increment_bounds.map(|b| b.into()),
                 button_color: debug_button_color,
                 opacity_key,
                 hit_id,
@@ -3678,7 +3732,7 @@ fn get_image_ref_for_image_source(
 }
 
 /// Get the bounds of a display list item, if it has spatial extent.
-fn get_display_item_bounds(item: &DisplayListItem) -> Option<LogicalRect> {
+fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> {
     match item {
         DisplayListItem::Rect { bounds, .. } => Some(*bounds),
         DisplayListItem::SelectionRect { bounds, .. } => Some(*bounds),
@@ -3713,7 +3767,7 @@ fn clip_and_offset_display_item(
             bounds,
             color,
             border_radius,
-        } => clip_rect_item(*bounds, *color, *border_radius, page_top, page_bottom),
+        } => clip_rect_item(bounds.into_inner(), *color, *border_radius, page_top, page_bottom),
 
         DisplayListItem::Border {
             bounds,
@@ -3722,7 +3776,7 @@ fn clip_and_offset_display_item(
             styles,
             border_radius,
         } => clip_border_item(
-            *bounds,
+            bounds.into_inner(),
             *widths,
             *colors,
             *styles,
@@ -3735,14 +3789,14 @@ fn clip_and_offset_display_item(
             bounds,
             border_radius,
             color,
-        } => clip_selection_rect_item(*bounds, *border_radius, *color, page_top, page_bottom),
+        } => clip_selection_rect_item(bounds.into_inner(), *border_radius, *color, page_top, page_bottom),
 
         DisplayListItem::CursorRect { bounds, color } => {
-            clip_cursor_rect_item(*bounds, *color, page_top, page_bottom)
+            clip_cursor_rect_item(bounds.into_inner(), *color, page_top, page_bottom)
         }
 
         DisplayListItem::Image { bounds, image } => {
-            clip_image_item(*bounds, image.clone(), page_top, page_bottom)
+            clip_image_item(bounds.into_inner(), image.clone(), page_top, page_bottom)
         }
 
         DisplayListItem::TextLayout {
@@ -3753,7 +3807,7 @@ fn clip_and_offset_display_item(
             color,
         } => clip_text_layout_item(
             layout,
-            *bounds,
+            bounds.into_inner(),
             *font_hash,
             *font_size_px,
             *color,
@@ -3772,7 +3826,7 @@ fn clip_and_offset_display_item(
             *font_hash,
             *font_size_px,
             *color,
-            *clip_rect,
+            clip_rect.into_inner(),
             page_top,
             page_bottom,
         ),
@@ -3782,7 +3836,7 @@ fn clip_and_offset_display_item(
             color,
             thickness,
         } => clip_text_decoration_item(
-            *bounds,
+            bounds.into_inner(),
             *color,
             *thickness,
             TextDecorationType::Underline,
@@ -3795,7 +3849,7 @@ fn clip_and_offset_display_item(
             color,
             thickness,
         } => clip_text_decoration_item(
-            *bounds,
+            bounds.into_inner(),
             *color,
             *thickness,
             TextDecorationType::Strikethrough,
@@ -3808,7 +3862,7 @@ fn clip_and_offset_display_item(
             color,
             thickness,
         } => clip_text_decoration_item(
-            *bounds,
+            bounds.into_inner(),
             *color,
             *thickness,
             TextDecorationType::Overline,
@@ -3823,7 +3877,7 @@ fn clip_and_offset_display_item(
             opacity_key,
             hit_id,
         } => clip_scrollbar_item(
-            *bounds,
+            bounds.into_inner(),
             *color,
             *orientation,
             *opacity_key,
@@ -3833,32 +3887,32 @@ fn clip_and_offset_display_item(
         ),
 
         DisplayListItem::HitTestArea { bounds, tag } => {
-            clip_hit_test_area_item(*bounds, *tag, page_top, page_bottom)
+            clip_hit_test_area_item(bounds.into_inner(), *tag, page_top, page_bottom)
         }
 
         DisplayListItem::IFrame {
             child_dom_id,
             bounds,
             clip_rect,
-        } => clip_iframe_item(*child_dom_id, *bounds, *clip_rect, page_top, page_bottom),
+        } => clip_iframe_item(*child_dom_id, bounds.into_inner(), clip_rect.into_inner(), page_top, page_bottom),
 
         // ScrollBarStyled - clip based on overall bounds
         DisplayListItem::ScrollBarStyled { info } => {
             let bounds = info.bounds;
-            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+            if bounds.0.origin.y + bounds.0.size.height < page_top || bounds.0.origin.y > page_bottom {
                 None
             } else {
                 // Clone and offset all the internal bounds
                 let mut clipped_info = (**info).clone();
                 let y_offset = -page_top;
-                clipped_info.bounds = offset_rect_y(clipped_info.bounds, y_offset);
-                clipped_info.track_bounds = offset_rect_y(clipped_info.track_bounds, y_offset);
-                clipped_info.thumb_bounds = offset_rect_y(clipped_info.thumb_bounds, y_offset);
+                clipped_info.bounds = offset_rect_y(clipped_info.bounds.into_inner(), y_offset).into();
+                clipped_info.track_bounds = offset_rect_y(clipped_info.track_bounds.into_inner(), y_offset).into();
+                clipped_info.thumb_bounds = offset_rect_y(clipped_info.thumb_bounds.into_inner(), y_offset).into();
                 if let Some(b) = clipped_info.button_decrement_bounds {
-                    clipped_info.button_decrement_bounds = Some(offset_rect_y(b, y_offset));
+                    clipped_info.button_decrement_bounds = Some(offset_rect_y(b.into_inner(), y_offset).into());
                 }
                 if let Some(b) = clipped_info.button_increment_bounds {
-                    clipped_info.button_increment_bounds = Some(offset_rect_y(b, y_offset));
+                    clipped_info.button_increment_bounds = Some(offset_rect_y(b.into_inner(), y_offset).into());
                 }
                 Some(DisplayListItem::ScrollBarStyled {
                     info: Box::new(clipped_info),
@@ -3881,11 +3935,11 @@ fn clip_and_offset_display_item(
             gradient,
             border_radius,
         } => {
-            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+            if bounds.0.origin.y + bounds.0.size.height < page_top || bounds.0.origin.y > page_bottom {
                 None
             } else {
                 Some(DisplayListItem::LinearGradient {
-                    bounds: offset_rect_y(*bounds, -page_top),
+                    bounds: offset_rect_y(bounds.into_inner(), -page_top).into(),
                     gradient: gradient.clone(),
                     border_radius: *border_radius,
                 })
@@ -3896,11 +3950,11 @@ fn clip_and_offset_display_item(
             gradient,
             border_radius,
         } => {
-            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+            if bounds.0.origin.y + bounds.0.size.height < page_top || bounds.0.origin.y > page_bottom {
                 None
             } else {
                 Some(DisplayListItem::RadialGradient {
-                    bounds: offset_rect_y(*bounds, -page_top),
+                    bounds: offset_rect_y(bounds.into_inner(), -page_top).into(),
                     gradient: gradient.clone(),
                     border_radius: *border_radius,
                 })
@@ -3911,11 +3965,11 @@ fn clip_and_offset_display_item(
             gradient,
             border_radius,
         } => {
-            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+            if bounds.0.origin.y + bounds.0.size.height < page_top || bounds.0.origin.y > page_bottom {
                 None
             } else {
                 Some(DisplayListItem::ConicGradient {
-                    bounds: offset_rect_y(*bounds, -page_top),
+                    bounds: offset_rect_y(bounds.into_inner(), -page_top).into(),
                     gradient: gradient.clone(),
                     border_radius: *border_radius,
                 })
@@ -3928,11 +3982,11 @@ fn clip_and_offset_display_item(
             shadow,
             border_radius,
         } => {
-            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+            if bounds.0.origin.y + bounds.0.size.height < page_top || bounds.0.origin.y > page_bottom {
                 None
             } else {
                 Some(DisplayListItem::BoxShadow {
-                    bounds: offset_rect_y(*bounds, -page_top),
+                    bounds: offset_rect_y(bounds.into_inner(), -page_top).into(),
                     shadow: *shadow,
                     border_radius: *border_radius,
                 })
@@ -3972,7 +4026,7 @@ fn clip_rect_item(
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::Rect {
-        bounds: clipped,
+        bounds: clipped.into(),
         color,
         border_radius,
     })
@@ -3998,7 +4052,7 @@ fn clip_border_item(
             page_bottom,
         );
         DisplayListItem::Border {
-            bounds: clipped,
+            bounds: clipped.into(),
             widths: new_widths,
             colors,
             styles,
@@ -4040,7 +4094,7 @@ fn clip_selection_rect_item(
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::SelectionRect {
-        bounds: clipped,
+        bounds: clipped.into(),
         border_radius,
         color,
     })
@@ -4054,7 +4108,7 @@ fn clip_cursor_rect_item(
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::CursorRect {
-        bounds: clipped,
+        bounds: clipped.into(),
         color,
     })
 }
@@ -4070,7 +4124,7 @@ fn clip_image_item(
         return None;
     }
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::Image {
-        bounds: clipped,
+        bounds: clipped.into(),
         image,
     })
 }
@@ -4106,7 +4160,7 @@ fn clip_text_layout_item(
     // Fallback: simple bounds offset (legacy behavior)
     Some(DisplayListItem::TextLayout {
         layout: layout.clone(),
-        bounds: offset_rect_y(bounds, -page_top),
+        bounds: offset_rect_y(bounds, -page_top).into(),
         font_hash,
         font_size_px,
         color,
@@ -4164,7 +4218,7 @@ fn clip_unified_layout(
 
     Some(DisplayListItem::TextLayout {
         layout: Arc::new(new_layout) as Arc<dyn std::any::Any + Send + Sync>,
-        bounds: new_bounds,
+        bounds: new_bounds.into(),
         font_hash,
         font_size_px,
         color,
@@ -4255,7 +4309,7 @@ fn clip_text_item(
         font_hash,
         font_size_px,
         color,
-        clip_rect: offset_rect_y(clip_rect, -page_top),
+        clip_rect: offset_rect_y(clip_rect, -page_top).into(),
     })
 }
 
@@ -4270,17 +4324,17 @@ fn clip_text_decoration_item(
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| match decoration_type {
         TextDecorationType::Underline => DisplayListItem::Underline {
-            bounds: clipped,
+            bounds: clipped.into(),
             color,
             thickness,
         },
         TextDecorationType::Strikethrough => DisplayListItem::Strikethrough {
-            bounds: clipped,
+            bounds: clipped.into(),
             color,
             thickness,
         },
         TextDecorationType::Overline => DisplayListItem::Overline {
-            bounds: clipped,
+            bounds: clipped.into(),
             color,
             thickness,
         },
@@ -4298,7 +4352,7 @@ fn clip_scrollbar_item(
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::ScrollBar {
-        bounds: clipped,
+        bounds: clipped.into(),
         color,
         orientation,
         opacity_key,
@@ -4314,7 +4368,7 @@ fn clip_hit_test_area_item(
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::HitTestArea {
-        bounds: clipped,
+        bounds: clipped.into(),
         tag,
     })
 }
@@ -4329,8 +4383,8 @@ fn clip_iframe_item(
 ) -> Option<DisplayListItem> {
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::IFrame {
         child_dom_id,
-        bounds: clipped,
-        clip_rect: offset_rect_y(clip_rect, -page_top),
+        bounds: clipped.into(),
+        clip_rect: offset_rect_y(clip_rect, -page_top).into(),
     })
 }
 
@@ -4754,7 +4808,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             color,
             border_radius,
         } => DisplayListItem::Rect {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             color: *color,
             border_radius: *border_radius,
         },
@@ -4765,7 +4819,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             styles,
             border_radius,
         } => DisplayListItem::Border {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             widths: widths.clone(),
             colors: *colors,
             styles: *styles,
@@ -4794,7 +4848,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
                 font_hash: *font_hash,
                 font_size_px: *font_size_px,
                 color: *color,
-                clip_rect: offset_rect_y(*clip_rect, y_offset),
+                clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
             }
         }
         DisplayListItem::TextLayout {
@@ -4805,13 +4859,13 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             color,
         } => DisplayListItem::TextLayout {
             layout: layout.clone(),
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             font_hash: *font_hash,
             font_size_px: *font_size_px,
             color: *color,
         },
         DisplayListItem::Image { bounds, image } => DisplayListItem::Image {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             image: image.clone(),
         },
         // Pass through other items with their bounds offset
@@ -4820,12 +4874,12 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             border_radius,
             color,
         } => DisplayListItem::SelectionRect {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             border_radius: *border_radius,
             color: *color,
         },
         DisplayListItem::CursorRect { bounds, color } => DisplayListItem::CursorRect {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             color: *color,
         },
         DisplayListItem::Underline {
@@ -4833,7 +4887,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             color,
             thickness,
         } => DisplayListItem::Underline {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             color: *color,
             thickness: *thickness,
         },
@@ -4842,7 +4896,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             color,
             thickness,
         } => DisplayListItem::Strikethrough {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             color: *color,
             thickness: *thickness,
         },
@@ -4851,7 +4905,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             color,
             thickness,
         } => DisplayListItem::Overline {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             color: *color,
             thickness: *thickness,
         },
@@ -4862,21 +4916,21 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             opacity_key,
             hit_id,
         } => DisplayListItem::ScrollBar {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             color: *color,
             orientation: *orientation,
             opacity_key: *opacity_key,
             hit_id: *hit_id,
         },
         DisplayListItem::HitTestArea { bounds, tag } => DisplayListItem::HitTestArea {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             tag: *tag,
         },
         DisplayListItem::PushClip {
             bounds,
             border_radius,
         } => DisplayListItem::PushClip {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             border_radius: *border_radius,
         },
         DisplayListItem::PushScrollFrame {
@@ -4884,13 +4938,13 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             content_size,
             scroll_id,
         } => DisplayListItem::PushScrollFrame {
-            clip_bounds: offset_rect_y(*clip_bounds, y_offset),
+            clip_bounds: offset_rect_y(clip_bounds.into_inner(), y_offset).into(),
             content_size: *content_size,
             scroll_id: *scroll_id,
         },
         DisplayListItem::PushStackingContext { bounds, z_index } => {
             DisplayListItem::PushStackingContext {
-                bounds: offset_rect_y(*bounds, y_offset),
+                bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
                 z_index: *z_index,
             }
         }
@@ -4900,8 +4954,8 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             clip_rect,
         } => DisplayListItem::IFrame {
             child_dom_id: *child_dom_id,
-            bounds: offset_rect_y(*bounds, y_offset),
-            clip_rect: offset_rect_y(*clip_rect, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
+            clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
         },
         DisplayListItem::IFramePlaceholder {
             node_id,
@@ -4909,8 +4963,8 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             clip_rect,
         } => DisplayListItem::IFramePlaceholder {
             node_id: *node_id,
-            bounds: offset_rect_y(*bounds, y_offset),
-            clip_rect: offset_rect_y(*clip_rect, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
+            clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
         },
         // Pass through stateless items
         DisplayListItem::PopClip => DisplayListItem::PopClip,
@@ -4923,7 +4977,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             gradient,
             border_radius,
         } => DisplayListItem::LinearGradient {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             gradient: gradient.clone(),
             border_radius: *border_radius,
         },
@@ -4932,7 +4986,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             gradient,
             border_radius,
         } => DisplayListItem::RadialGradient {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             gradient: gradient.clone(),
             border_radius: *border_radius,
         },
@@ -4941,7 +4995,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             gradient,
             border_radius,
         } => DisplayListItem::ConicGradient {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             gradient: gradient.clone(),
             border_radius: *border_radius,
         },
@@ -4952,39 +5006,39 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             shadow,
             border_radius,
         } => DisplayListItem::BoxShadow {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             shadow: *shadow,
             border_radius: *border_radius,
         },
 
         // Filter effects
         DisplayListItem::PushFilter { bounds, filters } => DisplayListItem::PushFilter {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             filters: filters.clone(),
         },
         DisplayListItem::PopFilter => DisplayListItem::PopFilter,
         DisplayListItem::PushBackdropFilter { bounds, filters } => {
             DisplayListItem::PushBackdropFilter {
-                bounds: offset_rect_y(*bounds, y_offset),
+                bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
                 filters: filters.clone(),
             }
         }
         DisplayListItem::PopBackdropFilter => DisplayListItem::PopBackdropFilter,
         DisplayListItem::PushOpacity { bounds, opacity } => DisplayListItem::PushOpacity {
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             opacity: *opacity,
         },
         DisplayListItem::PopOpacity => DisplayListItem::PopOpacity,
         DisplayListItem::ScrollBarStyled { info } => {
             let mut offset_info = (**info).clone();
-            offset_info.bounds = offset_rect_y(offset_info.bounds, y_offset);
-            offset_info.track_bounds = offset_rect_y(offset_info.track_bounds, y_offset);
-            offset_info.thumb_bounds = offset_rect_y(offset_info.thumb_bounds, y_offset);
+            offset_info.bounds = offset_rect_y(offset_info.bounds.into_inner(), y_offset).into();
+            offset_info.track_bounds = offset_rect_y(offset_info.track_bounds.into_inner(), y_offset).into();
+            offset_info.thumb_bounds = offset_rect_y(offset_info.thumb_bounds.into_inner(), y_offset).into();
             if let Some(b) = offset_info.button_decrement_bounds {
-                offset_info.button_decrement_bounds = Some(offset_rect_y(b, y_offset));
+                offset_info.button_decrement_bounds = Some(offset_rect_y(b.into_inner(), y_offset).into());
             }
             if let Some(b) = offset_info.button_increment_bounds {
-                offset_info.button_increment_bounds = Some(offset_rect_y(b, y_offset));
+                offset_info.button_increment_bounds = Some(offset_rect_y(b.into_inner(), y_offset).into());
             }
             DisplayListItem::ScrollBarStyled {
                 info: Box::new(offset_info),
@@ -4999,7 +5053,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
         } => DisplayListItem::PushReferenceFrame {
             transform_key: *transform_key,
             initial_transform: *initial_transform,
-            bounds: offset_rect_y(*bounds, y_offset),
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
         },
         DisplayListItem::PopReferenceFrame => DisplayListItem::PopReferenceFrame,
         DisplayListItem::PushTextShadow { shadow } => DisplayListItem::PushTextShadow {
@@ -5065,7 +5119,7 @@ fn generate_text_display_items(
         font_hash: FontHash::from_hash(0), // Default font hash - renderer should use default font
         font_size_px: font_size,
         color,
-        clip_rect: bounds,
+        clip_rect: bounds.into(),
     }]
 }
 
@@ -5076,11 +5130,11 @@ fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
     for item in &display_list.items {
         if let Some(bounds) = get_display_item_bounds(item) {
             // Skip items with zero height - they don't contribute to visible content
-            if bounds.size.height < 0.1 {
+            if bounds.0.size.height < 0.1 {
                 continue;
             }
             
-            let item_bottom = bounds.origin.y + bounds.size.height;
+            let item_bottom = bounds.0.origin.y + bounds.0.size.height;
             if item_bottom > max_bottom {
                 max_bottom = item_bottom;
             }

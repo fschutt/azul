@@ -99,7 +99,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     border_radius,
                     *transform,
@@ -116,7 +116,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     border_radius,
                     *transform,
@@ -129,7 +129,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     &BorderRadius::default(),
                     *transform,
@@ -168,23 +168,23 @@ fn render_display_list(
                 let simple_radius = BorderRadius {
                     top_left: border_radius
                         .top_left
-                        .to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                     top_right: border_radius
                         .top_right
-                        .to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                     bottom_left: border_radius
                         .bottom_left
-                        .to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                     bottom_right: border_radius
                         .bottom_right
-                        .to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                 };
 
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_border(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     color,
                     width,
                     &simple_radius,
@@ -203,7 +203,7 @@ fn render_display_list(
                 // Render underline as a simple filled rectangle
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     &BorderRadius::default(),
                     *transform,
@@ -221,7 +221,7 @@ fn render_display_list(
                 // Render strikethrough as a simple filled rectangle
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     &BorderRadius::default(),
                     *transform,
@@ -239,7 +239,7 @@ fn render_display_list(
                 // Render overline as a simple filled rectangle
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     &BorderRadius::default(),
                     *transform,
@@ -262,7 +262,7 @@ fn render_display_list(
                     *font_size_px,
                     *color,
                     pixmap,
-                    clip_rect,
+                    clip_rect.inner(),
                     *transform,
                     *clip,
                     renderer_resources,
@@ -285,7 +285,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_image(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     image,
                     *transform,
                     *clip,
@@ -303,7 +303,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     *color,
                     &BorderRadius::default(),
                     *transform,
@@ -319,7 +319,7 @@ fn render_display_list(
                 if info.track_color.a > 0 {
                     render_rect(
                         pixmap,
-                        &info.track_bounds,
+                        info.track_bounds.inner(),
                         info.track_color,
                         &BorderRadius::default(),
                         *transform,
@@ -333,7 +333,7 @@ fn render_display_list(
                     if info.button_color.a > 0 {
                         render_rect(
                             pixmap,
-                            btn_bounds,
+                            btn_bounds.inner(),
                             info.button_color,
                             &BorderRadius::default(),
                             *transform,
@@ -348,7 +348,7 @@ fn render_display_list(
                     if info.button_color.a > 0 {
                         render_rect(
                             pixmap,
-                            btn_bounds,
+                            btn_bounds.inner(),
                             info.button_color,
                             &BorderRadius::default(),
                             *transform,
@@ -362,7 +362,7 @@ fn render_display_list(
                 if info.thumb_color.a > 0 {
                     render_rect(
                         pixmap,
-                        &info.thumb_bounds,
+                        info.thumb_bounds.inner(),
                         info.thumb_color,
                         &info.thumb_border_radius,
                         *transform,
@@ -376,7 +376,7 @@ fn render_display_list(
                 border_radius,
             } => {
                 let transform = *transform_stack.last().unwrap();
-                let new_clip = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
+                let new_clip = logical_rect_to_tiny_skia_rect(bounds.inner(), transform, dpi_factor);
                 clip_stack.push(new_clip);
             }
             DisplayListItem::PopClip => {
@@ -392,7 +392,7 @@ fn render_display_list(
             } => {
                 // For CPU rendering without scroll interaction, we just treat this as a clip
                 let transform = *transform_stack.last().unwrap();
-                let new_clip = logical_rect_to_tiny_skia_rect(clip_bounds, transform, dpi_factor);
+                let new_clip = logical_rect_to_tiny_skia_rect(clip_bounds.inner(), transform, dpi_factor);
                 clip_stack.push(new_clip);
                 // Note: We're not handling scroll offset here. In a full implementation,
                 // we'd look up the scroll state for scroll_id and apply it as a transform.
@@ -427,7 +427,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     ColorU {
                         r: 200,
                         g: 200,
@@ -472,7 +472,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     color,
                     border_radius,
                     *transform,
@@ -505,7 +505,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     color,
                     border_radius,
                     *transform,
@@ -538,7 +538,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds,
+                    bounds.inner(),
                     color,
                     border_radius,
                     *transform,
@@ -557,10 +557,10 @@ fn render_display_list(
                 // For now, render a slightly offset rectangle with the shadow color
                 let offset_bounds = LogicalRect {
                     origin: LogicalPosition {
-                        x: bounds.origin.x + shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
-                        y: bounds.origin.y + shadow.offset_y.inner.to_pixels_internal(0.0, 16.0),
+                        x: bounds.0.origin.x + shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
+                        y: bounds.0.origin.y + shadow.offset_y.inner.to_pixels_internal(0.0, 16.0),
                     },
-                    size: bounds.size,
+                    size: bounds.0.size,
                 };
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
@@ -1097,10 +1097,10 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
         };
         if let Some(b) = bounds {
             has_items = true;
-            min_x = min_x.min(b.origin.x);
-            min_y = min_y.min(b.origin.y);
-            max_x = max_x.max(b.origin.x + b.size.width);
-            max_y = max_y.max(b.origin.y + b.size.height);
+            min_x = min_x.min(b.0.origin.x);
+            min_y = min_y.min(b.0.origin.y);
+            max_x = max_x.max(b.0.origin.x + b.0.size.width);
+            max_y = max_y.max(b.0.origin.y + b.0.size.height);
         }
     }
 

@@ -848,8 +848,8 @@ impl LayoutWindow {
                         .items
                         .push(crate::solver3::display_list::DisplayListItem::IFrame {
                             child_dom_id,
-                            bounds,
-                            clip_rect: bounds,
+                            bounds: bounds.into(),
+                            clip_rect: bounds.into(),
                         });
                 }
             }
@@ -1289,8 +1289,8 @@ impl LayoutWindow {
         // Note: tag is now (u64, u16) tuple where tag.0 is the TagId.inner
         for item in &layout_result.display_list.items {
             if let DisplayListItem::HitTestArea { bounds, tag } = item {
-                if tag.0 == tag_id && bounds.size.width > 0.0 && bounds.size.height > 0.0 {
-                    return Some(*bounds);
+                if tag.0 == tag_id && bounds.0.size.width > 0.0 && bounds.0.size.height > 0.0 {
+                    return Some(bounds.0);
                 }
             }
         }
