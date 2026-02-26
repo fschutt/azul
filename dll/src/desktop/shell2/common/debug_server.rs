@@ -100,6 +100,10 @@ pub enum ResponseData {
     ClickNode(ClickNodeResponse),
     /// Scrollbar info result
     ScrollbarInfo(ScrollbarInfoResponse),
+    /// IFrame states (all tracked IFrames and their internal state)
+    IframeStates(IframeStatesResponse),
+    /// IFrame layout (nodes inside a specific IFrame DOM)
+    IframeLayout(IframeLayoutResponse),
     /// Selection state result
     SelectionState(SelectionStateResponse),
     /// Full selection manager dump
@@ -1218,6 +1222,67 @@ pub struct ScrollbarGeometry {
     pub thumb_size_ratio: f32,
 }
 
+/// Response for GetIframeStates - lists all tracked IFrames and their internal state
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IframeStatesResponse {
+    pub iframe_count: usize,
+    pub iframes: Vec<IframeStateInfo>,
+}
+
+/// State info for a single IFrame
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct IframeStateInfo {
+    pub parent_dom_id: usize,
+    pub parent_node_id: usize,
+    pub nested_dom_id: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scroll_size_width: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scroll_size_height: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_scroll_size_width: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_scroll_size_height: Option<f32>,
+    pub was_invoked: bool,
+    pub last_bounds: LogicalRectJson,
+}
+
+/// Response for GetIframeLayout - layout of nodes inside an IFrame's DOM
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IframeLayoutResponse {
+    pub dom_id: usize,
+    pub node_count: usize,
+    pub nodes: Vec<NodeLayoutInfo>,
+    /// Scroll state for the IFrame container (from the parent DOM)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scroll_state: Option<IframeScrollStateInfo>,
+    /// All DOM IDs currently in layout_results (diagnostic)
+    pub available_dom_ids: Vec<usize>,
+    /// Whether layout_results contains this IFrame's DOM
+    pub layout_result_found: bool,
+}
+
+/// Scroll state info specific to an IFrame
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct IframeScrollStateInfo {
+    pub scroll_x: f32,
+    pub scroll_y: f32,
+    pub content_width: f32,
+    pub content_height: f32,
+    pub container_width: f32,
+    pub container_height: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_scroll_width: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_scroll_height: Option<f32>,
+    pub max_scroll_x: f32,
+    pub max_scroll_y: f32,
+}
+
 /// Response for GetSelectionState - text selection state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1650,6 +1715,19 @@ pub enum DebugEvent {
         /// Which scrollbar to query: "horizontal", "vertical", or "both" (default)
         #[serde(default)]
         orientation: Option<String>,
+    },
+
+    // IFrame inspection
+    /// Get all tracked IFrame states (scroll sizes, virtual sizes, invocation status)
+    GetIframeStates,
+    /// Get layout of nodes inside a specific IFrame's DOM (by nested dom_id or parent node_id)
+    GetIframeLayout {
+        /// The nested DOM ID of the IFrame (from get_iframe_states result)
+        #[serde(default)]
+        dom_id: Option<usize>,
+        /// The parent node_id of the IFrame node (in the root DOM)
+        #[serde(default)]
+        node_id: Option<usize>,
     },
 
     // Selection
@@ -7508,6 +7586,163 @@ fn process_debug_event(
                 },
             };
             send_ok(request, None, Some(ResponseData::ScrollbarInfo(response)));
+        }
+
+        DebugEvent::GetIframeStates => {
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting iframe states",
+                None,
+            );
+
+            let layout_window = callback_info.get_layout_window();
+            let infos = layout_window.iframe_manager.get_all_iframe_infos();
+
+            let iframes: Vec<IframeStateInfo> = infos
+                .iter()
+                .map(|info| IframeStateInfo {
+                    parent_dom_id: info.parent_dom_id,
+                    parent_node_id: info.parent_node_id,
+                    nested_dom_id: info.nested_dom_id,
+                    scroll_size_width: info.scroll_size_width,
+                    scroll_size_height: info.scroll_size_height,
+                    virtual_scroll_size_width: info.virtual_scroll_size_width,
+                    virtual_scroll_size_height: info.virtual_scroll_size_height,
+                    was_invoked: info.was_invoked,
+                    last_bounds: LogicalRectJson {
+                        x: info.last_bounds_x,
+                        y: info.last_bounds_y,
+                        width: info.last_bounds_width,
+                        height: info.last_bounds_height,
+                    },
+                })
+                .collect();
+
+            let response = IframeStatesResponse {
+                iframe_count: iframes.len(),
+                iframes,
+            };
+            send_ok(request, None, Some(ResponseData::IframeStates(response)));
+        }
+
+        DebugEvent::GetIframeLayout { dom_id, node_id } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting iframe layout",
+                None,
+            );
+            use azul_core::dom::{DomId, DomNodeId, NodeId};
+
+            let layout_window = callback_info.get_layout_window();
+
+            // Resolve the nested dom_id: either provided directly, or look up via parent node_id
+            let nested_dom_id = if let Some(did) = dom_id {
+                Some(DomId { inner: *did })
+            } else if let Some(nid) = node_id {
+                let parent_dom = DomId { inner: 0 };
+                layout_window
+                    .iframe_manager
+                    .get_nested_dom_id(parent_dom, NodeId::new(*nid))
+            } else {
+                None
+            };
+
+            if let Some(nested_dom_id) = nested_dom_id {
+                // Get scroll state for the IFrame container from parent DOM
+                let scroll_state = if let Some(nid) = node_id {
+                    let parent_dom = DomId { inner: 0 };
+                    let parent_node = NodeId::new(*nid);
+
+                    // Get scroll offset from scroll manager
+                    let scroll_states = layout_window
+                        .scroll_manager
+                        .get_scroll_states_for_dom(parent_dom);
+                    scroll_states.get(&parent_node).map(|sp| {
+                        let infos = layout_window.iframe_manager.get_all_iframe_infos();
+                        let iframe_info = infos.iter().find(|i| i.parent_node_id == *nid);
+
+                        IframeScrollStateInfo {
+                            scroll_x: sp.children_rect.origin.x,
+                            scroll_y: sp.children_rect.origin.y,
+                            content_width: sp.children_rect.size.width,
+                            content_height: sp.children_rect.size.height,
+                            container_width: sp.parent_rect.size.width,
+                            container_height: sp.parent_rect.size.height,
+                            virtual_scroll_width: iframe_info
+                                .and_then(|i| i.virtual_scroll_size_width),
+                            virtual_scroll_height: iframe_info
+                                .and_then(|i| i.virtual_scroll_size_height),
+                            max_scroll_x: (sp.children_rect.size.width
+                                - sp.parent_rect.size.width)
+                                .max(0.0),
+                            max_scroll_y: (sp.children_rect.size.height
+                                - sp.parent_rect.size.height)
+                                .max(0.0),
+                        }
+                    })
+                } else {
+                    None
+                };
+
+                // Diagnostics: list all dom_ids in layout_results
+                let available_dom_ids: Vec<usize> = layout_window
+                    .layout_results
+                    .keys()
+                    .map(|d| d.inner)
+                    .collect();
+                let layout_result_found = layout_window.layout_results.contains_key(&nested_dom_id);
+
+                // Get nodes from the iframe's layout result
+                let mut nodes = Vec::new();
+                if let Some(layout_result) = layout_window.layout_results.get(&nested_dom_id) {
+                    let node_count = layout_result.styled_dom.node_data.len();
+                    for i in 0..node_count {
+                        let dom_node_id = DomNodeId {
+                            dom: nested_dom_id.clone(),
+                            node: Some(NodeId::new(i)).into(),
+                        };
+
+                        let rect = callback_info.get_node_rect(dom_node_id);
+                        let tag = callback_info.get_node_tag_name(dom_node_id);
+                        let id_attr = callback_info.get_node_id(dom_node_id);
+                        let classes = callback_info.get_node_classes(dom_node_id);
+
+                        nodes.push(NodeLayoutInfo {
+                            node_id: i,
+                            tag: tag.map(|s| s.as_str().to_string()),
+                            id: id_attr.map(|s| s.as_str().to_string()),
+                            classes: classes
+                                .as_ref()
+                                .iter()
+                                .map(|s| s.as_str().to_string())
+                                .collect(),
+                            rect: rect.map(|r| LogicalRectJson {
+                                x: r.origin.x,
+                                y: r.origin.y,
+                                width: r.size.width,
+                                height: r.size.height,
+                            }),
+                        });
+                    }
+                }
+
+                let response = IframeLayoutResponse {
+                    dom_id: nested_dom_id.inner,
+                    node_count: nodes.len(),
+                    nodes,
+                    scroll_state,
+                    available_dom_ids,
+                    layout_result_found,
+                };
+                send_ok(request, None, Some(ResponseData::IframeLayout(response)));
+            } else {
+                send_err(
+                    request,
+                    "No iframe found: specify dom_id or node_id. Use get_iframe_states to list all iframes.",
+                );
+            }
         }
 
         DebugEvent::GetSelectionState => {

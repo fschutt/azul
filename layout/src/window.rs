@@ -570,6 +570,12 @@ impl LayoutWindow {
         // Clear previous results for a full relayout
         self.layout_results.clear();
 
+        // CRITICAL: Reset IFrame invocation flags so check_reinvoke() returns
+        // InitialRender for every tracked IFrame. Without this, the IFrameManager
+        // still has was_invoked=true from the previous frame, so it skips
+        // re-invocation — but the child DOM was just destroyed by clear().
+        self.iframe_manager.reset_all_invocation_flags();
+
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
                 "[layout_and_generate_display_list] Starting layout for DOM with {} nodes",
@@ -5924,6 +5930,46 @@ impl LayoutWindow {
         }
 
         updated_textures
+    }
+
+    /// Check if a scrolled node is an IFrame that needs re-invocation. If so,
+    /// queue it in `pending_iframe_updates` for processing before the next frame.
+    ///
+    /// This is the bridge between the scroll system and the IFrame lifecycle:
+    ///   ScrollTo → scroll_manager.scroll_to() → check_and_queue_iframe_reinvoke()
+    ///
+    /// Returns `true` if an IFrame update was queued (caller should trigger a
+    /// display list rebuild instead of a lightweight repaint).
+    pub fn check_and_queue_iframe_reinvoke(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> bool {
+        // Get the IFrame's current layout bounds (needed for check_reinvoke)
+        let bounds = match Self::get_iframe_bounds_from_layout(
+            &self.layout_results,
+            dom_id,
+            node_id,
+        ) {
+            Some(b) => b,
+            None => return false, // Not an IFrame or no layout info
+        };
+
+        // Ask the IFrameManager whether this IFrame needs re-invocation
+        let reason = self.iframe_manager.check_reinvoke(
+            dom_id, node_id, &self.scroll_manager, bounds,
+        );
+
+        if reason.is_some() {
+            // Queue the IFrame for re-invocation in the next render pass
+            self.pending_iframe_updates
+                .entry(dom_id)
+                .or_insert_with(FastBTreeSet::new)
+                .insert(node_id);
+            true
+        } else {
+            false
+        }
     }
 
     /// Process IFrame updates requested by callbacks

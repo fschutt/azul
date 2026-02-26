@@ -717,26 +717,41 @@ impl Win32Window {
                         let _tick_result = layout_window.scroll_manager.tick(now);
                     }
 
-                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
-                        &mut txn,
-                        layout_window,
-                        render_api,
-                        &self.common.gl_context_ptr,
-                    ) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[Win32] Failed to build lightweight transaction: {}",
-                            e
-                        );
-                    }
+                    // Process pending IFrame updates (queued by ScrollTo → check_and_queue_iframe_reinvoke).
+                    // If present, we need a full display list rebuild rather than lightweight.
+                    let has_iframe_updates = !layout_window.pending_iframe_updates.is_empty();
+                    if has_iframe_updates {
+                        if let Some(document_id) = self.common.document_id {
+                            crate::desktop::shell2::common::layout::generate_frame(
+                                layout_window,
+                                render_api,
+                                document_id,
+                                &self.common.gl_context_ptr,
+                            );
+                            render_api.flush_scene_builder();
+                        }
+                    } else {
+                        let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
+                        if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
+                            &mut txn,
+                            layout_window,
+                            render_api,
+                            &self.common.gl_context_ptr,
+                        ) {
+                            log_error!(
+                                LogCategory::Rendering,
+                                "[Win32] Failed to build lightweight transaction: {}",
+                                e
+                            );
+                        }
 
-                    if let Some(document_id) = self.common.document_id {
-                        render_api.send_transaction(
-                            crate::desktop::wr_translate2::wr_translate_document_id(document_id),
-                            txn,
-                        );
-                        render_api.flush_scene_builder();
+                        if let Some(document_id) = self.common.document_id {
+                            render_api.send_transaction(
+                                crate::desktop::wr_translate2::wr_translate_document_id(document_id),
+                                txn,
+                            );
+                            render_api.flush_scene_builder();
+                        }
                     }
                 }
             }
@@ -2885,12 +2900,15 @@ unsafe extern "system" fn window_proc(
                         ProcessEventResult::ShouldRegenerateDomCurrentWindow
                         | ProcessEventResult::ShouldRegenerateDomAllWindows
                         | ProcessEventResult::ShouldIncrementalRelayout
-                        | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                             window.common.frame_needs_regeneration = true;
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
-                        ProcessEventResult::ShouldReRenderCurrentWindow => {
+                        // ShouldUpdateDisplayListCurrentWindow: pending IFrame updates are
+                        // queued in layout_window.pending_iframe_updates and will be processed
+                        // in the render path — no full layout regeneration needed.
+                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        | ProcessEventResult::ShouldReRenderCurrentWindow => {
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         ProcessEventResult::DoNothing => {

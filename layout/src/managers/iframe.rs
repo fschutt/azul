@@ -187,6 +187,22 @@ impl IFrameManager {
         Some(())
     }
 
+    /// Reset invocation flags for ALL tracked IFrames
+    ///
+    /// After `layout_results.clear()`, the child DOMs no longer exist in memory.
+    /// This method ensures `check_reinvoke()` returns `InitialRender` for every
+    /// IFrame, so the callbacks re-run and re-populate `layout_results`.
+    ///
+    /// Called from `layout_and_generate_display_list()` after clearing layout results.
+    pub fn reset_all_invocation_flags(&mut self) {
+        for state in self.states.values_mut() {
+            state.iframe_was_invoked = false;
+            state.invoked_for_current_expansion = false;
+            state.invoked_for_current_edge = false;
+            state.last_edge_triggered = EdgeFlags::default();
+        }
+    }
+
     /// Force an IFrame to be re-invoked on the next layout pass
     ///
     /// Clears all invocation flags, causing check_reinvoke() to return InitialRender.
@@ -242,6 +258,47 @@ impl IFrameManager {
 
         state.check_reinvoke_condition(scroll_offset, layout_bounds.size)
     }
+
+    /// Returns debug info for all tracked IFrames
+    ///
+    /// Each entry contains: (parent_dom_id, parent_node_id, nested_dom_id,
+    /// scroll_size, virtual_scroll_size, was_invoked, last_bounds)
+    pub fn get_all_iframe_infos(&self) -> alloc::vec::Vec<IFrameDebugInfo> {
+        self.states
+            .iter()
+            .map(|((dom_id, node_id), state)| IFrameDebugInfo {
+                parent_dom_id: dom_id.inner,
+                parent_node_id: node_id.index(),
+                nested_dom_id: state.nested_dom_id.inner,
+                scroll_size_width: state.iframe_scroll_size.map(|s| s.width),
+                scroll_size_height: state.iframe_scroll_size.map(|s| s.height),
+                virtual_scroll_size_width: state.iframe_virtual_scroll_size.map(|s| s.width),
+                virtual_scroll_size_height: state.iframe_virtual_scroll_size.map(|s| s.height),
+                was_invoked: state.iframe_was_invoked,
+                last_bounds_x: state.last_bounds.origin.x,
+                last_bounds_y: state.last_bounds.origin.y,
+                last_bounds_width: state.last_bounds.size.width,
+                last_bounds_height: state.last_bounds.size.height,
+            })
+            .collect()
+    }
+}
+
+/// Debug info for a single IFrame, returned by `get_all_iframe_infos`
+#[derive(Debug, Clone)]
+pub struct IFrameDebugInfo {
+    pub parent_dom_id: usize,
+    pub parent_node_id: usize,
+    pub nested_dom_id: usize,
+    pub scroll_size_width: Option<f32>,
+    pub scroll_size_height: Option<f32>,
+    pub virtual_scroll_size_width: Option<f32>,
+    pub virtual_scroll_size_height: Option<f32>,
+    pub was_invoked: bool,
+    pub last_bounds_x: f32,
+    pub last_bounds_y: f32,
+    pub last_bounds_width: f32,
+    pub last_bounds_height: f32,
 }
 
 impl IFrameState {

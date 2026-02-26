@@ -1316,6 +1316,8 @@ pub trait PlatformWindow {
                 let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
+                let mut needs_iframe_update = false;
+
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
                         lw.scroll_manager.scroll_to(
@@ -1324,9 +1326,23 @@ pub trait PlatformWindow {
                             azul_core::events::EasingFunction::Linear,
                             now.clone().into(),
                         );
+
+                        // Check if this scroll node is an IFrame that needs
+                        // re-invocation (e.g. user scrolled near edge for lazy loading).
+                        // If so, queue it for processing in the next render pass.
+                        needs_iframe_update = lw.check_and_queue_iframe_reinvoke(
+                            *dom_id, internal_node_id,
+                        );
                     }
                 }
-                ProcessEventResult::ShouldReRenderCurrentWindow
+
+                if needs_iframe_update {
+                    // IFrame needs new content — force display list rebuild
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    // Normal scroll — lightweight repaint (scroll offsets only)
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                }
             }
 
             CallbackChange::ScrollIntoView { node_id, options } => {
