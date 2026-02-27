@@ -392,7 +392,30 @@ pub fn translate_displaylist_to_wr(
             } => {
                 // ScrollBars are painted in parent space (after pop_node_clips)
                 // Apply current offset to convert from absolute to parent-relative coords
-                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
+                let current_spatial_id = current_spatial!();
+                let current_clip_chain = current_clip!();
+                let current_off = current_offset!();
+                let rect = resolve_rect(bounds, dpi_scale, current_off);
+
+                // If we have an opacity key, wrap in animatable opacity stacking context
+                let has_opacity = opacity_key.is_some();
+                if let Some(ok) = opacity_key {
+                    let opacity_filter = WrFilterOp::Opacity(
+                        PropertyBinding::Binding(
+                            webrender::api::PropertyBindingKey::new(ok.id as u64),
+                            1.0,
+                        ),
+                        1.0,
+                    );
+                    builder.push_simple_stacking_context_with_filters(
+                        resolve_point(bounds, dpi_scale, current_off),
+                        current_spatial_id,
+                        WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                        &[opacity_filter],
+                        &[],
+                        &[],
+                    );
+                }
 
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -410,8 +433,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
+                    clip_chain_id: current_clip_chain,
+                    spatial_id: current_spatial_id,
                     flags: Default::default(),
                 };
 
@@ -425,11 +448,16 @@ pub fn translate_displaylist_to_wr(
 
                     builder.push_hit_test(
                         rect,
-                        current_clip!(),
-                        current_spatial!(),
+                        current_clip_chain,
+                        current_spatial_id,
                         Default::default(),
                         tag,
                     );
+                }
+
+                // Pop opacity stacking context if we pushed one
+                if has_opacity {
+                    builder.pop_stacking_context();
                 }
             }
 
@@ -442,6 +470,28 @@ pub fn translate_displaylist_to_wr(
                     "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, thumb={:?}",
                     info.bounds, current_offset, info.track_bounds, info.thumb_bounds
                 );
+
+                // If we have an opacity key, wrap the entire scrollbar in an
+                // animatable opacity stacking context. WebRender will update the
+                // opacity via DynamicProperties without rebuilding the display list.
+                let has_opacity_binding = info.opacity_key.is_some();
+                if let Some(opacity_key) = &info.opacity_key {
+                    let opacity_filter = WrFilterOp::Opacity(
+                        PropertyBinding::Binding(
+                            webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
+                            1.0, // initial opacity (fully visible)
+                        ),
+                        1.0,
+                    );
+                    builder.push_simple_stacking_context_with_filters(
+                        resolve_point(&info.bounds, dpi_scale, current_offset),
+                        spatial_id,
+                        WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                        &[opacity_filter],
+                        &[],
+                        &[],
+                    );
+                }
 
                 // If clip_to_container_border is enabled and container has border-radius,
                 // create a clip chain for the container's rounded corners
@@ -696,6 +746,11 @@ pub fn translate_displaylist_to_wr(
                 // Pop the reference frame if we pushed one for the thumb
                 if info.thumb_transform_key.is_some() {
                     builder.pop_reference_frame();
+                }
+
+                // Pop the opacity stacking context if we pushed one
+                if has_opacity_binding {
+                    builder.pop_stacking_context();
                 }
             }
 
