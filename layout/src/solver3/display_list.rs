@@ -216,6 +216,15 @@ pub struct ScrollbarDrawInfo {
 
     /// Optional opacity key for GPU-side fading animation.
     pub opacity_key: Option<OpacityKey>,
+    /// Optional transform key for GPU-side scrollbar thumb positioning.
+    /// When present, the compositor will wrap the thumb in a PushReferenceFrame
+    /// with PropertyBinding::Binding so WebRender can animate the thumb position
+    /// without rebuilding the display list.
+    pub thumb_transform_key: Option<TransformKey>,
+    /// Initial transform for the scrollbar thumb (current scroll position).
+    /// This is the transform applied when the display list is first built.
+    /// During GPU-only scroll, synchronize_gpu_values updates this dynamically.
+    pub thumb_initial_transform: ComputedTransform3D,
     /// Optional hit-test ID for WebRender hit-testing.
     pub hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
     /// Whether to clip scrollbar to container's border-radius
@@ -3043,13 +3052,28 @@ where
             } else {
                 0.0
             };
-            let thumb_y = track_bounds.origin.y
-                + (track_height - thumb_height) * scroll_ratio.clamp(0.0, 1.0);
 
+            // Thumb offset from top of track — this will be the GPU transform's translation Y
+            let thumb_offset_y = (track_height - thumb_height) * scroll_ratio.clamp(0.0, 1.0);
+
+            // Position thumb at TOP of track — GPU transform will move it to correct position
             let thumb_bounds = LogicalRect {
-                origin: LogicalPosition::new(track_bounds.origin.x, thumb_y),
+                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
                 size: LogicalSize::new(scrollbar_style.width_px, thumb_height),
             };
+
+            // Look up transform key from GPU cache for GPU-animated thumb positioning.
+            // If a key already exists in the cache from a previous frame, reuse it.
+            // Otherwise, create a new unique key. The key will be registered
+            // in the GPU cache after layout_document returns.
+            let thumb_transform_key = node_id.map(|nid| {
+                self.gpu_value_cache
+                    .and_then(|cache| cache.transform_keys.get(&nid).copied())
+                    .unwrap_or_else(|| TransformKey::unique())
+            });
+
+            // Initial transform: translate thumb down by current scroll offset
+            let thumb_initial_transform = ComputedTransform3D::new_translation(0.0, thumb_offset_y, 0.0);
 
             // Generate hit-test ID for vertical scrollbar thumb
             let hit_id = node_id
@@ -3083,6 +3107,8 @@ where
                 button_increment_bounds: button_increment_bounds.map(|b| b.into()),
                 button_color: debug_button_color,
                 opacity_key,
+                thumb_transform_key,
+                thumb_initial_transform,
                 hit_id,
                 clip_to_container_border: scrollbar_style.clip_to_container_border,
                 container_border_radius,
@@ -3126,13 +3152,20 @@ where
             } else {
                 0.0
             };
-            let thumb_x = track_bounds.origin.x
-                + (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
 
+            // Thumb offset from left of track — GPU transform's translation X
+            let thumb_offset_x = (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
+
+            // Position thumb at LEFT of track — GPU transform will move it to correct position
             let thumb_bounds = LogicalRect {
-                origin: LogicalPosition::new(thumb_x, track_bounds.origin.y),
+                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
                 size: LogicalSize::new(thumb_width, scrollbar_style.width_px),
             };
+
+            // For horizontal scrollbar, we don't have a separate h-transform key yet.
+            // TODO: Add horizontal transform key support to GpuStateManager
+            let thumb_transform_key: Option<TransformKey> = None;
+            let thumb_initial_transform = ComputedTransform3D::new_translation(thumb_offset_x, 0.0, 0.0);
 
             // Generate hit-test ID for horizontal scrollbar thumb
             let hit_id = node_id
@@ -3166,6 +3199,8 @@ where
                 button_increment_bounds: button_increment_bounds.map(|b| b.into()),
                 button_color: debug_button_color,
                 opacity_key,
+                thumb_transform_key,
+                thumb_initial_transform,
                 hit_id,
                 clip_to_container_border: scrollbar_style.clip_to_container_border,
                 container_border_radius,
