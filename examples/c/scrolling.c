@@ -63,8 +63,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
 
     AzString container_style = AzString_copyFromBytes(
-        (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; overflow: auto; background: #ffff00; border: 3px solid #00ff00; margin: 8px; height: 400px;",
-        0, 141);
+        (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; overflow: auto; background: #ffff00; border: 3px solid #00ff00; margin: 8px; min-height: 0;",
+        0, 161);
     AzDom_setInlineStyle(&container, container_style);
 
     // Footer
@@ -75,8 +75,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom footer = AzDom_createDiv();
     AzDom_addChild(&footer, AzDom_createText(footer_text));
     AzString footer_style = AzString_copyFromBytes(
-        (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center;",
-        0, 85);
+        (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center; flex-shrink: 0;",
+        0, 100);
     AzDom_setInlineStyle(&footer, footer_style);
 
     // Body
