@@ -3128,9 +3128,12 @@ where
                 size: LogicalSize::new(h_geom.thumb_length, h_geom.width_px),
             };
 
-            // For horizontal scrollbar, we don't have a separate h-transform key yet.
-            // TODO: Add horizontal transform key support to GpuStateManager
-            let thumb_transform_key: Option<TransformKey> = None;
+            // Look up horizontal transform key from GPU cache for GPU-animated thumb positioning.
+            let thumb_transform_key = node_id.map(|nid| {
+                self.gpu_value_cache
+                    .and_then(|cache| cache.h_transform_keys.get(&nid).copied())
+                    .unwrap_or_else(|| TransformKey::unique())
+            });
             let thumb_initial_transform =
                 ComputedTransform3D::new_translation(h_geom.thumb_offset, 0.0, 0.0);
 

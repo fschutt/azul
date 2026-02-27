@@ -179,6 +179,27 @@ impl GpuStateManager {
                     ComputedTransform3D::new_translation(0.0, v_geom.thumb_offset, 0.0);
                 update_transform_key(gpu_cache, &mut changes, dom_id, node_id, transform);
             }
+
+            if scrollbar_info.needs_horizontal {
+                let scrollbar_width_px = if scrollbar_info.scrollbar_width > 0.0 {
+                    scrollbar_info.scrollbar_width
+                } else {
+                    16.0 // default rendering width for overlay scrollbars
+                };
+
+                let h_geom = compute_scrollbar_geometry(
+                    ScrollbarOrientation::Horizontal,
+                    inner_rect,
+                    content_size,
+                    scroll_offset.x,
+                    scrollbar_width_px,
+                    scrollbar_info.needs_vertical,
+                );
+
+                let transform =
+                    ComputedTransform3D::new_translation(h_geom.thumb_offset, 0.0, 0.0);
+                update_h_transform_key(gpu_cache, &mut changes, dom_id, node_id, transform);
+            }
         }
 
         changes
@@ -190,7 +211,7 @@ impl GpuStateManager {
     }
 }
 
-/// Updates or creates a transform key in the GPU cache.
+/// Updates or creates a vertical scrollbar transform key in the GPU cache.
 fn update_transform_key(
     gpu_cache: &mut GpuValueCache,
     changes: &mut GpuEventChanges,
@@ -218,6 +239,45 @@ fn update_transform_key(
         gpu_cache.transform_keys.insert(node_id, transform_key);
         gpu_cache
             .current_transform_values
+            .insert(node_id, transform);
+        changes
+            .transform_key_changes
+            .push(GpuTransformKeyEvent::Added(
+                node_id,
+                transform_key,
+                transform,
+            ));
+    }
+}
+
+/// Updates or creates a horizontal scrollbar transform key in the GPU cache.
+fn update_h_transform_key(
+    gpu_cache: &mut GpuValueCache,
+    changes: &mut GpuEventChanges,
+    dom_id: DomId,
+    node_id: NodeId,
+    transform: ComputedTransform3D,
+) {
+    if let Some(existing_transform) = gpu_cache.h_current_transform_values.get(&node_id) {
+        if *existing_transform != transform {
+            let transform_key = gpu_cache.h_transform_keys[&node_id];
+            changes
+                .transform_key_changes
+                .push(GpuTransformKeyEvent::Changed(
+                    node_id,
+                    transform_key,
+                    *existing_transform,
+                    transform,
+                ));
+            gpu_cache
+                .h_current_transform_values
+                .insert(node_id, transform);
+        }
+    } else {
+        let transform_key = TransformKey::unique();
+        gpu_cache.h_transform_keys.insert(node_id, transform_key);
+        gpu_cache
+            .h_current_transform_values
             .insert(node_id, transform);
         changes
             .transform_key_changes

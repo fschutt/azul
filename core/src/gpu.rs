@@ -39,8 +39,10 @@ use crate::{
 ///
 /// # Fields
 ///
-/// * `transform_keys` - Maps node IDs to their WebRender transform keys
-/// * `current_transform_values` - Current computed transform for each node
+/// * `transform_keys` - Maps node IDs to vertical scrollbar thumb transform keys
+/// * `current_transform_values` - Current vertical scrollbar thumb transform values
+/// * `h_transform_keys` - Maps node IDs to horizontal scrollbar thumb transform keys
+/// * `h_current_transform_values` - Current horizontal scrollbar thumb transform values
 /// * `opacity_keys` - Maps node IDs to their WebRender opacity keys
 /// * `current_opacity_values` - Current opacity value for each node
 /// * `scrollbar_v_opacity_keys` - Maps (DomId, NodeId) to vertical scrollbar opacity keys
@@ -49,8 +51,14 @@ use crate::{
 /// * `scrollbar_h_opacity_values` - Current horizontal scrollbar opacity values
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuValueCache {
+    /// Vertical scrollbar thumb transform keys (keyed by scrollable node ID)
     pub transform_keys: BTreeMap<NodeId, TransformKey>,
+    /// Current vertical scrollbar thumb transform values
     pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
+    /// Horizontal scrollbar thumb transform keys (keyed by scrollable node ID)
+    pub h_transform_keys: BTreeMap<NodeId, TransformKey>,
+    /// Current horizontal scrollbar thumb transform values
+    pub h_current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
     pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
     pub current_opacity_values: BTreeMap<NodeId, f32>,
     pub scrollbar_v_opacity_keys: BTreeMap<(DomId, NodeId), OpacityKey>,

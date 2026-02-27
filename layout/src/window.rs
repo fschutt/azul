@@ -811,15 +811,24 @@ impl LayoutWindow {
                     if let (Some(transform_key), Some(hit_id)) = (info.thumb_transform_key, &info.hit_id) {
                         // Extract the node_id from the hit_id
                         let node_id = match hit_id {
-                            azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid)
-                            | azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => *nid,
+                            azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
+                                // Register vertical transform key
+                                if !gpu_cache.transform_keys.contains_key(nid) {
+                                    gpu_cache.transform_keys.insert(*nid, transform_key);
+                                    gpu_cache.current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                }
+                                continue;
+                            }
+                            azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
+                                // Register horizontal transform key
+                                if !gpu_cache.h_transform_keys.contains_key(nid) {
+                                    gpu_cache.h_transform_keys.insert(*nid, transform_key);
+                                    gpu_cache.h_current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                }
+                                continue;
+                            }
                             _ => continue,
                         };
-                        // Register key if not already present
-                        if !gpu_cache.transform_keys.contains_key(&node_id) {
-                            gpu_cache.transform_keys.insert(node_id, transform_key);
-                            gpu_cache.current_transform_values.insert(node_id, info.thumb_initial_transform);
-                        }
                     }
                 }
             }

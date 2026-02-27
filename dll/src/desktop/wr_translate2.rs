@@ -1911,8 +1911,7 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
             }
         }
 
-        // Synchronize transform values from GPU cache
-        // Transform keys map NodeId -> TransformKey, values map NodeId -> ComputedTransform3D
+        // Synchronize vertical scrollbar transform values from GPU cache
         for (node_id, transform) in &gpu_cache.current_transform_values {
             if let Some(&transform_key) = gpu_cache.transform_keys.get(node_id) {
                 // Convert ComputedTransform3D to WR LayoutTransform.
@@ -1937,7 +1936,40 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
 
                 log_debug!(
                     LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set transform for {:?}:{:?} (key={}), \
+                    "[synchronize_gpu_values] Set v-transform for {:?}:{:?} (key={}), \
+                     translate=({:.1}, {:.1})",
+                    dom_id,
+                    node_id,
+                    transform_key.id,
+                    transform.m[3][0],
+                    transform.m[3][1]
+                );
+            }
+        }
+
+        // Synchronize horizontal scrollbar transform values from GPU cache
+        for (node_id, transform) in &gpu_cache.h_current_transform_values {
+            if let Some(&transform_key) = gpu_cache.h_transform_keys.get(node_id) {
+                use webrender::api::units::LayoutTransform;
+                let wr_transform = LayoutTransform::new(
+                    transform.m[0][0], transform.m[0][1],
+                    transform.m[0][2], transform.m[0][3],
+                    transform.m[1][0], transform.m[1][1],
+                    transform.m[1][2], transform.m[1][3],
+                    transform.m[2][0], transform.m[2][1],
+                    transform.m[2][2], transform.m[2][3],
+                    transform.m[3][0] * dpi_scale, transform.m[3][1] * dpi_scale,
+                    transform.m[3][2] * dpi_scale, transform.m[3][3],
+                );
+
+                properties.transforms.push(PropertyValue {
+                    key: webrender::api::PropertyBindingKey::new(transform_key.id as u64),
+                    value: wr_transform,
+                });
+
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[synchronize_gpu_values] Set h-transform for {:?}:{:?} (key={}), \
                      translate=({:.1}, {:.1})",
                     dom_id,
                     node_id,
