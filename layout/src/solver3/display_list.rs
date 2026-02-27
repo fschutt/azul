@@ -3075,9 +3075,6 @@ where
                 ),
                 size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
             });
-            // Light green color for debug visibility
-            let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
-
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
                 bounds: v_geom.track_rect.into(),
                 orientation: ScrollbarOrientation::Vertical,
@@ -3088,7 +3085,7 @@ where
                 thumb_border_radius,
                 button_decrement_bounds: button_decrement_bounds.map(|b| b.into()),
                 button_increment_bounds: button_increment_bounds.map(|b| b.into()),
-                button_color: debug_button_color,
+                button_color: scrollbar_style.button_color,
                 opacity_key,
                 thumb_transform_key,
                 thumb_initial_transform,
@@ -3153,9 +3150,6 @@ where
                 ),
                 size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
             });
-            // Light green color for debug visibility
-            let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
-
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
                 bounds: h_geom.track_rect.into(),
                 orientation: ScrollbarOrientation::Horizontal,
@@ -3166,7 +3160,7 @@ where
                 thumb_border_radius,
                 button_decrement_bounds: button_decrement_bounds.map(|b| b.into()),
                 button_increment_bounds: button_increment_bounds.map(|b| b.into()),
-                button_color: debug_button_color,
+                button_color: scrollbar_style.button_color,
                 opacity_key,
                 thumb_transform_key,
                 thumb_initial_transform,

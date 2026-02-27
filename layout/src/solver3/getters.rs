@@ -3191,15 +3191,16 @@ pub struct ComputedScrollbarStyle {
 
 impl Default for ComputedScrollbarStyle {
     fn default() -> Self {
+        // macOS-like overlay scrollbar defaults:
+        // 8px thin, transparent track, semi-transparent dark thumb, no buttons
         Self {
             width_mode: LayoutScrollbarWidth::Auto,
-            width_px: 16.0, // Standard scrollbar width
-            // Debug colors - bright magenta thumb, orange track
-            thumb_color: ColorU::new(255, 0, 255, 255), // Magenta
-            track_color: ColorU::new(255, 165, 0, 255), // Orange
-            button_color: ColorU::new(0, 255, 0, 255),  // Green
-            corner_color: ColorU::new(0, 0, 255, 255),  // Blue
-            clip_to_container_border: false,
+            width_px: 8.0,
+            thumb_color: ColorU { r: 0, g: 0, b: 0, a: 100 },
+            track_color: ColorU::TRANSPARENT,
+            button_color: ColorU::TRANSPARENT,
+            corner_color: ColorU::TRANSPARENT,
+            clip_to_container_border: true,
         }
     }
 }
