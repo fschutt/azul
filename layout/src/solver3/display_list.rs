@@ -3003,8 +3003,12 @@ where
         // Get content size for thumb proportional sizing
         // Use the node's get_content_size() method which returns the actual content size
         // from overflow_content_size (set during layout) or computes it from text/children.
-        // This is critical for correct thumb sizing - we must NOT use arbitrary multipliers.
-        let content_size = node.get_content_size();
+        // For IFrame nodes, the virtual_scroll_size (propagated through ScrollPosition.children_rect)
+        // is more accurate than the layout-computed content size.
+        let content_size = node_id
+            .and_then(|nid| self.scroll_offsets.get(&nid))
+            .map(|pos| pos.children_rect.size)
+            .unwrap_or_else(|| node.get_content_size());
 
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
         let thumb_radius = scrollbar_style.width_px / 2.0;

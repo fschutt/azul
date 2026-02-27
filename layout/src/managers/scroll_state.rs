@@ -714,13 +714,17 @@ impl ScrollManager {
             .iter()
             .filter(|((d, _), _)| *d == dom_id)
             .map(|((_, node_id), state)| {
+                // Use virtual_scroll_size (from IFrame callback) when available,
+                // otherwise fall back to content_rect.size from layout.
+                let effective_content_size = state.virtual_scroll_size
+                    .unwrap_or(state.content_rect.size);
                 (
                     *node_id,
                     ScrollPosition {
                         parent_rect: state.container_rect,
                         children_rect: LogicalRect::new(
                             state.current_offset,
-                            state.content_rect.size,
+                            effective_content_size,
                         ),
                     },
                 )
