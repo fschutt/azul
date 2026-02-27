@@ -1157,19 +1157,20 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     })
 }
 
-/// Determines scrollbar requirements for a node based on content overflow.
+/// Core scrollbar info computation: given pre-computed content and container sizes plus
+/// a DOM node for style look-up, determines whether scrollbars are needed.
 ///
-/// Checks if scrollbars are needed by comparing content size against available space.
+/// This is the single source of truth for scrollbar detection. Both the BFC path
+/// (`compute_scrollbar_info`) and the Taffy flex/grid path (`compute_child_layout`
+/// in taffy_bridge.rs) call this function, ensuring consistent behaviour.
+///
 /// For paged media (PDF), scrollbars are never added since they don't exist in print.
-/// Returns the computed ScrollbarRequirements with horizontal/vertical needs and dimensions.
-fn compute_scrollbar_info<T: ParsedFontTrait>(
+pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     dom_id: NodeId,
     styled_node_state: &azul_core::styled_dom::StyledNodeState,
     content_size: LogicalSize,
-    box_props: &crate::solver3::geometry::BoxProps,
-    final_used_size: LogicalSize,
-    writing_mode: LayoutWritingMode,
+    container_size: LogicalSize,
 ) -> ScrollbarRequirements {
     // Skip scrollbar handling for paged media (PDF)
     if ctx.fragmentation_context.is_some() {
@@ -1179,21 +1180,34 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, styled_node_state);
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, styled_node_state);
 
-    let container_size = box_props.inner_size(final_used_size, writing_mode);
-
     // Resolve per-node scrollbar width from CSS + OS overlay preference
     let scrollbar_width_px =
         crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, styled_node_state);
 
-    let result = fc::check_scrollbar_necessity(
+    fc::check_scrollbar_necessity(
         content_size,
         container_size,
         to_overflow_behavior(overflow_x),
         to_overflow_behavior(overflow_y),
         scrollbar_width_px,
-    );
+    )
+}
 
-    result
+/// Determines scrollbar requirements for a node based on content overflow.
+///
+/// Convenience wrapper around `compute_scrollbar_info_core` for the BFC layout path,
+/// where the container size is derived from `box_props.inner_size(final_used_size, …)`.
+fn compute_scrollbar_info<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    dom_id: NodeId,
+    styled_node_state: &azul_core::styled_dom::StyledNodeState,
+    content_size: LogicalSize,
+    box_props: &crate::solver3::geometry::BoxProps,
+    final_used_size: LogicalSize,
+    writing_mode: LayoutWritingMode,
+) -> ScrollbarRequirements {
+    let container_size = box_props.inner_size(final_used_size, writing_mode);
+    compute_scrollbar_info_core(ctx, dom_id, styled_node_state, content_size, container_size)
 }
 
 /// Checks if scrollbars changed compared to previous layout and if reflow is needed.

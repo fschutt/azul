@@ -81,6 +81,22 @@ fn resolve_rect(
     )
 }
 
+/// Convert a [`WindowLogicalRect`]'s origin to a WebRender `LayoutPoint`
+/// (frame-relative physical pixels), combining DPI scaling and offset subtraction.
+///
+/// Used for Push* items that only need an origin point (e.g., stacking contexts).
+#[inline]
+fn resolve_point(
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    dpi: f32,
+    offset: (f32, f32),
+) -> LayoutPoint {
+    LayoutPoint::new(
+        bounds.0.origin.x * dpi - offset.0,
+        bounds.0.origin.y * dpi - offset.1,
+    )
+}
+
 /// Scale a single f32 value from logical to physical pixels
 #[inline]
 fn scale_px(val: f32, dpi: f32) -> f32 {
@@ -208,9 +224,7 @@ pub fn translate_displaylist_to_wr(
                     color,
                     dpi_scale
                 );
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -223,8 +237,8 @@ pub fn translate_displaylist_to_wr(
                 let current_spatial = current_spatial!();
 
                 log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] Rect: raw={:?}, offset={:?}, adjusted={:?}, clip_chain={:?}, spatial={:?}",
-                    raw_rect, current_offset, rect, current_clip_chain, current_spatial
+                    "[CLIP DEBUG] Rect: adjusted={:?}, clip_chain={:?}, spatial={:?}",
+                    rect, current_clip_chain, current_spatial
                 );
 
                 log_debug!(
@@ -299,8 +313,7 @@ pub fn translate_displaylist_to_wr(
                 border_radius,
                 color,
             } => {
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let rect = apply_offset(raw_rect, current_offset!());
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -319,8 +332,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::CursorRect { bounds, color } => {
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let rect = apply_offset(raw_rect, current_offset!());
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -345,8 +357,7 @@ pub fn translate_displaylist_to_wr(
                 styles,
                 border_radius,
             } => {
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let rect = apply_offset(raw_rect, current_offset!());
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -381,9 +392,7 @@ pub fn translate_displaylist_to_wr(
             } => {
                 // ScrollBars are painted in parent space (after pop_node_clips)
                 // Apply current offset to convert from absolute to parent-relative coords
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -394,9 +403,8 @@ pub fn translate_displaylist_to_wr(
 
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] ScrollBar: raw_rect={:?}, offset={:?}, adjusted_rect={:?}",
-                    raw_rect,
-                    current_offset,
+                    "[compositor2] ScrollBar: bounds={:?}, rect={:?}",
+                    bounds,
                     rect
                 );
 
@@ -481,8 +489,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Render track (background)
                 if info.track_color.a > 0 {
-                    let raw_track_rect = scale_bounds_to_layout_rect(info.track_bounds.inner(), dpi_scale);
-                    let track_rect = apply_offset(raw_track_rect, current_offset);
+                    let track_rect = resolve_rect(&info.track_bounds, dpi_scale, current_offset);
                     let track_color = ColorF::new(
                         info.track_color.r as f32 / 255.0,
                         info.track_color.g as f32 / 255.0,
@@ -528,8 +535,7 @@ pub fn translate_displaylist_to_wr(
                 // Render decrement button (if present)
                 if let Some(btn_bounds) = &info.button_decrement_bounds {
                     if info.button_color.a > 0 {
-                        let raw_btn_rect = scale_bounds_to_layout_rect(btn_bounds.inner(), dpi_scale);
-                        let btn_rect = apply_offset(raw_btn_rect, current_offset);
+                        let btn_rect = resolve_rect(btn_bounds, dpi_scale, current_offset);
                         let btn_color = ColorF::new(
                             info.button_color.r as f32 / 255.0,
                             info.button_color.g as f32 / 255.0,
@@ -549,8 +555,7 @@ pub fn translate_displaylist_to_wr(
                 // Render increment button (if present)
                 if let Some(btn_bounds) = &info.button_increment_bounds {
                     if info.button_color.a > 0 {
-                        let raw_btn_rect = scale_bounds_to_layout_rect(btn_bounds.inner(), dpi_scale);
-                        let btn_rect = apply_offset(raw_btn_rect, current_offset);
+                        let btn_rect = resolve_rect(btn_bounds, dpi_scale, current_offset);
                         let btn_color = ColorF::new(
                             info.button_color.r as f32 / 255.0,
                             info.button_color.g as f32 / 255.0,
@@ -569,8 +574,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Render thumb (the draggable part)
                 if info.thumb_color.a > 0 {
-                    let raw_thumb_rect = scale_bounds_to_layout_rect(info.thumb_bounds.inner(), dpi_scale);
-                    let thumb_rect = apply_offset(raw_thumb_rect, current_offset);
+                    let thumb_rect = resolve_rect(&info.thumb_bounds, dpi_scale, current_offset);
                     let thumb_color = ColorF::new(
                         info.thumb_color.r as f32 / 255.0,
                         info.thumb_color.g as f32 / 255.0,
@@ -640,8 +644,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Add hit-test for scrollbar thumb
                 if let Some(scrollbar_hit_id) = &info.hit_id {
-                    let raw_thumb_rect = scale_bounds_to_layout_rect(info.thumb_bounds.inner(), dpi_scale);
-                    let thumb_rect = apply_offset(raw_thumb_rect, current_offset);
+                    let thumb_rect = resolve_rect(&info.thumb_bounds, dpi_scale, current_offset);
                     let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                         *scrollbar_hit_id,
                     );
@@ -660,7 +663,7 @@ pub fn translate_displaylist_to_wr(
                 border_radius,
             } => {
                 let current_offset = current_offset!();
-                let rect = apply_offset(scale_bounds_to_layout_rect(bounds.inner(), dpi_scale), current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset);
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
 
@@ -960,8 +963,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::HitTestArea { bounds, tag } => {
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let rect = apply_offset(raw_rect, current_offset!());
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 // DEBUG: Draw a semi-transparent red rectangle to visualize hit-test areas
                 #[cfg(debug_assertions)]
@@ -1136,9 +1138,8 @@ pub fn translate_displaylist_to_wr(
                 // Scale clip_rect from logical to physical pixels, then apply
                 // the offset stack so text coordinates are relative to the
                 // current scroll frame (matching how Rect items are handled).
-                let raw_rect = scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
                 let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(clip_rect, dpi_scale, current_offset);
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -1180,9 +1181,7 @@ pub fn translate_displaylist_to_wr(
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);
 
-                    let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                    let current_offset = current_offset!();
-                    let rect = apply_offset(raw_rect, current_offset);
+                    let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                     let info = CommonItemProperties {
                         clip_rect: rect,
@@ -1232,10 +1231,7 @@ pub fn translate_displaylist_to_wr(
                 // (offset-corrected so it's relative to the current scroll frame)
                 let current_spatial_id = current_spatial!();
                 let current_offset = current_offset!();
-                let scaled_origin = LayoutPoint::new(
-                    scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
-                    scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
-                );
+                let scaled_origin = resolve_point(bounds, dpi_scale, current_offset);
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
@@ -1467,9 +1463,7 @@ pub fn translate_displaylist_to_wr(
                 );
 
                 // Convert CSS gradient to WebRender gradient
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 // Create layout rect for computing gradient points (use scaled size)
                 use azul_css::props::basic::{
@@ -1576,9 +1570,7 @@ pub fn translate_displaylist_to_wr(
                     bounds
                 );
 
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
                 let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
 
@@ -1765,9 +1757,7 @@ pub fn translate_displaylist_to_wr(
                     bounds
                 );
 
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
                 let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
 
@@ -1887,9 +1877,7 @@ pub fn translate_displaylist_to_wr(
                     shadow
                 );
 
-                let raw_rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                let current_offset = current_offset!();
-                let rect = apply_offset(raw_rect, current_offset);
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
                 let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
 
@@ -1953,10 +1941,7 @@ pub fn translate_displaylist_to_wr(
                 let current_spatial_id = current_spatial!();
                 let current_offset = current_offset!();
                 builder.push_simple_stacking_context_with_filters(
-                    LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
-                        scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
-                    ),
+                    resolve_point(bounds, dpi_scale, current_offset),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                     &wr_filters,
@@ -1977,7 +1962,7 @@ pub fn translate_displaylist_to_wr(
                     filters.len()
                 );
                 let wr_filters = translate_style_filters_to_wr(filters, dpi_scale);
-                let rect = apply_offset(scale_bounds_to_layout_rect(bounds.inner(), dpi_scale), current_offset!());
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: current_clip!(),
@@ -2005,10 +1990,7 @@ pub fn translate_displaylist_to_wr(
                     *opacity,
                 );
                 builder.push_simple_stacking_context_with_filters(
-                    LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
-                        scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
-                    ),
+                    resolve_point(bounds, dpi_scale, current_offset),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                     &[opacity_filter],
