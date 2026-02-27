@@ -3166,11 +3166,26 @@ where
 // ============================================================================
 
 use azul_css::props::style::scrollbar::{
-    LayoutScrollbarWidth, ScrollbarColorCustom, ScrollbarInfo, StyleScrollbarColor,
-    SCROLLBAR_CLASSIC_LIGHT,
+    LayoutScrollbarWidth, ScrollbarVisibilityMode,
+    StyleScrollbarColor,
 };
 
-/// Computed scrollbar style for a node, combining CSS properties
+/// Computed scrollbar style for a node.
+///
+/// All visual defaults (colors, width) come from the UA CSS conditional rules
+/// in `core/src/ua_css.rs` — individual `CssPropertyWithConditions` entries for
+/// `scrollbar-color` and `scrollbar-width`, keyed on `@os` / `@theme`.
+///
+/// Overlay behaviour (fade timing, visibility, clip) is derived from the
+/// resolved `scrollbar-width` mode:
+///   - `thin`  → overlay:  fade 500/200 ms, `WhenScrolling`, clip = true
+///   - `auto`  → classic:  no fade, `Always`, clip = false
+///   - `none`  → hidden:   no fade, `Always`, clip = false
+///
+/// Per-node CSS overrides (in priority order):
+///   1. `-azul-scrollbar-style`  (full `ScrollbarInfo` override)
+///   2. `scrollbar-width`        (overrides width + overlay mode)
+///   3. `scrollbar-color`        (overrides thumb / track colours)
 #[derive(Debug, Clone)]
 pub struct ComputedScrollbarStyle {
     /// The scrollbar width mode (auto/thin/none)
@@ -3187,51 +3202,97 @@ pub struct ComputedScrollbarStyle {
     pub corner_color: ColorU,
     /// Whether to clip the scrollbar to the container's border-radius
     pub clip_to_container_border: bool,
+    /// Delay in ms before scrollbar starts fading out (0 = never fade)
+    pub fade_delay_ms: u32,
+    /// Duration of fade-out animation in ms (0 = instant)
+    pub fade_duration_ms: u32,
+    /// Scrollbar visibility mode (always / when-scrolling / auto)
+    pub visibility: ScrollbarVisibilityMode,
 }
 
 impl Default for ComputedScrollbarStyle {
     fn default() -> Self {
-        // macOS-like overlay scrollbar defaults:
-        // 8px thin, transparent track, semi-transparent dark thumb, no buttons
+        // Evaluate UA CSS rules with a default context (no OS info).
+        // Picks the unconditional fallback: classic light, auto width.
+        let ctx = azul_css::dynamic_selector::DynamicSelectorContext::default();
+        let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
+        Self::from_ua_resolved(&ua)
+    }
+}
+
+impl ComputedScrollbarStyle {
+    /// Build from resolved UA scrollbar CSS properties.
+    ///
+    /// `scrollbar-width` determines pixel size **and** overlay behaviour.
+    /// `scrollbar-color` determines thumb / track colours.
+    fn from_ua_resolved(ua: &azul_core::ua_css::ResolvedUaScrollbar) -> Self {
+        let width_mode = ua.width.unwrap_or(LayoutScrollbarWidth::Auto);
+
+        // Derive overlay behaviour from width mode
+        let (width_px, fade_delay_ms, fade_duration_ms, visibility, clip) = match width_mode {
+            LayoutScrollbarWidth::Thin => (8.0, 500u32, 200u32, ScrollbarVisibilityMode::WhenScrolling, true),
+            LayoutScrollbarWidth::Auto => (12.0, 0, 0, ScrollbarVisibilityMode::Always, false),
+            LayoutScrollbarWidth::None => (0.0, 0, 0, ScrollbarVisibilityMode::Always, false),
+        };
+
+        let (thumb_color, track_color) = match ua.color {
+            Some(StyleScrollbarColor::Custom(c)) => (c.thumb, c.track),
+            _ => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
+        };
+
         Self {
-            width_mode: LayoutScrollbarWidth::Auto,
-            width_px: 8.0,
-            thumb_color: ColorU { r: 0, g: 0, b: 0, a: 100 },
-            track_color: ColorU::TRANSPARENT,
+            width_mode,
+            width_px,
+            thumb_color,
+            track_color,
             button_color: ColorU::TRANSPARENT,
             corner_color: ColorU::TRANSPARENT,
-            clip_to_container_border: true,
+            clip_to_container_border: clip,
+            fade_delay_ms,
+            fade_duration_ms,
+            visibility,
         }
     }
 }
 
-/// Get the computed scrollbar style for a node
+/// Get the computed scrollbar style for a node.
 ///
-/// This combines:
-/// - `scrollbar-width` property (auto/thin/none)
-/// - `scrollbar-color` property (thumb and track colors)
-/// - `-azul-scrollbar-style` property (full scrollbar customization)
+/// Resolution order (later wins):
+///   1. UA scrollbar CSS (`CssPropertyWithConditions` in `ua_css.rs`,
+///      evaluated via `@os` / `@theme` conditions)
+///   2. CSS `-azul-scrollbar-style` (full `ScrollbarInfo` customisation)
+///   3. CSS `scrollbar-width`  (overrides width + overlay mode)
+///   4. CSS `scrollbar-color`  (overrides thumb / track colours)
+///
+/// When `system_style` is `None`, falls back to the unconditional UA rule
+/// (classic light scrollbar).
 pub fn get_scrollbar_style(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
+    system_style: Option<&azul_css::system::SystemStyle>,
 ) -> ComputedScrollbarStyle {
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
-    // Start with defaults
-    let mut result = ComputedScrollbarStyle::default();
+    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
+    let ctx = match system_style {
+        Some(sys) => {
+            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(sys)
+        }
+        None => azul_css::dynamic_selector::DynamicSelectorContext::default(),
+    };
+    let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
+    let mut result = ComputedScrollbarStyle::from_ua_resolved(&ua);
 
-    // Check for -azul-scrollbar-style (full customization)
+    // Step 2: Check for -azul-scrollbar-style (full customization)
     if let Some(scrollbar_style) = styled_dom
         .css_property_cache
         .ptr
         .get_scrollbar_style(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        // Use the detailed scrollbar info
         result.width_px = match scrollbar_style.horizontal.width {
             azul_css::props::layout::dimensions::LayoutWidth::Px(px) => {
-                // Use to_pixels_internal with 100% = 16px and 1em = 16px as reasonable defaults
                 px.to_pixels_internal(16.0, 16.0)
             }
             _ => 16.0,
@@ -3243,7 +3304,7 @@ pub fn get_scrollbar_style(
         result.clip_to_container_border = scrollbar_style.horizontal.clip_to_container_border;
     }
 
-    // Check for scrollbar-width (overrides width)
+    // Step 3: Check for scrollbar-width (overrides width + overlay)
     if let Some(scrollbar_width) = styled_dom
         .css_property_cache
         .ptr
@@ -3251,14 +3312,28 @@ pub fn get_scrollbar_style(
         .and_then(|v| v.get_property())
     {
         result.width_mode = *scrollbar_width;
-        result.width_px = match scrollbar_width {
-            LayoutScrollbarWidth::Auto => 16.0,
-            LayoutScrollbarWidth::Thin => 8.0,
-            LayoutScrollbarWidth::None => 0.0,
-        };
+        match scrollbar_width {
+            LayoutScrollbarWidth::Auto => {
+                result.width_px = 12.0;
+                result.fade_delay_ms = 0;
+                result.fade_duration_ms = 0;
+                result.visibility = ScrollbarVisibilityMode::Always;
+                result.clip_to_container_border = false;
+            }
+            LayoutScrollbarWidth::Thin => {
+                result.width_px = 8.0;
+                result.fade_delay_ms = 500;
+                result.fade_duration_ms = 200;
+                result.visibility = ScrollbarVisibilityMode::WhenScrolling;
+                result.clip_to_container_border = true;
+            }
+            LayoutScrollbarWidth::None => {
+                result.width_px = 0.0;
+            }
+        }
     }
 
-    // Check for scrollbar-color (overrides thumb/track colors)
+    // Step 4: Check for scrollbar-color (overrides thumb/track colors)
     if let Some(scrollbar_color) = styled_dom
         .css_property_cache
         .ptr
@@ -3266,9 +3341,7 @@ pub fn get_scrollbar_style(
         .and_then(|v| v.get_property())
     {
         match scrollbar_color {
-            StyleScrollbarColor::Auto => {
-                // Keep default colors
-            }
+            StyleScrollbarColor::Auto => { /* keep */ }
             StyleScrollbarColor::Custom(custom) => {
                 result.thumb_color = custom.thumb;
                 result.track_color = custom.track;
@@ -3296,7 +3369,7 @@ pub fn should_clip_scrollbar_to_border(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> bool {
-    let style = get_scrollbar_style(styled_dom, node_id, node_state);
+    let style = get_scrollbar_style(styled_dom, node_id, node_state, None);
     style.clip_to_container_border
 }
 
@@ -3306,7 +3379,7 @@ pub fn get_scrollbar_width_px(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
-    let style = get_scrollbar_style(styled_dom, node_id, node_state);
+    let style = get_scrollbar_style(styled_dom, node_id, node_state, None);
     style.width_px
 }
 

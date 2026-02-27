@@ -209,6 +209,47 @@ impl ScrollPhysics {
 }
 
 // ============================================================================
+// Scrollbar Visibility Mode (CSS: -azul-scrollbar-visibility)
+// ============================================================================
+
+/// Controls when the scrollbar is displayed.
+///
+/// This is a per-element CSS property (`-azul-scrollbar-visibility`) that
+/// determines the scrollbar presentation style. It interacts with the
+/// OS-level `ScrollbarPreferences.visibility` (from System Preferences)
+/// when set to `Auto`.
+///
+/// - `Always`: Classic, always-visible scrollbar (Chrome/Windows/Linux default).
+///   Scrollbar reserves layout space.
+/// - `WhenScrolling`: Overlay scrollbar that fades in on scroll activity
+///   and fades out after a delay. Does not reserve layout space.
+/// - `Auto`: Use the OS preference. On macOS this typically means `WhenScrolling`,
+///   on Windows/Linux this typically means `Always`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum ScrollbarVisibilityMode {
+    /// Scrollbar is always visible (Chrome/Windows/Linux default).
+    /// Reserves layout space.
+    #[default]
+    Always,
+    /// Scrollbar appears on scroll and fades out after inactivity.
+    /// Does not reserve layout space (overlay).
+    WhenScrolling,
+    /// Use the OS-level scrollbar preference.
+    Auto,
+}
+
+impl PrintAsCssValue for ScrollbarVisibilityMode {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Always => "always".to_string(),
+            Self::WhenScrolling => "when-scrolling".to_string(),
+            Self::Auto => "auto".to_string(),
+        }
+    }
+}
+
+// ============================================================================
 // Per-node Overflow Scrolling Mode (CSS: -azul-overflow-scrolling)
 // ============================================================================
 

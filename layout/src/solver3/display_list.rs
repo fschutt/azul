@@ -2937,7 +2937,7 @@ where
             .map(|nid| {
                 let node_state =
                     &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
-                get_scrollbar_style(self.ctx.styled_dom, nid, node_state)
+                get_scrollbar_style(self.ctx.styled_dom, nid, node_state, self.ctx.system_style.as_ref().map(|v| &**v))
             })
             .unwrap_or_default();
 

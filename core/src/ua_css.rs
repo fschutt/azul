@@ -65,6 +65,10 @@
 
 use azul_css::{
     css::CssPropertyValue,
+    dynamic_selector::{
+        CssPropertyWithConditions,
+        DynamicSelector, DynamicSelectorContext, OsCondition, ThemeCondition,
+    },
     props::{
         basic::{
             font::StyleFontWeight, length::PercentageValue, pixel::PixelValue, ColorU,
@@ -93,6 +97,9 @@ use azul_css::{
             content::CounterReset,
             effects::StyleCursor,
             lists::StyleListStyleType,
+            scrollbar::{
+                LayoutScrollbarWidth, ScrollbarColorCustom, StyleScrollbarColor,
+            },
             text::StyleTextDecoration,
             StyleTextAlign, StyleVerticalAlign,
         },
@@ -878,4 +885,192 @@ pub fn get_ua_property(
     };
 
     result
+}
+
+// ============================================================================
+// UA Scrollbar Defaults — individual CssPropertyWithConditions
+// ============================================================================
+//
+// These rules define the default scrollbar appearance per OS and theme,
+// using the same `@os` / `@theme` condition system as author CSS.
+// Each entry is a single CSS property (scrollbar-color or scrollbar-width)
+// with its conditions.  Rules are evaluated first-match-wins per property type.
+//
+// Conceptually equivalent to:
+//
+//   @os macos                { scrollbar-width: thin; }
+//   @os ios                  { scrollbar-width: thin; }
+//   @os android              { scrollbar-width: thin; }
+//   /* default */            { scrollbar-width: auto; }
+//
+//   @os macos @theme dark    { scrollbar-color: rgba(255,255,255,0.4) transparent; }
+//   @os macos @theme light   { scrollbar-color: rgba(0,0,0,0.4) transparent; }
+//   @os windows @theme dark  { scrollbar-color: #6e6e6e #202020; }
+//   @os windows @theme light { scrollbar-color: #828282 #f1f1f1; }
+//   @os ios @theme dark      { scrollbar-color: rgba(255,255,255,0.4) transparent; }
+//   @os ios @theme light     { scrollbar-color: rgba(0,0,0,0.4) transparent; }
+//   @os android @theme dark  { scrollbar-color: rgba(255,255,255,0.3) transparent; }
+//   @os android @theme light { scrollbar-color: rgba(0,0,0,0.3) transparent; }
+//   @theme dark              { scrollbar-color: #646464 #2d2d2d; }
+//   /* default */            { scrollbar-color: #c1c1c1 #f1f1f1; }
+
+/// Helper to create a const `scrollbar-color` `CssProperty`.
+const fn scrollbar_color(thumb: ColorU, track: ColorU) -> CssProperty {
+    CssProperty::ScrollbarColor(CssPropertyValue::Exact(
+        StyleScrollbarColor::Custom(ScrollbarColorCustom { thumb, track }),
+    ))
+}
+
+/// Helper to create a const `scrollbar-width` `CssProperty`.
+const fn scrollbar_width(w: LayoutScrollbarWidth) -> CssProperty {
+    CssProperty::ScrollbarWidth(CssPropertyValue::Exact(w))
+}
+
+/// UA scrollbar CSS properties with `@os` / `@theme` conditions.
+///
+/// Ordered most-specific first.  The evaluation function picks the
+/// first matching entry for each property type (`scrollbar-color`,
+/// `scrollbar-width`).
+pub static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
+    // ── scrollbar-width per OS ──────────────────────────────────────────
+    // macOS → thin (overlay)
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_width(LayoutScrollbarWidth::Thin),
+        &[DynamicSelector::Os(OsCondition::MacOS)],
+    ),
+    // iOS → thin
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_width(LayoutScrollbarWidth::Thin),
+        &[DynamicSelector::Os(OsCondition::IOS)],
+    ),
+    // Android → thin
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_width(LayoutScrollbarWidth::Thin),
+        &[DynamicSelector::Os(OsCondition::Android)],
+    ),
+    // default → auto (classic)
+    CssPropertyWithConditions::simple(
+        scrollbar_width(LayoutScrollbarWidth::Auto),
+    ),
+
+    // ── scrollbar-color per OS + theme ──────────────────────────────────
+    // macOS dark: semi-transparent white thumb, transparent track
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 255, g: 255, b: 255, a: 100 },
+            ColorU::TRANSPARENT,
+        ),
+        &[DynamicSelector::Os(OsCondition::MacOS), DynamicSelector::Theme(ThemeCondition::Dark)],
+    ),
+    // macOS light: semi-transparent black thumb, transparent track
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 0, g: 0, b: 0, a: 100 },
+            ColorU::TRANSPARENT,
+        ),
+        &[DynamicSelector::Os(OsCondition::MacOS), DynamicSelector::Theme(ThemeCondition::Light)],
+    ),
+    // Windows dark
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 110, g: 110, b: 110, a: 255 },
+            ColorU { r: 32, g: 32, b: 32, a: 255 },
+        ),
+        &[DynamicSelector::Os(OsCondition::Windows), DynamicSelector::Theme(ThemeCondition::Dark)],
+    ),
+    // Windows light
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 130, g: 130, b: 130, a: 255 },
+            ColorU { r: 241, g: 241, b: 241, a: 255 },
+        ),
+        &[DynamicSelector::Os(OsCondition::Windows), DynamicSelector::Theme(ThemeCondition::Light)],
+    ),
+    // iOS dark
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 255, g: 255, b: 255, a: 100 },
+            ColorU::TRANSPARENT,
+        ),
+        &[DynamicSelector::Os(OsCondition::IOS), DynamicSelector::Theme(ThemeCondition::Dark)],
+    ),
+    // iOS light
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 0, g: 0, b: 0, a: 100 },
+            ColorU::TRANSPARENT,
+        ),
+        &[DynamicSelector::Os(OsCondition::IOS), DynamicSelector::Theme(ThemeCondition::Light)],
+    ),
+    // Android dark
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 255, g: 255, b: 255, a: 77 },
+            ColorU::TRANSPARENT,
+        ),
+        &[DynamicSelector::Os(OsCondition::Android), DynamicSelector::Theme(ThemeCondition::Dark)],
+    ),
+    // Android light
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 0, g: 0, b: 0, a: 77 },
+            ColorU::TRANSPARENT,
+        ),
+        &[DynamicSelector::Os(OsCondition::Android), DynamicSelector::Theme(ThemeCondition::Light)],
+    ),
+    // Linux / unknown dark fallback
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_color(
+            ColorU { r: 100, g: 100, b: 100, a: 255 },
+            ColorU { r: 45, g: 45, b: 45, a: 255 },
+        ),
+        &[DynamicSelector::Theme(ThemeCondition::Dark)],
+    ),
+    // Unconditional fallback (classic light)
+    CssPropertyWithConditions::simple(
+        scrollbar_color(
+            ColorU { r: 193, g: 193, b: 193, a: 255 },
+            ColorU { r: 241, g: 241, b: 241, a: 255 },
+        ),
+    ),
+];
+
+/// Resolved UA scrollbar defaults after evaluating conditions.
+pub struct ResolvedUaScrollbar {
+    pub color: Option<StyleScrollbarColor>,
+    pub width: Option<LayoutScrollbarWidth>,
+}
+
+/// Evaluate UA scrollbar CSS rules against a `DynamicSelectorContext`.
+///
+/// Iterates `UA_SCROLLBAR_CSS` and picks the first matching entry per
+/// property type.  Returns `None` for a property if no rule matches
+/// (should not happen since there are unconditional fallbacks).
+pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
+    let mut color: Option<StyleScrollbarColor> = None;
+    let mut width: Option<LayoutScrollbarWidth> = None;
+
+    for prop in UA_SCROLLBAR_CSS {
+        if !prop.matches(ctx) {
+            continue;
+        }
+        match &prop.property {
+            CssProperty::ScrollbarColor(CssPropertyValue::Exact(c)) => {
+                if color.is_none() {
+                    color = Some(*c);
+                }
+            }
+            CssProperty::ScrollbarWidth(CssPropertyValue::Exact(w)) => {
+                if width.is_none() {
+                    width = Some(*w);
+                }
+            }
+            _ => {}
+        }
+        if color.is_some() && width.is_some() {
+            break;
+        }
+    }
+
+    ResolvedUaScrollbar { color, width }
 }
