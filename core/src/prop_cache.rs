@@ -72,7 +72,8 @@ use azul_css::{
             LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
             LayoutTableLayoutValue, LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue,
             LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, PageBreakValue,
-            ScrollbarStyleValue, SelectionBackgroundColorValue, SelectionColorValue,
+            ScrollbarStyleValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
+            ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
             ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
@@ -2342,6 +2343,54 @@ impl CssPropertyCache {
             &CssPropertyType::ScrollbarColor,
         )
         .and_then(|p| p.as_scrollbar_color())
+    }
+
+    // Method for getting -azul-scrollbar-visibility property
+    pub fn get_scrollbar_visibility<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ScrollbarVisibilityModeValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarVisibility,
+        )
+        .and_then(|p| p.as_scrollbar_visibility())
+    }
+
+    // Method for getting -azul-scrollbar-fade-delay property
+    pub fn get_scrollbar_fade_delay<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ScrollbarFadeDelayValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarFadeDelay,
+        )
+        .and_then(|p| p.as_scrollbar_fade_delay())
+    }
+
+    // Method for getting -azul-scrollbar-fade-duration property
+    pub fn get_scrollbar_fade_duration<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ScrollbarFadeDurationValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarFadeDuration,
+        )
+        .and_then(|p| p.as_scrollbar_fade_duration())
     }
 
     // Method for getting visibility property
