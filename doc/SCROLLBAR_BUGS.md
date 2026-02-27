@@ -2,7 +2,7 @@
 
 ## scrolling.c Bugs
 
-- [ ] **BUG-S1: Scrollbar thumb does not sync with trackpad scroll**
+- [x] **BUG-S1: Scrollbar thumb does not sync with trackpad scroll** *(Phase 2)*
   The scrollbar thumb stays frozen during GPU-only scroll. It only syncs on
   window resize (which triggers a full display list rebuild).
   **Root cause:** `paint_scrollbars()` bakes the thumb position into the display
@@ -15,7 +15,7 @@
   ratio × track length). On each scroll tick, `synchronize_gpu_values()` pushes
   the updated transform.
 
-- [ ] **BUG-S2: Scrollbar track/thumb geometry is wrong**
+- [x] **BUG-S2: Scrollbar track/thumb geometry is wrong** *(Phase 1)*
   The scrollbar track ignores: (a) the corner rect when both scrollbars are
   visible, (b) the space for increment/decrement buttons. The thumb math also
   doesn't account for button space.
@@ -26,7 +26,7 @@
   scroll=max the thumb's bottom edge is at the bottom of the usable region.
   Position is linearly interpolated between these two bounds.
 
-- [ ] **BUG-S3: Scrollbar hit-testing and dragging non-functional**
+- [x] **BUG-S3: Scrollbar hit-testing and dragging non-functional** *(Phase 1+2)*
   Clicking and dragging the scrollbar thumb/track has no visible effect.
   **Root cause candidates:**
   (a) Hit test tags may not be generated correctly in compositor2.rs,
@@ -37,7 +37,7 @@
   **Fix:** Debug the hit-test → drag → gpu_scroll pipeline end-to-end.
   Needs printlns at each stage.
 
-- [ ] **BUG-S4: No overscroll / rubber-banding on trackpad**
+- [x] **BUG-S4: No overscroll / rubber-banding on trackpad** *(Phase 5)*
   The rubber-banding system exists (`rubber_band_clamp()` in scroll_timer.rs)
   but only applies to `WheelDiscrete` momentum. `TrackpadContinuous` inputs
   are hard-clamped: `position.x.max(0.0).min(info.max_scroll_x)`.
@@ -57,7 +57,7 @@
   `is_rubber_banding = true`. The existing spring physics will then pull
   it back.
 
-- [ ] **BUG-S5: Scrollbar styling is hardcoded, CSS not wired**
+- [x] **BUG-S5: Scrollbar styling is hardcoded, CSS not wired** *(Phase 3)*
   `paint_scrollbars()` reads `ComputedScrollbarStyle` from CSS, including
   `scrollbar-color` and `scrollbar-width`. But button colors are hardcoded
   to debug green (`ColorU { r: 144, g: 238, b: 144, a: 255 }`).
@@ -65,7 +65,7 @@
   Also verify that `-azul-scrollbar-style` custom property is properly
   applied.
 
-- [ ] **BUG-S6: Default scrollbar style not OS-specific**
+- [x] **BUG-S6: Default scrollbar style not OS-specific** *(Phase 3 + CSS properties)*
   The CSS system loads `system_native_macos.rs` styles which include
   `SCROLLBAR_MACOS_LIGHT`/`DARK` presets (8px, transparent track,
   semi-transparent thumb). But the `get_scrollbar_style()` default fallback
@@ -74,7 +74,7 @@
   `get_scrollbar_style()` when no CSS overrides are set. The macOS preset
   should be 8px overlay, Windows should be classic 16px.
 
-- [ ] **BUG-S7: macOS scrollbars should be overlay and fade out**
+- [x] **BUG-S7: macOS scrollbars should be overlay and fade out** *(Phase 4)*
   `ScrollbarVisibility::WhenScrolling` is correctly detected from
   `NSScroller.preferredScrollerStyle`. Layout reservation returns `0.0` for
   overlay mode. But the fade-in/fade-out animation needs to work:
@@ -90,7 +90,7 @@
   emit the scrollbar even when "invisible" (opacity=0), so the GPU key
   exists for animation.
 
-- [ ] **BUG-S8: ~100px padding at end of scroll frame**
+- [x] **BUG-S8: ~100px padding at end of scroll frame** *(fixed: padding-box coordinate alignment)*
   Extra whitespace at the bottom of the scroll content that shouldn't be there.
   **Root cause candidates:**
   (a) `content_size` includes padding/border that shouldn't be counted,
@@ -99,7 +99,7 @@
   **Fix:** Debug by printing `content_size`, `container_size`, `max_scroll`
   values during layout and comparing with expected.
 
-- [ ] **BUG-S9: Footer pushed off-screen (layout bug)**
+- [x] **BUG-S9: Footer pushed off-screen (layout bug)** *(Phase 8)*
   The bottom footer is barely visible and pushed off-screen. This is a layout
   bug, not scroll-related. Likely the scroll container's flex grow/shrink
   is consuming all available space leaving no room for the footer.
@@ -120,7 +120,7 @@
   - Continue even when cursor is outside the window (requires mouse capture)
   **Priority:** Medium — depends on text selection being fixed first.
 
-- [ ] **BUG-S11: Scrollbar drag must work outside window**
+- [x] **BUG-S11: Scrollbar drag must work outside window** *(Phase 6)*
   When dragging the scrollbar thumb, the drag must continue working even
   when the cursor moves outside the window. The drag should only release
   when the mouse button is released.
@@ -131,13 +131,13 @@
 
 ## infinity.c Bugs
 
-- [ ] **BUG-I1: IFrame not showing scrollbar**
+- [x] **BUG-I1: IFrame not showing scrollbar** *(Phase 7)*
   The IFrame callback is invoked but the IFrame container doesn't show a
   scrollbar. The `virtual_scroll_size` needs to be set by the IFrame callback
   to indicate total scrollable content size, and the scroll manager must use
   that for `is_node_scrollable()` and scrollbar geometry.
 
-- [ ] **BUG-I2: IFrame scroll is "blocky" (low priority)**
+- [x] **BUG-I2: IFrame scroll is "blocky" (low priority)** *(Phase 7)*
   Scroll used to update only when a full row (30px) was scrolled. Should
   be smooth per-pixel scrolling.
 

@@ -1472,7 +1472,16 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
 
                 if let Some(node) = self.tree.get_mut(node_idx) {
                     node.scrollbar_info = Some(scrollbar_info);
-                    node.overflow_content_size = Some(LogicalSize::new(eff_content_w, eff_content_h));
+                    // Taffy's content_size is measured from (0,0) of the border-box,
+                    // so it includes border.top/left as a leading offset.  Subtract
+                    // the start border so overflow_content_size is in the padding-box
+                    // coordinate space (matching the scroll viewport).
+                    let border_left = node.box_props.border.left;
+                    let border_top = node.box_props.border.top;
+                    node.overflow_content_size = Some(LogicalSize::new(
+                        (eff_content_w - border_left).max(0.0),
+                        (eff_content_h - border_top).max(0.0),
+                    ));
                 }
             }
         }

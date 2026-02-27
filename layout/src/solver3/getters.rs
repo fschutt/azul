@@ -3299,9 +3299,12 @@ pub fn get_scrollbar_style(
     {
         result.width_px = match scrollbar_style.horizontal.width {
             azul_css::props::layout::dimensions::LayoutWidth::Px(px) => {
-                px.to_pixels_internal(16.0, 16.0)
+                px.to_pixels_internal(
+                    crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+                    crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+                )
             }
-            _ => 16.0,
+            _ => crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         };
         result.thumb_color = extract_color_from_background(&scrollbar_style.horizontal.thumb);
         result.track_color = extract_color_from_background(&scrollbar_style.horizontal.track);

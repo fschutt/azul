@@ -386,17 +386,17 @@ pub fn regenerate_layout(
                 if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                     if let Some(dom_node_id) = node.dom_node_id {
                         // Get container size from used_size (border-box)
-                        // Convert to content-box by subtracting padding and border
-                        // This is critical: content_size is content-box, so container must match
+                        // Convert to padding-box by subtracting border only.
+                        // CSS spec: scrolling occurs within the padding box, so the
+                        // viewport for scroll clamp must be padding-box, not content-box.
+                        // This must match compute_scrollbar_geometry() which also uses
+                        // padding-box (inner_rect = paint_rect - borders).
                         let border_box_size = node.used_size.unwrap_or_default();
-                        let padding = &node.box_props.padding;
                         let border = &node.box_props.border;
                         let container_size = azul_core::geom::LogicalSize {
                             width: (border_box_size.width 
-                                    - padding.left - padding.right
                                     - border.left - border.right).max(0.0),
                             height: (border_box_size.height 
-                                     - padding.top - padding.bottom
                                      - border.top - border.bottom).max(0.0),
                         };
                         
@@ -425,7 +425,7 @@ pub fn regenerate_layout(
                             container_rect,
                             content_size,
                             now.clone(),
-                            16.0, // default scrollbar rendering thickness
+                            azul_layout::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
                             scrollbar_info.needs_horizontal,
                             scrollbar_info.needs_vertical,
                         );
@@ -521,14 +521,13 @@ pub fn incremental_relayout(
                 if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                     if let Some(dom_node_id) = node.dom_node_id {
                         let border_box_size = node.used_size.unwrap_or_default();
-                        let padding = &node.box_props.padding;
                         let border = &node.box_props.border;
+                        // padding-box: subtract only border (not padding) from border-box
+                        // This matches compute_scrollbar_geometry()'s inner_rect
                         let container_size = azul_core::geom::LogicalSize {
                             width: (border_box_size.width
-                                    - padding.left - padding.right
                                     - border.left - border.right).max(0.0),
                             height: (border_box_size.height
-                                     - padding.top - padding.bottom
                                      - border.top - border.bottom).max(0.0),
                         };
                         let container_origin = layout_result
@@ -547,7 +546,7 @@ pub fn incremental_relayout(
                             container_rect,
                             content_size,
                             now.clone(),
-                            16.0, // default scrollbar rendering thickness
+                            azul_layout::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
                             scrollbar_info.needs_horizontal,
                             scrollbar_info.needs_vertical,
                         );

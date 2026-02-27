@@ -645,7 +645,7 @@ impl ScrollManager {
                 overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                 overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                 overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-                scrollbar_thickness: 16.0,
+                scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
                 has_horizontal_scrollbar: false,
                 has_vertical_scrollbar: false,
             }
@@ -893,7 +893,7 @@ impl ScrollManager {
         let scrollbar_thickness = if scroll_state.scrollbar_thickness > 0.0 {
             scroll_state.scrollbar_thickness
         } else {
-            16.0 // fallback default
+            crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX
         };
 
         let content_size = scroll_state.virtual_scroll_size
@@ -1068,7 +1068,7 @@ impl AnimatedScrollState {
             overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-            scrollbar_thickness: 16.0,
+            scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
             has_horizontal_scrollbar: false,
             has_vertical_scrollbar: false,
         }

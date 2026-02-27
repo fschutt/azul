@@ -526,6 +526,10 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         node_index
     );
 
+    // Cache border values before the mutable borrow in layout_taffy_subtree
+    let border_left = node.box_props.border.left;
+    let border_top = node.box_props.border.top;
+
     let taffy_output =
         taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
 
@@ -533,7 +537,17 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     let mut output = LayoutOutput::default();
     // Use content_size for overflow detection, not container size.
     // content_size represents the actual size of all children, which may exceed the container.
-    output.overflow_size = translate_taffy_size_back(taffy_output.content_size);
+    //
+    // Taffy's content_size is measured from (0,0) of the border-box, so it includes
+    // border.top/left as a leading offset.  The scrollbar geometry and scroll clamp
+    // both measure inside the padding-box (border stripped).  Subtract the start
+    // border so that overflow_size is in the same coordinate space as the viewport
+    // (padding-box), preventing extra scroll range equal to the border width.
+    let raw = translate_taffy_size_back(taffy_output.content_size);
+    output.overflow_size = LogicalSize::new(
+        (raw.width - border_left).max(0.0),
+        (raw.height - border_top).max(0.0),
+    );
 
     let children: Vec<usize> = tree.get(node_index).unwrap().children.clone();
     for &child_idx in &children {

@@ -20,6 +20,7 @@ use azul_core::{
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
+        fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         layout_tree::LayoutTree,
         scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry},
     },
@@ -263,7 +264,7 @@ impl GpuStateManager {
                 let scrollbar_width_px = if scrollbar_info.scrollbar_height > 0.0 {
                     scrollbar_info.scrollbar_height
                 } else {
-                    16.0 // default rendering width for overlay scrollbars
+                    DEFAULT_SCROLLBAR_WIDTH_PX
                 };
 
                 let v_geom = compute_scrollbar_geometry(
@@ -284,7 +285,7 @@ impl GpuStateManager {
                 let scrollbar_width_px = if scrollbar_info.scrollbar_width > 0.0 {
                     scrollbar_info.scrollbar_width
                 } else {
-                    16.0 // default rendering width for overlay scrollbars
+                    DEFAULT_SCROLLBAR_WIDTH_PX
                 };
 
                 let h_geom = compute_scrollbar_geometry(
