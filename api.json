@@ -16124,6 +16124,15 @@
                                 "ScrollbarColor": {
                                     "type": "StyleScrollbarColorValue"
                                 },
+                                "ScrollbarVisibility": {
+                                    "type": "ScrollbarVisibilityModeValue"
+                                },
+                                "ScrollbarFadeDelay": {
+                                    "type": "ScrollbarFadeDelayValue"
+                                },
+                                "ScrollbarFadeDuration": {
+                                    "type": "ScrollbarFadeDurationValue"
+                                },
                                 "Opacity": {
                                     "type": "StyleOpacityValue"
                                 },
@@ -28655,6 +28664,9 @@
                                 "Scrollbar": {},
                                 "ScrollbarWidth": {},
                                 "ScrollbarColor": {},
+                                "ScrollbarVisibility": {},
+                                "ScrollbarFadeDelay": {},
+                                "ScrollbarFadeDuration": {},
                                 "Opacity": {},
                                 "Visibility": {},
                                 "Transform": {},
@@ -32776,6 +32788,150 @@
                                 },
                                 "high_quality_aa": {
                                     "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollbarVisibilityModeParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::ScrollbarVisibilityModeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ScrollbarFadeDelayValue": {
+                        "external": "azul_css::props::property::ScrollbarFadeDelayValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "ScrollbarFadeDelay"
+                            ]
+                        }
+                    },
+                    "ScrollbarFadeDurationValue": {
+                        "external": "azul_css::props::property::ScrollbarFadeDurationValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "ScrollbarFadeDuration"
+                            ]
+                        }
+                    },
+                    "ScrollbarFadeDurationParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::ScrollbarFadeDurationParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ScrollbarVisibilityModeValue": {
+                        "external": "azul_css::props::property::ScrollbarVisibilityModeValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "ScrollbarVisibilityMode"
+                            ]
+                        }
+                    },
+                    "ScrollbarFadeDelayParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::ScrollbarFadeDelayParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ScrollbarVisibilityMode": {
+                        "external": "azul_css::props::style::scrollbar::ScrollbarVisibilityMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Always": {},
+                                "WhenScrolling": {},
+                                "Auto": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollbarFadeDuration": {
+                        "external": "azul_css::props::style::scrollbar::ScrollbarFadeDuration",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ms": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollbarFadeDelay": {
+                        "external": "azul_css::props::style::scrollbar::ScrollbarFadeDelay",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ms": {
+                                    "type": "u32"
                                 }
                             }
                         ],
@@ -75893,6 +76049,15 @@
                                 },
                                 "StyleScrollbarColor": {
                                     "type": "StyleScrollbarColorParseErrorOwned"
+                                },
+                                "ScrollbarVisibilityMode": {
+                                    "type": "ScrollbarVisibilityModeParseErrorOwned"
+                                },
+                                "ScrollbarFadeDelay": {
+                                    "type": "ScrollbarFadeDelayParseErrorOwned"
+                                },
+                                "ScrollbarFadeDuration": {
+                                    "type": "ScrollbarFadeDurationParseErrorOwned"
                                 },
                                 "Transform": {
                                     "type": "CssStyleTransformParseErrorOwned"
