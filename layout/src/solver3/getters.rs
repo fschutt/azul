@@ -1878,19 +1878,17 @@ pub fn get_layout_scrollbar_width_px<T: crate::font_traits::ParsedFontTrait>(
     dom_id: NodeId,
     styled_node_state: &StyledNodeState,
 ) -> f32 {
-    use azul_css::props::style::scrollbar::LayoutScrollbarWidth;
-
-    // Check OS-level preference: overlay scrollbars reserve no layout space.
-    if let Some(ref sys) = ctx.system_style {
-        use azul_css::system::ScrollbarVisibility;
-        match sys.scrollbar_preferences.visibility {
-            ScrollbarVisibility::WhenScrolling => return 0.0, // overlay
-            ScrollbarVisibility::Always | ScrollbarVisibility::Automatic => {}
-        }
-    }
-
-    // Per-node CSS resolution
-    get_scrollbar_width_px(ctx.styled_dom, dom_id, styled_node_state)
+    // Resolve the full scrollbar style (includes per-node CSS overrides + system style).
+    // `reserve_width_px` already accounts for overlay vs legacy:
+    //   overlay (WhenScrolling) → 0.0
+    //   legacy (Always)         → visual_width_px
+    let style = get_scrollbar_style(
+        ctx.styled_dom,
+        dom_id,
+        styled_node_state,
+        ctx.system_style.as_deref(),
+    );
+    style.reserve_width_px
 }
 
 get_css_property!(
@@ -3190,8 +3188,12 @@ use azul_css::props::style::scrollbar::{
 pub struct ComputedScrollbarStyle {
     /// The scrollbar width mode (auto/thin/none)
     pub width_mode: LayoutScrollbarWidth,
-    /// Actual width in pixels (resolved from width_mode or scrollbar-style)
-    pub width_px: f32,
+    /// Visual width in pixels — used for rendering track + thumb.
+    /// Non-zero even for overlay scrollbars.
+    pub visual_width_px: f32,
+    /// Reserve width in pixels — layout space subtracted from content area.
+    /// 0 for overlay scrollbars, equal to `visual_width_px` for legacy.
+    pub reserve_width_px: f32,
     /// Thumb color
     pub thumb_color: ColorU,
     /// Track color
@@ -3208,6 +3210,14 @@ pub struct ComputedScrollbarStyle {
     pub fade_duration_ms: u32,
     /// Scrollbar visibility mode (always / when-scrolling / auto)
     pub visibility: ScrollbarVisibilityMode,
+    /// Whether to show top/bottom (or left/right) arrow buttons.
+    /// When false, the track spans the entire scrollbar length.
+    pub show_scroll_buttons: bool,
+    /// Size of each arrow button in px (square: width = height).
+    /// Only used when `show_scroll_buttons == true`.
+    pub scroll_button_size_px: f32,
+    /// Whether to show the corner rect where V and H scrollbars meet.
+    pub show_corner_rect: bool,
 }
 
 impl Default for ComputedScrollbarStyle {
@@ -3230,13 +3240,26 @@ impl ComputedScrollbarStyle {
         let fade_delay_ms = ua.fade_delay.map(|d| d.ms).unwrap_or(0);
         let fade_duration_ms = ua.fade_duration.map(|d| d.ms).unwrap_or(0);
 
-        let width_px = match width_mode {
+        let visual_width_px = match width_mode {
             LayoutScrollbarWidth::Thin => 8.0,
             LayoutScrollbarWidth::Auto => 12.0,
             LayoutScrollbarWidth::None => 0.0,
         };
 
+        // Overlay scrollbars don't reserve layout space.
+        let reserve_width_px = if visibility == ScrollbarVisibilityMode::WhenScrolling {
+            0.0
+        } else {
+            visual_width_px
+        };
+
         let clip = visibility == ScrollbarVisibilityMode::WhenScrolling;
+
+        // Overlay scrollbars hide buttons and corner by default.
+        let is_overlay = visibility == ScrollbarVisibilityMode::WhenScrolling;
+        let show_scroll_buttons = !is_overlay;
+        let scroll_button_size_px = if is_overlay { 0.0 } else { visual_width_px };
+        let show_corner_rect = !is_overlay;
 
         let (thumb_color, track_color) = match ua.color {
             Some(StyleScrollbarColor::Custom(c)) => (c.thumb, c.track),
@@ -3245,7 +3268,8 @@ impl ComputedScrollbarStyle {
 
         Self {
             width_mode,
-            width_px,
+            visual_width_px,
+            reserve_width_px,
             thumb_color,
             track_color,
             button_color: ColorU::TRANSPARENT,
@@ -3254,6 +3278,9 @@ impl ComputedScrollbarStyle {
             fade_delay_ms,
             fade_duration_ms,
             visibility,
+            show_scroll_buttons,
+            scroll_button_size_px,
+            show_corner_rect,
         }
     }
 }
@@ -3297,7 +3324,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_style(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.width_px = match scrollbar_style.horizontal.width {
+        let w = match scrollbar_style.horizontal.width {
             azul_css::props::layout::dimensions::LayoutWidth::Px(px) => {
                 px.to_pixels_internal(
                     crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
@@ -3306,6 +3333,11 @@ pub fn get_scrollbar_style(
             }
             _ => crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         };
+        result.visual_width_px = w;
+        // reserve_width_px follows visual unless overlay
+        if result.visibility != ScrollbarVisibilityMode::WhenScrolling {
+            result.reserve_width_px = w;
+        }
         result.thumb_color = extract_color_from_background(&scrollbar_style.horizontal.thumb);
         result.track_color = extract_color_from_background(&scrollbar_style.horizontal.track);
         result.button_color = extract_color_from_background(&scrollbar_style.horizontal.button);
@@ -3321,11 +3353,15 @@ pub fn get_scrollbar_style(
         .and_then(|v| v.get_property())
     {
         result.width_mode = *scrollbar_width;
-        result.width_px = match scrollbar_width {
+        let w = match scrollbar_width {
             LayoutScrollbarWidth::Auto => 12.0,
             LayoutScrollbarWidth::Thin => 8.0,
             LayoutScrollbarWidth::None => 0.0,
         };
+        result.visual_width_px = w;
+        if result.visibility != ScrollbarVisibilityMode::WhenScrolling {
+            result.reserve_width_px = w;
+        }
     }
 
     // Step 4: Check for scrollbar-color (overrides thumb/track colors)
@@ -3353,6 +3389,16 @@ pub fn get_scrollbar_style(
     {
         result.visibility = *vis;
         result.clip_to_container_border = *vis == ScrollbarVisibilityMode::WhenScrolling;
+        // Overlay mode: no reserved layout space, hide buttons and corner
+        let is_overlay = *vis == ScrollbarVisibilityMode::WhenScrolling;
+        if is_overlay {
+            result.reserve_width_px = 0.0;
+            result.show_scroll_buttons = false;
+            result.scroll_button_size_px = 0.0;
+            result.show_corner_rect = false;
+        } else {
+            result.reserve_width_px = result.visual_width_px;
+        }
     }
 
     // Step 6: Check for -azul-scrollbar-fade-delay
@@ -3399,14 +3445,14 @@ pub fn should_clip_scrollbar_to_border(
     style.clip_to_container_border
 }
 
-/// Get the scrollbar width in pixels for a node
+/// Get the scrollbar visual width in pixels for a node (used for rendering)
 pub fn get_scrollbar_width_px(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
     let style = get_scrollbar_style(styled_dom, node_id, node_state, None);
-    style.width_px
+    style.visual_width_px
 }
 
 /// Checks if text in a node is selectable based on CSS `user-select` property.

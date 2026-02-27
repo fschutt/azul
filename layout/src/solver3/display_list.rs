@@ -231,6 +231,9 @@ pub struct ScrollbarDrawInfo {
     pub clip_to_container_border: bool,
     /// Container's border-radius (for clipping)
     pub container_border_radius: BorderRadius,
+    /// Scrollbar visibility mode — used by back-registration to choose initial opacity.
+    /// `Always` → initial opacity 1.0; `WhenScrolling` → initial opacity 0.0.
+    pub visibility: azul_css::props::style::scrollbar::ScrollbarVisibilityMode,
 }
 
 impl BorderBoxRect {
@@ -1781,8 +1784,8 @@ where
         // If so, wrap in a reference frame so WebRender can animate it on the GPU.
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
             self.gpu_value_cache.and_then(|cache| {
-                let key = cache.transform_keys.get(&dom_id)?;
-                let transform = cache.current_transform_values.get(&dom_id)?;
+                let key = cache.css_transform_keys.get(&dom_id)?;
+                let transform = cache.css_current_transform_values.get(&dom_id)?;
                 Some((*key, *transform))
             })
         });
@@ -2047,8 +2050,8 @@ where
             // Check if this child has a GPU transform (CSS transform or drag)
             let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
                 self.gpu_value_cache.and_then(|cache| {
-                    let key = cache.transform_keys.get(&dom_id)?;
-                    let transform = cache.current_transform_values.get(&dom_id)?;
+                    let key = cache.css_transform_keys.get(&dom_id)?;
+                    let transform = cache.css_current_transform_values.get(&dom_id)?;
                     Some((*key, *transform))
                 })
             });
@@ -2117,8 +2120,8 @@ where
             // Check if this child has a GPU transform (CSS transform or drag)
             let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
                 self.gpu_value_cache.and_then(|cache| {
-                    let key = cache.transform_keys.get(&dom_id)?;
-                    let transform = cache.current_transform_values.get(&dom_id)?;
+                    let key = cache.css_transform_keys.get(&dom_id)?;
+                    let transform = cache.css_current_transform_values.get(&dom_id)?;
                     Some((*key, *transform))
                 })
             });
@@ -2180,8 +2183,8 @@ where
             // Check if this child has a GPU transform (CSS transform or drag)
             let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
                 self.gpu_value_cache.and_then(|cache| {
-                    let key = cache.transform_keys.get(&dom_id)?;
-                    let transform = cache.current_transform_values.get(&dom_id)?;
+                    let key = cache.css_transform_keys.get(&dom_id)?;
+                    let transform = cache.css_current_transform_values.get(&dom_id)?;
                     Some((*key, *transform))
                 })
             });
@@ -3011,7 +3014,7 @@ where
             .unwrap_or_else(|| node.get_content_size());
 
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
-        let thumb_radius = scrollbar_style.width_px / 2.0;
+        let thumb_radius = scrollbar_style.visual_width_px / 2.0;
         let thumb_border_radius = BorderRadius {
             top_left: thumb_radius,
             top_right: thumb_radius,
@@ -3043,7 +3046,7 @@ where
                 inner_rect,
                 content_size,
                 scroll_offset_y,
-                scrollbar_style.width_px,
+                scrollbar_style.visual_width_px,
                 scrollbar_info.needs_horizontal,
             );
 
@@ -3103,6 +3106,7 @@ where
                 hit_id,
                 clip_to_container_border: scrollbar_style.clip_to_container_border,
                 container_border_radius,
+                visibility: scrollbar_style.visibility,
             });
         }
 
@@ -3125,7 +3129,7 @@ where
                 inner_rect,
                 content_size,
                 scroll_offset_x,
-                scrollbar_style.width_px,
+                scrollbar_style.visual_width_px,
                 scrollbar_info.needs_vertical,
             );
 
@@ -3180,6 +3184,7 @@ where
                 hit_id,
                 clip_to_container_border: scrollbar_style.clip_to_container_border,
                 container_border_radius,
+                visibility: scrollbar_style.visibility,
             });
         }
 

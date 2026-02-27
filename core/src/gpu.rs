@@ -59,6 +59,11 @@ pub struct GpuValueCache {
     pub h_transform_keys: BTreeMap<NodeId, TransformKey>,
     /// Current horizontal scrollbar thumb transform values
     pub h_current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
+    /// CSS transform keys (keyed by node ID) — for CSS `transform` property animation.
+    /// Separate from scrollbar transform keys to avoid SpatialTreeItemKey collisions.
+    pub css_transform_keys: BTreeMap<NodeId, TransformKey>,
+    /// Current CSS transform values (keyed by node ID)
+    pub css_current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
     pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
     pub current_opacity_values: BTreeMap<NodeId, f32>,
     pub scrollbar_v_opacity_keys: BTreeMap<(DomId, NodeId), OpacityKey>,
@@ -168,7 +173,7 @@ impl GpuValueCache {
                         )
                     });
 
-                let existing_transform = self.current_transform_values.get(&node_id);
+                let existing_transform = self.css_current_transform_values.get(&node_id);
 
                 match (existing_transform, current_transform) {
                     (None, None) => None, // no new transform, no old transform
@@ -179,31 +184,31 @@ impl GpuValueCache {
                     )),
                     (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(
                         node_id,
-                        self.transform_keys.get(&node_id).copied()?,
+                        self.css_transform_keys.get(&node_id).copied()?,
                         *old,
                         new,
                     )),
                     (Some(_old), None) => Some(GpuTransformKeyEvent::Removed(
                         node_id,
-                        self.transform_keys.get(&node_id).copied()?,
+                        self.css_transform_keys.get(&node_id).copied()?,
                     )),
                 }
             })
             .collect::<Vec<GpuTransformKeyEvent>>();
 
-        // remove / add the transform keys accordingly
+        // remove / add the CSS transform keys accordingly
         for event in all_current_transform_events.iter() {
             match &event {
                 GpuTransformKeyEvent::Added(node_id, key, matrix) => {
-                    self.transform_keys.insert(*node_id, *key);
-                    self.current_transform_values.insert(*node_id, *matrix);
+                    self.css_transform_keys.insert(*node_id, *key);
+                    self.css_current_transform_values.insert(*node_id, *matrix);
                 }
                 GpuTransformKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
-                    self.current_transform_values.insert(*node_id, *new_state);
+                    self.css_current_transform_values.insert(*node_id, *new_state);
                 }
                 GpuTransformKeyEvent::Removed(node_id, _key) => {
-                    self.transform_keys.remove(node_id);
-                    self.current_transform_values.remove(node_id);
+                    self.css_transform_keys.remove(node_id);
+                    self.css_current_transform_values.remove(node_id);
                 }
             }
         }

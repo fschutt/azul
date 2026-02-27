@@ -834,20 +834,30 @@ impl LayoutWindow {
                         // scrollbar. We mirror these into the GPU cache so that
                         // synchronize_scrollbar_opacity can update the values and
                         // synchronize_gpu_values can push them to WebRender.
+                        //
+                        // Initial opacity depends on visibility mode:
+                        //   Always       → 1.0 (legacy scrollbar, always visible)
+                        //   WhenScrolling → 0.0 (overlay scrollbar, hidden until scroll)
+                        //   Auto         → 0.0 (same as WhenScrolling)
+                        let initial_opacity = if info.visibility == azul_css::props::style::scrollbar::ScrollbarVisibilityMode::Always {
+                            1.0
+                        } else {
+                            0.0
+                        };
                         if let Some(opacity_key) = info.opacity_key {
                             match hit_id {
                                 azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
                                     if !gpu_cache.scrollbar_v_opacity_keys.contains_key(&key) {
                                         gpu_cache.scrollbar_v_opacity_keys.insert(key, opacity_key);
-                                        gpu_cache.scrollbar_v_opacity_values.insert(key, 0.0);
+                                        gpu_cache.scrollbar_v_opacity_values.insert(key, initial_opacity);
                                     }
                                 }
                                 azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
                                     if !gpu_cache.scrollbar_h_opacity_keys.contains_key(&key) {
                                         gpu_cache.scrollbar_h_opacity_keys.insert(key, opacity_key);
-                                        gpu_cache.scrollbar_h_opacity_values.insert(key, 0.0);
+                                        gpu_cache.scrollbar_h_opacity_values.insert(key, initial_opacity);
                                     }
                                 }
                                 _ => {}
