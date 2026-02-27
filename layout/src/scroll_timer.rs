@@ -66,8 +66,10 @@ pub struct ScrollPhysicsState {
     pub input_queue: ScrollInputQueue,
     /// Per-node velocity tracking
     pub node_velocities: BTreeMap<(DomId, NodeId), NodeScrollPhysics>,
-    /// Per-node "forced position" from trackpad or programmatic scroll
+    /// Per-node "forced position" from programmatic scroll (hard-clamped)
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
+    /// Per-node "forced position" from trackpad scroll (rubber-band clamped)
+    pub pending_trackpad_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Global scroll physics configuration (from SystemStyle)
     pub scroll_physics: ScrollPhysics,
 }
@@ -91,6 +93,7 @@ impl ScrollPhysicsState {
             input_queue,
             node_velocities: BTreeMap::new(),
             pending_positions: BTreeMap::new(),
+            pending_trackpad_positions: BTreeMap::new(),
             scroll_physics,
         }
     }
@@ -105,6 +108,7 @@ impl ScrollPhysicsState {
                     || v.is_rubber_banding
             })
             || !self.pending_positions.is_empty()
+            || !self.pending_trackpad_positions.is_empty()
     }
 }
 
@@ -165,7 +169,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                     x: current.x + input.delta.x,
                     y: current.y + input.delta.y,
                 };
-                physics.pending_positions.insert(key, new_pos);
+                physics.pending_trackpad_positions.insert(key, new_pos);
 
                 // Kill any existing velocity for this node (trackpad overrides momentum)
                 physics.node_velocities.remove(&key);
@@ -197,6 +201,36 @@ pub extern "C" fn scroll_physics_timer_callback(
                     y: current.y + input.delta.y,
                 };
                 physics.pending_positions.insert(key, new_pos);
+            }
+            ScrollInputSource::TrackpadEnd => {
+                // Trackpad gesture ended (fingers lifted).
+                // If the scroll position is past the bounds (rubber-banding overshoot),
+                // start a spring-back animation to snap back to the boundary.
+                let pos = physics.pending_positions.remove(&key)
+                    .or_else(|| timer_info.get_scroll_node_info(input.dom_id, input.node_id)
+                        .map(|info| info.current_offset));
+
+                if let Some(pos) = pos {
+                    if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id) {
+                        let overshoot_x = calculate_overshoot(pos.x, 0.0, info.max_scroll_x);
+                        let overshoot_y = calculate_overshoot(pos.y, 0.0, info.max_scroll_y);
+
+                        if overshoot_x.abs() > 0.01 || overshoot_y.abs() > 0.01 {
+                            let node_phys = physics.node_velocities
+                                .entry(key)
+                                .or_insert_with(NodeScrollPhysics::default);
+                            // Zero out velocity — the spring-back force in the
+                            // velocity integration loop (step 2) will pull the
+                            // position back to the boundary.
+                            node_phys.velocity = LogicalPosition::zero();
+                            node_phys.is_rubber_banding = true;
+                        }
+
+                        // Also set the current position for the spring-back start
+                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(input.node_id));
+                        timer_info.scroll_to(input.dom_id, hierarchy_id, pos);
+                    }
+                }
             }
         }
     }
@@ -314,15 +348,44 @@ pub extern "C" fn scroll_physics_timer_callback(
     // 3. Push ScrollTo changes for all updated positions
     let mut any_changes = false;
 
-    // Apply direct position changes (trackpad/programmatic)
+    // Apply programmatic position changes (hard-clamped to bounds)
     let direct_positions: Vec<_> = physics.pending_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_positions.clear();
     for ((dom_id, node_id), position) in direct_positions {
-        // Clamp to valid bounds (no rubber-band for direct positioning)
         let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
             Some(info) => LogicalPosition {
                 x: position.x.max(0.0).min(info.max_scroll_x),
                 y: position.y.max(0.0).min(info.max_scroll_y),
+            },
+            None => position,
+        };
+        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+        timer_info.scroll_to(dom_id, hierarchy_id, clamped);
+        any_changes = true;
+    }
+
+    // Apply trackpad position changes (rubber-band clamped for elastic overshoot)
+    let trackpad_positions: Vec<_> = physics.pending_trackpad_positions.iter().map(|(k, v)| (*k, *v)).collect();
+    physics.pending_trackpad_positions.clear();
+    for ((dom_id, node_id), position) in trackpad_positions {
+        let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
+            Some(info) => {
+                let rubber_x = node_allows_rubber_band_x(&info, physics.scroll_physics.overscroll_elasticity);
+                let rubber_y = node_allows_rubber_band_y(&info, physics.scroll_physics.overscroll_elasticity);
+                let max_over = physics.scroll_physics.max_overscroll_distance;
+                let elasticity = physics.scroll_physics.overscroll_elasticity;
+                LogicalPosition {
+                    x: if rubber_x {
+                        rubber_band_clamp(position.x, 0.0, info.max_scroll_x, max_over, elasticity)
+                    } else {
+                        position.x.max(0.0).min(info.max_scroll_x)
+                    },
+                    y: if rubber_y {
+                        rubber_band_clamp(position.y, 0.0, info.max_scroll_y, max_over, elasticity)
+                    } else {
+                        position.y.max(0.0).min(info.max_scroll_y)
+                    },
+                }
             },
             None => position,
         };

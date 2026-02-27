@@ -77,6 +77,11 @@ pub enum ScrollInputSource {
     /// Continuous trackpad gesture (macOS precise scrolling).
     /// Position is set directly — the OS handles momentum/physics.
     TrackpadContinuous,
+    /// Trackpad gesture ended (fingers lifted off trackpad).
+    /// Triggers spring-back if the scroll position is past the bounds
+    /// (rubber-banding overshoot). The OS sends this when
+    /// NSEventPhaseEnded or momentumPhaseEnded is detected.
+    TrackpadEnd,
     /// Discrete mouse wheel steps (Windows/Linux mouse wheel).
     /// Applied as velocity impulse with momentum decay.
     WheelDiscrete,

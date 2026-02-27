@@ -329,8 +329,22 @@ impl MacOSWindow {
                 use azul_layout::managers::scroll_state::ScrollInputSource;
 
                 let now = Instant::from(std::time::Instant::now());
+
+                // Determine scroll input source based on event phase and precision.
+                // Trackpad gestures have hasPreciseScrollingDeltas() == true.
+                // When the gesture ends (fingers lifted), we send TrackpadEnd
+                // so the scroll timer can trigger spring-back for rubber-banding.
                 let source = if has_precise {
-                    ScrollInputSource::TrackpadContinuous
+                    let phase = unsafe { event.phase() };
+                    let momentum_phase = unsafe { event.momentumPhase() };
+                    if phase == objc2_app_kit::NSEventPhase::Ended
+                        || phase == objc2_app_kit::NSEventPhase::Cancelled
+                        || momentum_phase == objc2_app_kit::NSEventPhase::Ended
+                    {
+                        ScrollInputSource::TrackpadEnd
+                    } else {
+                        ScrollInputSource::TrackpadContinuous
+                    }
                 } else {
                     ScrollInputSource::WheelDiscrete
                 };
