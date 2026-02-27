@@ -2659,6 +2659,27 @@ pub fn build_image_only_transaction(
     // Step 3: Add scroll offsets (scroll position may have changed)
     scroll_all_nodes(layout_window, txn);
 
+    // Step 3.5: Update scrollbar thumb transforms based on current scroll offsets.
+    // This must happen AFTER scroll_all_nodes (which updates WebRender scroll frames)
+    // and BEFORE synchronize_gpu_values (which pushes transforms to WebRender).
+    // We destructure to satisfy the borrow checker (disjoint field borrows).
+    {
+        let LayoutWindow {
+            ref layout_results,
+            ref scroll_manager,
+            ref mut gpu_state_manager,
+            ..
+        } = *layout_window;
+
+        for (dom_id, layout_result) in layout_results {
+            gpu_state_manager.update_scrollbar_transforms(
+                *dom_id,
+                scroll_manager,
+                &layout_result.layout_tree,
+            );
+        }
+    }
+
     // Step 4: Synchronize GPU values (opacity/transform animations)
     synchronize_gpu_values(layout_window, txn);
 

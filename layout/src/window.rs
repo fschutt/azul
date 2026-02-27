@@ -799,6 +799,32 @@ impl LayoutWindow {
         let scroll_ids = self.layout_cache.scroll_ids.clone();
         let scroll_id_to_node_id = self.layout_cache.scroll_id_to_node_id.clone();
 
+        // Register scrollbar thumb TransformKeys from the display list into the GPU cache.
+        // paint_scrollbars() creates TransformKey::unique() for each thumb. We need to
+        // register those keys in the GPU cache so that update_scrollbar_transforms() can
+        // update the values during GPU-only scroll (without display list rebuild).
+        {
+            use crate::solver3::display_list::{DisplayListItem, ScrollbarDrawInfo};
+            let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id);
+            for item in &display_list.items {
+                if let DisplayListItem::ScrollBarStyled { info } = item {
+                    if let (Some(transform_key), Some(hit_id)) = (info.thumb_transform_key, &info.hit_id) {
+                        // Extract the node_id from the hit_id
+                        let node_id = match hit_id {
+                            azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid)
+                            | azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => *nid,
+                            _ => continue,
+                        };
+                        // Register key if not already present
+                        if !gpu_cache.transform_keys.contains_key(&node_id) {
+                            gpu_cache.transform_keys.insert(node_id, transform_key);
+                            gpu_cache.current_transform_values.insert(node_id, info.thumb_initial_transform);
+                        }
+                    }
+                }
+            }
+        }
+
         // Synchronize scrollbar transforms AFTER layout
         self.gpu_state_manager
             .update_scrollbar_transforms(dom_id, &self.scroll_manager, &tree);
