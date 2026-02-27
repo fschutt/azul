@@ -659,7 +659,8 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 border_radius,
             } => {
-                let rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(scale_bounds_to_layout_rect(bounds.inner(), dpi_scale), current_offset);
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
 
@@ -683,11 +684,11 @@ pub fn translate_displaylist_to_wr(
                         ),
                     );
 
-                    // Create scaled bounds for clip
+                    // Create scaled bounds for clip (offset-corrected for scroll frames)
                     let scaled_bounds = azul_core::geom::LogicalRect::new(
                         azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
+                            scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
+                            scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
                         ),
                         azul_core::geom::LogicalSize::new(
                             scale_px(bounds.0.size.width, dpi_scale),
@@ -1227,12 +1228,13 @@ pub fn translate_displaylist_to_wr(
                     dpi_scale
                 );
 
-                // Just push a simple stacking context at the bounds origin
-                // Use the current spatial_id from the stack (don't create a new reference frame)
+                // Push a simple stacking context at the bounds origin
+                // (offset-corrected so it's relative to the current scroll frame)
                 let current_spatial_id = current_spatial!();
+                let current_offset = current_offset!();
                 let scaled_origin = LayoutPoint::new(
-                    scale_px(bounds.0.origin.x, dpi_scale),
-                    scale_px(bounds.0.origin.y, dpi_scale),
+                    scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
+                    scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
                 );
                 log_debug!(
                     LogCategory::DisplayList,
@@ -1949,10 +1951,11 @@ pub fn translate_displaylist_to_wr(
                 );
                 let wr_filters = translate_style_filters_to_wr(filters, dpi_scale);
                 let current_spatial_id = current_spatial!();
+                let current_offset = current_offset!();
                 builder.push_simple_stacking_context_with_filters(
                     LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale),
-                        scale_px(bounds.0.origin.y, dpi_scale),
+                        scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
+                        scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
                     ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
@@ -1974,7 +1977,7 @@ pub fn translate_displaylist_to_wr(
                     filters.len()
                 );
                 let wr_filters = translate_style_filters_to_wr(filters, dpi_scale);
-                let rect = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
+                let rect = apply_offset(scale_bounds_to_layout_rect(bounds.inner(), dpi_scale), current_offset!());
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: current_clip!(),
@@ -1996,14 +1999,15 @@ pub fn translate_displaylist_to_wr(
                     opacity
                 );
                 let current_spatial_id = current_spatial!();
+                let current_offset = current_offset!();
                 let opacity_filter = WrFilterOp::Opacity(
                     PropertyBinding::Value(*opacity),
                     *opacity,
                 );
                 builder.push_simple_stacking_context_with_filters(
                     LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale),
-                        scale_px(bounds.0.origin.y, dpi_scale),
+                        scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
+                        scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
                     ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,

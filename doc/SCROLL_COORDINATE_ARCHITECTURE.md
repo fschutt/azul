@@ -92,19 +92,19 @@ After this session's fixes, the status is:
 | RadialGradient | ✅ | Was already correct |
 | ConicGradient | ✅ | Was already correct |
 | BoxShadow | ✅ | Was already correct |
-| PushClip | ⚠️ | Defines clip in current spatial — may need offset |
+| PushClip | ✅ | Fixed: apply_offset to clip rect and rounded clip bounds |
 | PushScrollFrame | ✅ | Correctly applies offset to frame rect |
-| PushStackingContext | ⚠️ | Creates new context — offset semantics unclear |
+| PushStackingContext | ✅ | Fixed: subtract current_offset from scaled origin |
 | PushReferenceFrame | N/A | Uses zero origin by design |
-| PushFilter | ⚠️ | Creates filter context |
-| PushBackdropFilter | ⚠️ | Creates filter context |
-| PushOpacity | ⚠️ | Creates opacity context |
+| PushFilter | ✅ | Fixed: subtract current_offset from origin |
+| PushBackdropFilter | ✅ | Fixed: apply_offset to clip_rect |
+| PushOpacity | ✅ | Fixed: subtract current_offset from origin |
 | PushTextShadow | N/A | Shadow offset is text-relative |
 | IFrame | N/A | Has own pipeline/coordinate system |
 
-The ⚠️ items (Push* context items) need further investigation. They create new
-spatial/clip contexts where the offset semantics are different — the offset
-might need to be applied to the context's origin rather than to a rect.
+All items are now ✅ — the Push* context items were fixed by applying
+`current_offset` to their origins/rects, ensuring correct positioning
+inside scroll frames.
 
 ---
 
