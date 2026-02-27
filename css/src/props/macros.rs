@@ -499,6 +499,15 @@ macro_rules! css_property_from_type {
             CssPropertyType::ScrollbarColor => {
                 CssProperty::ScrollbarColor(CssPropertyValue::$content_type)
             }
+            CssPropertyType::ScrollbarVisibility => {
+                CssProperty::ScrollbarVisibility(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarFadeDelay => {
+                CssProperty::ScrollbarFadeDelay(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarFadeDuration => {
+                CssProperty::ScrollbarFadeDuration(CssPropertyValue::$content_type)
+            }
             CssPropertyType::Opacity => CssProperty::Opacity(CssPropertyValue::$content_type),
             CssPropertyType::Visibility => CssProperty::Visibility(CssPropertyValue::$content_type),
             CssPropertyType::Transform => CssProperty::Transform(CssPropertyValue::$content_type),

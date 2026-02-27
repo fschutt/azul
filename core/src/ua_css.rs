@@ -98,7 +98,8 @@ use azul_css::{
             effects::StyleCursor,
             lists::StyleListStyleType,
             scrollbar::{
-                LayoutScrollbarWidth, ScrollbarColorCustom, StyleScrollbarColor,
+                LayoutScrollbarWidth, ScrollbarColorCustom, ScrollbarFadeDelay,
+                ScrollbarFadeDuration, ScrollbarVisibilityMode, StyleScrollbarColor,
             },
             text::StyleTextDecoration,
             StyleTextAlign, StyleVerticalAlign,
@@ -903,6 +904,21 @@ pub fn get_ua_property(
 //   @os android              { scrollbar-width: thin; }
 //   /* default */            { scrollbar-width: auto; }
 //
+//   @os macos                { -azul-scrollbar-visibility: when-scrolling; }
+//   @os ios                  { -azul-scrollbar-visibility: when-scrolling; }
+//   @os android              { -azul-scrollbar-visibility: when-scrolling; }
+//   /* default */            { -azul-scrollbar-visibility: always; }
+//
+//   @os macos                { -azul-scrollbar-fade-delay: 500ms; }
+//   @os ios                  { -azul-scrollbar-fade-delay: 500ms; }
+//   @os android              { -azul-scrollbar-fade-delay: 300ms; }
+//   /* default */            { -azul-scrollbar-fade-delay: 0; }
+//
+//   @os macos                { -azul-scrollbar-fade-duration: 200ms; }
+//   @os ios                  { -azul-scrollbar-fade-duration: 200ms; }
+//   @os android              { -azul-scrollbar-fade-duration: 150ms; }
+//   /* default */            { -azul-scrollbar-fade-duration: 0; }
+//
 //   @os macos @theme dark    { scrollbar-color: rgba(255,255,255,0.4) transparent; }
 //   @os macos @theme light   { scrollbar-color: rgba(0,0,0,0.4) transparent; }
 //   @os windows @theme dark  { scrollbar-color: #6e6e6e #202020; }
@@ -926,11 +942,27 @@ const fn scrollbar_width(w: LayoutScrollbarWidth) -> CssProperty {
     CssProperty::ScrollbarWidth(CssPropertyValue::Exact(w))
 }
 
+/// Helper to create a const `-azul-scrollbar-visibility` `CssProperty`.
+const fn scrollbar_visibility(v: ScrollbarVisibilityMode) -> CssProperty {
+    CssProperty::ScrollbarVisibility(CssPropertyValue::Exact(v))
+}
+
+/// Helper to create a const `-azul-scrollbar-fade-delay` `CssProperty`.
+const fn scrollbar_fade_delay(ms: u32) -> CssProperty {
+    CssProperty::ScrollbarFadeDelay(CssPropertyValue::Exact(ScrollbarFadeDelay::new(ms)))
+}
+
+/// Helper to create a const `-azul-scrollbar-fade-duration` `CssProperty`.
+const fn scrollbar_fade_duration(ms: u32) -> CssProperty {
+    CssProperty::ScrollbarFadeDuration(CssPropertyValue::Exact(ScrollbarFadeDuration::new(ms)))
+}
+
 /// UA scrollbar CSS properties with `@os` / `@theme` conditions.
 ///
 /// Ordered most-specific first.  The evaluation function picks the
 /// first matching entry for each property type (`scrollbar-color`,
-/// `scrollbar-width`).
+/// `scrollbar-width`, `-azul-scrollbar-visibility`,
+/// `-azul-scrollbar-fade-delay`, `-azul-scrollbar-fade-duration`).
 pub static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
     // ── scrollbar-width per OS ──────────────────────────────────────────
     // macOS → thin (overlay)
@@ -951,6 +983,63 @@ pub static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
     // default → auto (classic)
     CssPropertyWithConditions::simple(
         scrollbar_width(LayoutScrollbarWidth::Auto),
+    ),
+
+    // ── scrollbar-visibility per OS ─────────────────────────────────────
+    // macOS → overlay (show only when scrolling)
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_visibility(ScrollbarVisibilityMode::WhenScrolling),
+        &[DynamicSelector::Os(OsCondition::MacOS)],
+    ),
+    // iOS → overlay
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_visibility(ScrollbarVisibilityMode::WhenScrolling),
+        &[DynamicSelector::Os(OsCondition::IOS)],
+    ),
+    // Android → overlay
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_visibility(ScrollbarVisibilityMode::WhenScrolling),
+        &[DynamicSelector::Os(OsCondition::Android)],
+    ),
+    // default → always visible (classic)
+    CssPropertyWithConditions::simple(
+        scrollbar_visibility(ScrollbarVisibilityMode::Always),
+    ),
+
+    // ── scrollbar-fade-delay per OS ─────────────────────────────────────
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_fade_delay(500),
+        &[DynamicSelector::Os(OsCondition::MacOS)],
+    ),
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_fade_delay(500),
+        &[DynamicSelector::Os(OsCondition::IOS)],
+    ),
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_fade_delay(300),
+        &[DynamicSelector::Os(OsCondition::Android)],
+    ),
+    // default → 0 (no fade)
+    CssPropertyWithConditions::simple(
+        scrollbar_fade_delay(0),
+    ),
+
+    // ── scrollbar-fade-duration per OS ──────────────────────────────────
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_fade_duration(200),
+        &[DynamicSelector::Os(OsCondition::MacOS)],
+    ),
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_fade_duration(200),
+        &[DynamicSelector::Os(OsCondition::IOS)],
+    ),
+    CssPropertyWithConditions::with_single_condition(
+        scrollbar_fade_duration(150),
+        &[DynamicSelector::Os(OsCondition::Android)],
+    ),
+    // default → 0 (instant)
+    CssPropertyWithConditions::simple(
+        scrollbar_fade_duration(0),
     ),
 
     // ── scrollbar-color per OS + theme ──────────────────────────────────
@@ -1039,6 +1128,9 @@ pub static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
 pub struct ResolvedUaScrollbar {
     pub color: Option<StyleScrollbarColor>,
     pub width: Option<LayoutScrollbarWidth>,
+    pub visibility: Option<ScrollbarVisibilityMode>,
+    pub fade_delay: Option<ScrollbarFadeDelay>,
+    pub fade_duration: Option<ScrollbarFadeDuration>,
 }
 
 /// Evaluate UA scrollbar CSS rules against a `DynamicSelectorContext`.
@@ -1049,6 +1141,9 @@ pub struct ResolvedUaScrollbar {
 pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
     let mut color: Option<StyleScrollbarColor> = None;
     let mut width: Option<LayoutScrollbarWidth> = None;
+    let mut visibility: Option<ScrollbarVisibilityMode> = None;
+    let mut fade_delay: Option<ScrollbarFadeDelay> = None;
+    let mut fade_duration: Option<ScrollbarFadeDuration> = None;
 
     for prop in UA_SCROLLBAR_CSS {
         if !prop.matches(ctx) {
@@ -1065,12 +1160,29 @@ pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScro
                     width = Some(*w);
                 }
             }
+            CssProperty::ScrollbarVisibility(CssPropertyValue::Exact(v)) => {
+                if visibility.is_none() {
+                    visibility = Some(*v);
+                }
+            }
+            CssProperty::ScrollbarFadeDelay(CssPropertyValue::Exact(d)) => {
+                if fade_delay.is_none() {
+                    fade_delay = Some(*d);
+                }
+            }
+            CssProperty::ScrollbarFadeDuration(CssPropertyValue::Exact(d)) => {
+                if fade_duration.is_none() {
+                    fade_duration = Some(*d);
+                }
+            }
             _ => {}
         }
-        if color.is_some() && width.is_some() {
+        if color.is_some() && width.is_some() && visibility.is_some()
+            && fade_delay.is_some() && fade_duration.is_some()
+        {
             break;
         }
     }
 
-    ResolvedUaScrollbar { color, width }
+    ResolvedUaScrollbar { color, width, visibility, fade_delay, fade_duration }
 }

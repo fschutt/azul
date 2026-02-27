@@ -72,7 +72,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 150] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 153] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -201,6 +201,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 150] = [
     (CssPropertyType::SelectionRadius, "-azul-selection-radius"),
     (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
     (CssPropertyType::ScrollbarColor, "scrollbar-color"),
+    (CssPropertyType::ScrollbarVisibility, "-azul-scrollbar-visibility"),
+    (CssPropertyType::ScrollbarFadeDelay, "-azul-scrollbar-fade-delay"),
+    (CssPropertyType::ScrollbarFadeDuration, "-azul-scrollbar-fade-duration"),
     (CssPropertyType::Opacity, "opacity"),
     (CssPropertyType::Visibility, "visibility"),
     (CssPropertyType::Transform, "transform"),
@@ -307,6 +310,9 @@ pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type ScrollbarStyleValue = CssPropertyValue<ScrollbarStyle>;
 pub type LayoutScrollbarWidthValue = CssPropertyValue<LayoutScrollbarWidth>;
 pub type StyleScrollbarColorValue = CssPropertyValue<StyleScrollbarColor>;
+pub type ScrollbarVisibilityModeValue = CssPropertyValue<ScrollbarVisibilityMode>;
+pub type ScrollbarFadeDelayValue = CssPropertyValue<ScrollbarFadeDelay>;
+pub type ScrollbarFadeDurationValue = CssPropertyValue<ScrollbarFadeDuration>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
 pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
@@ -609,6 +615,9 @@ pub enum CssProperty {
     Scrollbar(ScrollbarStyleValue),
     ScrollbarWidth(LayoutScrollbarWidthValue),
     ScrollbarColor(StyleScrollbarColorValue),
+    ScrollbarVisibility(ScrollbarVisibilityModeValue),
+    ScrollbarFadeDelay(ScrollbarFadeDelayValue),
+    ScrollbarFadeDuration(ScrollbarFadeDurationValue),
     Opacity(StyleOpacityValue),
     Visibility(StyleVisibilityValue),
     Transform(StyleTransformVecValue),
@@ -830,6 +839,9 @@ pub enum CssPropertyType {
     Scrollbar,
     ScrollbarWidth,
     ScrollbarColor,
+    ScrollbarVisibility,
+    ScrollbarFadeDelay,
+    ScrollbarFadeDuration,
     Opacity,
     Visibility,
     Transform,
@@ -1017,6 +1029,9 @@ impl CssPropertyType {
             CssPropertyType::Scrollbar => "-azul-scrollbar-style",
             CssPropertyType::ScrollbarWidth => "scrollbar-width",
             CssPropertyType::ScrollbarColor => "scrollbar-color",
+            CssPropertyType::ScrollbarVisibility => "-azul-scrollbar-visibility",
+            CssPropertyType::ScrollbarFadeDelay => "-azul-scrollbar-fade-delay",
+            CssPropertyType::ScrollbarFadeDuration => "-azul-scrollbar-fade-duration",
             CssPropertyType::Opacity => "opacity",
             CssPropertyType::Visibility => "visibility",
             CssPropertyType::Transform => "transform",
@@ -1237,7 +1252,7 @@ impl CssPropertyType {
             | PaddingInlineStart | PaddingInlineEnd
             | BorderTopWidth | BorderRightWidth | BorderBottomWidth
             | BorderLeftWidth | BoxSizing
-            | ScrollbarWidth => RelayoutScope::SizingOnly,
+            | ScrollbarWidth | ScrollbarVisibility => RelayoutScope::SizingOnly,
 
             // Everything else: display, position, float, margin, flex-*,
             // grid-*, overflow, writing-mode, etc. — full relayout.
@@ -1274,6 +1289,9 @@ pub enum CssParsingError<'a> {
     Scrollbar(CssScrollbarStyleParseError<'a>),
     LayoutScrollbarWidth(LayoutScrollbarWidthParseError<'a>),
     StyleScrollbarColor(StyleScrollbarColorParseError<'a>),
+    ScrollbarVisibilityMode(ScrollbarVisibilityModeParseError<'a>),
+    ScrollbarFadeDelay(ScrollbarFadeDelayParseError<'a>),
+    ScrollbarFadeDuration(ScrollbarFadeDurationParseError<'a>),
     Transform(CssStyleTransformParseError<'a>),
     TransformOrigin(CssStyleTransformOriginParseError<'a>),
     PerspectiveOrigin(CssStylePerspectiveOriginParseError<'a>),
@@ -1424,6 +1442,9 @@ pub enum CssParsingErrorOwned {
     Scrollbar(CssScrollbarStyleParseErrorOwned),
     LayoutScrollbarWidth(LayoutScrollbarWidthParseErrorOwned),
     StyleScrollbarColor(StyleScrollbarColorParseErrorOwned),
+    ScrollbarVisibilityMode(ScrollbarVisibilityModeParseErrorOwned),
+    ScrollbarFadeDelay(ScrollbarFadeDelayParseErrorOwned),
+    ScrollbarFadeDuration(ScrollbarFadeDurationParseErrorOwned),
     Transform(CssStyleTransformParseErrorOwned),
     TransformOrigin(CssStyleTransformOriginParseErrorOwned),
     PerspectiveOrigin(CssStylePerspectiveOriginParseErrorOwned),
@@ -1577,6 +1598,9 @@ impl_display! { CssParsingError<'a>, {
     Scrollbar(e) => format!("Invalid scrollbar style: {}", e),
     LayoutScrollbarWidth(e) => format!("Invalid scrollbar-width: {}", e),
     StyleScrollbarColor(e) => format!("Invalid scrollbar-color: {}", e),
+    ScrollbarVisibilityMode(e) => format!("Invalid scrollbar-visibility: {}", e),
+    ScrollbarFadeDelay(e) => format!("Invalid scrollbar-fade-delay: {}", e),
+    ScrollbarFadeDuration(e) => format!("Invalid scrollbar-fade-duration: {}", e),
     Transform(e) => format!("Invalid transform property: {}", e),
     TransformOrigin(e) => format!("Invalid transform-origin: {}", e),
     PerspectiveOrigin(e) => format!("Invalid perspective-origin: {}", e),
@@ -1731,6 +1755,18 @@ impl_from!(
 impl_from!(
     StyleScrollbarColorParseError<'a>,
     CssParsingError::StyleScrollbarColor
+);
+impl_from!(
+    ScrollbarVisibilityModeParseError<'a>,
+    CssParsingError::ScrollbarVisibilityMode
+);
+impl_from!(
+    ScrollbarFadeDelayParseError<'a>,
+    CssParsingError::ScrollbarFadeDelay
+);
+impl_from!(
+    ScrollbarFadeDurationParseError<'a>,
+    CssParsingError::ScrollbarFadeDuration
 );
 impl_from!(CssStyleTransformParseError<'a>, CssParsingError::Transform);
 impl_from!(
@@ -1981,6 +2017,15 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::StyleScrollbarColor(e) => {
                 CssParsingErrorOwned::StyleScrollbarColor(e.to_contained())
             }
+            CssParsingError::ScrollbarVisibilityMode(e) => {
+                CssParsingErrorOwned::ScrollbarVisibilityMode(e.to_contained())
+            }
+            CssParsingError::ScrollbarFadeDelay(e) => {
+                CssParsingErrorOwned::ScrollbarFadeDelay(e.to_contained())
+            }
+            CssParsingError::ScrollbarFadeDuration(e) => {
+                CssParsingErrorOwned::ScrollbarFadeDuration(e.to_contained())
+            }
             CssParsingError::Transform(e) => CssParsingErrorOwned::Transform(e.to_contained()),
             CssParsingError::TransformOrigin(e) => {
                 CssParsingErrorOwned::TransformOrigin(e.to_contained())
@@ -2183,6 +2228,15 @@ impl CssParsingErrorOwned {
             }
             CssParsingErrorOwned::StyleScrollbarColor(e) => {
                 CssParsingError::StyleScrollbarColor(e.to_shared())
+            }
+            CssParsingErrorOwned::ScrollbarVisibilityMode(e) => {
+                CssParsingError::ScrollbarVisibilityMode(e.to_shared())
+            }
+            CssParsingErrorOwned::ScrollbarFadeDelay(e) => {
+                CssParsingError::ScrollbarFadeDelay(e.to_shared())
+            }
+            CssParsingErrorOwned::ScrollbarFadeDuration(e) => {
+                CssParsingError::ScrollbarFadeDuration(e.to_shared())
             }
             CssParsingErrorOwned::Transform(e) => CssParsingError::Transform(e.to_shared()),
             CssParsingErrorOwned::TransformOrigin(e) => {
@@ -2556,6 +2610,9 @@ pub fn parse_css_property<'a>(
             CssPropertyType::Scrollbar => parse_scrollbar_style(value)?.into(),
             CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
             CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
+            CssPropertyType::ScrollbarVisibility => parse_scrollbar_visibility_mode(value)?.into(),
+            CssPropertyType::ScrollbarFadeDelay => parse_scrollbar_fade_delay(value)?.into(),
+            CssPropertyType::ScrollbarFadeDuration => parse_scrollbar_fade_duration(value)?.into(),
             CssPropertyType::Opacity => parse_style_opacity(value)?.into(),
             CssPropertyType::Visibility => parse_style_visibility(value)?.into(),
             CssPropertyType::Transform => parse_style_transform_vec(value)?.into(),
@@ -3506,6 +3563,9 @@ impl_from_css_prop!(LayoutBorderBottomWidth, CssProperty::BorderBottomWidth);
 impl_from_css_prop!(ScrollbarStyle, CssProperty::Scrollbar);
 impl_from_css_prop!(LayoutScrollbarWidth, CssProperty::ScrollbarWidth);
 impl_from_css_prop!(StyleScrollbarColor, CssProperty::ScrollbarColor);
+impl_from_css_prop!(ScrollbarVisibilityMode, CssProperty::ScrollbarVisibility);
+impl_from_css_prop!(ScrollbarFadeDelay, CssProperty::ScrollbarFadeDelay);
+impl_from_css_prop!(ScrollbarFadeDuration, CssProperty::ScrollbarFadeDuration);
 impl_from_css_prop!(StyleOpacity, CssProperty::Opacity);
 impl_from_css_prop!(StyleVisibility, CssProperty::Visibility);
 impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
@@ -3658,6 +3718,9 @@ impl CssProperty {
             CssProperty::Scrollbar(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarWidth(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarColor(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarVisibility(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarFadeDelay(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarFadeDuration(v) => v.get_css_value_fmt(),
             CssProperty::Opacity(v) => v.get_css_value_fmt(),
             CssProperty::Visibility(v) => v.get_css_value_fmt(),
             CssProperty::Transform(v) => v.get_css_value_fmt(),
@@ -4106,6 +4169,9 @@ impl CssProperty {
             CssProperty::Scrollbar(_) => CssPropertyType::Scrollbar,
             CssProperty::ScrollbarWidth(_) => CssPropertyType::ScrollbarWidth,
             CssProperty::ScrollbarColor(_) => CssPropertyType::ScrollbarColor,
+            CssProperty::ScrollbarVisibility(_) => CssPropertyType::ScrollbarVisibility,
+            CssProperty::ScrollbarFadeDelay(_) => CssPropertyType::ScrollbarFadeDelay,
+            CssProperty::ScrollbarFadeDuration(_) => CssPropertyType::ScrollbarFadeDuration,
             CssProperty::Opacity(_) => CssPropertyType::Opacity,
             CssProperty::Visibility(_) => CssPropertyType::Visibility,
             CssProperty::Transform(_) => CssPropertyType::Transform,
@@ -5458,6 +5524,27 @@ impl CssProperty {
         }
     }
 
+    pub const fn as_scrollbar_visibility(&self) -> Option<&ScrollbarVisibilityModeValue> {
+        match self {
+            CssProperty::ScrollbarVisibility(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_fade_delay(&self) -> Option<&ScrollbarFadeDelayValue> {
+        match self {
+            CssProperty::ScrollbarFadeDelay(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_fade_duration(&self) -> Option<&ScrollbarFadeDurationValue> {
+        match self {
+            CssProperty::ScrollbarFadeDuration(f) => Some(f),
+            _ => None,
+        }
+    }
+
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
         match self {
@@ -5565,6 +5652,9 @@ impl CssProperty {
             Scrollbar(c) => c.is_initial(),
             ScrollbarWidth(c) => c.is_initial(),
             ScrollbarColor(c) => c.is_initial(),
+            ScrollbarVisibility(c) => c.is_initial(),
+            ScrollbarFadeDelay(c) => c.is_initial(),
+            ScrollbarFadeDuration(c) => c.is_initial(),
             Opacity(c) => c.is_initial(),
             Visibility(c) => c.is_initial(),
             Transform(c) => c.is_initial(),
@@ -6279,6 +6369,18 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::ScrollbarColor(p) => format!(
             "CssProperty::ScrollbarColor({})",
             print_css_property_value(p, tabs, "StyleScrollbarColor")
+        ),
+        CssProperty::ScrollbarVisibility(p) => format!(
+            "CssProperty::ScrollbarVisibility({})",
+            print_css_property_value(p, tabs, "ScrollbarVisibilityMode")
+        ),
+        CssProperty::ScrollbarFadeDelay(p) => format!(
+            "CssProperty::ScrollbarFadeDelay({})",
+            print_css_property_value(p, tabs, "ScrollbarFadeDelay")
+        ),
+        CssProperty::ScrollbarFadeDuration(p) => format!(
+            "CssProperty::ScrollbarFadeDuration({})",
+            print_css_property_value(p, tabs, "ScrollbarFadeDuration")
         ),
         CssProperty::Scrollbar(p) => format!(
             "CssProperty::Scrollbar({})",

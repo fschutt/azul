@@ -1276,6 +1276,17 @@ impl CssPropertyWithConditionsVec {
         if selector.starts_with('@') {
             let rule_content = &selector[1..];
             
+            // @os-version windows >= win-11
+            // @os-version macos >= monterey
+            // @os-version macos = sonoma
+            // @os-version linux de gnome
+            if rule_content.starts_with("os-version ") {
+                let version_query = rule_content[11..].trim();
+                if let Some(cond) = Self::parse_os_version_condition(version_query) {
+                    return Some(vec![DynamicSelector::OsVersion(cond)]);
+                }
+            }
+
             // @os linux, @os windows, etc.
             if rule_content.starts_with("os ") {
                 let os_name = rule_content[3..].trim();
@@ -1389,6 +1400,81 @@ impl CssPropertyWithConditionsVec {
             "screen" => Some(vec![DynamicSelector::Media(MediaType::Screen)]),
             "print" => Some(vec![DynamicSelector::Media(MediaType::Print)]),
             "all" => Some(vec![DynamicSelector::Media(MediaType::All)]),
+            _ => None,
+        }
+    }
+
+    /// Parse an `@os-version` condition query string.
+    ///
+    /// Supported formats:
+    /// - `windows >= win-11`
+    /// - `macos >= monterey`
+    /// - `macos = sonoma`
+    /// - `ios <= 16`
+    /// - `linux de gnome`  (desktop environment)
+    #[cfg(feature = "parser")]
+    fn parse_os_version_condition(query: &str) -> Option<OsVersionCondition> {
+        let query = query.trim();
+
+        // Handle "linux de gnome" for desktop environments
+        if query.starts_with("linux") || query.starts_with("Linux") {
+            let rest = query[5..].trim();
+            if rest.starts_with("de ") || rest.starts_with("DE ") {
+                let de_name = rest[3..].trim();
+                let de = match de_name.to_lowercase().as_str() {
+                    "gnome" => LinuxDesktopEnv::Gnome,
+                    "kde" => LinuxDesktopEnv::KDE,
+                    "xfce" => LinuxDesktopEnv::XFCE,
+                    "unity" => LinuxDesktopEnv::Unity,
+                    "cinnamon" => LinuxDesktopEnv::Cinnamon,
+                    "mate" => LinuxDesktopEnv::MATE,
+                    _ => LinuxDesktopEnv::Other,
+                };
+                return Some(OsVersionCondition::DesktopEnvironment(de));
+            }
+        }
+
+        // Parse "os_family operator version" e.g. "windows >= win-11"
+        // First extract the OS family name
+        let mut parts = query.splitn(2, |c: char| c == '>' || c == '<' || c == '=');
+        let os_str = parts.next()?.trim();
+
+        let os_family = match os_str.to_lowercase().as_str() {
+            "windows" | "win" => OsFamily::Windows,
+            "macos" | "mac" | "osx" => OsFamily::MacOS,
+            "ios" => OsFamily::IOS,
+            "android" => OsFamily::Android,
+            "linux" => OsFamily::Linux,
+            _ => return None,
+        };
+
+        // Now find the operator and version in the remaining string
+        let after_os = &query[os_str.len()..].trim_start();
+
+        // Extract operator
+        let (operator, rest) = if after_os.starts_with(">=") {
+            (">=", &after_os[2..])
+        } else if after_os.starts_with("<=") {
+            ("<=", &after_os[2..])
+        } else if after_os.starts_with('>') {
+            // Treat > same as >= for simplicity (versions are discrete)
+            (">=", &after_os[1..])
+        } else if after_os.starts_with('<') {
+            ("<=", &after_os[1..])
+        } else if after_os.starts_with('=') {
+            ("=", &after_os[1..])
+        } else {
+            // No operator: treat as exact match
+            ("=", *after_os)
+        };
+
+        let version_str = rest.trim();
+        let version = parse_os_version(os_family, version_str)?;
+
+        match operator {
+            ">=" => Some(OsVersionCondition::Min(version)),
+            "<=" => Some(OsVersionCondition::Max(version)),
+            "=" => Some(OsVersionCondition::Exact(version)),
             _ => None,
         }
     }

@@ -250,6 +250,62 @@ impl PrintAsCssValue for ScrollbarVisibilityMode {
 }
 
 // ============================================================================
+// Scrollbar Fade Delay (CSS: -azul-scrollbar-fade-delay)
+// ============================================================================
+
+/// Time in milliseconds before the overlay scrollbar starts fading out.
+///
+/// A value of 0 means the scrollbar never fades (always visible).
+/// Typical values: 500ms (macOS), 0ms (Windows).
+///
+/// CSS syntax: `-azul-scrollbar-fade-delay: 500ms;` or `-azul-scrollbar-fade-delay: 0;`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct ScrollbarFadeDelay {
+    /// Delay in milliseconds
+    pub ms: u32,
+}
+
+impl ScrollbarFadeDelay {
+    pub const fn new(ms: u32) -> Self { Self { ms } }
+    pub const ZERO: Self = Self { ms: 0 };
+}
+
+impl PrintAsCssValue for ScrollbarFadeDelay {
+    fn print_as_css_value(&self) -> String {
+        if self.ms == 0 { "0".to_string() } else { format!("{}ms", self.ms) }
+    }
+}
+
+// ============================================================================
+// Scrollbar Fade Duration (CSS: -azul-scrollbar-fade-duration)
+// ============================================================================
+
+/// Duration in milliseconds of the scrollbar fade-out animation.
+///
+/// A value of 0 means instant disappearance (no animation).
+/// Typical values: 200ms (macOS), 0ms (Windows).
+///
+/// CSS syntax: `-azul-scrollbar-fade-duration: 200ms;` or `-azul-scrollbar-fade-duration: 0;`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct ScrollbarFadeDuration {
+    /// Duration in milliseconds
+    pub ms: u32,
+}
+
+impl ScrollbarFadeDuration {
+    pub const fn new(ms: u32) -> Self { Self { ms } }
+    pub const ZERO: Self = Self { ms: 0 };
+}
+
+impl PrintAsCssValue for ScrollbarFadeDuration {
+    fn print_as_css_value(&self) -> String {
+        if self.ms == 0 { "0".to_string() } else { format!("{}ms", self.ms) }
+    }
+}
+
+// ============================================================================
 // Per-node Overflow Scrolling Mode (CSS: -azul-overflow-scrolling)
 // ============================================================================
 
@@ -465,6 +521,28 @@ impl crate::format_rust_code::FormatAsRustCode for StyleScrollbarColor {
                 crate::format_rust_code::format_color_value(&c.track)
             ),
         }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ScrollbarVisibilityMode {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ScrollbarVisibilityMode::Always => String::from("ScrollbarVisibilityMode::Always"),
+            ScrollbarVisibilityMode::WhenScrolling => String::from("ScrollbarVisibilityMode::WhenScrolling"),
+            ScrollbarVisibilityMode::Auto => String::from("ScrollbarVisibilityMode::Auto"),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ScrollbarFadeDelay {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("ScrollbarFadeDelay::new({})", self.ms)
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ScrollbarFadeDuration {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("ScrollbarFadeDuration::new({})", self.ms)
     }
 }
 
@@ -966,6 +1044,145 @@ pub fn parse_scrollbar_style<'a>(
     // A real implementation would parse the custom format used for -webkit-scrollbar.
     // For now, it returns the default style.
     Ok(ScrollbarStyle::default())
+}
+
+// --- Scrollbar Visibility Mode Parser ---
+
+#[derive(Clone, PartialEq)]
+pub enum ScrollbarVisibilityModeParseError<'a> {
+    InvalidValue(&'a str),
+}
+impl_debug_as_display!(ScrollbarVisibilityModeParseError<'a>);
+impl_display! { ScrollbarVisibilityModeParseError<'a>, {
+    InvalidValue(v) => format!("Invalid scrollbar-visibility value: \"{}\"", v),
+}}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ScrollbarVisibilityModeParseErrorOwned {
+    InvalidValue(AzString),
+}
+impl<'a> ScrollbarVisibilityModeParseError<'a> {
+    pub fn to_contained(&self) -> ScrollbarVisibilityModeParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => ScrollbarVisibilityModeParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+impl ScrollbarVisibilityModeParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> ScrollbarVisibilityModeParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => ScrollbarVisibilityModeParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_scrollbar_visibility_mode<'a>(
+    input: &'a str,
+) -> Result<ScrollbarVisibilityMode, ScrollbarVisibilityModeParseError<'a>> {
+    match input.trim() {
+        "always" => Ok(ScrollbarVisibilityMode::Always),
+        "when-scrolling" => Ok(ScrollbarVisibilityMode::WhenScrolling),
+        "auto" => Ok(ScrollbarVisibilityMode::Auto),
+        _ => Err(ScrollbarVisibilityModeParseError::InvalidValue(input)),
+    }
+}
+
+// --- Scrollbar Fade Delay Parser ---
+
+#[derive(Clone, PartialEq)]
+pub enum ScrollbarFadeDelayParseError<'a> {
+    InvalidValue(&'a str),
+}
+impl_debug_as_display!(ScrollbarFadeDelayParseError<'a>);
+impl_display! { ScrollbarFadeDelayParseError<'a>, {
+    InvalidValue(v) => format!("Invalid scrollbar-fade-delay value: \"{}\"", v),
+}}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ScrollbarFadeDelayParseErrorOwned {
+    InvalidValue(AzString),
+}
+impl<'a> ScrollbarFadeDelayParseError<'a> {
+    pub fn to_contained(&self) -> ScrollbarFadeDelayParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => ScrollbarFadeDelayParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+impl ScrollbarFadeDelayParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> ScrollbarFadeDelayParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => ScrollbarFadeDelayParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+/// Parse a time value as milliseconds: `500ms`, `0`, `1s`, `0.2s`
+fn parse_time_ms(input: &str) -> Option<u32> {
+    let input = input.trim();
+    if input == "0" {
+        return Some(0);
+    }
+    if let Some(ms_str) = input.strip_suffix("ms") {
+        return ms_str.trim().parse::<u32>().ok();
+    }
+    if let Some(s_str) = input.strip_suffix('s') {
+        let secs: f64 = s_str.trim().parse().ok()?;
+        return Some((secs * 1000.0) as u32);
+    }
+    None
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_scrollbar_fade_delay<'a>(
+    input: &'a str,
+) -> Result<ScrollbarFadeDelay, ScrollbarFadeDelayParseError<'a>> {
+    parse_time_ms(input)
+        .map(ScrollbarFadeDelay::new)
+        .ok_or(ScrollbarFadeDelayParseError::InvalidValue(input))
+}
+
+// --- Scrollbar Fade Duration Parser ---
+
+#[derive(Clone, PartialEq)]
+pub enum ScrollbarFadeDurationParseError<'a> {
+    InvalidValue(&'a str),
+}
+impl_debug_as_display!(ScrollbarFadeDurationParseError<'a>);
+impl_display! { ScrollbarFadeDurationParseError<'a>, {
+    InvalidValue(v) => format!("Invalid scrollbar-fade-duration value: \"{}\"", v),
+}}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ScrollbarFadeDurationParseErrorOwned {
+    InvalidValue(AzString),
+}
+impl<'a> ScrollbarFadeDurationParseError<'a> {
+    pub fn to_contained(&self) -> ScrollbarFadeDurationParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => ScrollbarFadeDurationParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+impl ScrollbarFadeDurationParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> ScrollbarFadeDurationParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => ScrollbarFadeDurationParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_scrollbar_fade_duration<'a>(
+    input: &'a str,
+) -> Result<ScrollbarFadeDuration, ScrollbarFadeDurationParseError<'a>> {
+    parse_time_ms(input)
+        .map(ScrollbarFadeDuration::new)
+        .ok_or(ScrollbarFadeDurationParseError::InvalidValue(input))
 }
 
 // --- STYLE RESOLUTION ---
