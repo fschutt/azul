@@ -2538,6 +2538,46 @@ pub fn build_webrender_transaction(
     );
     process_image_callback_updates(layout_window, gl_context, txn);
 
+    // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
+    // display lists. The display list generator reads opacity_key from the GPU cache
+    // to embed PropertyBinding references into ScrollBarStyled items. If we don't
+    // populate these keys first, the display list will have opacity_key=None and
+    // WebRender won't be able to animate the scrollbar opacity via DynamicProperties.
+    {
+        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            LayoutWindow::synchronize_scrollbar_opacity(
+                &mut layout_window.gpu_state_manager,
+                &layout_window.scroll_manager,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)),
+            );
+        }
+    }
+
+    // Step 1.8: Pre-populate scrollbar transform keys in GPU cache BEFORE building
+    // display lists, so the display list can embed the correct PropertyBinding keys
+    // for GPU-animated thumb positioning.
+    {
+        let LayoutWindow {
+            ref layout_results,
+            ref scroll_manager,
+            ref mut gpu_state_manager,
+            ..
+        } = *layout_window;
+
+        for (dom_id, layout_result) in layout_results {
+            gpu_state_manager.update_scrollbar_transforms(
+                *dom_id,
+                scroll_manager,
+                &layout_result.layout_tree,
+            );
+        }
+    }
+
     // Step 2: Build and add display lists for all DOMs to transaction
     log_debug!(
         LogCategory::Rendering,
@@ -2633,6 +2673,22 @@ pub fn build_webrender_transaction(
     );
     scroll_all_nodes(layout_window, txn);
 
+    // Step 5.5: Update scrollbar opacity for overlay fade-in/fade-out
+    {
+        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            LayoutWindow::synchronize_scrollbar_opacity(
+                &mut layout_window.gpu_state_manager,
+                &layout_window.scroll_manager,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)),
+            );
+        }
+    }
+
     // Step 6: Synchronize GPU values
     log_debug!(
         LogCategory::Rendering,
@@ -2708,6 +2764,22 @@ pub fn build_image_only_transaction(
                 *dom_id,
                 scroll_manager,
                 &layout_result.layout_tree,
+            );
+        }
+    }
+
+    // Step 3.6: Update scrollbar opacity for overlay fade-in/fade-out
+    {
+        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            LayoutWindow::synchronize_scrollbar_opacity(
+                &mut layout_window.gpu_state_manager,
+                &layout_window.scroll_manager,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)),
             );
         }
     }

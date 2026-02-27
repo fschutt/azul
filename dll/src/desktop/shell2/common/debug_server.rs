@@ -6754,13 +6754,15 @@ fn process_debug_event(
                             };
                             // Debug: include track and thumb bounds in the output
                             let debug_info_str = format!(
-                                "track:({:.1},{:.1},{:.1}x{:.1}) thumb:({:.1},{:.1},{:.1}x{:.1}) track_color:#{:02x}{:02x}{:02x}{:02x} thumb_color:#{:02x}{:02x}{:02x}{:02x}",
+                                "track:({:.1},{:.1},{:.1}x{:.1}) thumb:({:.1},{:.1},{:.1}x{:.1}) track_color:#{:02x}{:02x}{:02x}{:02x} thumb_color:#{:02x}{:02x}{:02x}{:02x} opacity_key:{} transform_key:{}",
                                 info.track_bounds.0.origin.x, info.track_bounds.0.origin.y,
                                 info.track_bounds.0.size.width, info.track_bounds.0.size.height,
                                 info.thumb_bounds.0.origin.x, info.thumb_bounds.0.origin.y,
                                 info.thumb_bounds.0.size.width, info.thumb_bounds.0.size.height,
                                 info.track_color.r, info.track_color.g, info.track_color.b, info.track_color.a,
                                 info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a,
+                                info.opacity_key.as_ref().map(|k| format!("{}", k.id)).unwrap_or_else(|| "none".to_string()),
+                                info.thumb_transform_key.as_ref().map(|k| format!("{}", k.id)).unwrap_or_else(|| "none".to_string()),
                             );
                             DisplayListItemInfo {
                                 index: idx,

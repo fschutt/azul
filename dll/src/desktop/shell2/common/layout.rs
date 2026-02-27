@@ -419,13 +419,21 @@ pub fn regenerate_layout(
                         // Get content size using the node's method
                         let content_size = node.get_content_size();
 
+                        // Use the layout-computed scrollbar width, not the
+                        // hardcoded default. On macOS with overlay scrollbars,
+                        // scrollbar_width is 0.0 (no layout space reserved).
+                        // The scroll_manager falls back to DEFAULT_SCROLLBAR_WIDTH_PX
+                        // when thickness is 0 for hit-test geometry.
+                        let scrollbar_thickness = scrollbar_info.scrollbar_width
+                            .max(scrollbar_info.scrollbar_height);
+
                         layout_window.scroll_manager.register_or_update_scroll_node(
                             *dom_id,
                             dom_node_id,
                             container_rect,
                             content_size,
                             now.clone(),
-                            azul_layout::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+                            scrollbar_thickness,
                             scrollbar_info.needs_horizontal,
                             scrollbar_info.needs_vertical,
                         );
@@ -540,13 +548,15 @@ pub fn incremental_relayout(
                             size: container_size,
                         };
                         let content_size = node.get_content_size();
+                        let scrollbar_thickness = scrollbar_info.scrollbar_width
+                            .max(scrollbar_info.scrollbar_height);
                         layout_window.scroll_manager.register_or_update_scroll_node(
                             *_dom_id,
                             dom_node_id,
                             container_rect,
                             content_size,
                             now.clone(),
-                            azul_layout::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+                            scrollbar_thickness,
                             scrollbar_info.needs_horizontal,
                             scrollbar_info.needs_vertical,
                         );

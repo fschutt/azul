@@ -367,7 +367,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
         .unwrap_or_default();
 
     // Compute padding + border from the node's box_props
-    let (padding_width, padding_height, border_width, border_height) = tree
+    let (padding_width, padding_height, border_width, border_height, border_left, border_top) = tree
         .get(node_idx)
         .map(|node| {
             let bp = &node.box_props;
@@ -376,9 +376,11 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
                 bp.padding.top + bp.padding.bottom,
                 bp.border.left + bp.border.right,
                 bp.border.top + bp.border.bottom,
+                bp.border.left,
+                bp.border.top,
             )
         })
-        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+        .unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
 
     // Use CSS-specified dimensions as the container constraint.
     // Taffy may have expanded the box beyond these, but the CSS spec says
@@ -403,13 +405,19 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 
     // Content size: use Taffy's content_size if non-zero,
     // else result size minus padding/border (Taffy expanded to fit).
+    //
+    // IMPORTANT: Taffy's content_size is measured from (0,0) of the border-box,
+    // so it includes border.left/border.top as a leading offset. The container_size
+    // is in content-box coordinates (result_width - padding - border). We must
+    // subtract border.left/top from content_size to align coordinate spaces,
+    // otherwise we get spurious horizontal scrollbars from the border offset.
     let content_w = if taffy_content_width > 0.0 {
-        taffy_content_width
+        (taffy_content_width - border_left).max(0.0)
     } else {
         result_content_w.max(0.0)
     };
     let content_h = if taffy_content_height > 0.0 {
-        taffy_content_height
+        (taffy_content_height - border_top).max(0.0)
     } else {
         result_content_h.max(0.0)
     };
@@ -1469,15 +1477,12 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
 
             if let Some(node) = self.tree.get_mut(node_idx) {
                 node.scrollbar_info = Some(scrollbar_info);
-                // Taffy's content_size is measured from (0,0) of the border-box,
-                // so it includes border.top/left as a leading offset.  Subtract
-                // the start border so overflow_content_size is in the padding-box
-                // coordinate space (matching the scroll viewport).
-                let border_left = node.box_props.border.left;
-                let border_top = node.box_props.border.top;
+                // eff_content_w/h are already in content-box coordinates
+                // (border.left/top subtracted in compute_taffy_scrollbar_info),
+                // so store directly without further subtraction.
                 node.overflow_content_size = Some(LogicalSize::new(
-                    (eff_content_w - border_left).max(0.0),
-                    (eff_content_h - border_top).max(0.0),
+                    eff_content_w,
+                    eff_content_h,
                 ));
             }
         }
@@ -1490,15 +1495,36 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Compute layout for non-flex/grid nodes by delegating to layout_formatting_context.
     /// This handles Block, Inline, Table, InlineBlock formatting contexts recursively.
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
-        // Determine available size from Taffy's inputs
-        // For MinContent/MaxContent, we need to handle differently - use 0 for MinContent
-        // to get the minimum width, and infinity for MaxContent
-        // FIX: For MinContent, we should use INFINITY and let the text layout
-        // calculate its actual min-content width (widest word). Using 0.0 was wrong
-        // because it forced text to wrap after every character.
+        // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
+        // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).
+        // Our BFC/IFC layout expects the available_size to be the CONTENT-BOX width
+        // (i.e. the space available for the child's own content, excluding the child's
+        // own padding and border).
+        //
+        // Get padding/border early so we can convert border-box → content-box.
+        let (node_padding_width, node_padding_height, node_border_width, node_border_height) = self
+            .tree
+            .get(node_idx)
+            .map(|node| {
+                let bp = &node.box_props;
+                (
+                    bp.padding.left + bp.padding.right,
+                    bp.padding.top + bp.padding.bottom,
+                    bp.border.left + bp.border.right,
+                    bp.border.top + bp.border.bottom,
+                )
+            })
+            .unwrap_or((0.0, 0.0, 0.0, 0.0));
+
+        // Determine available size from Taffy's inputs.
+        // When known_dimensions is set (e.g. flex stretch), subtract the child's own
+        // padding+border to convert from border-box to content-box available space.
+        // For MinContent/MaxContent, use INFINITY and let the text layout calculate
+        // its actual intrinsic width.
         let available_width = inputs
             .known_dimensions
             .width
+            .map(|kw| (kw - node_padding_width - node_border_width).max(0.0))
             .or_else(|| match inputs.available_space.width {
                 AvailableSpace::Definite(w) => Some(w),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
@@ -1509,6 +1535,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let available_height = inputs
             .known_dimensions
             .height
+            .map(|kh| (kh - node_padding_height - node_border_height).max(0.0))
             .or_else(|| match inputs.available_space.height {
                 AvailableSpace::Definite(h) => Some(h),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
@@ -1588,19 +1615,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let content_width = output.overflow_size.width;
                 let content_height = output.overflow_size.height;
 
-                // Get padding and border from the node's box_props
-                let (padding_width, padding_height, border_width, border_height) = self
-                    .tree
-                    .get(node_idx)
-                    .map(|node| {
-                        let bp = &node.box_props;
-                        let pw = bp.padding.left + bp.padding.right;
-                        let ph = bp.padding.top + bp.padding.bottom;
-                        let bw = bp.border.left + bp.border.right;
-                        let bh = bp.border.top + bp.border.bottom;
-                        (pw, ph, bw, bh)
-                    })
-                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                // Padding/border already computed at start of function
+                let padding_width = node_padding_width;
+                let padding_height = node_padding_height;
+                let border_width = node_border_width;
+                let border_height = node_border_height;
 
                 // Get intrinsic sizes for min/max-content queries
                 let intrinsic = self
@@ -1659,14 +1678,15 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let border_box_width = effective_content_width + padding_width + border_width;
                 let border_box_height = content_height + padding_height + border_height;
 
-                // CRITICAL: Taffy passes content-box as known_dimensions (it subtracts
-                // padding/border when resolving percentage widths). But Taffy uses
-                // our returned size for positioning the next element. So we MUST
-                // return border-box size to avoid gaps/overlaps.
-                // When known_dimensions is set, we add padding/border to convert to border-box.
-                // When it's None, we use our computed border_box size.
+                // CRITICAL: Taffy's known_dimensions is BORDER-BOX (the child's
+                // outer size as set by the parent flex/grid algorithm). Our BFC/IFC
+                // layout computes content-box sizes, but Taffy expects the returned
+                // `size` to be BORDER-BOX for correct positioning of subsequent items.
+                //
+                // When known_dimensions is set: use it directly (it's already border-box).
+                // When it's None: add padding+border to our content-box result.
                 let final_width = match inputs.known_dimensions.width {
-                    Some(content_w) => content_w + padding_width + border_width,
+                    Some(border_box_w) => border_box_w,
                     None => border_box_width,
                 };
 
@@ -1674,7 +1694,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // is definite, use the available space. This ensures empty grid items stretch
                 // to fill their grid cell, per CSS Grid spec behavior.
                 let final_height = match inputs.known_dimensions.height {
-                    Some(content_h) => content_h + padding_height + border_height,
+                    Some(border_box_h) => border_box_h,
                     None => {
                         // Check if parent is a grid container and available_space is definite
                         let parent_is_grid = self

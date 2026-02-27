@@ -3020,14 +3020,21 @@ where
         };
 
         if scrollbar_info.needs_vertical {
-            // Look up opacity key from GPU cache
-            let opacity_key = node_id.and_then(|nid| {
-                self.gpu_value_cache.and_then(|cache| {
-                    cache
-                        .scrollbar_v_opacity_keys
-                        .get(&(self.dom_id, nid))
-                        .copied()
-                })
+            // Look up opacity key from GPU cache for GPU-animated opacity.
+            // If a key already exists in the cache from a previous frame, reuse it.
+            // Otherwise, create a new unique key. The key will be registered
+            // in the GPU cache after layout_document returns (same pattern as
+            // transform keys). This ensures the display list ALWAYS has an
+            // opacity binding, so GPU-only scroll updates can animate it.
+            let opacity_key = node_id.map(|nid| {
+                self.gpu_value_cache
+                    .and_then(|cache| {
+                        cache
+                            .scrollbar_v_opacity_keys
+                            .get(&(self.dom_id, nid))
+                            .copied()
+                    })
+                    .unwrap_or_else(|| OpacityKey::unique())
             });
 
             // Vertical scrollbar: use shared geometry computation
@@ -3100,14 +3107,16 @@ where
         }
 
         if scrollbar_info.needs_horizontal {
-            // Look up opacity key from GPU cache
-            let opacity_key = node_id.and_then(|nid| {
-                self.gpu_value_cache.and_then(|cache| {
-                    cache
-                        .scrollbar_h_opacity_keys
-                        .get(&(self.dom_id, nid))
-                        .copied()
-                })
+            // Look up horizontal opacity key from GPU cache (same pattern as vertical).
+            let opacity_key = node_id.map(|nid| {
+                self.gpu_value_cache
+                    .and_then(|cache| {
+                        cache
+                            .scrollbar_h_opacity_keys
+                            .get(&(self.dom_id, nid))
+                            .copied()
+                    })
+                    .unwrap_or_else(|| OpacityKey::unique())
             });
 
             // Horizontal scrollbar: use shared geometry computation

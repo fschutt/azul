@@ -74,7 +74,7 @@
   `get_scrollbar_style()` when no CSS overrides are set. The macOS preset
   should be 8px overlay, Windows should be classic 16px.
 
-- [x] **BUG-S7: macOS scrollbars should be overlay and fade out** *(Phase 4)*
+- [ ] **BUG-S7: macOS scrollbars should be overlay and fade out** *(Phase 4)*
   `ScrollbarVisibility::WhenScrolling` is correctly detected from
   `NSScroller.preferredScrollerStyle`. Layout reservation returns `0.0` for
   overlay mode. But the fade-in/fade-out animation needs to work:
@@ -120,7 +120,7 @@
   - Continue even when cursor is outside the window (requires mouse capture)
   **Priority:** Medium — depends on text selection being fixed first.
 
-- [x] **BUG-S11: Scrollbar drag must work outside window** *(Phase 6)*
+- [ ] **BUG-S11: Scrollbar drag must work outside window** *(Phase 6)*
   When dragging the scrollbar thumb, the drag must continue working even
   when the cursor moves outside the window. The drag should only release
   when the mouse button is released.
@@ -131,7 +131,7 @@
 
 ## infinity.c Bugs
 
-- [x] **BUG-I1: IFrame not showing scrollbar** *(Phase 7)*
+- [ ] **BUG-I1: IFrame not showing scrollbar** *(Phase 7)* (partially fixed)
   The IFrame callback is invoked but the IFrame container doesn't show a
   scrollbar. The `virtual_scroll_size` needs to be set by the IFrame callback
   to indicate total scrollable content size, and the scroll manager must use

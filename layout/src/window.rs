@@ -803,32 +803,56 @@ impl LayoutWindow {
         // paint_scrollbars() creates TransformKey::unique() for each thumb. We need to
         // register those keys in the GPU cache so that update_scrollbar_transforms() can
         // update the values during GPU-only scroll (without display list rebuild).
+        // Also register opacity keys from the display list the same way.
         {
             use crate::solver3::display_list::{DisplayListItem, ScrollbarDrawInfo};
             let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id);
             for item in &display_list.items {
                 if let DisplayListItem::ScrollBarStyled { info } = item {
-                    if let (Some(transform_key), Some(hit_id)) = (info.thumb_transform_key, &info.hit_id) {
-                        // Extract the node_id from the hit_id
-                        let node_id = match hit_id {
-                            azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
-                                // Register vertical transform key
-                                if !gpu_cache.transform_keys.contains_key(nid) {
-                                    gpu_cache.transform_keys.insert(*nid, transform_key);
-                                    gpu_cache.current_transform_values.insert(*nid, info.thumb_initial_transform);
+                    if let Some(hit_id) = &info.hit_id {
+                        // Register transform keys
+                        if let Some(transform_key) = info.thumb_transform_key {
+                            match hit_id {
+                                azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
+                                    if !gpu_cache.transform_keys.contains_key(nid) {
+                                        gpu_cache.transform_keys.insert(*nid, transform_key);
+                                        gpu_cache.current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                    }
                                 }
-                                continue;
-                            }
-                            azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
-                                // Register horizontal transform key
-                                if !gpu_cache.h_transform_keys.contains_key(nid) {
-                                    gpu_cache.h_transform_keys.insert(*nid, transform_key);
-                                    gpu_cache.h_current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
+                                    if !gpu_cache.h_transform_keys.contains_key(nid) {
+                                        gpu_cache.h_transform_keys.insert(*nid, transform_key);
+                                        gpu_cache.h_current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                    }
                                 }
-                                continue;
+                                _ => {}
                             }
-                            _ => continue,
-                        };
+                        }
+
+                        // Register opacity keys (same pattern as transform keys).
+                        // The display list always generates an OpacityKey for each
+                        // scrollbar. We mirror these into the GPU cache so that
+                        // synchronize_scrollbar_opacity can update the values and
+                        // synchronize_gpu_values can push them to WebRender.
+                        if let Some(opacity_key) = info.opacity_key {
+                            match hit_id {
+                                azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
+                                    let key = (dom_id, *nid);
+                                    if !gpu_cache.scrollbar_v_opacity_keys.contains_key(&key) {
+                                        gpu_cache.scrollbar_v_opacity_keys.insert(key, opacity_key);
+                                        gpu_cache.scrollbar_v_opacity_values.insert(key, 0.0);
+                                    }
+                                }
+                                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
+                                    let key = (dom_id, *nid);
+                                    if !gpu_cache.scrollbar_h_opacity_keys.contains_key(&key) {
+                                        gpu_cache.scrollbar_h_opacity_keys.insert(key, opacity_key);
+                                        gpu_cache.scrollbar_h_opacity_values.insert(key, 0.0);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
             }
@@ -1989,8 +2013,11 @@ impl LayoutWindow {
         }
 
         // Phase 2: Fade out over fade_duration
-        let time_into_fade_ms = time_since_activity.div(&fade_delay) - 1.0;
-        let fade_progress = (time_into_fade_ms * fade_duration.div(&fade_duration)).min(1.0);
+        // time_into_fade is (elapsed / fade_delay) - 1.0, a dimensionless ratio
+        // To convert to a ratio of fade_duration, multiply by (fade_delay / fade_duration)
+        // giving (elapsed - fade_delay) / fade_duration
+        let time_into_fade = time_since_activity.div(&fade_delay) - 1.0;
+        let fade_progress = (time_into_fade * fade_delay.div(&fade_duration)).min(1.0);
 
         // Phase 3: Fully faded
         (1.0 - fade_progress).max(0.0)
@@ -2052,7 +2079,14 @@ impl LayoutWindow {
             };
 
             // Handle vertical scrollbar
-            if scrollbar_info.needs_vertical && vertical_opacity > 0.001 {
+            // IMPORTANT: Always pre-register the opacity key when the node needs a
+            // vertical scrollbar, even if the current opacity is 0.  The display list
+            // generator reads the key from the GPU cache to embed a PropertyBinding
+            // in the ScrollBarStyled item.  If we only create the key when opacity > 0,
+            // the first display list won't have the binding, and GPU-only scroll
+            // updates (build_image_only_transaction) can never make the scrollbar
+            // visible because WebRender doesn't know about the binding.
+            if scrollbar_info.needs_vertical {
                 let key = (dom_id, node_id);
                 let existing = gpu_cache.scrollbar_v_opacity_values.get(&key);
 
@@ -2086,7 +2120,7 @@ impl LayoutWindow {
                     _ => {}
                 }
             } else {
-                // Remove if scrollbar no longer needed or fully transparent
+                // Remove if scrollbar no longer needed
                 let key = (dom_id, node_id);
                 if let Some(opacity_key) = gpu_cache.scrollbar_v_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_v_opacity_values.remove(&key);
@@ -2098,8 +2132,8 @@ impl LayoutWindow {
                 }
             }
 
-            // Handle horizontal scrollbar (same logic)
-            if scrollbar_info.needs_horizontal && horizontal_opacity > 0.001 {
+            // Handle horizontal scrollbar (same logic as vertical above)
+            if scrollbar_info.needs_horizontal {
                 let key = (dom_id, node_id);
                 let existing = gpu_cache.scrollbar_h_opacity_values.get(&key);
 
@@ -2133,7 +2167,7 @@ impl LayoutWindow {
                     _ => {}
                 }
             } else {
-                // Remove if scrollbar no longer needed or fully transparent
+                // Remove if scrollbar no longer needed
                 let key = (dom_id, node_id);
                 if let Some(opacity_key) = gpu_cache.scrollbar_h_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_h_opacity_values.remove(&key);
