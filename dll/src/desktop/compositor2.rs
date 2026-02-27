@@ -572,6 +572,42 @@ pub fn translate_displaylist_to_wr(
                     }
                 }
 
+                // Determine the spatial_id for the thumb. If we have a GPU transform key,
+                // wrap in a reference frame for dynamic positioning.
+                let thumb_spatial_id = if let Some(transform_key) = &info.thumb_transform_key {
+                    // Convert initial transform to WR LayoutTransform with DPI scaling on translation
+                    let t = &info.thumb_initial_transform;
+                    let wr_transform = LayoutTransform::new(
+                        t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
+                        t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
+                        t.m[2][0], t.m[2][1], t.m[2][2], t.m[2][3],
+                        t.m[3][0] * dpi_scale, t.m[3][1] * dpi_scale,
+                        t.m[3][2] * dpi_scale, t.m[3][3],
+                    );
+
+                    let binding = PropertyBinding::Binding(
+                        webrender::api::PropertyBindingKey::new(transform_key.id as u64),
+                        wr_transform,
+                    );
+
+                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+
+                    builder.push_reference_frame(
+                        LayoutPoint::zero(),
+                        spatial_id,
+                        TransformStyle::Flat,
+                        binding,
+                        ReferenceFrameKind::Transform {
+                            is_2d_scale_translation: false,
+                            should_snap: false,
+                            paired_with_perspective: false,
+                        },
+                        spatial_key,
+                    )
+                } else {
+                    spatial_id
+                };
+
                 // Render thumb (the draggable part)
                 if info.thumb_color.a > 0 {
                     let thumb_rect = resolve_rect(&info.thumb_bounds, dpi_scale, current_offset);
@@ -620,14 +656,14 @@ pub fn translate_displaylist_to_wr(
                             &mut builder,
                             scaled_thumb_bounds,
                             wr_border_radius,
-                            spatial_id,
+                            thumb_spatial_id,
                             clip_chain_id,
                         );
 
                         let thumb_info = CommonItemProperties {
                             clip_rect: thumb_rect,
                             clip_chain_id: thumb_clip_id,
-                            spatial_id,
+                            spatial_id: thumb_spatial_id,
                             flags: Default::default(),
                         };
                         builder.push_rect(&thumb_info, thumb_rect, thumb_color);
@@ -635,7 +671,7 @@ pub fn translate_displaylist_to_wr(
                         let thumb_info = CommonItemProperties {
                             clip_rect: thumb_rect,
                             clip_chain_id,
-                            spatial_id,
+                            spatial_id: thumb_spatial_id,
                             flags: Default::default(),
                         };
                         builder.push_rect(&thumb_info, thumb_rect, thumb_color);
@@ -651,10 +687,15 @@ pub fn translate_displaylist_to_wr(
                     builder.push_hit_test(
                         thumb_rect,
                         clip_chain_id,
-                        spatial_id,
+                        thumb_spatial_id,
                         Default::default(),
                         tag,
                     );
+                }
+
+                // Pop the reference frame if we pushed one for the thumb
+                if info.thumb_transform_key.is_some() {
+                    builder.pop_reference_frame();
                 }
             }
 
