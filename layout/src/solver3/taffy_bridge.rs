@@ -1446,43 +1446,39 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
             node.used_size = Some(size);
         }
 
-        // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll and an explicit
-        // CSS height/width, Taffy expands the container to fit all children (it doesn't
-        // know about overflow). We must compute scrollbar_info using CSS-specified size
-        // vs actual content size. Uses the unified compute_scrollbar_info_core path.
+        // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll,
+        // compute scrollbar_info by comparing Taffy's content_size against the
+        // CSS-specified container size. We ALWAYS recompute (no is_none() guard)
+        // because Taffy calls compute_child_layout multiple times per node
+        // (sizing pass, then layout pass). The first call often has content_size=(0,0)
+        // which would produce wrong scrollbar_info. The last call has the correct values.
         if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
-            let needs_scrollbar_check = self.tree.get(node_idx)
-                .map(|n| n.scrollbar_info.is_none())
-                .unwrap_or(false);
+            let taffy_content_width = result.content_size.width;
+            let taffy_content_height = result.content_size.height;
 
-            if needs_scrollbar_check {
-                let taffy_content_width = result.content_size.width;
-                let taffy_content_height = result.content_size.height;
+            let (scrollbar_info, eff_content_w, eff_content_h) =
+                compute_taffy_scrollbar_info(
+                    self.ctx,
+                    self.tree,
+                    node_idx,
+                    result.size.width,
+                    result.size.height,
+                    taffy_content_width,
+                    taffy_content_height,
+                );
 
-                let (scrollbar_info, eff_content_w, eff_content_h) =
-                    compute_taffy_scrollbar_info(
-                        self.ctx,
-                        self.tree,
-                        node_idx,
-                        result.size.width,
-                        result.size.height,
-                        taffy_content_width,
-                        taffy_content_height,
-                    );
-
-                if let Some(node) = self.tree.get_mut(node_idx) {
-                    node.scrollbar_info = Some(scrollbar_info);
-                    // Taffy's content_size is measured from (0,0) of the border-box,
-                    // so it includes border.top/left as a leading offset.  Subtract
-                    // the start border so overflow_content_size is in the padding-box
-                    // coordinate space (matching the scroll viewport).
-                    let border_left = node.box_props.border.left;
-                    let border_top = node.box_props.border.top;
-                    node.overflow_content_size = Some(LogicalSize::new(
-                        (eff_content_w - border_left).max(0.0),
-                        (eff_content_h - border_top).max(0.0),
-                    ));
-                }
+            if let Some(node) = self.tree.get_mut(node_idx) {
+                node.scrollbar_info = Some(scrollbar_info);
+                // Taffy's content_size is measured from (0,0) of the border-box,
+                // so it includes border.top/left as a leading offset.  Subtract
+                // the start border so overflow_content_size is in the padding-box
+                // coordinate space (matching the scroll viewport).
+                let border_left = node.box_props.border.left;
+                let border_top = node.box_props.border.top;
+                node.overflow_content_size = Some(LogicalSize::new(
+                    (eff_content_w - border_left).max(0.0),
+                    (eff_content_h - border_top).max(0.0),
+                ));
             }
         }
 
