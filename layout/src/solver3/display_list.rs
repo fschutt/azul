@@ -58,7 +58,7 @@ use crate::{
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
-        scrollbar::ScrollbarRequirements,
+        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry},
         LayoutContext, LayoutError, Result,
     },
 };
@@ -3026,40 +3026,23 @@ where
                 })
             });
 
-            // Vertical scrollbar: positioned at the right edge of the inner rect
-            let track_height = if scrollbar_info.needs_horizontal {
-                inner_rect.size.height - scrollbar_style.width_px
-            } else {
-                inner_rect.size.height
-            };
+            // Vertical scrollbar: use shared geometry computation
+            let v_geom = compute_scrollbar_geometry(
+                ScrollbarOrientation::Vertical,
+                inner_rect,
+                content_size,
+                scroll_offset_y,
+                scrollbar_style.width_px,
+                scrollbar_info.needs_horizontal,
+            );
 
-            let track_bounds = LogicalRect {
-                origin: LogicalPosition::new(
-                    inner_rect.origin.x + inner_rect.size.width - scrollbar_style.width_px,
-                    inner_rect.origin.y,
-                ),
-                size: LogicalSize::new(scrollbar_style.width_px, track_height),
-            };
-
-            // Calculate thumb size and position
-            let viewport_height = inner_rect.size.height;
-            let thumb_ratio = (viewport_height / content_size.height).min(1.0);
-            let thumb_height = (track_height * thumb_ratio).max(scrollbar_style.width_px * 2.0);
-
-            let max_scroll = (content_size.height - viewport_height).max(0.0);
-            let scroll_ratio = if max_scroll > 0.0 {
-                scroll_offset_y.abs() / max_scroll
-            } else {
-                0.0
-            };
-
-            // Thumb offset from top of track — this will be the GPU transform's translation Y
-            let thumb_offset_y = (track_height - thumb_height) * scroll_ratio.clamp(0.0, 1.0);
-
-            // Position thumb at TOP of track — GPU transform will move it to correct position
+            // Position thumb after the top button; GPU transform moves it within usable track
             let thumb_bounds = LogicalRect {
-                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
-                size: LogicalSize::new(scrollbar_style.width_px, thumb_height),
+                origin: LogicalPosition::new(
+                    v_geom.track_rect.origin.x,
+                    v_geom.track_rect.origin.y + v_geom.button_size,
+                ),
+                size: LogicalSize::new(v_geom.width_px, v_geom.thumb_length),
             };
 
             // Look up transform key from GPU cache for GPU-animated thumb positioning.
@@ -3072,33 +3055,33 @@ where
                     .unwrap_or_else(|| TransformKey::unique())
             });
 
-            // Initial transform: translate thumb down by current scroll offset
-            let thumb_initial_transform = ComputedTransform3D::new_translation(0.0, thumb_offset_y, 0.0);
+            // Initial transform: translate thumb within usable region
+            let thumb_initial_transform =
+                ComputedTransform3D::new_translation(0.0, v_geom.thumb_offset, 0.0);
 
             // Generate hit-test ID for vertical scrollbar thumb
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
 
-            // Add page-scroll buttons at top/bottom of scrollbar track (green for debug)
-            let button_size = scrollbar_style.width_px;
+            // Buttons at top/bottom of track
             let button_decrement_bounds = Some(LogicalRect {
-                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
-                size: LogicalSize::new(button_size, button_size),
+                origin: v_geom.track_rect.origin,
+                size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
             });
             let button_increment_bounds = Some(LogicalRect {
                 origin: LogicalPosition::new(
-                    track_bounds.origin.x,
-                    track_bounds.origin.y + track_height - button_size,
+                    v_geom.track_rect.origin.x,
+                    v_geom.track_rect.origin.y + v_geom.track_rect.size.height - v_geom.button_size,
                 ),
-                size: LogicalSize::new(button_size, button_size),
+                size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
             });
             // Light green color for debug visibility
             let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
 
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
-                bounds: track_bounds.into(),
+                bounds: v_geom.track_rect.into(),
                 orientation: ScrollbarOrientation::Vertical,
-                track_bounds: track_bounds.into(),
+                track_bounds: v_geom.track_rect.into(),
                 track_color: scrollbar_style.track_color,
                 thumb_bounds: thumb_bounds.into(),
                 thumb_color: scrollbar_style.thumb_color,
@@ -3126,71 +3109,54 @@ where
                 })
             });
 
-            // Horizontal scrollbar: positioned at the bottom edge of the inner rect
-            let track_width = if scrollbar_info.needs_vertical {
-                inner_rect.size.width - scrollbar_style.width_px
-            } else {
-                inner_rect.size.width
-            };
+            // Horizontal scrollbar: use shared geometry computation
+            let h_geom = compute_scrollbar_geometry(
+                ScrollbarOrientation::Horizontal,
+                inner_rect,
+                content_size,
+                scroll_offset_x,
+                scrollbar_style.width_px,
+                scrollbar_info.needs_vertical,
+            );
 
-            let track_bounds = LogicalRect {
-                origin: LogicalPosition::new(
-                    inner_rect.origin.x,
-                    inner_rect.origin.y + inner_rect.size.height - scrollbar_style.width_px,
-                ),
-                size: LogicalSize::new(track_width, scrollbar_style.width_px),
-            };
-
-            // Calculate thumb size and position
-            let viewport_width = inner_rect.size.width;
-            let thumb_ratio = (viewport_width / content_size.width).min(1.0);
-            let thumb_width = (track_width * thumb_ratio).max(scrollbar_style.width_px * 2.0);
-
-            let max_scroll = (content_size.width - viewport_width).max(0.0);
-            let scroll_ratio = if max_scroll > 0.0 {
-                scroll_offset_x.abs() / max_scroll
-            } else {
-                0.0
-            };
-
-            // Thumb offset from left of track — GPU transform's translation X
-            let thumb_offset_x = (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
-
-            // Position thumb at LEFT of track — GPU transform will move it to correct position
+            // Position thumb after the left button; GPU transform moves it within usable track
             let thumb_bounds = LogicalRect {
-                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
-                size: LogicalSize::new(thumb_width, scrollbar_style.width_px),
+                origin: LogicalPosition::new(
+                    h_geom.track_rect.origin.x + h_geom.button_size,
+                    h_geom.track_rect.origin.y,
+                ),
+                size: LogicalSize::new(h_geom.thumb_length, h_geom.width_px),
             };
 
             // For horizontal scrollbar, we don't have a separate h-transform key yet.
             // TODO: Add horizontal transform key support to GpuStateManager
             let thumb_transform_key: Option<TransformKey> = None;
-            let thumb_initial_transform = ComputedTransform3D::new_translation(thumb_offset_x, 0.0, 0.0);
+            let thumb_initial_transform =
+                ComputedTransform3D::new_translation(h_geom.thumb_offset, 0.0, 0.0);
 
             // Generate hit-test ID for horizontal scrollbar thumb
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
 
-            // Add page-scroll buttons at left/right of scrollbar track (green for debug)
-            let button_size = scrollbar_style.width_px;
+            // Buttons at left/right of track
             let button_decrement_bounds = Some(LogicalRect {
-                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
-                size: LogicalSize::new(button_size, button_size),
+                origin: h_geom.track_rect.origin,
+                size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
             });
             let button_increment_bounds = Some(LogicalRect {
                 origin: LogicalPosition::new(
-                    track_bounds.origin.x + track_width - button_size,
-                    track_bounds.origin.y,
+                    h_geom.track_rect.origin.x + h_geom.track_rect.size.width - h_geom.button_size,
+                    h_geom.track_rect.origin.y,
                 ),
-                size: LogicalSize::new(button_size, button_size),
+                size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
             });
             // Light green color for debug visibility
             let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
 
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
-                bounds: track_bounds.into(),
+                bounds: h_geom.track_rect.into(),
                 orientation: ScrollbarOrientation::Horizontal,
-                track_bounds: track_bounds.into(),
+                track_bounds: h_geom.track_rect.into(),
                 track_color: scrollbar_style.track_color,
                 thumb_bounds: thumb_bounds.into(),
                 thumb_color: scrollbar_style.thumb_color,

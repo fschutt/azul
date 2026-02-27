@@ -425,6 +425,9 @@ pub fn regenerate_layout(
                             container_rect,
                             content_size,
                             now.clone(),
+                            16.0, // default scrollbar rendering thickness
+                            scrollbar_info.needs_horizontal,
+                            scrollbar_info.needs_vertical,
                         );
 
                         log_debug!(LogCategory::Layout,
@@ -544,6 +547,9 @@ pub fn incremental_relayout(
                             container_rect,
                             content_size,
                             now.clone(),
+                            16.0, // default scrollbar rendering thickness
+                            scrollbar_info.needs_horizontal,
+                            scrollbar_info.needs_vertical,
                         );
                     }
                 }

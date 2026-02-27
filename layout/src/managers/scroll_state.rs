@@ -60,6 +60,7 @@ use azul_core::{
 use std::sync::{Arc, Mutex};
 
 use crate::managers::hover::InputPointId;
+use crate::solver3::scrollbar::compute_scrollbar_geometry;
 
 // ============================================================================
 // Scroll Input Types (for timer-based physics architecture)
@@ -196,35 +197,38 @@ pub struct ScrollbarState {
     pub thumb_size_ratio: f32,
     /// Position of the scrollbar in the container (for hit-testing)
     pub track_rect: LogicalRect,
+    /// Button size (square: button_size × button_size)
+    pub button_size: f32,
+    /// Usable track length after subtracting buttons
+    pub usable_track_length: f32,
+    /// Thumb length in pixels
+    pub thumb_length: f32,
+    /// Thumb offset from start of usable track region
+    pub thumb_offset: f32,
 }
 
 impl ScrollbarState {
     /// Determine which component was hit at the given local position (relative to track_rect
-    /// origin)
+    /// origin). Uses the shared geometry values (button_size, usable_track_length, thumb_length,
+    /// thumb_offset) for consistent hit-testing.
     pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
         match self.orientation {
             ScrollbarOrientation::Vertical => {
-                let button_height = self.base_size;
-
                 // Top button
-                if local_pos.y < button_height {
+                if local_pos.y < self.button_size {
                     return ScrollbarComponent::TopButton;
                 }
 
                 // Bottom button
                 let track_height = self.track_rect.size.height;
-                if local_pos.y > track_height - button_height {
+                if local_pos.y > track_height - self.button_size {
                     return ScrollbarComponent::BottomButton;
                 }
 
-                // Calculate thumb bounds
-                let track_height_usable = track_height - 2.0 * button_height;
-                let thumb_height = track_height_usable * self.thumb_size_ratio;
-                let thumb_y_start = button_height
-                    + (track_height_usable - thumb_height) * self.thumb_position_ratio;
-                let thumb_y_end = thumb_y_start + thumb_height;
+                // Thumb region starts after top button
+                let thumb_y_start = self.button_size + self.thumb_offset;
+                let thumb_y_end = thumb_y_start + self.thumb_length;
 
-                // Check if inside thumb
                 if local_pos.y >= thumb_y_start && local_pos.y <= thumb_y_end {
                     ScrollbarComponent::Thumb
                 } else {
@@ -232,27 +236,21 @@ impl ScrollbarState {
                 }
             }
             ScrollbarOrientation::Horizontal => {
-                let button_width = self.base_size;
-
                 // Left button
-                if local_pos.x < button_width {
+                if local_pos.x < self.button_size {
                     return ScrollbarComponent::TopButton;
                 }
 
                 // Right button
                 let track_width = self.track_rect.size.width;
-                if local_pos.x > track_width - button_width {
+                if local_pos.x > track_width - self.button_size {
                     return ScrollbarComponent::BottomButton;
                 }
 
-                // Calculate thumb bounds
-                let track_width_usable = track_width - 2.0 * button_width;
-                let thumb_width = track_width_usable * self.thumb_size_ratio;
-                let thumb_x_start =
-                    button_width + (track_width_usable - thumb_width) * self.thumb_position_ratio;
-                let thumb_x_end = thumb_x_start + thumb_width;
+                // Thumb region starts after left button
+                let thumb_x_start = self.button_size + self.thumb_offset;
+                let thumb_x_end = thumb_x_start + self.thumb_length;
 
-                // Check if inside thumb
                 if local_pos.x >= thumb_x_start && local_pos.x <= thumb_x_end {
                     ScrollbarComponent::Thumb
                 } else {
@@ -325,6 +323,13 @@ pub struct AnimatedScrollState {
     pub overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior,
     /// Per-node overflow scrolling mode (from CSS `-azul-overflow-scrolling`)
     pub overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling,
+    /// CSS-resolved scrollbar thickness (from `scrollbar-width` property).
+    /// Used for rendering and hit-testing. Defaults to 16.0 if not set.
+    pub scrollbar_thickness: f32,
+    /// Whether this node also needs a horizontal scrollbar (affects vertical geometry)
+    pub has_horizontal_scrollbar: bool,
+    /// Whether this node also needs a vertical scrollbar (affects horizontal geometry)
+    pub has_vertical_scrollbar: bool,
 }
 
 /// Details of an in-progress smooth scroll animation
@@ -635,6 +640,9 @@ impl ScrollManager {
                 overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                 overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                 overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
+                scrollbar_thickness: 16.0,
+                has_horizontal_scrollbar: false,
+                has_vertical_scrollbar: false,
             }
         });
         state.virtual_scroll_size = Some(virtual_scroll_size);
@@ -728,6 +736,9 @@ impl ScrollManager {
         container_rect: LogicalRect,
         content_size: LogicalSize,
         now: Instant,
+        scrollbar_thickness: f32,
+        has_horizontal_scrollbar: bool,
+        has_vertical_scrollbar: bool,
     ) {
         let key = (dom_id, node_id);
 
@@ -740,6 +751,9 @@ impl ScrollManager {
             // Update rects, keep scroll offset
             existing.container_rect = container_rect;
             existing.content_rect = content_rect;
+            existing.scrollbar_thickness = scrollbar_thickness;
+            existing.has_horizontal_scrollbar = has_horizontal_scrollbar;
+            existing.has_vertical_scrollbar = has_vertical_scrollbar;
             // Re-clamp current offset to new bounds
             existing.current_offset = existing.clamp(existing.current_offset);
         } else {
@@ -757,6 +771,9 @@ impl ScrollManager {
                     overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                     overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                     overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
+                    scrollbar_thickness,
+                    has_horizontal_scrollbar,
+                    has_vertical_scrollbar,
                 },
             );
         }
@@ -807,6 +824,7 @@ impl ScrollManager {
 
     /// Calculate scrollbar states for all visible scrollbars.
     /// This should be called once per frame after layout is complete.
+    /// Uses the shared `compute_scrollbar_geometry()` for consistent geometry.
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
@@ -823,7 +841,10 @@ impl ScrollManager {
                 effective_height > s.container_rect.size.height
             })
             .map(|((dom_id, node_id), scroll_state)| {
-                let v_state = Self::calculate_vertical_scrollbar_static(scroll_state);
+                let v_state = Self::calculate_scrollbar_state_from_geometry(
+                    scroll_state,
+                    ScrollbarOrientation::Vertical,
+                );
                 ((*dom_id, *node_id, ScrollbarOrientation::Vertical), v_state)
             })
             .collect();
@@ -839,7 +860,10 @@ impl ScrollManager {
                 effective_width > s.container_rect.size.width
             })
             .map(|((dom_id, node_id), scroll_state)| {
-                let h_state = Self::calculate_horizontal_scrollbar_static(scroll_state);
+                let h_state = Self::calculate_scrollbar_state_from_geometry(
+                    scroll_state,
+                    ScrollbarOrientation::Horizontal,
+                );
                 (
                     (*dom_id, *node_id, ScrollbarOrientation::Horizontal),
                     h_state,
@@ -852,90 +876,62 @@ impl ScrollManager {
         self.scrollbar_states.extend(horizontal_states);
     }
 
-    /// Calculate vertical scrollbar geometry
-    fn calculate_vertical_scrollbar_static(scroll_state: &AnimatedScrollState) -> ScrollbarState {
-        // Default scrollbar base size. This is the *rendering* size, not the layout
-        // reservation (which uses per-node CSS via get_layout_scrollbar_width_px).
-        const SCROLLBAR_WIDTH: f32 = 16.0;
-
-        let container_height = scroll_state.container_rect.size.height;
-        let content_height = scroll_state.virtual_scroll_size
-            .map(|s| s.height)
-            .unwrap_or(scroll_state.content_rect.size.height);
-
-        // Thumb size ratio = visible_height / total_height
-        let thumb_size_ratio = (container_height / content_height).min(1.0);
-
-        // Thumb position ratio = scroll_offset / max_scroll
-        let max_scroll = (content_height - container_height).max(0.0);
-        let thumb_position_ratio = if max_scroll > 0.0 {
-            (scroll_state.current_offset.y / max_scroll).clamp(0.0, 1.0)
+    /// Calculate scrollbar state using the shared `compute_scrollbar_geometry()`.
+    fn calculate_scrollbar_state_from_geometry(
+        scroll_state: &AnimatedScrollState,
+        orientation: ScrollbarOrientation,
+    ) -> ScrollbarState {
+        let scrollbar_thickness = if scroll_state.scrollbar_thickness > 0.0 {
+            scroll_state.scrollbar_thickness
         } else {
-            0.0
+            16.0 // fallback default
         };
 
-        // Scale: width = 1.0 (SCROLLBAR_WIDTH), height = container_height / SCROLLBAR_WIDTH
-        let scale = LogicalPosition::new(1.0, container_height / SCROLLBAR_WIDTH);
+        let content_size = scroll_state.virtual_scroll_size
+            .map(|vs| LogicalSize { width: vs.width, height: vs.height })
+            .unwrap_or(scroll_state.content_rect.size);
 
-        // Track rect (positioned at right edge of container)
-        let track_x = scroll_state.container_rect.origin.x + scroll_state.container_rect.size.width
-            - SCROLLBAR_WIDTH;
-        let track_y = scroll_state.container_rect.origin.y;
-        let track_rect = LogicalRect::new(
-            LogicalPosition::new(track_x, track_y),
-            LogicalSize::new(SCROLLBAR_WIDTH, container_height),
+        let scroll_offset = match orientation {
+            ScrollbarOrientation::Vertical => scroll_state.current_offset.y,
+            ScrollbarOrientation::Horizontal => scroll_state.current_offset.x,
+        };
+
+        let has_other_scrollbar = match orientation {
+            ScrollbarOrientation::Vertical => scroll_state.has_horizontal_scrollbar,
+            ScrollbarOrientation::Horizontal => scroll_state.has_vertical_scrollbar,
+        };
+
+        let geom = compute_scrollbar_geometry(
+            orientation,
+            scroll_state.container_rect,
+            content_size,
+            scroll_offset,
+            scrollbar_thickness,
+            has_other_scrollbar,
         );
+
+        // Build ScrollbarState from the shared geometry
+        let scale = match orientation {
+            ScrollbarOrientation::Vertical => {
+                LogicalPosition::new(1.0, geom.track_rect.size.height / scrollbar_thickness)
+            }
+            ScrollbarOrientation::Horizontal => {
+                LogicalPosition::new(geom.track_rect.size.width / scrollbar_thickness, 1.0)
+            }
+        };
 
         ScrollbarState {
             visible: true,
-            orientation: ScrollbarOrientation::Vertical,
-            base_size: SCROLLBAR_WIDTH,
+            orientation,
+            base_size: scrollbar_thickness,
             scale,
-            thumb_position_ratio,
-            thumb_size_ratio,
-            track_rect,
-        }
-    }
-
-    /// Calculate horizontal scrollbar geometry
-    fn calculate_horizontal_scrollbar_static(scroll_state: &AnimatedScrollState) -> ScrollbarState {
-        // Default scrollbar base size. This is the *rendering* size, not the layout
-        // reservation (which uses per-node CSS via get_layout_scrollbar_width_px).
-        const SCROLLBAR_HEIGHT: f32 = 16.0;
-
-        let container_width = scroll_state.container_rect.size.width;
-        let content_width = scroll_state.virtual_scroll_size
-            .map(|s| s.width)
-            .unwrap_or(scroll_state.content_rect.size.width);
-
-        let thumb_size_ratio = (container_width / content_width).min(1.0);
-
-        let max_scroll = (content_width - container_width).max(0.0);
-        let thumb_position_ratio = if max_scroll > 0.0 {
-            (scroll_state.current_offset.x / max_scroll).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-
-        let scale = LogicalPosition::new(container_width / SCROLLBAR_HEIGHT, 1.0);
-
-        let track_x = scroll_state.container_rect.origin.x;
-        let track_y = scroll_state.container_rect.origin.y
-            + scroll_state.container_rect.size.height
-            - SCROLLBAR_HEIGHT;
-        let track_rect = LogicalRect::new(
-            LogicalPosition::new(track_x, track_y),
-            LogicalSize::new(container_width, SCROLLBAR_HEIGHT),
-        );
-
-        ScrollbarState {
-            visible: true,
-            orientation: ScrollbarOrientation::Horizontal,
-            base_size: SCROLLBAR_HEIGHT,
-            scale,
-            thumb_position_ratio,
-            thumb_size_ratio,
-            track_rect,
+            thumb_position_ratio: geom.scroll_ratio,
+            thumb_size_ratio: geom.thumb_size_ratio,
+            track_rect: geom.track_rect,
+            button_size: geom.button_size,
+            usable_track_length: geom.usable_track_length,
+            thumb_length: geom.thumb_length,
+            thumb_offset: geom.thumb_offset,
         }
     }
 
@@ -1063,6 +1059,9 @@ impl AnimatedScrollState {
             overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
+            scrollbar_thickness: 16.0,
+            has_horizontal_scrollbar: false,
+            has_vertical_scrollbar: false,
         }
     }
 

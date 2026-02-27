@@ -9,7 +9,8 @@ use alloc::collections::BTreeMap;
 
 use azul_core::{
     dom::{DomId, NodeId},
-    geom::LogicalSize,
+    dom::ScrollbarOrientation,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::{GpuEventChanges, GpuScrollbarOpacityEvent, GpuTransformKeyEvent, GpuValueCache},
     resources::{OpacityKey, TransformKey},
     task::{Duration, Instant, SystemTimeDiff},
@@ -18,7 +19,10 @@ use azul_core::{
 
 use crate::{
     managers::scroll_state::ScrollManager,
-    solver3::{layout_tree::LayoutTree, scrollbar::ScrollbarRequirements},
+    solver3::{
+        layout_tree::LayoutTree,
+        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry},
+    },
     text3::cache::ParsedFontTrait,
 };
 
@@ -132,27 +136,47 @@ impl GpuStateManager {
             let scroll_offset = scroll_manager
                 .get_current_offset(dom_id, node_id)
                 .unwrap_or_default();
-            let container_size = node.used_size.unwrap_or_default();
-            let content_size = node
-                .inline_layout_result
-                .as_ref()
-                .map(|l| {
-                    let bounds = l.layout.bounds();
-                    LogicalSize {
-                        width: bounds.width,
-                        height: bounds.height,
-                    }
-                })
-                .unwrap_or(container_size);
+
+            // Compute inner_rect (padding-box) by subtracting borders from used_size
+            let border_box_size = node.used_size.unwrap_or_default();
+            let border = &node.box_props.border;
+            let inner_size = LogicalSize {
+                width: (border_box_size.width - border.left - border.right).max(0.0),
+                height: (border_box_size.height - border.top - border.bottom).max(0.0),
+            };
+            // Use zero origin since we only need the geometry ratios, not absolute position
+            let inner_rect = LogicalRect {
+                origin: LogicalPosition::new(0.0, 0.0),
+                size: inner_size,
+            };
+
+            // Use get_content_size() as the single source of truth for content dimensions
+            let content_size = node.get_content_size();
 
             if scrollbar_info.needs_vertical {
-                let transform = compute_vertical_thumb_transform(
-                    scrollbar_info,
-                    &container_size,
-                    &content_size,
+                // Scrollbar thickness: use the layout-reserved width if available,
+                // otherwise fall back to a default. scrollbar_info.scrollbar_width
+                // represents the horizontal scrollbar's reserved height, and
+                // scrollbar_info.scrollbar_height represents the vertical scrollbar's
+                // reserved width — BUT for overlay scrollbars these are 0.
+                // Use a sensible rendering default when 0.
+                let scrollbar_width_px = if scrollbar_info.scrollbar_height > 0.0 {
+                    scrollbar_info.scrollbar_height
+                } else {
+                    16.0 // default rendering width for overlay scrollbars
+                };
+
+                let v_geom = compute_scrollbar_geometry(
+                    ScrollbarOrientation::Vertical,
+                    inner_rect,
+                    content_size,
                     scroll_offset.y,
+                    scrollbar_width_px,
+                    scrollbar_info.needs_horizontal,
                 );
 
+                let transform =
+                    ComputedTransform3D::new_translation(0.0, v_geom.thumb_offset, 0.0);
                 update_transform_key(gpu_cache, &mut changes, dom_id, node_id, transform);
             }
         }
@@ -164,28 +188,6 @@ impl GpuStateManager {
     pub fn get_gpu_value_cache(&self) -> BTreeMap<DomId, GpuValueCache> {
         self.caches.clone()
     }
-}
-
-/// Computes the transform for a vertical scrollbar thumb.
-fn compute_vertical_thumb_transform(
-    scrollbar_info: &ScrollbarRequirements,
-    container_size: &LogicalSize,
-    content_size: &LogicalSize,
-    scroll_y: f32,
-) -> ComputedTransform3D {
-    let track_height = container_size.height - scrollbar_info.scrollbar_height;
-    let thumb_height = (container_size.height / content_size.height) * track_height;
-    let scrollable_dist = content_size.height - container_size.height;
-    let thumb_dist = track_height - thumb_height;
-
-    let scroll_ratio = if scrollable_dist > 0.0 {
-        scroll_y / scrollable_dist
-    } else {
-        0.0
-    };
-    let thumb_offset_y = scroll_ratio * thumb_dist;
-
-    ComputedTransform3D::new_translation(0.0, thumb_offset_y, 0.0)
 }
 
 /// Updates or creates a transform key in the GPU cache.
