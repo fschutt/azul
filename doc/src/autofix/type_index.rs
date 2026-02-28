@@ -3633,15 +3633,15 @@ pub struct StyledDom {
     pub root: u64,
 }
 
-/// IFrame callback return value
+/// VirtualizedView callback return value
 #[repr(C)]
-pub struct IFrameCallbackReturn {
+pub struct VirtualizedViewCallbackReturn {
     pub dom: StyledDom,
 }
 
-/// Information passed to IFrame callbacks
+/// Information passed to VirtualizedView callbacks
 #[repr(C)]
-pub struct IFrameCallbackInfo {
+pub struct VirtualizedViewCallbackInfo {
     pub bounds: (f32, f32, f32, f32),
 }
 
@@ -3657,9 +3657,9 @@ pub type MarshaledLayoutCallbackType = extern "C" fn(
     &mut LayoutCallbackInfo,
 ) -> StyledDom;
 
-/// IFrame callback
-pub type IFrameCallbackType =
-    extern "C" fn(&mut RefAny, &mut IFrameCallbackInfo) -> IFrameCallbackReturn;
+/// VirtualizedView callback
+pub type VirtualizedViewCallbackType =
+    extern "C" fn(&mut RefAny, &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn;
 
 /// Simple callback with immutable reference
 pub type OnTextInputCallback = extern "C" fn(&RefAny, &TextInputState) -> OnTextInputReturn;

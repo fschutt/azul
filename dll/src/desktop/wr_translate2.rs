@@ -384,7 +384,7 @@ pub fn translate_world_point(
 /// NOTE: This is a partial implementation that handles basic hit testing.
 /// Full implementation would need to:
 /// - Convert WebRender item tags to (DomId, NodeId) pairs
-/// - Handle IFrame hits
+/// - Handle VirtualizedView hits
 /// - Extract scrollable nodes from hit results
 /// - Properly calculate point_relative_to_item coordinates
 pub fn translate_hit_test_result(
@@ -427,7 +427,7 @@ pub fn translate_hit_test_result(
             point_in_viewport,
             point_relative_to_item,
             is_focusable: false, // TODO: Determine from node data
-            is_iframe_hit: None, // IFrames handled via DisplayListItem::IFrame
+            is_virtualized_view_hit: None, // VirtualizedViews handled via DisplayListItem::IFrame
             hit_depth: depth as u32,
         };
 
@@ -519,7 +519,7 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
 /// Perform WebRender-based hit testing
 ///
 /// This is the main hit-testing function that uses WebRender's hit tester to determine
-/// which DOM nodes are under the cursor. It handles nested iframes and builds a complete
+/// which DOM nodes are under the cursor. It handles nested virtualized views and builds a complete
 /// hit test result with all hovered nodes.
 pub fn fullhittest_new_webrender(
     wr_hittester: &dyn WrApiHitTester,
@@ -548,7 +548,7 @@ pub fn fullhittest_new_webrender(
 
     let wr_document_id = wr_translate_document_id(document_id);
 
-    // Start with root DOM (DomId 0), will recursively check iframes
+    // Start with root DOM (DomId 0), will recursively check virtualized views
     let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
 
     loop {
@@ -580,11 +580,11 @@ pub fn fullhittest_new_webrender(
             const TAG_TYPE_CURSOR: u16 = 0x0400;
             const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
-            // Detect items from foreign pipelines (IFrame child DOMs).
+            // Detect items from foreign pipelines (VirtualizedView child DOMs).
             // WebRender returns ALL pipeline items together but when cursor
-            // is over an IFrame, the IFrame content (child pipeline) occludes
+            // is over a VirtualizedView, the VirtualizedView content (child pipeline) occludes
             // the parent pipeline's hit-test areas. We must detect this and
-            // synthetically add the parent IFrame scroll node.
+            // synthetically add the parent VirtualizedView scroll node.
             let mut foreign_child_dom_ids: Vec<DomId> = Vec::new();
             {
                 let mut seen_foreign = std::collections::BTreeSet::new();
@@ -597,8 +597,8 @@ pub fn fullhittest_new_webrender(
                 }
             }
 
-            // If we detected foreign pipeline hits, the cursor is over an IFrame.
-            // Add the IFrame parent scroll node(s) for this DOM so the scroll
+            // If we detected foreign pipeline hits, the cursor is over a VirtualizedView.
+            // Add the VirtualizedView parent scroll node(s) for this DOM so the scroll
             // manager can find them during trackpad/wheel events.
             if !foreign_child_dom_ids.is_empty() {
                 use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
@@ -608,22 +608,22 @@ pub fn fullhittest_new_webrender(
                     new_dom_ids.push((*child_dom_id, *cursor_relative_to_dom));
                 }
 
-                // Find IFrame scroll nodes in the current DOM and add them to
+                // Find VirtualizedView scroll nodes in the current DOM and add them to
                 // scroll_hit_test_nodes. These nodes have overflow:scroll/auto
-                // and are IFrame containers — their Pipeline 0 hit-test area
+                // and are VirtualizedView containers — their Pipeline 0 hit-test area
                 // was occluded by the child pipeline content.
                 for (&scroll_id, &node_id) in &layout_result.scroll_id_to_node_id {
-                    // Check if this scrollable node is an IFrame type
-                    let is_iframe = layout_result
+                    // Check if this scrollable node is a VirtualizedView type
+                    let is_virtualized_view = layout_result
                         .styled_dom
                         .node_data
                         .as_container()
                         .get(node_id)
                         .map_or(false, |nd| {
-                            matches!(nd.get_node_type(), azul_core::dom::NodeType::IFrame)
+                            matches!(nd.get_node_type(), azul_core::dom::NodeType::VirtualizedView)
                         });
 
-                    if !is_iframe {
+                    if !is_virtualized_view {
                         continue;
                     }
 
@@ -834,7 +834,7 @@ pub fn fullhittest_new_webrender(
                         HitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
                             point_relative_to_item,
-                            is_iframe_hit: None,
+                            is_virtualized_view_hit: None,
                             is_focusable: layout_result
                                 .styled_dom
                                 .node_data
@@ -945,7 +945,7 @@ pub fn fullhittest_new_webrender(
             }
         }
 
-        // Continue with iframes if any were found
+        // Continue with virtualized views if any were found
         if new_dom_ids.is_empty() {
             break;
         } else {
@@ -1509,7 +1509,7 @@ fn wr_translate_synthetic_italics(italics: SyntheticItalics) -> WrSyntheticItali
 /// Generate a new WebRender frame
 ///
 /// This function sets up the scene and tells WebRender to render.
-/// Uses DomId-based pipeline management for iframe support.
+/// Uses DomId-based pipeline management for virtualized view support.
 pub fn generate_frame(
     txn: &mut WrTransaction,
     layout_window: &mut LayoutWindow,
@@ -1701,7 +1701,7 @@ pub fn generate_frame(
                         (pipeline_id, built_display_list),
                     );
 
-                    // Add all nested iframe pipelines
+                    // Add all nested virtualized view pipelines
                     for (nested_pipeline_id, nested_display_list) in nested_pipelines {
                         log_debug!(
                             LogCategory::Rendering,
@@ -1760,8 +1760,8 @@ pub fn generate_frame(
     // Process image callback updates (invoke callbacks and register textures)
     process_image_callback_updates(layout_window, gl_context, txn);
 
-    // Process IFrame updates (if any callbacks requested re-rendering)
-    process_iframe_updates(layout_window, txn);
+    // Process VirtualizedView updates (if any callbacks requested re-rendering)
+    process_virtualized_view_updates(layout_window, txn);
 
     // Scroll all nodes to their current positions
     scroll_all_nodes(layout_window, txn);
@@ -2622,7 +2622,7 @@ pub fn build_webrender_transaction(
                 // Add main pipeline
                 txn.set_display_list(epoch, (pipeline_id, built_display_list));
 
-                // Add all nested iframe pipelines
+                // Add all nested virtualized view pipelines
                 for (nested_pipeline_id, nested_display_list) in nested_pipelines {
                     log_debug!(
                         LogCategory::Rendering,
@@ -3031,38 +3031,38 @@ fn process_image_callback_updates(
     }
 }
 
-/// Process IFrame updates requested by callbacks
+/// Process VirtualizedView updates requested by callbacks
 ///
-/// This function handles manual IFrame re-rendering triggered by `trigger_iframe_rerender()`.
-/// It rebuilds display lists for IFrames that were already re-rendered during layout,
+/// This function handles manual VirtualizedView re-rendering triggered by `trigger_virtualized_view_rerender()`.
+/// It rebuilds display lists for VirtualizedViews that were already re-rendered during layout,
 /// then submits only those pipelines to WebRender without rebuilding the entire scene.
 ///
 /// # Architecture
 ///
-/// Each IFrame gets its own WebRender pipeline with a stable PipelineId based on
-/// (dom_id, node_id). When an IFrame needs updating:
+/// Each VirtualizedView gets its own WebRender pipeline with a stable PipelineId based on
+/// (dom_id, node_id). When a VirtualizedView needs updating:
 ///
-/// 1. The IFrame callback was already re-invoked during the layout phase
-/// 2. The layout result for that IFrame's DOM exists in layout_results
-/// 3. We just need to rebuild and submit that specific IFrame's display list
+/// 1. The VirtualizedView callback was already re-invoked during the layout phase
+/// 2. The layout result for that VirtualizedView's DOM exists in layout_results
+/// 3. We just need to rebuild and submit that specific VirtualizedView's display list
 /// 4. Other pipelines remain untouched
 ///
 /// This allows efficient updates without full scene rebuilds.
 ///
 /// # Arguments
 ///
-/// * `layout_window` - The layout window with IFrame state
+/// * `layout_window` - The layout window with VirtualizedView state
 /// * `txn` - The WebRender transaction to add updates to
-fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
-    // Check if there are any pending IFrame updates
-    if layout_window.pending_iframe_updates.is_empty() {
+fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+    // Check if there are any pending VirtualizedView updates
+    if layout_window.pending_virtualized_view_updates.is_empty() {
         return;
     }
 
     log_debug!(
         LogCategory::Rendering,
-        "[process_iframe_updates] Processing {} pending IFrame updates",
-        layout_window.pending_iframe_updates.len()
+        "[process_virtualized_view_updates] Processing {} pending VirtualizedView updates",
+        layout_window.pending_virtualized_view_updates.len()
     );
 
     use webrender::api::Epoch as WrEpoch;
@@ -3074,10 +3074,10 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
     // Collect all child DOM IDs that need their display lists rebuilt
     let mut child_dom_ids = Vec::new();
 
-    for (parent_dom_id, node_ids) in &layout_window.pending_iframe_updates {
+    for (parent_dom_id, node_ids) in &layout_window.pending_virtualized_view_updates {
         for node_id in node_ids {
             if let Some(child_dom_id) = layout_window
-                .iframe_manager
+                .virtualized_view_manager
                 .get_nested_dom_id(*parent_dom_id, *node_id)
             {
                 child_dom_ids.push((child_dom_id, *parent_dom_id, *node_id));
@@ -3086,17 +3086,17 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
     }
 
     // Clear pending updates
-    layout_window.pending_iframe_updates.clear();
+    layout_window.pending_virtualized_view_updates.clear();
 
-    // For each IFrame, rebuild and submit its display list
+    // For each VirtualizedView, rebuild and submit its display list
     for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
-        // Get the layout result for the IFrame's content
+        // Get the layout result for the VirtualizedView's content
         let layout_result =
             match layout_window.layout_results.get(&child_dom_id) {
                 Some(lr) => lr,
                 None => {
                     log_debug!(LogCategory::Rendering,
-                    "[process_iframe_updates] No layout result for child DOM {:?} (parent {:?}, \
+                    "[process_virtualized_view_updates] No layout result for child DOM {:?} (parent {:?}, \
                      node {:?})",
                     child_dom_id, parent_dom_id, node_id
                 );
@@ -3104,7 +3104,7 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
                 }
             };
 
-        // Build the pipeline ID for this IFrame
+        // Build the pipeline ID for this VirtualizedView
         let pipeline_id = wr_translate_pipeline_id(PipelineId(
             child_dom_id.inner as u32,
             layout_window.document_id.id,
@@ -3124,7 +3124,7 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
             Ok((_, built_display_list, nested_pipelines)) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_iframe_updates] Submitting display list for IFrame DOM {} (pipeline \
+                    "[process_virtualized_view_updates] Submitting display list for VirtualizedView DOM {} (pipeline \
                      {:?})",
                     child_dom_id.inner,
                     pipeline_id
@@ -3136,11 +3136,11 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
                     (pipeline_id, built_display_list),
                 );
 
-                // Submit any nested pipelines (IFrames within IFrames)
+                // Submit any nested pipelines (VirtualizedViews within VirtualizedViews)
                 for (nested_pipeline_id, nested_display_list) in nested_pipelines {
                     log_debug!(
                         LogCategory::Rendering,
-                        "[process_iframe_updates] Submitting nested pipeline {:?}",
+                        "[process_virtualized_view_updates] Submitting nested pipeline {:?}",
                         nested_pipeline_id
                     );
                     txn.set_display_list(
@@ -3152,7 +3152,7 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
             Err(e) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_iframe_updates] Error building display list for IFrame DOM {}: {}",
+                    "[process_virtualized_view_updates] Error building display list for VirtualizedView DOM {}: {}",
                     child_dom_id.inner,
                     e
                 );

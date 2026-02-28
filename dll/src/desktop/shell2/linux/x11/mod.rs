@@ -1235,8 +1235,8 @@ impl X11Window {
                     self.common.frame_needs_regeneration = true;
                     self.request_redraw();
                 }
-                // ShouldUpdateDisplayListCurrentWindow: pending IFrame updates are
-                // queued in layout_window.pending_iframe_updates and will be processed
+                // ShouldUpdateDisplayListCurrentWindow: pending VirtualizedView updates are
+                // queued in layout_window.pending_virtualized_view_updates and will be processed
                 // in the render path — no full layout regeneration needed.
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 | ProcessEventResult::ShouldReRenderCurrentWindow => {
@@ -1564,10 +1564,10 @@ impl X11Window {
                     let _tick_result = layout_window.scroll_manager.tick(now);
                 }
 
-                // Process pending IFrame updates (queued by ScrollTo → check_and_queue_iframe_reinvoke).
+                // Process pending VirtualizedView updates (queued by ScrollTo → check_and_queue_virtualized_view_reinvoke).
                 // If present, we need a full display list rebuild rather than lightweight.
-                let has_iframe_updates = !layout_window.pending_iframe_updates.is_empty();
-                if has_iframe_updates {
+                let has_virtualized_view_updates = !layout_window.pending_virtualized_view_updates.is_empty();
+                if has_virtualized_view_updates {
                     if let Some(document_id) = self.common.document_id {
                         crate::desktop::shell2::common::layout::generate_frame(
                             layout_window,

@@ -105,7 +105,7 @@ fn scale_px(val: f32, dpi: f32) -> f32 {
 
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
 /// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
-/// by caller. nested_pipelines contains all child iframe pipelines that were recursively built.
+/// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively built.
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
@@ -145,7 +145,7 @@ pub fn translate_displaylist_to_wr(
     // All display list coordinates are in logical CSS pixels
     let dpi_scale = dpi.inner.get();
 
-    // Collect nested iframe pipelines as we process them
+    // Collect nested virtualized view pipelines as we process them
     let mut nested_pipelines: Vec<(PipelineId, WrBuiltDisplayList)> = Vec::new();
 
     // Create WebRender display list builder
@@ -1426,17 +1426,17 @@ pub fn translate_displaylist_to_wr(
                 // NO offset_stack.pop() - we didn't push one
             }
 
-            DisplayListItem::IFrame {
+            DisplayListItem::VirtualizedView {
                 child_dom_id,
                 bounds,
                 clip_rect,
             } => {
-                // IFrame rendering implementation:
+                // VirtualizedView rendering implementation:
                 // 1. Create PipelineId from child_dom_id
                 // 2. Look up child display list from layout_results
                 // 3. Recursively translate child display list
                 // 4. Store child pipeline for later registration
-                // 5. Push iframe to current display list
+                // 5. Push virtualized view to current display list
 
                 let child_pipeline_id = wr_translate_pipeline_id(AzulPipelineId(
                     child_dom_id.inner as u32,
@@ -1445,7 +1445,7 @@ pub fn translate_displaylist_to_wr(
 
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] IFrame: child_dom_id={:?}, child_pipeline_id={:?}, \
+                    "[compositor2] VirtualizedView: child_dom_id={:?}, child_pipeline_id={:?}, \
                      bounds={:?}, clip_rect={:?}",
                     child_dom_id,
                     child_pipeline_id,
@@ -1486,7 +1486,7 @@ pub fn translate_displaylist_to_wr(
                             // Store all deeply nested pipelines
                             nested_pipelines.append(&mut child_nested);
 
-                            // Push iframe to current display list
+                            // Push virtualized view to current display list
                             let space_and_clip = SpaceAndClipInfo {
                                 spatial_id: current_spatial!(),
                                 clip_chain_id: current_clip!(),
@@ -1505,7 +1505,7 @@ pub fn translate_displaylist_to_wr(
 
                             log_debug!(
                                 LogCategory::DisplayList,
-                                "[compositor2] Pushed iframe for pipeline {:?}",
+                                "[compositor2] Pushed virtualized view for pipeline {:?}",
                                 child_pipeline_id
                             );
                         }
@@ -1528,12 +1528,12 @@ pub fn translate_displaylist_to_wr(
                 }
             }
 
-            DisplayListItem::IFramePlaceholder { node_id, .. } => {
-                // IFramePlaceholder should have been replaced by IFrame in window.rs.
-                // If we reach here, the IFrame callback was not invoked for this node.
+            DisplayListItem::VirtualizedViewPlaceholder { node_id, .. } => {
+                // VirtualizedViewPlaceholder should have been replaced by VirtualizedView in window.rs.
+                // If we reach here, the VirtualizedView callback was not invoked for this node.
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] WARNING: IFramePlaceholder for node {:?} was not replaced",
+                    "[compositor2] WARNING: VirtualizedViewPlaceholder for node {:?} was not replaced",
                     node_id
                 );
             }

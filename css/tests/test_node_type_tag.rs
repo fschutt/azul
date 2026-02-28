@@ -127,7 +127,7 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Base,
     // Special HTML elements
     NodeTypeTag::Img,
-    NodeTypeTag::IFrame,
+    NodeTypeTag::VirtualizedView,
 ];
 
 /// NodeTypeTag variants that are NOT real HTML elements

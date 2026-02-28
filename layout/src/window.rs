@@ -18,7 +18,7 @@ use std::{
 
 use azul_core::{
     animation::UpdateImageType,
-    callbacks::{FocusTarget, HidpiAdjustedBounds, IFrameCallbackReason, Update},
+    callbacks::{FocusTarget, HidpiAdjustedBounds, VirtualizedViewCallbackReason, Update},
     dom::{
         AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On,
     },
@@ -65,7 +65,7 @@ use crate::{
     },
     managers::{
         gpu_state::GpuStateManager,
-        iframe::IFrameManager,
+        virtualized_view::VirtualizedViewManager,
         scroll_state::{ScrollManager, ScrollStates},
     },
     solver3::{
@@ -284,7 +284,7 @@ pub struct DirtyTextNode {
 /// - Incrementally update layout on DOM changes
 /// - Generate display lists for rendering
 /// - Handle window resizes efficiently
-/// - Manage multiple DOMs (for IFrames)
+/// - Manage multiple DOMs (for VirtualizedViews)
 pub struct LayoutWindow {
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
@@ -297,7 +297,7 @@ pub struct LayoutWindow {
     pub font_manager: FontManager<FontRef>,
     /// Cache to store decoded images
     pub image_cache: ImageCache,
-    /// Cached layout results for all DOMs (root + iframes)
+    /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
     pub scroll_manager: ScrollManager,
@@ -317,8 +317,8 @@ pub struct LayoutWindow {
     pub drag_drop_manager: crate::managers::drag_drop::DragDropManager,
     /// Hover manager for tracking hit test history over multiple frames
     pub hover_manager: crate::managers::hover::HoverManager,
-    /// IFrame manager for all nodes across all DOMs
-    pub iframe_manager: IFrameManager,
+    /// VirtualizedView manager for all nodes across all DOMs
+    pub virtualized_view_manager: VirtualizedViewManager,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
     /// Accessibility manager for screen reader support
@@ -359,9 +359,9 @@ pub struct LayoutWindow {
     /// Key: (DomId, NodeId of IFC root)
     /// Value: The edited inline content that should be used for relayout
     dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
-    /// Pending IFrame updates from callbacks (processed in next frame)
+    /// Pending VirtualizedView updates from callbacks (processed in next frame)
     /// Map of DomId -> Set of NodeIds that need re-rendering
-    pub pending_iframe_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    pub pending_virtualized_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -438,7 +438,7 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
-            iframe_manager: IFrameManager::new(),
+            virtualized_view_manager: VirtualizedViewManager::new(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
@@ -461,7 +461,7 @@ impl LayoutWindow {
                 constraints: BTreeMap::new(),
             },
             dirty_text_nodes: BTreeMap::new(),
-            pending_iframe_updates: BTreeMap::new(),
+            pending_virtualized_view_updates: BTreeMap::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
@@ -511,7 +511,7 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
-            iframe_manager: IFrameManager::new(),
+            virtualized_view_manager: VirtualizedViewManager::new(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
@@ -534,7 +534,7 @@ impl LayoutWindow {
                 constraints: BTreeMap::new(),
             },
             dirty_text_nodes: BTreeMap::new(),
-            pending_iframe_updates: BTreeMap::new(),
+            pending_virtualized_view_updates: BTreeMap::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
@@ -547,7 +547,7 @@ impl LayoutWindow {
     /// This is the main entry point for layout. It handles:
     /// - Incremental layout updates using the cached layout tree
     /// - Text shaping and line breaking
-    /// - IFrame callback invocation and recursive layout
+    /// - VirtualizedView callback invocation and recursive layout
     /// - Display list generation for rendering
     /// - Accessibility tree synchronization
     ///
@@ -570,11 +570,11 @@ impl LayoutWindow {
         // Clear previous results for a full relayout
         self.layout_results.clear();
 
-        // CRITICAL: Reset IFrame invocation flags so check_reinvoke() returns
-        // InitialRender for every tracked IFrame. Without this, the IFrameManager
+        // CRITICAL: Reset VirtualizedView invocation flags so check_reinvoke() returns
+        // InitialRender for every tracked VirtualizedView. Without this, the VirtualizedViewManager
         // still has was_invoked=true from the previous frame, so it skips
         // re-invocation — but the child DOM was just destroyed by clear().
-        self.iframe_manager.reset_all_invocation_flags();
+        self.virtualized_view_manager.reset_all_invocation_flags();
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -872,12 +872,12 @@ impl LayoutWindow {
         self.gpu_state_manager
             .update_scrollbar_transforms(dom_id, &self.scroll_manager, &tree);
 
-        // Scan for IFrames *after* the initial layout pass
+        // Scan for VirtualizedViews *after* the initial layout pass
         // Pass styled_dom directly — layout_results isn't populated yet at this point
-        let iframes = self.scan_for_iframes(&styled_dom_clone, &tree, &self.layout_cache.calculated_positions);
+        let vviews = self.scan_for_virtualized_views(&styled_dom_clone, &tree, &self.layout_cache.calculated_positions);
 
-        for (node_id, bounds) in iframes {
-            if let Some(child_dom_id) = self.invoke_iframe_callback_with_dom(
+        for (node_id, bounds) in vviews {
+            if let Some(child_dom_id) = self.invoke_virtualized_view_callback_with_dom(
                 dom_id,
                 node_id,
                 bounds,
@@ -887,12 +887,12 @@ impl LayoutWindow {
                 system_callbacks,
                 debug_messages,
             ) {
-                // Replace the IFramePlaceholder with the real IFrame item.
+                // Replace the VirtualizedViewPlaceholder with the real VirtualizedView item.
                 // The placeholder was emitted by generate_display_list() at the
                 // correct position (outside any scroll frame, inside the parent clip).
                 let mut replaced = false;
                 for item in display_list.items.iter_mut() {
-                    if let crate::solver3::display_list::DisplayListItem::IFramePlaceholder {
+                    if let crate::solver3::display_list::DisplayListItem::VirtualizedViewPlaceholder {
                         node_id: ref placeholder_nid,
                         bounds: ref placeholder_bounds,
                         clip_rect: ref placeholder_clip,
@@ -900,7 +900,7 @@ impl LayoutWindow {
                     } = item
                     {
                         if *placeholder_nid == node_id {
-                            *item = crate::solver3::display_list::DisplayListItem::IFrame {
+                            *item = crate::solver3::display_list::DisplayListItem::VirtualizedView {
                                 child_dom_id,
                                 bounds: *placeholder_bounds,
                                 clip_rect: *placeholder_clip,
@@ -915,7 +915,7 @@ impl LayoutWindow {
                     // Fallback: if no placeholder found (shouldn't happen), append at end
                     display_list
                         .items
-                        .push(crate::solver3::display_list::DisplayListItem::IFrame {
+                        .push(crate::solver3::display_list::DisplayListItem::VirtualizedView {
                             child_dom_id,
                             bounds: bounds.into(),
                             clip_rect: bounds.into(),
@@ -941,7 +941,7 @@ impl LayoutWindow {
         Ok(())
     }
 
-    fn scan_for_iframes(
+    fn scan_for_virtualized_views(
         &self,
         styled_dom: &StyledDom,
         layout_tree: &LayoutTree,
@@ -955,7 +955,7 @@ impl LayoutWindow {
             .filter_map(|(idx, node)| {
                 let node_dom_id = node.dom_node_id?;
                 let node_data = node_data_container.get(node_dom_id)?;
-                if matches!(node_data.get_node_type(), NodeType::IFrame) {
+                if matches!(node_data.get_node_type(), NodeType::VirtualizedView) {
                     let pos = calculated_positions.get(idx).copied().unwrap_or_default();
                     let size = node.used_size.unwrap_or_default();
                     Some((node_dom_id, LogicalRect::new(pos, size)))
@@ -1057,16 +1057,16 @@ impl LayoutWindow {
         self.selection_manager.get_selection(&dom_id)
     }
 
-    /// Invoke an IFrame callback and perform layout on the returned DOM.
+    /// Invoke a VirtualizedView callback and perform layout on the returned DOM.
     ///
-    /// This is the entry point that looks up the necessary `IFrameNode` data before
+    /// This is the entry point that looks up the necessary `VirtualizedViewNode` data before
     /// delegating to the core implementation logic.
-    /// Invoke an IFrame callback for a node. Returns the child DomId if the
+    /// Invoke a VirtualizedView callback for a node. Returns the child DomId if the
     /// callback was invoked and the child DOM was laid out.
     ///
-    /// This calls the IFrame's own RefAny callback (NOT the main layout() callback),
-    /// swaps the child StyledDom, and re-layouts only the IFrame sub-tree.
-    pub fn invoke_iframe_callback(
+    /// This calls the VirtualizedView's own RefAny callback (NOT the main layout() callback),
+    /// swaps the child StyledDom, and re-layouts only the VirtualizedView sub-tree.
+    pub fn invoke_virtualized_view_callback(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,
@@ -1076,16 +1076,16 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<DomId> {
-        self.invoke_iframe_callback_with_dom(
+        self.invoke_virtualized_view_callback_with_dom(
             parent_dom_id, node_id, bounds, None,
             window_state, renderer_resources, system_callbacks, debug_messages,
         )
     }
 
-    /// Invoke an IFrame callback. If `styled_dom_override` is provided, use it
+    /// Invoke a VirtualizedView callback. If `styled_dom_override` is provided, use it
     /// instead of reading from `self.layout_results` (needed during initial
     /// layout when layout_results isn't populated yet).
-    fn invoke_iframe_callback_with_dom(
+    fn invoke_virtualized_view_callback_with_dom(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,
@@ -1098,16 +1098,16 @@ impl LayoutWindow {
     ) -> Option<DomId> {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "invoke_iframe_callback called for node {:?}",
+                "invoke_virtualized_view_callback called for node {:?}",
                 node_id
             )));
         }
 
         // Use the override styled_dom if provided, otherwise read from layout_results
-        let iframe_node = if let Some(styled_dom) = styled_dom_override {
+        let virtualized_view_node = if let Some(styled_dom) = styled_dom_override {
             let node_data_container = styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            node_data.get_iframe_node_ref()?.clone()
+            node_data.get_virtualized_view_node_ref()?.clone()
         } else {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
             if let Some(msgs) = debug_messages {
@@ -1118,12 +1118,12 @@ impl LayoutWindow {
             }
             let node_data_container = layout_result.styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            match node_data.get_iframe_node_ref() {
-                Some(iframe) => iframe.clone(),
+            match node_data.get_virtualized_view_node_ref() {
+                Some(vv) => vv.clone(),
                 None => {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::info(format!(
-                            "Node is NOT IFrame, type = {:?}",
+                            "Node is NOT VirtualizedView, type = {:?}",
                             node_data.get_node_type()
                         )));
                     }
@@ -1133,14 +1133,14 @@ impl LayoutWindow {
         };
 
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("Node is IFrame type".to_string()));
+            msgs.push(LayoutDebugMessage::info("Node is VirtualizedView type".to_string()));
         }
 
         // Call the actual implementation with all necessary data
-        self.invoke_iframe_callback_impl(
+        self.invoke_virtualized_view_callback_impl(
             parent_dom_id,
             node_id,
-            &iframe_node,
+            &virtualized_view_node,
             bounds,
             window_state,
             renderer_resources,
@@ -1149,21 +1149,21 @@ impl LayoutWindow {
         )
     }
 
-    /// Core implementation for invoking an IFrame callback and managing the recursive layout.
+    /// Core implementation for invoking a VirtualizedView callback and managing the recursive layout.
     ///
     /// This method implements the 5 conditional re-invocation rules by coordinating
-    /// with the `IFrameManager` and `ScrollManager`.
+    /// with the `VirtualizedViewManager` and `ScrollManager`.
     ///
     /// # Returns
     ///
     /// `Some(child_dom_id)` if the callback was invoked and the child DOM was laid out.
     /// The parent's display list generator will then use this ID to reference the child's
     /// display list. Returns `None` if the callback was not invoked.
-    fn invoke_iframe_callback_impl(
+    fn invoke_virtualized_view_callback_impl(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,
-        iframe_node: &azul_core::dom::IFrameNode,
+        virtualized_view_node: &azul_core::dom::VirtualizedViewNode,
         bounds: LogicalRect,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
@@ -1173,7 +1173,7 @@ impl LayoutWindow {
         // Get current time from system callbacks for state updates
         let now = (system_callbacks.get_system_time_fn.cb)();
 
-        // Update node bounds in the scroll manager. This is necessary for the IFrameManager
+        // Update node bounds in the scroll manager. This is necessary for the VirtualizedViewManager
         // to correctly detect edge scroll conditions.
         self.scroll_manager.update_node_bounds(
             parent_dom_id,
@@ -1183,9 +1183,9 @@ impl LayoutWindow {
             now.clone(),
         );
 
-        // Check with the IFrameManager to see if re-invocation is necessary.
+        // Check with the VirtualizedViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let reason = match self.iframe_manager.check_reinvoke(
+        let reason = match self.virtualized_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
@@ -1195,14 +1195,14 @@ impl LayoutWindow {
             None => {
                 // No re-invocation needed, but we still need the child_dom_id for the display list.
                 return self
-                    .iframe_manager
+                    .virtualized_view_manager
                     .get_nested_dom_id(parent_dom_id, node_id);
             }
         };
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "IFrame ({:?}, {:?}) - Reason: {:?}",
+                "VirtualizedView ({:?}, {:?}) - Reason: {:?}",
                 parent_dom_id, node_id, reason
             )));
         }
@@ -1214,8 +1214,8 @@ impl LayoutWindow {
 
         let hidpi_factor = window_state.size.get_hidpi_factor();
 
-        // Create IFrameCallbackInfo with the most up-to-date state
-        let mut callback_info = azul_core::callbacks::IFrameCallbackInfo::new(
+        // Create VirtualizedViewCallbackInfo with the most up-to-date state
+        let mut callback_info = azul_core::callbacks::VirtualizedViewCallbackInfo::new(
             reason,
             &*self.font_manager.fc_cache,
             &self.image_cache,
@@ -1231,13 +1231,13 @@ impl LayoutWindow {
         );
 
         // Clone the user data for the callback
-        let callback_data = iframe_node.refany.clone();
+        let callback_data = virtualized_view_node.refany.clone();
 
-        // Invoke the user's IFrame callback
-        let callback_return = (iframe_node.callback.cb)(callback_data, callback_info);
+        // Invoke the user's VirtualizedView callback
+        let callback_return = (virtualized_view_node.callback.cb)(callback_data, callback_info);
 
-        // Mark the IFrame as invoked to prevent duplicate InitialRender calls
-        self.iframe_manager
+        // Mark the VirtualizedView as invoked to prevent duplicate InitialRender calls
+        self.virtualized_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
 
         // Get the child StyledDom from the callback's return value
@@ -1245,7 +1245,7 @@ impl LayoutWindow {
             azul_core::styled_dom::OptionStyledDom::Some(dom) => dom,
             azul_core::styled_dom::OptionStyledDom::None => {
                 // If the callback returns None, it's an optimization hint.
-                if reason == IFrameCallbackReason::InitialRender {
+                if reason == VirtualizedViewCallbackReason::InitialRender {
                     // For the very first render, create an empty div as a fallback.
                     let mut empty_dom = Dom::create_div();
                     let empty_css = Css::empty();
@@ -1253,7 +1253,7 @@ impl LayoutWindow {
                 } else {
                     // For subsequent calls, returning None means "keep the old DOM".
                     // We just need to update the scroll info and return the existing child ID.
-                    self.iframe_manager.update_iframe_info(
+                    self.virtualized_view_manager.update_virtualized_view_info(
                         parent_dom_id,
                         node_id,
                         callback_return.scroll_size,
@@ -1267,20 +1267,20 @@ impl LayoutWindow {
                         Some(callback_return.scroll_offset),
                     );
                     return self
-                        .iframe_manager
+                        .virtualized_view_manager
                         .get_nested_dom_id(parent_dom_id, node_id);
                 }
             }
         };
 
-        // Get or create a unique DomId for the IFrame's content
+        // Get or create a unique DomId for the VirtualizedView's content
         let child_dom_id = self
-            .iframe_manager
+            .virtualized_view_manager
             .get_or_create_nested_dom_id(parent_dom_id, node_id);
         child_styled_dom.dom_id = child_dom_id;
 
-        // Update the IFrameManager with the new scroll sizes from the callback
-        self.iframe_manager.update_iframe_info(
+        // Update the VirtualizedViewManager with the new scroll sizes from the callback
+        self.virtualized_view_manager.update_virtualized_view_info(
             parent_dom_id,
             node_id,
             callback_return.scroll_size,
@@ -1296,7 +1296,7 @@ impl LayoutWindow {
 
         // **RECURSIVE LAYOUT STEP**
         // Perform a full layout pass on the child DOM. This will recursively handle
-        // any IFrames within this IFrame.
+        // any VirtualizedViews within this VirtualizedView.
         self.layout_dom_recursive(
             child_styled_dom,
             window_state,
@@ -3311,7 +3311,7 @@ mod tests {
         assert_eq!(window.get_dom_ids().len(), 0);
     }
 
-    // ScrollManager and IFrame Integration Tests
+    // ScrollManager and VirtualizedView Integration Tests
 
     #[test]
     fn test_scroll_manager_initialization() {
@@ -4434,7 +4434,7 @@ impl LayoutWindow {
                     source_node_id: Some(node_id),
                 })]
             }
-            NodeType::Div | NodeType::Body | NodeType::IFrame => {
+            NodeType::Div | NodeType::Body | NodeType::VirtualizedView => {
                 // Container nodes - recursively collect text from children
                 self.collect_text_from_children(dom_id, node_id)
             }
@@ -5303,7 +5303,7 @@ impl LayoutWindow {
             for (dom_id, layout_result) in &self.layout_results {
                 // Use the layout tree from layout_result, not layout_cache
                 // layout_cache.tree is for the root DOM only; layout_result.layout_tree
-                // is the correct tree for each DOM (including iframes)
+                // is the correct tree for each DOM (including virtualized views)
                 let tree = &layout_result.layout_tree;
 
                 // Only iterate IFC roots (nodes with inline_layout_result)
@@ -6055,37 +6055,37 @@ impl LayoutWindow {
         updated_textures
     }
 
-    /// Check if a scrolled node is an IFrame that needs re-invocation. If so,
-    /// queue it in `pending_iframe_updates` for processing before the next frame.
+    /// Check if a scrolled node is a VirtualizedView that needs re-invocation. If so,
+    /// queue it in `pending_virtualized_view_updates` for processing before the next frame.
     ///
-    /// This is the bridge between the scroll system and the IFrame lifecycle:
-    ///   ScrollTo → scroll_manager.scroll_to() → check_and_queue_iframe_reinvoke()
+    /// This is the bridge between the scroll system and the VirtualizedView lifecycle:
+    ///   ScrollTo → scroll_manager.scroll_to() → check_and_queue_virtualized_view_reinvoke()
     ///
-    /// Returns `true` if an IFrame update was queued (caller should trigger a
+    /// Returns `true` if a VirtualizedView update was queued (caller should trigger a
     /// display list rebuild instead of a lightweight repaint).
-    pub fn check_and_queue_iframe_reinvoke(
+    pub fn check_and_queue_virtualized_view_reinvoke(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> bool {
-        // Get the IFrame's current layout bounds (needed for check_reinvoke)
-        let bounds = match Self::get_iframe_bounds_from_layout(
+        // Get the VirtualizedView's current layout bounds (needed for check_reinvoke)
+        let bounds = match Self::get_virtualized_view_bounds_from_layout(
             &self.layout_results,
             dom_id,
             node_id,
         ) {
             Some(b) => b,
-            None => return false, // Not an IFrame or no layout info
+            None => return false, // Not a VirtualizedView or no layout info
         };
 
-        // Ask the IFrameManager whether this IFrame needs re-invocation
-        let reason = self.iframe_manager.check_reinvoke(
+        // Ask the VirtualizedViewManager whether this VirtualizedView needs re-invocation
+        let reason = self.virtualized_view_manager.check_reinvoke(
             dom_id, node_id, &self.scroll_manager, bounds,
         );
 
         if reason.is_some() {
-            // Queue the IFrame for re-invocation in the next render pass
-            self.pending_iframe_updates
+            // Queue the VirtualizedView for re-invocation in the next render pass
+            self.pending_virtualized_view_updates
                 .entry(dom_id)
                 .or_insert_with(FastBTreeSet::new)
                 .insert(node_id);
@@ -6095,35 +6095,35 @@ impl LayoutWindow {
         }
     }
 
-    /// Process IFrame updates requested by callbacks
+    /// Process VirtualizedView updates requested by callbacks
     ///
-    /// This method handles manual IFrame re-rendering triggered by `trigger_iframe_rerender()`.
-    /// It invokes the IFrame callback with `DomRecreated` reason and performs layout on the
+    /// This method handles manual VirtualizedView re-rendering triggered by `trigger_virtualized_view_rerender()`.
+    /// It invokes the VirtualizedView callback with `DomRecreated` reason and performs layout on the
     /// returned DOM, then submits a new display list to WebRender for that pipeline.
     ///
     /// # Arguments
     ///
-    /// * `iframes_to_update` - Map of DomId -> Set of NodeIds that need re-rendering
+    /// * `vviews_to_update` - Map of DomId -> Set of NodeIds that need re-rendering
     /// * `window_state` - Current window state
     /// * `renderer_resources` - Renderer resources
     /// * `system_callbacks` - External system callbacks
     ///
     /// # Returns
     ///
-    /// Vector of (DomId, NodeId) tuples for IFrames that were successfully updated
-    pub fn process_iframe_updates(
+    /// Vector of (DomId, NodeId) tuples for VirtualizedViews that were successfully updated
+    pub fn process_virtualized_view_updates(
         &mut self,
-        iframes_to_update: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
+        vviews_to_update: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> Vec<(DomId, NodeId)> {
-        let mut updated_iframes = Vec::new();
+        let mut updated_vviews = Vec::new();
 
-        for (dom_id, node_ids) in iframes_to_update {
+        for (dom_id, node_ids) in vviews_to_update {
             for node_id in node_ids {
-                // Extract iframe bounds from layout result
-                let bounds = match Self::get_iframe_bounds_from_layout(
+                // Extract virtualized view bounds from layout result
+                let bounds = match Self::get_virtualized_view_bounds_from_layout(
                     &self.layout_results,
                     *dom_id,
                     *node_id,
@@ -6133,10 +6133,10 @@ impl LayoutWindow {
                 };
 
                 // Force re-invocation by clearing the "was_invoked" flag
-                self.iframe_manager.force_reinvoke(*dom_id, *node_id);
+                self.virtualized_view_manager.force_reinvoke(*dom_id, *node_id);
 
-                // Invoke the IFrame callback
-                if let Some(_child_dom_id) = self.invoke_iframe_callback(
+                // Invoke the VirtualizedView callback
+                if let Some(_child_dom_id) = self.invoke_virtualized_view_callback(
                     *dom_id,
                     *node_id,
                     bounds,
@@ -6145,69 +6145,69 @@ impl LayoutWindow {
                     system_callbacks,
                     &mut None,
                 ) {
-                    updated_iframes.push((*dom_id, *node_id));
+                    updated_vviews.push((*dom_id, *node_id));
                 }
             }
         }
 
-        updated_iframes
+        updated_vviews
     }
 
-    /// Queue IFrame updates to be processed in the next frame
+    /// Queue VirtualizedView updates to be processed in the next frame
     ///
-    /// This is called after callbacks to store the iframes_to_update from callback changes
-    pub fn queue_iframe_updates(
+    /// This is called after callbacks to store the vviews_to_update from callback changes
+    pub fn queue_virtualized_view_updates(
         &mut self,
-        iframes_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+        vviews_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     ) {
-        for (dom_id, node_ids) in iframes_to_update {
-            self.pending_iframe_updates
+        for (dom_id, node_ids) in vviews_to_update {
+            self.pending_virtualized_view_updates
                 .entry(dom_id)
                 .or_insert_with(FastBTreeSet::new)
                 .extend(node_ids);
         }
     }
 
-    /// Process and clear pending IFrame updates
+    /// Process and clear pending VirtualizedView updates
     ///
-    /// This is called during frame generation to re-render updated IFrames
-    pub fn process_pending_iframe_updates(
+    /// This is called during frame generation to re-render updated VirtualizedViews
+    pub fn process_pending_virtualized_view_updates(
         &mut self,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> Vec<(DomId, NodeId)> {
-        if self.pending_iframe_updates.is_empty() {
+        if self.pending_virtualized_view_updates.is_empty() {
             return Vec::new();
         }
 
         // Take ownership of pending updates
-        let iframes_to_update = core::mem::take(&mut self.pending_iframe_updates);
+        let vviews_to_update = core::mem::take(&mut self.pending_virtualized_view_updates);
 
         // Process them
-        self.process_iframe_updates(
-            &iframes_to_update,
+        self.process_virtualized_view_updates(
+            &vviews_to_update,
             window_state,
             renderer_resources,
             system_callbacks,
         )
     }
 
-    /// Helper: Extract IFrame bounds from layout results
+    /// Helper: Extract VirtualizedView bounds from layout results
     ///
-    /// Returns None if the node is not an IFrame or doesn't have layout info
-    fn get_iframe_bounds_from_layout(
+    /// Returns None if the node is not a VirtualizedView or doesn't have layout info
+    fn get_virtualized_view_bounds_from_layout(
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<LogicalRect> {
         let layout_result = layout_results.get(&dom_id)?;
 
-        // Check if this is an IFrame node
+        // Check if this is a VirtualizedView node
         let node_data_container = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_container.get(node_id)?;
 
-        if !matches!(node_data.get_node_type(), NodeType::IFrame) {
+        if !matches!(node_data.get_node_type(), NodeType::VirtualizedView) {
             return None;
         }
 

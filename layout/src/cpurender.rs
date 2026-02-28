@@ -414,12 +414,12 @@ fn render_display_list(
             DisplayListItem::PopStackingContext => {
                 // For CPU rendering, no action needed
             }
-            DisplayListItem::IFrame {
+            DisplayListItem::VirtualizedView {
                 child_dom_id,
                 bounds,
                 clip_rect,
             } => {
-                // TODO: Implement IFrame rendering
+                // TODO: Implement VirtualizedView rendering
                 // This would require looking up the child display list by child_dom_id
                 // and recursively rendering it within the bounds/clip_rect.
                 // For now, just render a placeholder rectangle to show where it would be
@@ -440,8 +440,8 @@ fn render_display_list(
                     dpi_factor,
                 )?;
             }
-            DisplayListItem::IFramePlaceholder { .. } => {
-                // Placeholder should have been replaced by IFrame in window.rs.
+            DisplayListItem::VirtualizedViewPlaceholder { .. } => {
+                // Placeholder should have been replaced by VirtualizedView in window.rs.
                 // Nothing to render here.
             }
 
@@ -1091,7 +1091,7 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
             DisplayListItem::LinearGradient { bounds, .. } => Some(*bounds),
             DisplayListItem::RadialGradient { bounds, .. } => Some(*bounds),
             DisplayListItem::ConicGradient { bounds, .. } => Some(*bounds),
-            DisplayListItem::IFrame { bounds, .. } => Some(*bounds),
+            DisplayListItem::VirtualizedView { bounds, .. } => Some(*bounds),
             DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds),
             _ => None,
         };

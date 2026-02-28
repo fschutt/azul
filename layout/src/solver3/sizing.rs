@@ -188,11 +188,11 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
-        // IFrames are replaced elements with a default intrinsic size of 300x150px
-        // (same as HTML <iframe> elements)
+        // VirtualizedViews are replaced elements with a default intrinsic size of 300x150px
+        // (same as virtualized view elements)
         if let Some(dom_id) = node.dom_node_id {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            if node_data.is_iframe_node() {
+            if node_data.is_virtualized_view_node() {
                 return Ok(IntrinsicSizes {
                     min_content_width: 300.0,
                     max_content_width: 300.0,

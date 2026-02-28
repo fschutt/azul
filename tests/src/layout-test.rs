@@ -1,6 +1,6 @@
 use azul_core::{
     app_resources::{IdNamespace, RendererResources},
-    callbacks::{DocumentId, IFrameCallbackInfo, IFrameCallbackReturn, PipelineId, RefAny},
+    callbacks::{DocumentId, VirtualizedViewCallbackInfo, VirtualizedViewCallbackReturn, PipelineId, RefAny},
     dom::{Dom, NodeData},
     id_tree::{Node, NodeDataContainer, NodeHierarchy, NodeId},
     styled_dom::{
@@ -80,8 +80,8 @@ fn test_hash() {
 
 struct A {}
 
-extern "C" fn render_iframe(_: &mut RefAny, _: &mut IFrameCallbackInfo) -> IFrameCallbackReturn {
-    IFrameCallbackReturn {
+extern "C" fn render_virtualized_view(_: &mut RefAny, _: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn {
+    VirtualizedViewCallbackReturn {
         dom: StyledDom::default(),
         scroll_size: LogicalSize::zero(),
         scroll_offset: LogicalPosition::zero(),
@@ -121,7 +121,7 @@ fn test_full_dom_2() {
 
     // tag_ids_to_node_ids gets generated?
 
-    let styled_dom = Dom::create_iframe(RefAny::new(A {}), render_iframe)
+    let styled_dom = Dom::create_virtualized_view(RefAny::new(A {}), render_virtualized_view)
         .with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::display(LayoutDisplay::Flex)),

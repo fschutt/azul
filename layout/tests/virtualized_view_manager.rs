@@ -1,13 +1,13 @@
-//! Tests for IFrame lifecycle management
+//! Tests for VirtualizedView lifecycle management
 
 use azul_core::{
-    callbacks::{EdgeType, IFrameCallbackReason},
+    callbacks::{EdgeType, VirtualizedViewCallbackReason},
     dom::{DomId, NodeId},
     events::EasingFunction,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     task::{Duration, Instant, SystemTick, SystemTickDiff},
 };
-use azul_layout::managers::{iframe::IFrameManager, scroll_state::ScrollManager};
+use azul_layout::managers::{virtualized_view::VirtualizedViewManager, scroll_state::ScrollManager};
 
 fn test_instant() -> Instant {
     #[cfg(feature = "std")]
@@ -32,8 +32,8 @@ fn test_duration_zero() -> Duration {
 }
 
 #[test]
-fn test_iframe_manager_initial_render() {
-    let mut iframe_mgr = IFrameManager::new();
+fn test_virtualized_view_manager_initial_render() {
+    let mut virtualized_view_mgr = VirtualizedViewManager::new();
     let scroll_mgr = ScrollManager::new();
     let _now = test_instant();
 
@@ -45,24 +45,24 @@ fn test_iframe_manager_initial_render() {
     );
 
     // First check_reinvoke should return InitialRender
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::InitialRender));
 
     // Second check without marking invoked should still return InitialRender
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::InitialRender));
 
     // Mark as invoked
-    iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
+    virtualized_view_mgr.mark_invoked(parent_dom, node_id, VirtualizedViewCallbackReason::InitialRender);
 
     // Now it should return None (no re-invocation needed)
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(reason, None);
 }
 
 #[test]
-fn test_iframe_manager_bounds_expanded() {
-    let mut iframe_mgr = IFrameManager::new();
+fn test_virtualized_view_manager_bounds_expanded() {
+    let mut virtualized_view_mgr = VirtualizedViewManager::new();
     let scroll_mgr = ScrollManager::new();
     let _now = test_instant();
 
@@ -75,13 +75,13 @@ fn test_iframe_manager_bounds_expanded() {
         LogicalSize::new(400.0, 300.0),
     );
 
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, small_bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, small_bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::InitialRender));
 
-    iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
+    virtualized_view_mgr.mark_invoked(parent_dom, node_id, VirtualizedViewCallbackReason::InitialRender);
 
     // Update with scroll sizes from the callback
-    iframe_mgr.update_iframe_info(
+    virtualized_view_mgr.update_virtualized_view_info(
         parent_dom,
         node_id,
         LogicalSize::new(400.0, 300.0),
@@ -94,14 +94,14 @@ fn test_iframe_manager_bounds_expanded() {
         LogicalSize::new(800.0, 300.0),
     );
 
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::BoundsExpanded));
 
     // Mark as invoked for expansion
-    iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::BoundsExpanded);
+    virtualized_view_mgr.mark_invoked(parent_dom, node_id, VirtualizedViewCallbackReason::BoundsExpanded);
 
     // Same bounds again should return None
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
     assert_eq!(reason, None);
 
     // Expand height as well
@@ -110,13 +110,13 @@ fn test_iframe_manager_bounds_expanded() {
         LogicalSize::new(800.0, 600.0),
     );
 
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::BoundsExpanded));
 }
 
 #[test]
-fn test_iframe_manager_edge_scrolled_bottom() {
-    let mut iframe_mgr = IFrameManager::new();
+fn test_virtualized_view_manager_edge_scrolled_bottom() {
+    let mut virtualized_view_mgr = VirtualizedViewManager::new();
     let mut scroll_mgr = ScrollManager::new();
     let now = test_instant();
 
@@ -128,12 +128,12 @@ fn test_iframe_manager_edge_scrolled_bottom() {
     );
 
     // Initial render
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-    iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::InitialRender));
+    virtualized_view_mgr.mark_invoked(parent_dom, node_id, VirtualizedViewCallbackReason::InitialRender);
 
     // Update with large content size (scrollable)
-    iframe_mgr.update_iframe_info(
+    virtualized_view_mgr.update_virtualized_view_info(
         parent_dom,
         node_id,
         LogicalSize::new(800.0, 2000.0), // Content is taller than container
@@ -150,7 +150,7 @@ fn test_iframe_manager_edge_scrolled_bottom() {
     );
 
     // No edge yet (scroll at top)
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(reason, None);
 
     // Scroll near bottom edge (within 200px threshold)
@@ -167,27 +167,27 @@ fn test_iframe_manager_edge_scrolled_bottom() {
     scroll_mgr.tick(now.clone());
 
     // Should trigger bottom edge
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(
         reason,
-        Some(IFrameCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        Some(VirtualizedViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
     );
 
     // Mark as invoked for this edge
-    iframe_mgr.mark_invoked(
+    virtualized_view_mgr.mark_invoked(
         parent_dom,
         node_id,
-        IFrameCallbackReason::EdgeScrolled(EdgeType::Bottom),
+        VirtualizedViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
     );
 
     // Same scroll position should not trigger again
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(reason, None);
 }
 
 #[test]
-fn test_iframe_manager_edge_scrolled_right() {
-    let mut iframe_mgr = IFrameManager::new();
+fn test_virtualized_view_manager_edge_scrolled_right() {
+    let mut virtualized_view_mgr = VirtualizedViewManager::new();
     let mut scroll_mgr = ScrollManager::new();
     let now = test_instant();
 
@@ -199,12 +199,12 @@ fn test_iframe_manager_edge_scrolled_right() {
     );
 
     // Initial render
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-    assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-    iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    assert_eq!(reason, Some(VirtualizedViewCallbackReason::InitialRender));
+    virtualized_view_mgr.mark_invoked(parent_dom, node_id, VirtualizedViewCallbackReason::InitialRender);
 
     // Update with wide content (scrollable horizontally)
-    iframe_mgr.update_iframe_info(
+    virtualized_view_mgr.update_virtualized_view_info(
         parent_dom,
         node_id,
         LogicalSize::new(3000.0, 600.0), // Content is wider than container
@@ -234,16 +234,16 @@ fn test_iframe_manager_edge_scrolled_right() {
     scroll_mgr.tick(now.clone());
 
     // Should trigger right edge
-    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    let reason = virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(
         reason,
-        Some(IFrameCallbackReason::EdgeScrolled(EdgeType::Right))
+        Some(VirtualizedViewCallbackReason::EdgeScrolled(EdgeType::Right))
     );
 }
 
 #[test]
-fn test_iframe_manager_nested_dom_ids() {
-    let mut iframe_mgr = IFrameManager::new();
+fn test_virtualized_view_manager_nested_dom_ids() {
+    let mut virtualized_view_mgr = VirtualizedViewManager::new();
 
     let parent_dom = DomId { inner: 0 };
     let node1 = NodeId::new(1);
@@ -251,9 +251,9 @@ fn test_iframe_manager_nested_dom_ids() {
     let node3 = NodeId::new(3);
 
     // Create nested DOM IDs
-    let child1 = iframe_mgr.get_or_create_nested_dom_id(parent_dom, node1);
-    let child2 = iframe_mgr.get_or_create_nested_dom_id(parent_dom, node2);
-    let child3 = iframe_mgr.get_or_create_nested_dom_id(parent_dom, node3);
+    let child1 = virtualized_view_mgr.get_or_create_nested_dom_id(parent_dom, node1);
+    let child2 = virtualized_view_mgr.get_or_create_nested_dom_id(parent_dom, node2);
+    let child3 = virtualized_view_mgr.get_or_create_nested_dom_id(parent_dom, node3);
 
     // Should be unique
     assert_ne!(child1, child2);
@@ -263,31 +263,31 @@ fn test_iframe_manager_nested_dom_ids() {
     // Should be consistent (same result when called again)
     assert_eq!(
         child1,
-        iframe_mgr.get_or_create_nested_dom_id(parent_dom, node1)
+        virtualized_view_mgr.get_or_create_nested_dom_id(parent_dom, node1)
     );
     assert_eq!(
         child2,
-        iframe_mgr.get_or_create_nested_dom_id(parent_dom, node2)
+        virtualized_view_mgr.get_or_create_nested_dom_id(parent_dom, node2)
     );
 
     // get_nested_dom_id should return existing IDs
     assert_eq!(
-        iframe_mgr.get_nested_dom_id(parent_dom, node1),
+        virtualized_view_mgr.get_nested_dom_id(parent_dom, node1),
         Some(child1)
     );
     assert_eq!(
-        iframe_mgr.get_nested_dom_id(parent_dom, node2),
+        virtualized_view_mgr.get_nested_dom_id(parent_dom, node2),
         Some(child2)
     );
 
     // Non-existent should return None
     let nonexistent = NodeId::new(999);
-    assert_eq!(iframe_mgr.get_nested_dom_id(parent_dom, nonexistent), None);
+    assert_eq!(virtualized_view_mgr.get_nested_dom_id(parent_dom, nonexistent), None);
 }
 
 #[test]
-fn test_iframe_manager_was_invoked_tracking() {
-    let mut iframe_mgr = IFrameManager::new();
+fn test_virtualized_view_manager_was_invoked_tracking() {
+    let mut virtualized_view_mgr = VirtualizedViewManager::new();
     let scroll_mgr = ScrollManager::new();
 
     let parent_dom = DomId { inner: 0 };
@@ -298,17 +298,17 @@ fn test_iframe_manager_was_invoked_tracking() {
     );
 
     // Initially not invoked
-    assert!(!iframe_mgr.was_iframe_invoked(parent_dom, node_id));
+    assert!(!virtualized_view_mgr.was_virtualized_view_invoked(parent_dom, node_id));
 
     // Check reinvoke to create state
-    iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
+    virtualized_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
 
     // Still not invoked until we mark it
-    assert!(!iframe_mgr.was_iframe_invoked(parent_dom, node_id));
+    assert!(!virtualized_view_mgr.was_virtualized_view_invoked(parent_dom, node_id));
 
     // Mark as invoked
-    iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
+    virtualized_view_mgr.mark_invoked(parent_dom, node_id, VirtualizedViewCallbackReason::InitialRender);
 
     // Now it should be invoked
-    assert!(iframe_mgr.was_iframe_invoked(parent_dom, node_id));
+    assert!(virtualized_view_mgr.was_virtualized_view_invoked(parent_dom, node_id));
 }

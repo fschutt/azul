@@ -129,23 +129,23 @@ impl Default for LayoutCallback {
     }
 }
 
-// -- iframe callback
+// -- virtualized view callback
 
-pub type IFrameCallbackType = extern "C" fn(RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
+pub type VirtualizedViewCallbackType = extern "C" fn(RefAny, VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
 #[repr(C)]
-pub struct IFrameCallback {
-    pub cb: IFrameCallbackType,
+pub struct VirtualizedViewCallback {
+    pub cb: VirtualizedViewCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
-impl_callback!(IFrameCallback, IFrameCallbackType);
+impl_callback!(VirtualizedViewCallback, VirtualizedViewCallbackType);
 
-impl IFrameCallback {
-    pub fn create(cb: IFrameCallbackType) -> Self {
+impl VirtualizedViewCallback {
+    pub fn create(cb: VirtualizedViewCallbackType) -> Self {
         Self {
             cb,
             ctx: OptionRefAny::None,
@@ -153,17 +153,17 @@ impl IFrameCallback {
     }
 }
 
-/// Reason why an IFrame callback is being invoked.
+/// Reason why a VirtualizedView callback is being invoked.
 ///
 /// This helps the callback optimize its behavior based on why it's being called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, u8)]
-pub enum IFrameCallbackReason {
-    /// Initial render - first time the IFrame appears
+pub enum VirtualizedViewCallbackReason {
+    /// Initial render - first time the VirtualizedView appears
     InitialRender,
     /// Parent DOM was recreated (cache invalidated)
     DomRecreated,
-    /// Window/IFrame bounds expanded beyond current scroll_size
+    /// Window/VirtualizedView bounds expanded beyond current scroll_size
     BoundsExpanded,
     /// Scroll position is near an edge (within 200px threshold)
     EdgeScrolled(EdgeType),
@@ -183,8 +183,8 @@ pub enum EdgeType {
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct IFrameCallbackInfo {
-    pub reason: IFrameCallbackReason,
+pub struct VirtualizedViewCallbackInfo {
+    pub reason: VirtualizedViewCallbackReason,
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_theme: WindowTheme,
@@ -200,7 +200,7 @@ pub struct IFrameCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
-impl Clone for IFrameCallbackInfo {
+impl Clone for VirtualizedViewCallbackInfo {
     fn clone(&self) -> Self {
         Self {
             reason: self.reason,
@@ -218,9 +218,9 @@ impl Clone for IFrameCallbackInfo {
     }
 }
 
-impl IFrameCallbackInfo {
+impl VirtualizedViewCallbackInfo {
     pub fn new<'a>(
-        reason: IFrameCallbackReason,
+        reason: VirtualizedViewCallbackReason,
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
         window_theme: WindowTheme,
@@ -271,7 +271,7 @@ impl IFrameCallbackInfo {
     }
 }
 
-/// Return value for an IFrame rendering callback.
+/// Return value for a VirtualizedView rendering callback.
 ///
 /// Contains two size/offset pairs for lazy loading and virtualization:
 ///
@@ -284,7 +284,7 @@ impl IFrameCallbackInfo {
 /// Return `OptionStyledDom::None` to keep the current DOM and only update scroll bounds.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
-pub struct IFrameCallbackReturn {
+pub struct VirtualizedViewCallbackReturn {
     /// The styled DOM with actual rendered content, or None to keep current DOM.
     ///
     /// - `OptionStyledDom::Some(dom)` - Replace current content with this new DOM
@@ -329,9 +329,9 @@ pub struct IFrameCallbackReturn {
     pub virtual_scroll_offset: LogicalPosition,
 }
 
-impl Default for IFrameCallbackReturn {
-    fn default() -> IFrameCallbackReturn {
-        IFrameCallbackReturn {
+impl Default for VirtualizedViewCallbackReturn {
+    fn default() -> VirtualizedViewCallbackReturn {
+        VirtualizedViewCallbackReturn {
             dom: OptionStyledDom::None,
             scroll_size: LogicalSize::zero(),
             scroll_offset: LogicalPosition::zero(),
@@ -341,8 +341,8 @@ impl Default for IFrameCallbackReturn {
     }
 }
 
-impl IFrameCallbackReturn {
-    /// Creates a new IFrameCallbackReturn with updated DOM content.
+impl VirtualizedViewCallbackReturn {
+    /// Creates a new VirtualizedViewCallbackReturn with updated DOM content.
     ///
     /// Use this when the callback has rendered new content to display.
     ///
@@ -668,7 +668,7 @@ impl LayoutCallbackInfo {
 
 /// Information about the bounds of a laid-out div rectangle.
 ///
-/// Necessary when invoking `IFrameCallbacks` and `RenderImageCallbacks`, so
+/// Necessary when invoking `VirtualizedViewCallbacks` and `RenderImageCallbacks`, so
 /// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]

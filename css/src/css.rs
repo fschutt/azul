@@ -707,7 +707,7 @@ pub enum NodeTypeTag {
     // Special
     Text,
     Img,
-    IFrame,
+    VirtualizedView,
     /// Icon element - resolved to actual content by IconProvider
     Icon,
 
@@ -890,7 +890,7 @@ impl NodeTypeTag {
 
             // Special
             "img" => Ok(NodeTypeTag::Img),
-            "iframe" => Ok(NodeTypeTag::IFrame),
+            "virtualized-view" | "iframe" => Ok(NodeTypeTag::VirtualizedView),
             "icon" => Ok(NodeTypeTag::Icon),
 
             // Pseudo-elements (usually prefixed with ::)
@@ -1041,7 +1041,7 @@ impl fmt::Display for NodeTypeTag {
             // Content elements
             NodeTypeTag::Text => write!(f, "text"),
             NodeTypeTag::Img => write!(f, "img"),
-            NodeTypeTag::IFrame => write!(f, "iframe"),
+            NodeTypeTag::VirtualizedView => write!(f, "virtualized-view"),
             NodeTypeTag::Icon => write!(f, "icon"),
 
             // Pseudo-elements
@@ -1513,7 +1513,7 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         // Content elements
         NodeTypeTag::Text => "NodeTypeTag::Text",
         NodeTypeTag::Img => "NodeTypeTag::Img",
-        NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
+        NodeTypeTag::VirtualizedView => "NodeTypeTag::VirtualizedView",
         NodeTypeTag::Icon => "NodeTypeTag::Icon",
 
         // Pseudo-elements

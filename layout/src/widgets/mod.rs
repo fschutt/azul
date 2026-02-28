@@ -148,7 +148,7 @@ pub mod text_input;
 pub mod titlebar;
 /// Tree view widget
 pub mod tree_view;
-// /// Spreadsheet (iframe) widget
+// /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 // /// Slider widget
 // pub mod slider;

@@ -1,7 +1,7 @@
-// Infinite Scrolling (IFrame) - C
+// Infinite Scrolling (VirtualizedView) - C
 //
-// Tests IFrameCallback with 4 million virtual rows, rendering only ~100 at a time.
-// Scroll the yellow container and watch the iframe re-render the visible chunk.
+// Tests VirtualizedViewCallback with 4 million virtual rows, rendering only ~100 at a time.
+// Scroll the yellow container and watch the virtualized view re-render the visible chunk.
 //
 // Build: cc -o infinity infinity.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
 // Run:   DYLD_LIBRARY_PATH=../../target/release ./infinity
@@ -22,13 +22,13 @@ void InfinityData_destructor(void* d) { }
 AZ_REFLECT(InfinityData, InfinityData_destructor);
 
 // ---------------------------------------------------------------------------
-// IFrame callback: renders only the visible chunk of rows
+// VirtualizedView callback: renders only the visible chunk of rows
 // ---------------------------------------------------------------------------
-AzIFrameCallbackReturn render_rows(AzRefAny data, AzIFrameCallbackInfo info) {
+AzVirtualizedViewCallbackReturn render_rows(AzRefAny data, AzVirtualizedViewCallbackInfo info) {
 
     InfinityDataRef d = InfinityDataRef_create(&data);
     if (!InfinityData_downcastRef(&data, &d)) {
-        return AzIFrameCallbackReturn_withDom(
+        return AzVirtualizedViewCallbackReturn_withDom(
             AzStyledDom_default(),
             AzLogicalSize_zero(), AzLogicalPosition_zero(),
             AzLogicalSize_zero(), AzLogicalPosition_zero()
@@ -97,7 +97,7 @@ AzIFrameCallbackReturn render_rows(AzRefAny data, AzIFrameCallbackInfo info) {
     );
     AzLogicalPosition virtual_offset = AzLogicalPosition_zero();
 
-    return AzIFrameCallbackReturn_withDom(
+    return AzVirtualizedViewCallbackReturn_withDom(
         dom, scroll_size, scroll_offset, virtual_size, virtual_offset
     );
 }
@@ -109,7 +109,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Title
     char title_buf[64];
-    int tlen = snprintf(title_buf, sizeof(title_buf), "IFrame Test - %d virtual rows", TOTAL_ROWS);
+    int tlen = snprintf(title_buf, sizeof(title_buf), "VirtualizedView Test - %d virtual rows", TOTAL_ROWS);
     AzString title_text = AzString_copyFromBytes((const uint8_t*)title_buf, 0, (size_t)tlen);
     AzDom title = AzDom_createDiv();
     AzDom_addChild(&title, AzDom_createText(title_text));
@@ -118,16 +118,16 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 85);
     AzDom_setInlineStyle(&title, title_style);
 
-    // IFrame (the scrollable virtual list)
-    AzDom iframe = AzDom_createIframe(AzRefAny_clone(&data), render_rows);
-    AzString iframe_style = AzString_copyFromBytes(
+    // VirtualizedView (the scrollable virtual list)
+    AzDom vview = AzDom_createVirtualizedView(AzRefAny_clone(&data), render_rows);
+    AzString vview_style = AzString_copyFromBytes(
         (const uint8_t*)"display: flex; flex-grow: 1; overflow: auto; background: #ffff00; border: 3px solid #ff00ff; margin: 8px;",
         0, 104);
-    AzDom_setInlineStyle(&iframe, iframe_style);
+    AzDom_setInlineStyle(&vview, vview_style);
 
     // Footer
     AzString footer_text = AzString_copyFromBytes(
-        (const uint8_t*)"Scroll inside the yellow box. Only ~100 rows are rendered at a time via IFrameCallback.",
+        (const uint8_t*)"Scroll inside the yellow box. Only ~100 rows are rendered at a time via VirtualizedViewCallback.",
         0, 87);
     AzDom footer = AzDom_createDiv();
     AzDom_addChild(&footer, AzDom_createText(footer_text));
@@ -139,7 +139,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Body
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, title);
-    AzDom_addChild(&body, iframe);
+    AzDom_addChild(&body, vview);
     AzDom_addChild(&body, footer);
     AzString body_style = AzString_copyFromBytes(
         (const uint8_t*)"display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0;",
@@ -151,7 +151,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 // ---------------------------------------------------------------------------
 int main(void) {
-    printf("Infinity IFrame Test\n");
+    printf("Infinity VirtualizedView Test\n");
     printf("====================\n");
     printf("Virtual rows: %d\n", TOTAL_ROWS);
     printf("Row height:   %.0f px\n", ROW_HEIGHT);

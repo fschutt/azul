@@ -1537,7 +1537,7 @@ mod tests {
 
     #[test]
     fn test_refany_callback_simulation() {
-        // Simulate the IFrame callback pattern
+        // Simulate the VirtualizedView callback pattern
         #[derive(Clone)]
         struct CallbackData {
             counter: i32,

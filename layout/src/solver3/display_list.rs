@@ -588,32 +588,32 @@ pub enum DisplayListItem {
         info: Box<ScrollbarDrawInfo>,
     },
 
-    /// An embedded IFrame that references a child DOM with its own display list.
+    /// An embedded VirtualizedView that references a child DOM with its own display list.
     /// The renderer will look up the child display list by child_dom_id and
-    /// render it within the bounds. The IFrame viewport is rendered in parent
+    /// render it within the bounds. The VirtualizedView viewport is rendered in parent
     /// coordinate space (NOT inside a scroll frame) so it stays stationary.
-    /// Scroll offset is communicated to the IFrame callback, not via WebRender.
-    IFrame {
+    /// Scroll offset is communicated to the VirtualizedView callback, not via WebRender.
+    VirtualizedView {
         /// The DomId of the child DOM (similar to webrender's pipeline_id)
         child_dom_id: DomId,
-        /// The bounds where the IFrame should be rendered
+        /// The bounds where the VirtualizedView should be rendered
         bounds: WindowLogicalRect,
-        /// The clip rect for the IFrame content
+        /// The clip rect for the VirtualizedView content
         clip_rect: WindowLogicalRect,
     },
 
-    /// Placeholder emitted during display list generation for IFrame nodes.
-    /// `window.rs` replaces this with a real `IFrame` item after invoking
-    /// the IFrame callback. This avoids the need for post-hoc scroll frame
+    /// Placeholder emitted during display list generation for VirtualizedView nodes.
+    /// `window.rs` replaces this with a real `VirtualizedView` item after invoking
+    /// the VirtualizedView callback. This avoids the need for post-hoc scroll frame
     /// scanning — `window.rs` simply finds the placeholder by `node_id`.
     ///
-    /// Unlike regular scrollable nodes, IFrame nodes do NOT get a
+    /// Unlike regular scrollable nodes, VirtualizedView nodes do NOT get a
     /// PushScrollFrame/PopScrollFrame pair. Scroll state is managed by
-    /// `ScrollManager` and passed to the IFrame callback as `scroll_offset`.
-    IFramePlaceholder {
-        /// The DOM NodeId of the IFrame element in the parent DOM
+    /// `ScrollManager` and passed to the VirtualizedView callback as `scroll_offset`.
+    VirtualizedViewPlaceholder {
+        /// The DOM NodeId of the VirtualizedView element in the parent DOM
         node_id: NodeId,
-        /// The layout bounds of the IFrame container
+        /// The layout bounds of the VirtualizedView container
         bounds: WindowLogicalRect,
         /// The clip rect (same as bounds initially, may be adjusted)
         clip_rect: WindowLogicalRect,
@@ -1130,13 +1130,13 @@ impl DisplayListBuilder {
     pub fn pop_scroll_frame(&mut self) {
         self.push_item(DisplayListItem::PopScrollFrame);
     }
-    pub fn push_iframe_placeholder(
+    pub fn push_virtualized_view_placeholder(
         &mut self,
         node_id: NodeId,
         bounds: LogicalRect,
         clip_rect: LogicalRect,
     ) {
-        self.push_item(DisplayListItem::IFramePlaceholder {
+        self.push_item(DisplayListItem::VirtualizedViewPlaceholder {
             node_id,
             bounds: bounds.into(),
             clip_rect: clip_rect.into(),
@@ -1946,21 +1946,21 @@ where
         }
 
         // After painting the node and all its descendants, pop any contexts it pushed.
-        // For IFrame nodes, emit the placeholder INSIDE the clip (before PopClip)
-        // so the iframe viewport is clipped to the container.
+        // For VirtualizedView nodes, emit the placeholder INSIDE the clip (before PopClip)
+        // so the virtualized view viewport is clipped to the container.
         if did_push_clip_or_scroll {
-            // Emit IFramePlaceholder before popping the clip so it's inside PushClip/PopClip
+            // Emit VirtualizedViewPlaceholder before popping the clip so it's inside PushClip/PopClip
             if let Some(dom_id) = node.dom_node_id {
-                if self.is_iframe_node(dom_id) {
-                    builder.push_iframe_placeholder(dom_id, node_bounds, node_bounds);
+                if self.is_virtualized_view_node(dom_id) {
+                    builder.push_virtualized_view_placeholder(dom_id, node_bounds, node_bounds);
                 }
             }
             self.pop_node_clips(builder, node)?;
         } else {
-            // Even without clips, emit IFramePlaceholder for IFrame nodes
+            // Even without clips, emit VirtualizedViewPlaceholder for VirtualizedView nodes
             if let Some(dom_id) = node.dom_node_id {
-                if self.is_iframe_node(dom_id) {
-                    builder.push_iframe_placeholder(dom_id, node_bounds, node_bounds);
+                if self.is_virtualized_view_node(dom_id) {
+                    builder.push_virtualized_view_placeholder(dom_id, node_bounds, node_bounds);
                 }
             }
         }
@@ -2087,11 +2087,11 @@ where
             // Paint descendants inside the clip/scroll frame
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
-            // For IFrame children: emit placeholder INSIDE the clip
+            // For VirtualizedView children: emit placeholder INSIDE the clip
             if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_iframe_node(dom_id) {
+                if self.is_virtualized_view_node(dom_id) {
                     let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_iframe_placeholder(dom_id, child_bounds, child_bounds);
+                    builder.push_virtualized_view_placeholder(dom_id, child_bounds, child_bounds);
                 }
             }
 
@@ -2151,11 +2151,11 @@ where
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
-            // For IFrame children: emit placeholder INSIDE the clip
+            // For VirtualizedView children: emit placeholder INSIDE the clip
             if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_iframe_node(dom_id) {
+                if self.is_virtualized_view_node(dom_id) {
                     let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_iframe_placeholder(dom_id, child_bounds, child_bounds);
+                    builder.push_virtualized_view_placeholder(dom_id, child_bounds, child_bounds);
                 }
             }
 
@@ -2214,11 +2214,11 @@ where
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
-            // For IFrame children: emit placeholder INSIDE the clip
+            // For VirtualizedView children: emit placeholder INSIDE the clip
             if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_iframe_node(dom_id) {
+                if self.is_virtualized_view_node(dom_id) {
                     let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_iframe_placeholder(dom_id, child_bounds, child_bounds);
+                    builder.push_virtualized_view_placeholder(dom_id, child_bounds, child_bounds);
                 }
             }
 
@@ -2238,22 +2238,22 @@ where
         Ok(())
     }
 
-    /// Returns true if the given DOM node is an IFrame node.
-    fn is_iframe_node(&self, dom_id: NodeId) -> bool {
+    /// Returns true if the given DOM node is a VirtualizedView node.
+    fn is_virtualized_view_node(&self, dom_id: NodeId) -> bool {
         let node_data_container = self.ctx.styled_dom.node_data.as_container();
         node_data_container
             .get(dom_id)
-            .map(|nd| matches!(nd.get_node_type(), NodeType::IFrame))
+            .map(|nd| matches!(nd.get_node_type(), NodeType::VirtualizedView))
             .unwrap_or(false)
     }
 
     /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
     /// Returns true if any command was pushed.
     ///
-    /// For IFrame nodes with `overflow: scroll/auto`, we intentionally skip
-    /// `PushScrollFrame` / `PopScrollFrame`. IFrame scroll state is managed by
+    /// For VirtualizedView nodes with `overflow: scroll/auto`, we intentionally skip
+    /// `PushScrollFrame` / `PopScrollFrame`. VirtualizedView scroll state is managed by
     /// `ScrollManager`, not WebRender's APZ. Instead we emit only a `PushClip`
-    /// and later an `IFramePlaceholder` (see `generate_for_stacking_context`).
+    /// and later an `VirtualizedViewPlaceholder` (see `generate_for_stacking_context`).
     fn push_node_clips(
         &self,
         builder: &mut DisplayListBuilder,
@@ -2317,13 +2317,13 @@ where
             },
         };
 
-        let is_iframe = self.is_iframe_node(dom_id);
+        let is_virtualized_view = self.is_virtualized_view_node(dom_id);
 
         if overflow_x.is_scroll() || overflow_y.is_scroll() {
-            if is_iframe {
-                // IFrame nodes: only push a clip, NO scroll frame.
+            if is_virtualized_view {
+                // VirtualizedView nodes: only push a clip, NO scroll frame.
                 // Scroll state is managed by ScrollManager and passed to the
-                // IFrame callback as scroll_offset. The IFramePlaceholder is
+                // VirtualizedView callback as scroll_offset. The VirtualizedViewPlaceholder is
                 // emitted after pop_node_clips in generate_for_stacking_context.
                 builder.push_clip(clip_rect, border_radius);
             } else {
@@ -2378,15 +2378,15 @@ where
         let needs_clip =
             overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
 
-        let is_iframe = self.is_iframe_node(dom_id);
+        let is_virtualized_view = self.is_virtualized_view_node(dom_id);
 
         if needs_clip {
-            if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_iframe {
-                // For regular (non-IFrame) scroll/auto, pop both scroll frame AND clip
+            if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtualized_view {
+                // For regular (non-VirtualizedView) scroll/auto, pop both scroll frame AND clip
                 builder.pop_scroll_frame();
                 builder.pop_clip();
             } else {
-                // For hidden/clip, or IFrame scroll (which only pushed a clip)
+                // For hidden/clip, or VirtualizedView scroll (which only pushed a clip)
                 builder.pop_clip();
             }
         }
@@ -3006,7 +3006,7 @@ where
         // Get content size for thumb proportional sizing
         // Use the node's get_content_size() method which returns the actual content size
         // from overflow_content_size (set during layout) or computes it from text/children.
-        // For IFrame nodes, the virtual_scroll_size (propagated through ScrollPosition.children_rect)
+        // For VirtualizedView nodes, the virtual_scroll_size (propagated through ScrollPosition.children_rect)
         // is more accurate than the layout-computed content size.
         let content_size = node_id
             .and_then(|nid| self.scroll_offsets.get(&nid))
@@ -3766,7 +3766,7 @@ fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> 
         DisplayListItem::PushScrollFrame { clip_bounds, .. } => Some(*clip_bounds),
         DisplayListItem::HitTestArea { bounds, .. } => Some(*bounds),
         DisplayListItem::PushStackingContext { bounds, .. } => Some(*bounds),
-        DisplayListItem::IFrame { bounds, .. } => Some(*bounds),
+        DisplayListItem::VirtualizedView { bounds, .. } => Some(*bounds),
         _ => None,
     }
 }
@@ -3906,11 +3906,11 @@ fn clip_and_offset_display_item(
             clip_hit_test_area_item(bounds.into_inner(), *tag, page_top, page_bottom)
         }
 
-        DisplayListItem::IFrame {
+        DisplayListItem::VirtualizedView {
             child_dom_id,
             bounds,
             clip_rect,
-        } => clip_iframe_item(*child_dom_id, bounds.into_inner(), clip_rect.into_inner(), page_top, page_bottom),
+        } => clip_virtualized_view_item(*child_dom_id, bounds.into_inner(), clip_rect.into_inner(), page_top, page_bottom),
 
         // ScrollBarStyled - clip based on overall bounds
         DisplayListItem::ScrollBarStyled { info } => {
@@ -3943,7 +3943,7 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PopScrollFrame
         | DisplayListItem::PushStackingContext { .. }
         | DisplayListItem::PopStackingContext
-        | DisplayListItem::IFramePlaceholder { .. } => None,
+        | DisplayListItem::VirtualizedViewPlaceholder { .. } => None,
 
         // Gradient items - simple bounds check
         DisplayListItem::LinearGradient {
@@ -4389,15 +4389,15 @@ fn clip_hit_test_area_item(
     })
 }
 
-/// Clips an iframe to page bounds.
-fn clip_iframe_item(
+/// Clips a virtualized view to page bounds.
+fn clip_virtualized_view_item(
     child_dom_id: DomId,
     bounds: LogicalRect,
     clip_rect: LogicalRect,
     page_top: f32,
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
-    clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::IFrame {
+    clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::VirtualizedView {
         child_dom_id,
         bounds: clipped.into(),
         clip_rect: offset_rect_y(clip_rect, -page_top).into(),
@@ -4964,20 +4964,20 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
                 z_index: *z_index,
             }
         }
-        DisplayListItem::IFrame {
+        DisplayListItem::VirtualizedView {
             child_dom_id,
             bounds,
             clip_rect,
-        } => DisplayListItem::IFrame {
+        } => DisplayListItem::VirtualizedView {
             child_dom_id: *child_dom_id,
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
         },
-        DisplayListItem::IFramePlaceholder {
+        DisplayListItem::VirtualizedViewPlaceholder {
             node_id,
             bounds,
             clip_rect,
-        } => DisplayListItem::IFramePlaceholder {
+        } => DisplayListItem::VirtualizedViewPlaceholder {
             node_id: *node_id,
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),

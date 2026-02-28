@@ -387,9 +387,9 @@ impl TimerCallbackInfo {
         self.callback_info.update_all_image_callbacks();
     }
 
-    /// Trigger re-rendering of an IFrame (applied after callback returns)
-    pub fn trigger_iframe_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
-        self.callback_info.trigger_iframe_rerender(dom_id, node_id);
+    /// Trigger re-rendering of a VirtualizedView (applied after callback returns)
+    pub fn trigger_virtualized_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.callback_info.trigger_virtualized_view_rerender(dom_id, node_id);
     }
 
     /// Reload system fonts (applied after callback returns)

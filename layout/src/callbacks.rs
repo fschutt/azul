@@ -60,7 +60,7 @@ use crate::{
         gesture::{GestureAndDragManager, InputSample, PenState},
         gpu_state::GpuStateManager,
         hover::{HoverManager, InputPointId},
-        iframe::IFrameManager,
+        virtualized_view::VirtualizedViewManager,
         scroll_state::{AnimatedScrollState, ScrollManager},
         selection::{ClipboardContent, SelectionManager},
         text_input::{PendingTextEdit, TextInputManager},
@@ -224,9 +224,9 @@ pub enum CallbackChange {
     /// display list resubmission. Used by timer callbacks that need
     /// to update OpenGL textures every frame.
     UpdateAllImageCallbacks,
-    /// Trigger re-rendering of an IFrame with a new DOM
-    /// This forces the IFrame to call its callback and update the display list
-    UpdateIFrame { dom_id: DomId, node_id: NodeId },
+    /// Trigger re-rendering of a VirtualizedView with a new DOM
+    /// This forces the VirtualizedView to call its callback and update the display list
+    UpdateVirtualizedView { dom_id: DomId, node_id: NodeId },
     /// Change the image mask of a node
     ChangeNodeImageMask {
         dom_id: DomId,
@@ -931,18 +931,18 @@ impl CallbackInfo {
         self.push_change(CallbackChange::UpdateAllImageCallbacks);
     }
 
-    /// Trigger re-rendering of an IFrame (applied after callback returns)
+    /// Trigger re-rendering of a VirtualizedView (applied after callback returns)
     ///
-    /// This forces the IFrame to call its layout callback with reason `DomRecreated`
-    /// and submit a new display list to WebRender. The IFrame's pipeline will be updated
+    /// This forces the VirtualizedView to call its layout callback with reason `DomRecreated`
+    /// and submit a new display list to WebRender. The VirtualizedView's pipeline will be updated
     /// without affecting other parts of the window.
     ///
     /// Useful for:
     /// - Live preview panes (update when source code changes)
     /// - Dynamic content that needs manual refresh
     /// - Editor previews (re-parse and display new DOM)
-    pub fn trigger_iframe_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
-        self.push_change(CallbackChange::UpdateIFrame { dom_id, node_id });
+    pub fn trigger_virtualized_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::UpdateVirtualizedView { dom_id, node_id });
     }
 
     // Dom Tree Navigation
@@ -3228,11 +3228,11 @@ impl CallbackInfo {
         &self.get_layout_window().gpu_state_manager
     }
 
-    // IFrame Manager Access
+    // VirtualizedView Manager Access
 
-    /// Get immutable reference to the IFrame manager
-    pub fn get_iframe_manager(&self) -> &IFrameManager {
-        &self.get_layout_window().iframe_manager
+    /// Get immutable reference to the VirtualizedView manager
+    pub fn get_virtualized_view_manager(&self) -> &VirtualizedViewManager {
+        &self.get_layout_window().virtualized_view_manager
     }
 
     // Changeset Inspection/Modification Methods

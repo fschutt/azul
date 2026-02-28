@@ -1266,13 +1266,13 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
-            CallbackChange::UpdateIFrame { dom_id, node_id } => {
+            CallbackChange::UpdateVirtualizedView { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let mut updates = BTreeMap::new();
                     let mut set = FastBTreeSet::new();
                     set.insert(*node_id);
                     updates.insert(*dom_id, set);
-                    lw.queue_iframe_updates(updates);
+                    lw.queue_virtualized_view_updates(updates);
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
@@ -1316,7 +1316,7 @@ pub trait PlatformWindow {
                 let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
-                let mut needs_iframe_update = false;
+                let mut needs_virtualized_view_update = false;
 
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
@@ -1327,17 +1327,17 @@ pub trait PlatformWindow {
                             now.clone().into(),
                         );
 
-                        // Check if this scroll node is an IFrame that needs
+                        // Check if this scroll node is a VirtualizedView that needs
                         // re-invocation (e.g. user scrolled near edge for lazy loading).
                         // If so, queue it for processing in the next render pass.
-                        needs_iframe_update = lw.check_and_queue_iframe_reinvoke(
+                        needs_virtualized_view_update = lw.check_and_queue_virtualized_view_reinvoke(
                             *dom_id, internal_node_id,
                         );
                     }
                 }
 
-                if needs_iframe_update {
-                    // IFrame needs new content — force display list rebuild
+                if needs_virtualized_view_update {
+                    // VirtualizedView needs new content — force display list rebuild
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 } else {
                     // Normal scroll — lightweight repaint (scroll offsets only)
@@ -3305,7 +3305,7 @@ pub trait PlatformWindow {
         // Track overall processing result
         let mut result = ProcessEventResult::DoNothing;
 
-        // NOTE: IFrame re-invocation for scroll edge detection is handled
+        // NOTE: VirtualizedView re-invocation for scroll edge detection is handled
         // transparently in the ScrollTo processing path (apply_user_change).
 
         // Get external callbacks for system time

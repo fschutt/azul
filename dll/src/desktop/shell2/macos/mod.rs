@@ -3964,8 +3964,8 @@ impl MacOSWindow {
             | ProcessEventResult::ShouldReRenderCurrentWindow => {
                 // Both trigger a redraw. The difference is that
                 // ShouldUpdateDisplayListCurrentWindow may have queued
-                // pending_iframe_updates, which render_and_present will
-                // detect and handle by processing IFrame callbacks and
+                // pending_virtualized_view_updates, which render_and_present will
+                // detect and handle by processing VirtualizedView callbacks and
                 // rebuilding display lists (without full DOM regeneration).
                 self.request_redraw();
             }
@@ -4650,23 +4650,23 @@ impl MacOSWindow {
             "[build_atomic_txn] Building transaction"
         );
 
-        // Process pending IFrame updates (queued by ScrollTo → check_and_queue_iframe_reinvoke).
-        // This re-invokes IFrame callbacks whose scroll position crossed an edge threshold,
+        // Process pending VirtualizedView updates (queued by ScrollTo → check_and_queue_virtualized_view_reinvoke).
+        // This re-invokes VirtualizedView callbacks whose scroll position crossed an edge threshold,
         // producing new child DOMs in layout_results. Must happen BEFORE building the
         // display list so the new child content is included.
-        let has_iframe_updates = !layout_window.pending_iframe_updates.is_empty();
-        if has_iframe_updates {
+        let has_virtualized_view_updates = !layout_window.pending_virtualized_view_updates.is_empty();
+        if has_virtualized_view_updates {
             log_trace!(
                 LogCategory::Rendering,
-                "[build_atomic_txn] Processing {} pending IFrame update(s)",
-                layout_window.pending_iframe_updates.len()
+                "[build_atomic_txn] Processing {} pending VirtualizedView update(s)",
+                layout_window.pending_virtualized_view_updates.len()
             );
             let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
             let current_window_state = layout_window.current_window_state.clone();
             let renderer_resources_ptr = &layout_window.renderer_resources as *const _;
-            layout_window.process_pending_iframe_updates(
+            layout_window.process_pending_virtualized_view_updates(
                 &current_window_state,
-                // SAFETY: process_pending_iframe_updates does not modify renderer_resources.
+                // SAFETY: process_pending_virtualized_view_updates does not modify renderer_resources.
                 // The pointer cast works around the borrow checker since &mut self is
                 // already held by layout_window.
                 unsafe { &*renderer_resources_ptr },
@@ -4674,9 +4674,9 @@ impl MacOSWindow {
             );
         }
 
-        // If IFrame updates produced new child DOMs, we need a full display list
+        // If VirtualizedView updates produced new child DOMs, we need a full display list
         // rebuild (not just scroll offsets). Override the lightweight path.
-        let display_list_needs_rebuild = display_list_needs_rebuild || has_iframe_updates;
+        let display_list_needs_rebuild = display_list_needs_rebuild || has_virtualized_view_updates;
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
         if display_list_needs_rebuild {

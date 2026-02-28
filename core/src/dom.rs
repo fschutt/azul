@@ -34,8 +34,8 @@ pub use crate::events::{
 pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{
     callbacks::{
-        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, IFrameCallback,
-        IFrameCallbackType,
+        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, VirtualizedViewCallback,
+        VirtualizedViewCallbackType,
     },
     geom::LogicalPosition,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
@@ -482,8 +482,8 @@ pub enum NodeType {
     Text(AzString),
     /// Image element, ::image
     Image(ImageRef),
-    /// IFrame (embedded content) - payload stored in NodeDataExt.iframe
-    IFrame,
+    /// VirtualizedView (embedded content) - payload stored in NodeDataExt.virtualized_view
+    VirtualizedView,
     /// Icon element - resolved to actual content by IconProvider
     /// The string is the icon name (e.g., "home", "settings", "search")
     Icon(AzString),
@@ -613,7 +613,7 @@ impl NodeType {
 
             Text(s) => Text(s.clone_self()),
             Image(i) => Image(i.clone()), // note: shallow clone
-            IFrame => IFrame,
+            VirtualizedView => VirtualizedView,
             Icon(s) => Icon(s.clone_self()),
         }
     }
@@ -623,7 +623,7 @@ impl NodeType {
         match self {
             Text(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
-            IFrame => Some("iframe".to_string()),
+            VirtualizedView => Some("virtualized-view".to_string()),
             Icon(s) => Some(format!("icon({})", s)),
             _ => None,
         }
@@ -745,7 +745,7 @@ impl NodeType {
             Self::Base => NodeTypeTag::Base,
             Self::Text(_) => NodeTypeTag::Text,
             Self::Image(_) => NodeTypeTag::Img,
-            Self::IFrame => NodeTypeTag::IFrame,
+            Self::VirtualizedView => NodeTypeTag::VirtualizedView,
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
@@ -941,13 +941,13 @@ pub enum On {
 //
 // This consolidates all event-related logic in one place.
 
-/// Contains the necessary information to render an embedded `IFrame` node.
+/// Contains the necessary information to render an embedded `VirtualizedView` node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct IFrameNode {
-    /// The callback function that returns the DOM for the iframe's content.
-    pub callback: IFrameCallback,
-    /// The application data passed to the iframe's layout callback.
+pub struct VirtualizedViewNode {
+    /// The callback function that returns the DOM for the virtualized view's content.
+    pub callback: VirtualizedViewCallback,
+    /// The application data passed to the virtualized view's layout callback.
     pub refany: RefAny,
 }
 
@@ -1381,8 +1381,8 @@ impl Hash for NodeData {
             if let Some(c) = ext.context_menu.as_ref() {
                 c.hash(state);
             }
-            if let Some(iframe) = ext.iframe.as_ref() {
-                iframe.hash(state);
+            if let Some(vv) = ext.virtualized_view.as_ref() {
+                vv.hash(state);
             }
         }
     }
@@ -1449,8 +1449,8 @@ impl Default for ComponentOrigin {
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
-    /// IFrame callback data, only set when node_type == NodeType::IFrame.
-    pub iframe: Option<IFrameNode>,
+    /// VirtualizedView callback data, only set when node_type == NodeType::VirtualizedView.
+    pub virtualized_view: Option<VirtualizedViewNode>,
     /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
     pub dataset: Option<RefAny>,
     /// Optional clip mask for this DOM node.
@@ -2572,10 +2572,10 @@ impl NodeData {
     }
 
     #[inline(always)]
-    pub fn create_iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        let mut nd = Self::create_node(NodeType::IFrame);
+    pub fn create_virtualized_view(data: RefAny, callback: impl Into<VirtualizedViewCallback>) -> Self {
+        let mut nd = Self::create_node(NodeType::VirtualizedView);
         let ext = nd.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()));
-        ext.iframe = Some(IFrameNode {
+        ext.virtualized_view = Some(VirtualizedViewNode {
             callback: callback.into(),
             refany: data,
         });
@@ -2616,8 +2616,8 @@ impl NodeData {
         }
     }
 
-    pub fn is_iframe_node(&self) -> bool {
-        matches!(self.node_type, NodeType::IFrame)
+    pub fn is_virtualized_view_node(&self) -> bool {
+        matches!(self.node_type, NodeType::VirtualizedView)
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -2953,11 +2953,11 @@ impl NodeData {
         // This means Text("A") and Text("B") have the same structural hash
         core::mem::discriminant(&self.node_type).hash(&mut hasher);
         
-        // For IFrame nodes, hash the callback to distinguish different iframes
-        if let NodeType::IFrame = self.node_type {
+        // For VirtualizedView nodes, hash the callback to distinguish different virtualized views
+        if let NodeType::VirtualizedView = self.node_type {
             if let Some(ext) = self.extra.as_ref() {
-                if let Some(iframe) = ext.iframe.as_ref() {
-                    iframe.hash(&mut hasher);
+                if let Some(vv) = ext.virtualized_view.as_ref() {
+                    vv.hash(&mut hasher);
                 }
             }
         }
@@ -3353,12 +3353,12 @@ impl NodeData {
         }
     }
 
-    pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
-        self.extra.as_mut()?.iframe.as_mut()
+    pub fn get_virtualized_view_node(&mut self) -> Option<&mut VirtualizedViewNode> {
+        self.extra.as_mut()?.virtualized_view.as_mut()
     }
 
-    pub fn get_iframe_node_ref(&self) -> Option<&IFrameNode> {
-        self.extra.as_ref()?.iframe.as_ref()
+    pub fn get_virtualized_view_node_ref(&self) -> Option<&VirtualizedViewNode> {
+        self.extra.as_ref()?.virtualized_view.as_ref()
     }
 
     pub fn get_render_image_callback_node<'a>(
@@ -3761,8 +3761,8 @@ impl Dom {
     }
 
     #[inline(always)]
-    pub fn create_iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::from_data(NodeData::create_iframe(data, callback))
+    pub fn create_virtualized_view(data: RefAny, callback: impl Into<VirtualizedViewCallback>) -> Self {
+        Self::from_data(NodeData::create_virtualized_view(data, callback))
     }
 
     // Semantic HTML Elements with Accessibility Guidance

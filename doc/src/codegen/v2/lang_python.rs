@@ -158,8 +158,8 @@ impl PythonGenerator {
         // Python-specific: Types that wrap & or Box<> and are semantically Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",
-            "IFrameCallbackInfo",
-            "IFrameCallbackReturn",
+            "VirtualizedViewCallbackInfo",
+            "VirtualizedViewCallbackReturn",
             "StyledDom",
             "LayoutCallbackInfo",
             "CallbackInfo",
@@ -1859,8 +1859,8 @@ extern "C" fn invoke_py_layout_callback(
         // because they wrap references (&) or Box<> which are Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",          // wraps Box<CssPropertyCache>
-            "IFrameCallbackInfo",           // wraps &IFrameCallbackInfoInternal
-            "IFrameCallbackReturn", // contains OptionStyledDom which contains CssPropertyCachePtr
+            "VirtualizedViewCallbackInfo",           // wraps &VirtualizedViewCallbackInfoInternal
+            "VirtualizedViewCallbackReturn", // contains OptionStyledDom which contains CssPropertyCachePtr
             "StyledDom",            // contains CssPropertyCachePtr
             "LayoutCallbackInfo",   // wraps & to internal data
             "CallbackInfo",         // wraps & to internal data
@@ -1980,8 +1980,8 @@ extern "C" fn invoke_py_layout_callback(
         // Python-specific: These types use *const/*mut c_void but are semantically Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",
-            "IFrameCallbackInfo",
-            "IFrameCallbackReturn",
+            "VirtualizedViewCallbackInfo",
+            "VirtualizedViewCallbackReturn",
             "StyledDom",
             "LayoutCallbackInfo",
             "CallbackInfo",
@@ -2396,7 +2396,7 @@ extern "C" fn invoke_py_layout_callback(
             return "Py<PyAny>".to_string();
         }
 
-        // Callback wrapper types (Callback, IFrameCallback, etc.) → Py<PyAny>
+        // Callback wrapper types (Callback, VirtualizedViewCallback, etc.) → Py<PyAny>
         // These get converted to a callback struct with a trampoline in the function body
         if is_callback_wrapper_type(&base_type, ir) {
             return "Py<PyAny>".to_string();

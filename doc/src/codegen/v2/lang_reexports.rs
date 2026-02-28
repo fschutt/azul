@@ -246,13 +246,13 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         "NodeType",
         "On",
         "Callback",
-        // Callbacks - includes IFrameCallbackInfo, RefAny, Update
+        // Callbacks - includes VirtualizedViewCallbackInfo, RefAny, Update
         "LayoutCallback",
         "LayoutCallbackInfo",
         "CallbackInfo",
-        "IFrameCallback",
-        "IFrameCallbackInfo",
-        "IFrameCallbackReturn",
+        "VirtualizedViewCallback",
+        "VirtualizedViewCallbackInfo",
+        "VirtualizedViewCallbackReturn",
         "WriteBackCallback",
         "TimerCallback",
         "TimerCallbackInfo",

@@ -497,7 +497,7 @@ impl Xml {
                     }
                 }
             }
-            "iframe" | "embed" | "object" => {
+            "virtualized-view" | "embed" | "object" => {
                 let src_attr = if tag_name == "object" { "data" } else { "src" };
                 if let Some(src) = get_attr(src_attr) {
                     resources.push(ExternalResource {

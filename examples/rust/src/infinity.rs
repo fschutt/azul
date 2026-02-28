@@ -1,7 +1,7 @@
-//! Infinite scrolling gallery example using IFrame callbacks
+//! Infinite scrolling gallery example using VirtualizedView callbacks
 //!
 //! Demonstrates how to efficiently render thousands of items by only rendering
-//! the visible portion using IFrame virtualization.
+//! the visible portion using VirtualizedView.
 
 use azul::prelude::*;
 
@@ -26,7 +26,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .with_inline_style("font-size: 20px; margin-bottom: 10px;");
 
     // Now we can pass the function pointer directly - the API builds the wrapper internally
-    let iframe = Dom::create_iframe(data.clone(), render_iframe)
+    let vview = Dom::create_virtualized_view(data.clone(), render_virtualized_view)
         .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
@@ -37,14 +37,14 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     Dom::create_body()
         .with_inline_style("padding: 20px; font-family: sans-serif;")
         .with_child(title)
-        .with_child(iframe)
+        .with_child(vview)
         .style(Css::empty())
 }
 
-extern "C" fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
+extern "C" fn render_virtualized_view(mut data: RefAny, info: VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn {
     let d = match data.downcast_ref::<InfinityState>() {
         Some(s) => s,
-        None => return IFrameCallbackReturn::default(),
+        None => return VirtualizedViewCallbackReturn::default(),
     };
 
     let mut container = Dom::create_div()
@@ -76,7 +76,7 @@ extern "C" fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFram
     let rows = (d.file_paths.len() + 3) / 4; // 4 items per row
     let virtual_height = rows as f32 * 160.0; // 150px + 10px gap
 
-    IFrameCallbackReturn {
+    VirtualizedViewCallbackReturn {
         dom: OptionStyledDom::Some(container.style(Css::empty())),
         scroll_size: LogicalSize::new(0.0, virtual_height),
         scroll_offset: LogicalPosition::new(0.0, 0.0),

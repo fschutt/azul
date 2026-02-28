@@ -644,7 +644,7 @@
                     "Infinite",
                     "Scrolling"
                 ],
-                "alt": "Loading and displaying infinite content using IFrameCallbacks",
+                "alt": "Loading and displaying infinite content using VirtualizedViewCallbacks",
                 "show_on_index": true,
                 "code": {
                     "c": "c/infinity.c",
@@ -663,7 +663,7 @@
                     "mac": "infinity.mac.png"
                 },
                 "description": [
-                    "Display 10 million rows at 60 FPS. IFrameCallbacks render only what's visible on screen.",
+                    "Display 10 million rows at 60 FPS. VirtualizedViewCallbacks render only what's visible on screen.",
                     "Lazy-load images, SVGs, and complex content as users scroll - zero upfront memory cost.",
                     "Perfect for IDE file trees, database viewers, and infinite feeds, ..."
                 ]
@@ -3077,7 +3077,7 @@
                         "struct_fields": [
                             {
                                 "cb": {
-                                    "type": "IFrameCallbackType"
+                                    "type": "VirtualizedViewCallbackType"
                                 },
                                 "ctx": {
                                     "type": "OptionRefAny"
@@ -3163,7 +3163,7 @@
                         "constructors": {
                             "with_dom": {
                                 "doc": [
-                                    "Creates a new IFrameCallbackReturn with updated DOM content.",
+                                    "Creates a new VirtualizedViewCallbackReturn with updated DOM content.",
                                     "",
                                     "Use this when the callback has rendered new content to display.",
                                     "",
@@ -3191,7 +3191,7 @@
                                         "virtual_scroll_offset": "LogicalPosition"
                                     }
                                 ],
-                                "fn_body": "azul_core::callbacks::IFrameCallbackReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                                "fn_body": "azul_core::callbacks::VirtualizedViewCallbackReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
                             },
                             "keep_current": {
                                 "doc": [
@@ -3221,7 +3221,7 @@
                                         "virtual_scroll_offset": "LogicalPosition"
                                     }
                                 ],
-                                "fn_body": "azul_core::callbacks::IFrameCallbackReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                                "fn_body": "azul_core::callbacks::VirtualizedViewCallbackReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
                             }
                         },
                         "repr": "C"
@@ -3507,7 +3507,7 @@
                         "struct_fields": [
                             {
                                 "reason": {
-                                    "type": "IFrameCallbackReason"
+                                    "type": "VirtualizedViewCallbackReason"
                                 },
                                 "system_fonts": {
                                     "type": "c_void",
@@ -4475,12 +4475,12 @@
                                 ],
                                 "fn_body": "object.update_all_image_callbacks()"
                             },
-                            "trigger_iframe_rerender": {
+                            "trigger_virtualized_view_rerender": {
                                 "doc": [
-                                    "Trigger re-rendering of an IFrame (applied after callback returns)",
+                                    "Trigger re-rendering of a VirtualizedView (applied after callback returns)",
                                     "",
-                                    "This forces the IFrame to call its layout callback with reason `DomRecreated`",
-                                    "and submit a new display list to WebRender. The IFrame's pipeline will be updated",
+                                    "This forces the VirtualizedView to call its layout callback with reason `DomRecreated`",
+                                    "and submit a new display list to WebRender. The VirtualizedView's pipeline will be updated",
                                     "without affecting other parts of the window.",
                                     "",
                                     "Useful for:",
@@ -4490,8 +4490,8 @@
                                     "",
                                     "# Example",
                                     "```ignore",
-                                    "// After text input changes, update the preview IFrame",
-                                    "info.trigger_iframe_rerender(preview_dom_id, iframe_node_id);",
+                                    "// After text input changes, update the preview VirtualizedView",
+                                    "info.trigger_virtualized_view_rerender(preview_dom_id, virtualized_view_node_id);",
                                     "```"
                                 ],
                                 "fn_args": [
@@ -4505,7 +4505,7 @@
                                         "node_id": "NodeId"
                                     }
                                 ],
-                                "fn_body": "object.trigger_iframe_rerender(dom_id, node_id)"
+                                "fn_body": "object.trigger_virtualized_view_rerender(dom_id, node_id)"
                             },
                             "get_node_id_by_id_attribute": {
                                 "doc": [
@@ -4515,8 +4515,8 @@
                                     "",
                                     "# Example",
                                     "```ignore",
-                                    "if let Some(node_id) = info.get_node_id_by_id_attribute(DomId::ROOT_ID, \"preview-iframe\") {",
-                                    "    info.trigger_iframe_rerender(DomId::ROOT_ID, node_id);",
+                                    "if let Some(node_id) = info.get_node_id_by_id_attribute(DomId::ROOT_ID, \"preview-virtualized-view\") {",
+                                    "    info.trigger_virtualized_view_rerender(DomId::ROOT_ID, node_id);",
                                     "}",
                                     "```"
                                 ],
@@ -6783,8 +6783,8 @@
                         },
                         "repr": "C"
                     },
-                    "IFrameCallbackReason": {
-                        "external": "azul_core::callbacks::IFrameCallbackReason",
+                    "VirtualizedViewCallbackReason": {
+                        "external": "azul_core::callbacks::VirtualizedViewCallbackReason",
                         "derive": [
                             "Copy",
                             "Clone",
@@ -7241,11 +7241,11 @@
                                 ],
                                 "fn_body": "object.update_all_image_callbacks()"
                             },
-                            "trigger_iframe_rerender": {
+                            "trigger_virtualized_view_rerender": {
                                 "doc": [
-                                    "Trigger re-rendering of an IFrame (applied after callback returns)",
+                                    "Trigger re-rendering of a VirtualizedView (applied after callback returns)",
                                     "",
-                                    "This forces the IFrame to call its layout callback with reason `DomRecreated`",
+                                    "This forces the VirtualizedView to call its layout callback with reason `DomRecreated`",
                                     "and submit a new display list to WebRender."
                                 ],
                                 "fn_args": [
@@ -7259,7 +7259,7 @@
                                         "node_id": "NodeId"
                                     }
                                 ],
-                                "fn_body": "object.trigger_iframe_rerender(dom_id, node_id)"
+                                "fn_body": "object.trigger_virtualized_view_rerender(dom_id, node_id)"
                             }
                         },
                         "repr": "C"
@@ -8234,16 +8234,16 @@
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_icon(icon_name)"
                             },
-                            "create_iframe": {
+                            "create_virtualized_view": {
                                 "fn_args": [
                                     {
                                         "data": "RefAny"
                                     },
                                     {
-                                        "callback": "IFrameCallback"
+                                        "callback": "VirtualizedViewCallback"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_iframe(data, callback)"
+                                "fn_body": "azul_core::dom::Dom::create_virtualized_view(data, callback)"
                             },
                             "create_node": {
                                 "doc": [
@@ -10551,16 +10551,16 @@
                                 ],
                                 "fn_body": "azul_core::dom::NodeData::create_image(image)"
                             },
-                            "create_iframe": {
+                            "create_virtualized_view": {
                                 "fn_args": [
                                     {
                                         "data": "RefAny"
                                     },
                                     {
-                                        "callback": "IFrameCallback"
+                                        "callback": "VirtualizedViewCallback"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::NodeData::create_iframe(data, callback)"
+                                "fn_body": "azul_core::dom::NodeData::create_virtualized_view(data, callback)"
                             },
                             "create_node": {
                                 "doc": [
@@ -10747,7 +10747,7 @@
                                 },
                                 "fn_body": "object.is_text_node()"
                             },
-                            "is_iframe_node": {
+                            "is_virtualized_view_node": {
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -10756,7 +10756,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "object.is_iframe_node()"
+                                "fn_body": "object.is_virtualized_view_node()"
                             },
                             "is_anonymous": {
                                 "doc": [
@@ -11829,9 +11829,9 @@
                                 }
                             },
                             {
-                                "IFrame": {
+                                "VirtualizedView": {
                                     "doc": [
-                                        "IFrame (embedded content) - payload stored in NodeDataExt.iframe"
+                                        "VirtualizedView (embedded content) - payload stored in NodeDataExt.virtualized_view"
                                     ]
                                 }
                             },
@@ -13524,7 +13524,7 @@
                                 "Base": {},
                                 "Text": {},
                                 "Img": {},
-                                "IFrame": {},
+                                "VirtualizedView": {},
                                 "Icon": {},
                                 "Before": {},
                                 "After": {},

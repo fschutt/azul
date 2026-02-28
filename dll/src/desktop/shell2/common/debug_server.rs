@@ -100,9 +100,9 @@ pub enum ResponseData {
     ClickNode(ClickNodeResponse),
     /// Scrollbar info result
     ScrollbarInfo(ScrollbarInfoResponse),
-    /// IFrame states (all tracked IFrames and their internal state)
-    IframeStates(IframeStatesResponse),
-    /// IFrame layout (nodes inside a specific IFrame DOM)
+    /// VirtualizedView states (all tracked VirtualizedViews and their internal state)
+    VirtualizedViewStates(VirtualizedViewStatesResponse),
+    /// VirtualizedView layout (nodes inside a specific VirtualizedView DOM)
     IframeLayout(IframeLayoutResponse),
     /// Selection state result
     SelectionState(SelectionStateResponse),
@@ -1222,18 +1222,18 @@ pub struct ScrollbarGeometry {
     pub thumb_size_ratio: f32,
 }
 
-/// Response for GetIframeStates - lists all tracked IFrames and their internal state
+/// Response for GetVirtualizedViewStates - lists all tracked VirtualizedViews and their internal state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct IframeStatesResponse {
-    pub iframe_count: usize,
-    pub iframes: Vec<IframeStateInfo>,
+pub struct VirtualizedViewStatesResponse {
+    pub virtualized_view_count: usize,
+    pub virtualized_views: Vec<VirtualizedViewStateInfo>,
 }
 
-/// State info for a single IFrame
+/// State info for a single VirtualizedView
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
-pub struct IframeStateInfo {
+pub struct VirtualizedViewStateInfo {
     pub parent_dom_id: usize,
     pub parent_node_id: usize,
     pub nested_dom_id: usize,
@@ -1249,23 +1249,23 @@ pub struct IframeStateInfo {
     pub last_bounds: LogicalRectJson,
 }
 
-/// Response for GetIframeLayout - layout of nodes inside an IFrame's DOM
+/// Response for GetIframeLayout - layout of nodes inside a VirtualizedView's DOM
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct IframeLayoutResponse {
     pub dom_id: usize,
     pub node_count: usize,
     pub nodes: Vec<NodeLayoutInfo>,
-    /// Scroll state for the IFrame container (from the parent DOM)
+    /// Scroll state for the VirtualizedView container (from the parent DOM)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scroll_state: Option<IframeScrollStateInfo>,
     /// All DOM IDs currently in layout_results (diagnostic)
     pub available_dom_ids: Vec<usize>,
-    /// Whether layout_results contains this IFrame's DOM
+    /// Whether layout_results contains this VirtualizedView's DOM
     pub layout_result_found: bool,
 }
 
-/// Scroll state info specific to an IFrame
+/// Scroll state info specific to a VirtualizedView
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct IframeScrollStateInfo {
@@ -1717,15 +1717,15 @@ pub enum DebugEvent {
         orientation: Option<String>,
     },
 
-    // IFrame inspection
-    /// Get all tracked IFrame states (scroll sizes, virtual sizes, invocation status)
-    GetIframeStates,
-    /// Get layout of nodes inside a specific IFrame's DOM (by nested dom_id or parent node_id)
+    // VirtualizedView inspection
+    /// Get all tracked VirtualizedView states (scroll sizes, virtual sizes, invocation status)
+    GetVirtualizedViewStates,
+    /// Get layout of nodes inside a specific VirtualizedView's DOM (by nested dom_id or parent node_id)
     GetIframeLayout {
-        /// The nested DOM ID of the IFrame (from get_iframe_states result)
+        /// The nested DOM ID of the VirtualizedView (from get_virtualized_view_states result)
         #[serde(default)]
         dom_id: Option<usize>,
-        /// The parent node_id of the IFrame node (in the root DOM)
+        /// The parent node_id of the VirtualizedView node (in the root DOM)
         #[serde(default)]
         node_id: Option<usize>,
     },
@@ -4233,7 +4233,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
                 });
             },
             azul_core::dom::NodeType::Image(_) => "img".to_string(),
-            azul_core::dom::NodeType::IFrame => "iframe".to_string(),
+            azul_core::dom::NodeType::VirtualizedView => "virtualized-view".to_string(),
             azul_core::dom::NodeType::P => "p".to_string(),
             azul_core::dom::NodeType::Label => "label".to_string(),
             azul_core::dom::NodeType::Span => "span".to_string(),
@@ -7590,20 +7590,20 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::ScrollbarInfo(response)));
         }
 
-        DebugEvent::GetIframeStates => {
+        DebugEvent::GetVirtualizedViewStates => {
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                "Getting iframe states",
+                "Getting virtualized view states",
                 None,
             );
 
             let layout_window = callback_info.get_layout_window();
-            let infos = layout_window.iframe_manager.get_all_iframe_infos();
+            let infos = layout_window.virtualized_view_manager.get_all_virtualized_view_infos();
 
-            let iframes: Vec<IframeStateInfo> = infos
+            let virtualized_views: Vec<VirtualizedViewStateInfo> = infos
                 .iter()
-                .map(|info| IframeStateInfo {
+                .map(|info| VirtualizedViewStateInfo {
                     parent_dom_id: info.parent_dom_id,
                     parent_node_id: info.parent_node_id,
                     nested_dom_id: info.nested_dom_id,
@@ -7621,18 +7621,18 @@ fn process_debug_event(
                 })
                 .collect();
 
-            let response = IframeStatesResponse {
-                iframe_count: iframes.len(),
-                iframes,
+            let response = VirtualizedViewStatesResponse {
+                virtualized_view_count: virtualized_views.len(),
+                virtualized_views,
             };
-            send_ok(request, None, Some(ResponseData::IframeStates(response)));
+            send_ok(request, None, Some(ResponseData::VirtualizedViewStates(response)));
         }
 
         DebugEvent::GetIframeLayout { dom_id, node_id } => {
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                "Getting iframe layout",
+                "Getting virtualized view layout",
                 None,
             );
             use azul_core::dom::{DomId, DomNodeId, NodeId};
@@ -7645,14 +7645,14 @@ fn process_debug_event(
             } else if let Some(nid) = node_id {
                 let parent_dom = DomId { inner: 0 };
                 layout_window
-                    .iframe_manager
+                    .virtualized_view_manager
                     .get_nested_dom_id(parent_dom, NodeId::new(*nid))
             } else {
                 None
             };
 
             if let Some(nested_dom_id) = nested_dom_id {
-                // Get scroll state for the IFrame container from parent DOM
+                // Get scroll state for the VirtualizedView container from parent DOM
                 let scroll_state = if let Some(nid) = node_id {
                     let parent_dom = DomId { inner: 0 };
                     let parent_node = NodeId::new(*nid);
@@ -7662,8 +7662,8 @@ fn process_debug_event(
                         .scroll_manager
                         .get_scroll_states_for_dom(parent_dom);
                     scroll_states.get(&parent_node).map(|sp| {
-                        let infos = layout_window.iframe_manager.get_all_iframe_infos();
-                        let iframe_info = infos.iter().find(|i| i.parent_node_id == *nid);
+                        let infos = layout_window.virtualized_view_manager.get_all_virtualized_view_infos();
+                        let virtualized_view_info = infos.iter().find(|i| i.parent_node_id == *nid);
 
                         IframeScrollStateInfo {
                             scroll_x: sp.children_rect.origin.x,
@@ -7672,9 +7672,9 @@ fn process_debug_event(
                             content_height: sp.children_rect.size.height,
                             container_width: sp.parent_rect.size.width,
                             container_height: sp.parent_rect.size.height,
-                            virtual_scroll_width: iframe_info
+                            virtual_scroll_width: virtualized_view_info
                                 .and_then(|i| i.virtual_scroll_size_width),
-                            virtual_scroll_height: iframe_info
+                            virtual_scroll_height: virtualized_view_info
                                 .and_then(|i| i.virtual_scroll_size_height),
                             max_scroll_x: (sp.children_rect.size.width
                                 - sp.parent_rect.size.width)
@@ -7696,7 +7696,7 @@ fn process_debug_event(
                     .collect();
                 let layout_result_found = layout_window.layout_results.contains_key(&nested_dom_id);
 
-                // Get nodes from the iframe's layout result
+                // Get nodes from the virtualized view's layout result
                 let mut nodes = Vec::new();
                 if let Some(layout_result) = layout_window.layout_results.get(&nested_dom_id) {
                     let node_count = layout_result.styled_dom.node_data.len();
@@ -7742,7 +7742,7 @@ fn process_debug_event(
             } else {
                 send_err(
                     request,
-                    "No iframe found: specify dom_id or node_id. Use get_iframe_states to list all iframes.",
+                    "No virtualized view found: specify dom_id or node_id. Use get_virtualized_view_states to list all virtualized views.",
                 );
             }
         }

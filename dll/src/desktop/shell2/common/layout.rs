@@ -818,16 +818,16 @@ pub fn generate_frame(
     document_id: DocumentId,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) {
-    // Process any pending IFrame updates requested by callbacks
-    // This must happen BEFORE wr_translate2::generate_frame() so that the IFrame
+    // Process any pending VirtualizedView updates requested by callbacks
+    // This must happen BEFORE wr_translate2::generate_frame() so that the VirtualizedView
     // callbacks can be re-invoked and their layout results are available
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let current_window_state = layout_window.current_window_state.clone();
 
     // Need to use unsafe pointer cast to work around borrow checker
-    // This is safe because process_pending_iframe_updates doesn't modify renderer_resources
+    // This is safe because process_pending_virtualized_view_updates doesn't modify renderer_resources
     let renderer_resources_ptr = &layout_window.renderer_resources as *const _;
-    layout_window.process_pending_iframe_updates(
+    layout_window.process_pending_virtualized_view_updates(
         &current_window_state,
         unsafe { &*renderer_resources_ptr },
         &system_callbacks,

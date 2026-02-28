@@ -1505,7 +1505,7 @@ impl RustGenerator {
         let method_name = escape_rust_keyword(&to_snake_case(&func.method_name));
 
         // Build a map of callback wrapper types for quick lookup
-        // Maps: "IFrameCallback" -> ("IFrameCallbackType", "cb", "ctx")
+        // Maps: "VirtualizedViewCallback" -> ("VirtualizedViewCallbackType", "cb", "ctx")
         let callback_wrappers: std::collections::HashMap<&str, (&str, &str, &str)> = ir
             .structs
             .iter()
@@ -1565,7 +1565,7 @@ impl RustGenerator {
                 // If so, accept the CallbackType (fn pointer) and pass it directly
                 // (The C-ABI function now accepts CallbackType directly, not the wrapper struct)
                 // BUT: Don't apply this transformation when:
-                // - we're in a method of the callback wrapper itself (e.g., deep_copy on IFrameCallback)
+                // - we're in a method of the callback wrapper itself (e.g., deep_copy on VirtualizedViewCallback)
                 // - this is an EnumVariantConstructor (e.g., OptionCallback::Some needs Callback, not CallbackType)
                 let is_method_of_this_callback = arg.type_name == func.class_name;
                 let is_enum_variant_constructor =
@@ -2909,7 +2909,7 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) -> String {
         // Build a map of callback wrapper types for quick lookup
-        // Maps: "IFrameCallback" -> "IFrameCallbackType"
+        // Maps: "VirtualizedViewCallback" -> "VirtualizedViewCallbackType"
         let callback_wrappers: std::collections::HashMap<&str, &str> = ir
             .structs
             .iter()

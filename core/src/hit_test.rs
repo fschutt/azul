@@ -198,10 +198,10 @@ pub struct HitTestItem {
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
     pub point_relative_to_item: LogicalPosition,
-    /// Necessary to easily get the nearest IFrame node
+    /// Necessary to easily get the nearest VirtualizedView node
     pub is_focusable: bool,
-    /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
-    pub is_iframe_hit: Option<(DomId, LogicalPosition)>,
+    /// If this hit is a VirtualizedView node, stores the VirtualizedViews DomId + the origin of the VirtualizedView
+    pub is_virtualized_view_hit: Option<(DomId, LogicalPosition)>,
     /// Z-order depth from WebRender hit test (0 = frontmost/topmost in z-order).
     /// Lower values are closer to the user. This preserves the ordering from
     /// WebRender's hit test results which returns items front-to-back.
@@ -217,7 +217,7 @@ pub struct ScrollHitTestItem {
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
     pub point_relative_to_item: LogicalPosition,
-    /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
+    /// If this hit is a VirtualizedView node, stores the VirtualizedViews DomId + the origin of the VirtualizedView
     pub scroll_node: OverflowingScrollNode,
 }
 

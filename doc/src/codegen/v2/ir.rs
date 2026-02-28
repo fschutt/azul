@@ -212,7 +212,7 @@ pub struct StructDef {
 #[derive(Debug, Clone)]
 pub struct CallbackWrapperInfo {
     /// The name of the callback_typedef this wrapper contains
-    /// e.g., "IFrameCallbackType", "ButtonOnClickCallbackType"
+    /// e.g., "VirtualizedViewCallbackType", "ButtonOnClickCallbackType"
     pub callback_typedef_name: String,
 
     /// The field name that holds the callback (usually "cb")
@@ -753,7 +753,7 @@ pub enum TypeCategory {
 
     /// Callback+Data pair struct - callback field + RefAny data field
     /// Needs custom Python wrapper with PyObject storage
-    /// Examples: Callback, IFrameCallback, LayoutCallback
+    /// Examples: Callback, VirtualizedViewCallback, LayoutCallback
     CallbackDataPair,
 
     /// Boxed/heap-allocated pointer wrapper

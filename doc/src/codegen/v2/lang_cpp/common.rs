@@ -242,7 +242,7 @@ pub fn has_default(struct_def: &StructDef) -> bool {
 }
 
 /// Check if a type is a callback wrapper and return its typedef name
-/// For types like LayoutCallback, IFrameCallback, etc. that have a `cb` field
+/// For types like LayoutCallback, VirtualizedViewCallback, etc. that have a `cb` field
 /// with a CallbackType typedef
 pub fn get_callback_typedef_name(type_name: &str, ir: &CodegenIR) -> Option<String> {
     ir.find_struct(type_name)

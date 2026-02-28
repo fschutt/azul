@@ -23,7 +23,7 @@ pub use crate::callbacks::{
     CoreImageCallback, CoreRenderImageCallback, CoreRenderImageCallbackType,
 };
 use crate::{
-    callbacks::IFrameCallback,
+    callbacks::VirtualizedViewCallback,
     dom::{DomId, NodeData, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gl::{OptionGlContextPtr, Texture},
@@ -2552,7 +2552,7 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
 ///
 /// Deleting fonts can only be done after the entire frame has finished drawing,
 /// otherwise (if removing fonts would happen after every DOM) we'd constantly
-/// add-and-remove fonts after every IFrameCallback, which would cause a lot of
+/// add-and-remove fonts after every VirtualizedViewCallback, which would cause a lot of
 /// I/O waiting.
 pub fn build_add_font_resource_updates(
     renderer_resources: &mut RendererResources,
@@ -2722,7 +2722,7 @@ pub fn build_add_font_resource_updates(
 ///
 /// Deleting images can only be done after the entire frame has finished drawing,
 /// otherwise (if removing images would happen after every DOM) we'd constantly
-/// add-and-remove images after every IFrameCallback, which would cause a lot of
+/// add-and-remove images after every VirtualizedViewCallback, which would cause a lot of
 /// I/O waiting.
 #[allow(unused_variables)]
 pub fn build_add_image_resource_updates(
