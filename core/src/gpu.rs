@@ -18,7 +18,8 @@
 //! The cache is synchronized with the `StyledDom` on each frame, generating minimal
 //! update events to send to the GPU.
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::vec::Vec;
+use std::collections::HashMap;
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
@@ -49,27 +50,27 @@ use crate::{
 /// * `scrollbar_h_opacity_keys` - Maps (DomId, NodeId) to horizontal scrollbar opacity keys
 /// * `scrollbar_v_opacity_values` - Current vertical scrollbar opacity values
 /// * `scrollbar_h_opacity_values` - Current horizontal scrollbar opacity values
-#[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Debug, Clone)]
 pub struct GpuValueCache {
     /// Vertical scrollbar thumb transform keys (keyed by scrollable node ID)
-    pub transform_keys: BTreeMap<NodeId, TransformKey>,
+    pub transform_keys: HashMap<NodeId, TransformKey>,
     /// Current vertical scrollbar thumb transform values
-    pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
+    pub current_transform_values: HashMap<NodeId, ComputedTransform3D>,
     /// Horizontal scrollbar thumb transform keys (keyed by scrollable node ID)
-    pub h_transform_keys: BTreeMap<NodeId, TransformKey>,
+    pub h_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current horizontal scrollbar thumb transform values
-    pub h_current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
+    pub h_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
     /// CSS transform keys (keyed by node ID) — for CSS `transform` property animation.
     /// Separate from scrollbar transform keys to avoid SpatialTreeItemKey collisions.
-    pub css_transform_keys: BTreeMap<NodeId, TransformKey>,
+    pub css_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current CSS transform values (keyed by node ID)
-    pub css_current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
-    pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
-    pub current_opacity_values: BTreeMap<NodeId, f32>,
-    pub scrollbar_v_opacity_keys: BTreeMap<(DomId, NodeId), OpacityKey>,
-    pub scrollbar_h_opacity_keys: BTreeMap<(DomId, NodeId), OpacityKey>,
-    pub scrollbar_v_opacity_values: BTreeMap<(DomId, NodeId), f32>,
-    pub scrollbar_h_opacity_values: BTreeMap<(DomId, NodeId), f32>,
+    pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub opacity_keys: HashMap<NodeId, OpacityKey>,
+    pub current_opacity_values: HashMap<NodeId, f32>,
+    pub scrollbar_v_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
+    pub scrollbar_h_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
+    pub scrollbar_v_opacity_values: HashMap<(DomId, NodeId), f32>,
+    pub scrollbar_h_opacity_values: HashMap<(DomId, NodeId), f32>,
 }
 
 /// Represents a change to a GPU transform key.
