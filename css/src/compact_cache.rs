@@ -6,7 +6,9 @@
 //! - **Tier 1**: `Vec<u64>` — ALL 21 enum properties bitpacked (8 B/node)
 //! - **Tier 2**: `Vec<CompactNodeProps>` — numeric dimensions + border colors/styles (96 B/node)
 //! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (24 B/node)
-//! - **Tier 3**: `Vec<Option<Box<CompactOverflowProps>>>` — rare/complex (8 B/node)
+//!
+//! Non-compact properties (background, box-shadow, transform, etc.) are
+//! resolved via the slow cascade path in `CssPropertyCache::get_property_slow()`.
 
 use crate::props::basic::length::{FloatValue, SizeMetric};
 use crate::props::basic::pixel::PixelValue;
@@ -1147,9 +1149,6 @@ impl Default for CompactTextProps {
 /// - Have calc() expressions
 /// - Exceed the numeric range of compact encoding
 /// - Are rare CSS properties (grid, transforms, etc.)
-/// Sorted by `CssPropertyType` for binary-search lookup.
-pub type CompactOverflowProps = Vec<(CssPropertyType, CssProperty)>;
-
 // =============================================================================
 // CompactLayoutCache — the top-level container
 // =============================================================================
@@ -1158,6 +1157,9 @@ pub type CompactOverflowProps = Vec<(CssPropertyType, CssProperty)>;
 ///
 /// Allocated once per restyle, indexed by node index (same as NodeId).
 /// Provides O(1) array-indexed access to all layout properties.
+///
+/// Non-compact properties (background, box-shadow, transform, etc.) are
+/// resolved via the slow cascade path in `CssPropertyCache::get_property_slow()`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompactLayoutCache {
     /// Tier 1: ALL enum properties bitpacked into u64 per node (8 B/node)
@@ -1166,8 +1168,6 @@ pub struct CompactLayoutCache {
     pub tier2_dims: Vec<CompactNodeProps>,
     /// Tier 2b: Text/IFC properties per node (24 B/node)
     pub tier2b_text: Vec<CompactTextProps>,
-    /// Tier 3: Overflow map for rare/complex properties (8 B/node, usually None)
-    pub tier3_overflow: Vec<Option<Box<CompactOverflowProps>>>,
 }
 
 impl CompactLayoutCache {
@@ -1177,7 +1177,6 @@ impl CompactLayoutCache {
             tier1_enums: Vec::new(),
             tier2_dims: Vec::new(),
             tier2b_text: Vec::new(),
-            tier3_overflow: Vec::new(),
         }
     }
 
@@ -1187,7 +1186,6 @@ impl CompactLayoutCache {
             tier1_enums: vec![0u64; node_count],
             tier2_dims: vec![CompactNodeProps::default(); node_count],
             tier2b_text: vec![CompactTextProps::default(); node_count],
-            tier3_overflow: vec![None; node_count],
         }
     }
 
@@ -1634,42 +1632,6 @@ impl CompactLayoutCache {
         decode_resolved_px_i16(self.tier2b_text[node_idx].text_indent)
     }
 
-    // -- Tier 3 access --
-
-    /// Get overflow properties for a node (usually None).
-    #[inline]
-    pub fn get_overflow_prop(&self, node_idx: usize, prop: &CssPropertyType) -> Option<&CssProperty> {
-        self.tier3_overflow
-            .get(node_idx)
-            .and_then(|opt| opt.as_ref())
-            .and_then(|v| {
-                v.binary_search_by_key(prop, |(t, _)| *t)
-                    .ok()
-                    .map(|i| &v[i].1)
-            })
-    }
-
-    /// Insert a property into the Tier 3 overflow for a node.
-    pub fn set_overflow_prop(&mut self, node_idx: usize, prop: CssPropertyType, value: CssProperty) {
-        if let Some(slot) = self.tier3_overflow.get_mut(node_idx) {
-            let v = slot.get_or_insert_with(|| Box::new(Vec::new()));
-            match v.binary_search_by_key(&prop, |(t, _)| *t) {
-                Ok(i) => v[i].1 = value,
-                Err(i) => v.insert(i, (prop, value)),
-            }
-        }
-    }
-
-    /// Set the entire tier3 overflow entry for a node (replacing any existing).
-    pub fn set_overflow_props(&mut self, node_idx: usize, props: Vec<(CssPropertyType, CssProperty)>) {
-        if let Some(slot) = self.tier3_overflow.get_mut(node_idx) {
-            if props.is_empty() {
-                *slot = None;
-            } else {
-                *slot = Some(Box::new(props));
-            }
-        }
-    }
 }
 
 // =============================================================================

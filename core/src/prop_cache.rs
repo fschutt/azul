@@ -329,12 +329,9 @@ pub struct CssPropertyCache {
     // Pre-resolved inherited properties (sorted Vec per node, keyed by CssPropertyType)
     pub computed_values: Vec<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
 
-    // Pre-resolved property cache: Vec indexed by node ID, inner Vec sorted by CssPropertyType.
-    // NOTE: This is now stored inside compact_cache.tier3_overflow instead of as a separate field.
-    // pub resolved_cache: Vec<Vec<(CssPropertyType, CssProperty)>>,
-
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
     // Built once after restyle + apply_ua_css + compute_inherited_values.
+    // Non-compact properties (background, shadow, transform) use get_property_slow().
     pub compact_cache: Option<azul_css::compact_cache::CompactLayoutCache>,
 }
 
@@ -1349,17 +1346,14 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&CssProperty> {
-        // Fast path: use compact cache tier3_overflow (stores ALL resolved properties)
-        if let Some(compact) = &self.compact_cache {
-            return compact.get_overflow_prop(node_id.index(), css_property_type);
-        }
-
-        // Slow path: full cascade resolution (before compact cache is built)
+        // Always use full cascade resolution.
+        // Tier 1/2/2b handle layout-hot properties via direct typed getters.
+        // This path is only used for paint-time reads (background, shadow, etc.)
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
-    /// Full cascade resolution without using the resolved cache.
-    /// Used internally by build_resolved_cache() and as fallback when cache is not built.
+    /// Full cascade resolution for any CSS property type.
+    /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
     pub(crate) fn get_property_slow<'a>(
         &'a self,
@@ -4634,204 +4628,6 @@ struct InheritanceContext {
 }
 
 impl CssPropertyCache {
-
-    /// Property types that may have User-Agent CSS defaults.
-    /// Used by build_resolved_cache to ensure UA CSS properties are included.
-    const UA_PROPERTY_TYPES: &'static [CssPropertyType] = &[
-        CssPropertyType::Display,
-        CssPropertyType::Width,
-        CssPropertyType::Height,
-        CssPropertyType::FontSize,
-        CssPropertyType::FontWeight,
-        CssPropertyType::FontFamily,
-        CssPropertyType::MarginTop,
-        CssPropertyType::MarginBottom,
-        CssPropertyType::MarginLeft,
-        CssPropertyType::MarginRight,
-        CssPropertyType::PaddingTop,
-        CssPropertyType::PaddingBottom,
-        CssPropertyType::PaddingLeft,
-        CssPropertyType::PaddingRight,
-        CssPropertyType::BreakInside,
-        CssPropertyType::BreakBefore,
-        CssPropertyType::BreakAfter,
-        CssPropertyType::BorderCollapse,
-        CssPropertyType::BorderSpacing,
-        CssPropertyType::TextAlign,
-        CssPropertyType::VerticalAlign,
-        CssPropertyType::ListStyleType,
-        CssPropertyType::ListStylePosition,
-    ];
-
-    /// Build a pre-resolved cache of all CSS properties for every node.
-    ///
-    /// After calling restyle(), apply_ua_css(), and compute_inherited_values(),
-    /// call this to pre-resolve the CSS cascade for all nodes. This builds a flat
-    /// Vec<Vec<(CssPropertyType, CssProperty)>> where:
-    /// - Outer Vec is indexed by node ID (O(1) access)
-    /// - Inner Vec is sorted by CssPropertyType (O(log m) binary search, m ≈ 5-10)
-    ///
-    /// This replaces 18+ BTreeMap lookups per get_property() call with
-    /// a single Vec index + binary search, typically a 5-10x speedup.
-    ///
-    /// The returned cache is used to populate compact_cache.tier3_overflow.
-    pub fn build_resolved_cache(
-        &self,
-        node_data: &[NodeData],
-        styled_nodes: &[crate::styled_dom::StyledNode],
-    ) -> Vec<Vec<(CssPropertyType, CssProperty)>> {
-        use alloc::collections::BTreeSet;
-        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-
-        let node_count = node_data.len();
-        let mut resolved = Vec::with_capacity(node_count);
-
-        for node_index in 0..node_count {
-            let node_id = NodeId::new(node_index);
-            let nd = &node_data[node_index];
-            let node_state = &styled_nodes[node_index].styled_node_state;
-
-            // Collect all property types that might be set for this node.
-            // BTreeSet<CssPropertyType> is cheap (u8-sized keys, small set per node).
-            let mut prop_types = BTreeSet::new();
-
-            if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
-                prop_types.extend(v.iter().map(|(k, _)| *k));
-            }
-            for css_prop in nd.css_props.iter() {
-                let conditions = css_prop.apply_if.as_slice();
-                let matches = if conditions.is_empty() {
-                    true
-                } else {
-                    conditions.iter().all(|c| match c {
-                        DynamicSelector::PseudoState(PseudoStateType::Hover) => node_state.hover,
-                        DynamicSelector::PseudoState(PseudoStateType::Active) => node_state.active,
-                        DynamicSelector::PseudoState(PseudoStateType::Focus) => node_state.focused,
-                        DynamicSelector::PseudoState(PseudoStateType::Dragging) => node_state.dragging,
-                        DynamicSelector::PseudoState(PseudoStateType::DragOver) => node_state.drag_over,
-                        _ => false,
-                    })
-                };
-                if matches {
-                    prop_types.insert(css_prop.property.get_type());
-                }
-            }
-            if let Some(v) = self.css_props.get(node_id.index()) {
-                for p in v.iter() {
-                    let state_active = match p.state {
-                        PseudoStateType::Normal => true,
-                        PseudoStateType::Hover => node_state.hover,
-                        PseudoStateType::Active => node_state.active,
-                        PseudoStateType::Focus => node_state.focused,
-                        PseudoStateType::Dragging => node_state.dragging,
-                        PseudoStateType::DragOver => node_state.drag_over,
-                        _ => false,
-                    };
-                    if state_active {
-                        prop_types.insert(p.prop_type);
-                    }
-                }
-            }
-            if let Some(v) = self.cascaded_props.get(node_id.index()) {
-                for p in v.iter() {
-                    let state_active = match p.state {
-                        PseudoStateType::Normal => true,
-                        PseudoStateType::Hover => node_state.hover,
-                        PseudoStateType::Active => node_state.active,
-                        PseudoStateType::Focus => node_state.focused,
-                        PseudoStateType::Dragging => node_state.dragging,
-                        PseudoStateType::DragOver => node_state.drag_over,
-                        _ => false,
-                    };
-                    if state_active {
-                        prop_types.insert(p.prop_type);
-                    }
-                }
-            }
-            // UA CSS
-            for pt in Self::UA_PROPERTY_TYPES {
-                if crate::ua_css::get_ua_property(&nd.node_type, *pt).is_some() {
-                    prop_types.insert(*pt);
-                }
-            }
-
-            // Resolve each property through the cascade. get_property_slow
-            // returns a reference; we only clone the winning value per type.
-            let mut props: Vec<(CssPropertyType, CssProperty)> =
-                Vec::with_capacity(prop_types.len());
-            for prop_type in &prop_types {
-                if let Some(prop) = self.get_property_slow(nd, &node_id, node_state, prop_type) {
-                    props.push((*prop_type, prop.clone()));
-                }
-            }
-            // Props are already sorted because BTreeSet iterates in Ord order.
-            resolved.push(props);
-        }
-
-        resolved
-    }
-
-    /// Invalidate the resolved cache for a single node.
-    /// Call this when a node's state changes (e.g., hover on/off) or
-    /// when a property is overridden dynamically.
-    /// Rebuilds the compact cache tier3_overflow entry for a single node.
-    pub fn invalidate_resolved_node(
-        &mut self,
-        node_id: NodeId,
-        node_data: &NodeData,
-        styled_node: &crate::styled_dom::StyledNode,
-    ) {
-        let idx = node_id.index();
-
-        // Check that compact_cache exists and has this node
-        match &self.compact_cache {
-            Some(c) if idx < c.node_count() => {},
-            _ => return,
-        }
-
-        let node_state = &styled_node.styled_node_state;
-
-        // Build the resolved properties using shared reference (&self via get_property_slow)
-        let mut prop_types = alloc::collections::BTreeSet::new();
-
-        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
-            prop_types.extend(v.iter().map(|(k, _)| *k));
-        }
-        for css_prop in node_data.css_props.iter() {
-            prop_types.insert(css_prop.property.get_type());
-        }
-        if let Some(v) = self.css_props.get(node_id.index()) {
-            for p in v.iter() {
-                prop_types.insert(p.prop_type);
-            }
-        }
-        if let Some(v) = self.cascaded_props.get(node_id.index()) {
-            for p in v.iter() {
-                prop_types.insert(p.prop_type);
-            }
-        }
-        if let Some(map) = self.computed_values.get(node_id.index()) {
-            prop_types.extend(map.iter().map(|(k, _)| *k));
-        }
-        for pt in Self::UA_PROPERTY_TYPES {
-            if crate::ua_css::get_ua_property(&node_data.node_type, *pt).is_some() {
-                prop_types.insert(*pt);
-            }
-        }
-
-        // Resolve all properties first (immutable borrow of self)
-        let mut props = Vec::with_capacity(prop_types.len());
-        for prop_type in &prop_types {
-            if let Some(prop) = self.get_property_slow(node_data, &node_id, node_state, prop_type) {
-                props.push((*prop_type, prop.clone()));
-            }
-        }
-
-        // Now mutably borrow compact_cache to update it
-        if let Some(compact) = &mut self.compact_cache {
-            compact.set_overflow_props(idx, props);
-        }
-    }
 
     /// Clear the entire compact cache. Call after major DOM changes.
     pub fn invalidate_resolved_cache(&mut self) {

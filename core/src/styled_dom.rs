@@ -911,25 +911,17 @@ impl StyledDom {
         );
         let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
 
-        // Build pre-resolved property cache (temporary, consumed by compact cache builder).
-        let t_resolved = std::time::Instant::now();
-        let resolved_props = css_property_cache.build_resolved_cache(
-            compact_dom.node_data.as_ref().internal,
-            &styled_nodes,
-        );
-        let resolved_ms = t_resolved.elapsed().as_secs_f64() * 1000.0;
-
-        // Build compact layout cache (includes tier3_overflow with all resolved properties)
+        // Build compact layout cache (tier1/2/2b for layout-hot properties)
+        // Non-compact properties use the slow cascade path via get_property_slow()
         let t_compact = std::time::Instant::now();
         let compact = css_property_cache.build_compact_cache(
             compact_dom.node_data.as_ref().internal,
-            resolved_props,
         );
         css_property_cache.compact_cache = Some(compact);
         let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, resolved_ms, compact_ms, total_ms);
+        let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, compact_ms, total_ms);
 
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
