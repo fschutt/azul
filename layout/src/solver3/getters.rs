@@ -3356,32 +3356,38 @@ pub fn get_scrollbar_style(
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
     let mut result = ComputedScrollbarStyle::from_ua_resolved(&ua);
 
-    // Step 2: Check for -azul-scrollbar-style (full customization)
-    if let Some(scrollbar_style) = styled_dom
+    // Step 2: Check individual scrollbar part backgrounds
+    if let Some(track) = styled_dom
         .css_property_cache
         .ptr
-        .get_scrollbar_style(node_data, &node_id, node_state)
+        .get_scrollbar_track(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        let w = match scrollbar_style.horizontal.width {
-            azul_css::props::layout::dimensions::LayoutWidth::Px(px) => {
-                px.to_pixels_internal(
-                    crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-                    crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-                )
-            }
-            _ => crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-        };
-        result.visual_width_px = w;
-        // reserve_width_px follows visual unless overlay
-        if result.visibility != ScrollbarVisibilityMode::WhenScrolling {
-            result.reserve_width_px = w;
-        }
-        result.thumb_color = extract_color_from_background(&scrollbar_style.horizontal.thumb);
-        result.track_color = extract_color_from_background(&scrollbar_style.horizontal.track);
-        result.button_color = extract_color_from_background(&scrollbar_style.horizontal.button);
-        result.corner_color = extract_color_from_background(&scrollbar_style.horizontal.corner);
-        result.clip_to_container_border = scrollbar_style.horizontal.clip_to_container_border;
+        result.track_color = extract_color_from_background(track);
+    }
+    if let Some(thumb) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_thumb(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+    {
+        result.thumb_color = extract_color_from_background(thumb);
+    }
+    if let Some(button) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_button(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+    {
+        result.button_color = extract_color_from_background(button);
+    }
+    if let Some(corner) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_corner(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+    {
+        result.corner_color = extract_color_from_background(corner);
     }
 
     // Step 3: Check for scrollbar-width (overrides width only, not overlay)

@@ -72,7 +72,7 @@ use azul_css::{
             LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
             LayoutTableLayoutValue, LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue,
             LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, PageBreakValue,
-            ScrollbarStyleValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
+            StyleBackgroundContentValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
             ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
             ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
@@ -229,7 +229,11 @@ macro_rules! match_property_value {
             CssProperty::ColumnGap($value) => $expr,
             CssProperty::RowGap($value) => $expr,
             CssProperty::Clear($value) => $expr,
-            CssProperty::ScrollbarStyle($value) => $expr,
+            CssProperty::ScrollbarTrack($value) => $expr,
+            CssProperty::ScrollbarThumb($value) => $expr,
+            CssProperty::ScrollbarButton($value) => $expr,
+            CssProperty::ScrollbarCorner($value) => $expr,
+            CssProperty::ScrollbarResizer($value) => $expr,
             CssProperty::ScrollbarWidth($value) => $expr,
             CssProperty::ScrollbarColor($value) => $expr,
             CssProperty::ListStyleType($value) => $expr,
@@ -2302,15 +2306,59 @@ impl CssPropertyCache {
             .and_then(|p| p.as_clip_path())
     }
 
-    // Method for getting scrollbar-style property
-    pub fn get_scrollbar_style<'a>(
+    // Method for getting scrollbar track background
+    pub fn get_scrollbar_track<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
         node_state: &StyledNodeState,
-    ) -> Option<&'a ScrollbarStyleValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Scrollbar)
-            .and_then(|p| p.as_scrollbar())
+    ) -> Option<&'a StyleBackgroundContentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarTrack)
+            .and_then(|p| p.as_scrollbar_track())
+    }
+
+    // Method for getting scrollbar thumb background
+    pub fn get_scrollbar_thumb<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleBackgroundContentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarThumb)
+            .and_then(|p| p.as_scrollbar_thumb())
+    }
+
+    // Method for getting scrollbar button background
+    pub fn get_scrollbar_button<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleBackgroundContentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarButton)
+            .and_then(|p| p.as_scrollbar_button())
+    }
+
+    // Method for getting scrollbar corner background
+    pub fn get_scrollbar_corner<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleBackgroundContentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarCorner)
+            .and_then(|p| p.as_scrollbar_corner())
+    }
+
+    // Method for getting scrollbar resizer background
+    pub fn get_scrollbar_resizer<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleBackgroundContentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarResizer)
+            .and_then(|p| p.as_scrollbar_resizer())
     }
 
     // Method for getting scrollbar-width property

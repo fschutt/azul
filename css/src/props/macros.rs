@@ -492,7 +492,21 @@ macro_rules! css_property_from_type {
             CssPropertyType::BoxShadowBottom => {
                 CssProperty::BoxShadowBottom(CssPropertyValue::$content_type)
             }
-            CssPropertyType::Scrollbar => CssProperty::Scrollbar(CssPropertyValue::$content_type),
+            CssPropertyType::ScrollbarTrack => {
+                CssProperty::ScrollbarTrack(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarThumb => {
+                CssProperty::ScrollbarThumb(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarButton => {
+                CssProperty::ScrollbarButton(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarCorner => {
+                CssProperty::ScrollbarCorner(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarResizer => {
+                CssProperty::ScrollbarResizer(CssPropertyValue::$content_type)
+            }
             CssPropertyType::ScrollbarWidth => {
                 CssProperty::ScrollbarWidth(CssPropertyValue::$content_type)
             }

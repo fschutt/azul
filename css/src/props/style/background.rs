@@ -129,6 +129,14 @@ impl PrintAsCssValue for StyleBackgroundContent {
 }
 
 // Formatting to Rust code for background-related vecs
+
+impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundContent {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        // Delegate to the CSS value representation for single backgrounds
+        format!("StyleBackgroundContent::from_css(\"{}\")", self.print_as_css_value())
+    }
+}
+
 impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundSizeVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

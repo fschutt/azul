@@ -72,7 +72,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 153] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 157] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -186,7 +186,11 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 153] = [
     (CssPropertyType::BoxShadowRight, "-azul-box-shadow-right"),
     (CssPropertyType::BoxShadowLeft, "-azul-box-shadow-left"),
     (CssPropertyType::BoxShadowBottom, "-azul-box-shadow-bottom"),
-    (CssPropertyType::Scrollbar, "-azul-scrollbar-style"),
+    (CssPropertyType::ScrollbarTrack, "-azul-scrollbar-track"),
+    (CssPropertyType::ScrollbarThumb, "-azul-scrollbar-thumb"),
+    (CssPropertyType::ScrollbarButton, "-azul-scrollbar-button"),
+    (CssPropertyType::ScrollbarCorner, "-azul-scrollbar-corner"),
+    (CssPropertyType::ScrollbarResizer, "-azul-scrollbar-resizer"),
     (CssPropertyType::CaretColor, "caret-color"),
     (
         CssPropertyType::CaretAnimationDuration,
@@ -307,7 +311,7 @@ pub type StylePerspectiveOriginValue = CssPropertyValue<StylePerspectiveOrigin>;
 pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility>;
 pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
-pub type ScrollbarStyleValue = CssPropertyValue<ScrollbarStyle>;
+pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
 pub type LayoutScrollbarWidthValue = CssPropertyValue<LayoutScrollbarWidth>;
 pub type StyleScrollbarColorValue = CssPropertyValue<StyleScrollbarColor>;
 pub type ScrollbarVisibilityModeValue = CssPropertyValue<ScrollbarVisibilityMode>;
@@ -612,7 +616,11 @@ pub enum CssProperty {
     BoxShadowRight(StyleBoxShadowValue),
     BoxShadowTop(StyleBoxShadowValue),
     BoxShadowBottom(StyleBoxShadowValue),
-    Scrollbar(ScrollbarStyleValue),
+    ScrollbarTrack(StyleBackgroundContentValue),
+    ScrollbarThumb(StyleBackgroundContentValue),
+    ScrollbarButton(StyleBackgroundContentValue),
+    ScrollbarCorner(StyleBackgroundContentValue),
+    ScrollbarResizer(StyleBackgroundContentValue),
     ScrollbarWidth(LayoutScrollbarWidthValue),
     ScrollbarColor(StyleScrollbarColorValue),
     ScrollbarVisibility(ScrollbarVisibilityModeValue),
@@ -836,7 +844,11 @@ pub enum CssPropertyType {
     BoxShadowRight,
     BoxShadowTop,
     BoxShadowBottom,
-    Scrollbar,
+    ScrollbarTrack,
+    ScrollbarThumb,
+    ScrollbarButton,
+    ScrollbarCorner,
+    ScrollbarResizer,
     ScrollbarWidth,
     ScrollbarColor,
     ScrollbarVisibility,
@@ -1026,7 +1038,11 @@ impl CssPropertyType {
             CssPropertyType::BoxShadowRight => "-azul-box-shadow-right",
             CssPropertyType::BoxShadowTop => "-azul-box-shadow-top",
             CssPropertyType::BoxShadowBottom => "-azul-box-shadow-bottom",
-            CssPropertyType::Scrollbar => "-azul-scrollbar-style",
+            CssPropertyType::ScrollbarTrack => "-azul-scrollbar-track",
+            CssPropertyType::ScrollbarThumb => "-azul-scrollbar-thumb",
+            CssPropertyType::ScrollbarButton => "-azul-scrollbar-button",
+            CssPropertyType::ScrollbarCorner => "-azul-scrollbar-corner",
+            CssPropertyType::ScrollbarResizer => "-azul-scrollbar-resizer",
             CssPropertyType::ScrollbarWidth => "scrollbar-width",
             CssPropertyType::ScrollbarColor => "scrollbar-color",
             CssPropertyType::ScrollbarVisibility => "-azul-scrollbar-visibility",
@@ -1171,7 +1187,11 @@ impl CssPropertyType {
             | BoxShadowTop
             | BoxShadowBottom
             | BoxDecorationBreak
-            | Scrollbar
+            | ScrollbarTrack
+            | ScrollbarThumb
+            | ScrollbarButton
+            | ScrollbarCorner
+            | ScrollbarResizer
             | Opacity
             | Transform
             | TransformOrigin
@@ -1217,7 +1237,9 @@ impl CssPropertyType {
             | BorderLeftStyle | BorderBottomStyle | BorderTopLeftRadius
             | BorderTopRightRadius | BorderBottomLeftRadius | BorderBottomRightRadius
             | ColumnRuleColor | ColumnRuleStyle | BoxShadowLeft | BoxShadowRight
-            | BoxShadowTop | BoxShadowBottom | BoxDecorationBreak | Scrollbar
+            | BoxShadowTop | BoxShadowBottom | BoxDecorationBreak
+            | ScrollbarTrack | ScrollbarThumb | ScrollbarButton
+            | ScrollbarCorner | ScrollbarResizer
             | Opacity | Transform | TransformOrigin | PerspectiveOrigin
             | BackfaceVisibility | MixBlendMode | Filter | BackdropFilter
             | TextShadow | SelectionBackgroundColor | SelectionColor
@@ -1286,7 +1308,6 @@ pub enum CssParsingError<'a> {
     BackgroundPosition(CssBackgroundPositionParseError<'a>),
     Opacity(OpacityParseError<'a>),
     Visibility(StyleVisibilityParseError<'a>),
-    Scrollbar(CssScrollbarStyleParseError<'a>),
     LayoutScrollbarWidth(LayoutScrollbarWidthParseError<'a>),
     StyleScrollbarColor(StyleScrollbarColorParseError<'a>),
     ScrollbarVisibilityMode(ScrollbarVisibilityModeParseError<'a>),
@@ -1439,7 +1460,6 @@ pub enum CssParsingErrorOwned {
     BackgroundPosition(CssBackgroundPositionParseErrorOwned),
     Opacity(OpacityParseErrorOwned),
     Visibility(StyleVisibilityParseErrorOwned),
-    Scrollbar(CssScrollbarStyleParseErrorOwned),
     LayoutScrollbarWidth(LayoutScrollbarWidthParseErrorOwned),
     StyleScrollbarColor(StyleScrollbarColorParseErrorOwned),
     ScrollbarVisibilityMode(ScrollbarVisibilityModeParseErrorOwned),
@@ -1595,7 +1615,6 @@ impl_display! { CssParsingError<'a>, {
     BackgroundPosition(e) => format!("Invalid background-position: {}", e),
     Opacity(e) => format!("Invalid opacity value: {}", e),
     Visibility(e) => format!("Invalid visibility value: {}", e),
-    Scrollbar(e) => format!("Invalid scrollbar style: {}", e),
     LayoutScrollbarWidth(e) => format!("Invalid scrollbar-width: {}", e),
     StyleScrollbarColor(e) => format!("Invalid scrollbar-color: {}", e),
     ScrollbarVisibilityMode(e) => format!("Invalid scrollbar-visibility: {}", e),
@@ -1747,7 +1766,6 @@ impl_from!(
 );
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
 impl_from!(StyleVisibilityParseError<'a>, CssParsingError::Visibility);
-impl_from!(CssScrollbarStyleParseError<'a>, CssParsingError::Scrollbar);
 impl_from!(
     LayoutScrollbarWidthParseError<'a>,
     CssParsingError::LayoutScrollbarWidth
@@ -2010,7 +2028,6 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::AlignSelf(e) => CssParsingErrorOwned::AlignSelf(e.to_contained()),
             CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
             CssParsingError::Visibility(e) => CssParsingErrorOwned::Visibility(e.to_contained()),
-            CssParsingError::Scrollbar(e) => CssParsingErrorOwned::Scrollbar(e.to_contained()),
             CssParsingError::LayoutScrollbarWidth(e) => {
                 CssParsingErrorOwned::LayoutScrollbarWidth(e.to_contained())
             }
@@ -2222,7 +2239,6 @@ impl CssParsingErrorOwned {
             }
             CssParsingErrorOwned::Opacity(e) => CssParsingError::Opacity(e.to_shared()),
             CssParsingErrorOwned::Visibility(e) => CssParsingError::Visibility(e.to_shared()),
-            CssParsingErrorOwned::Scrollbar(e) => CssParsingError::Scrollbar(e.to_shared()),
             CssParsingErrorOwned::LayoutScrollbarWidth(e) => {
                 CssParsingError::LayoutScrollbarWidth(e.to_shared())
             }
@@ -2607,7 +2623,11 @@ pub fn parse_css_property<'a>(
                 CssProperty::BoxShadowBottom(parse_style_box_shadow(value)?.into())
             }
 
-            CssPropertyType::Scrollbar => parse_scrollbar_style(value)?.into(),
+            CssPropertyType::ScrollbarTrack => CssProperty::ScrollbarTrack(parse_style_background_content(value)?.into()),
+            CssPropertyType::ScrollbarThumb => CssProperty::ScrollbarThumb(parse_style_background_content(value)?.into()),
+            CssPropertyType::ScrollbarButton => CssProperty::ScrollbarButton(parse_style_background_content(value)?.into()),
+            CssPropertyType::ScrollbarCorner => CssProperty::ScrollbarCorner(parse_style_background_content(value)?.into()),
+            CssPropertyType::ScrollbarResizer => CssProperty::ScrollbarResizer(parse_style_background_content(value)?.into()),
             CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
             CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
             CssPropertyType::ScrollbarVisibility => parse_scrollbar_visibility_mode(value)?.into(),
@@ -3560,7 +3580,6 @@ impl_from_css_prop!(LayoutBorderTopWidth, CssProperty::BorderTopWidth);
 impl_from_css_prop!(LayoutBorderRightWidth, CssProperty::BorderRightWidth);
 impl_from_css_prop!(LayoutBorderLeftWidth, CssProperty::BorderLeftWidth);
 impl_from_css_prop!(LayoutBorderBottomWidth, CssProperty::BorderBottomWidth);
-impl_from_css_prop!(ScrollbarStyle, CssProperty::Scrollbar);
 impl_from_css_prop!(LayoutScrollbarWidth, CssProperty::ScrollbarWidth);
 impl_from_css_prop!(StyleScrollbarColor, CssProperty::ScrollbarColor);
 impl_from_css_prop!(ScrollbarVisibilityMode, CssProperty::ScrollbarVisibility);
@@ -3715,7 +3734,11 @@ impl CssProperty {
             CssProperty::BoxShadowRight(v) => v.get_css_value_fmt(),
             CssProperty::BoxShadowTop(v) => v.get_css_value_fmt(),
             CssProperty::BoxShadowBottom(v) => v.get_css_value_fmt(),
-            CssProperty::Scrollbar(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarTrack(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarThumb(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarButton(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarCorner(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarResizer(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarWidth(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarColor(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarVisibility(v) => v.get_css_value_fmt(),
@@ -4166,7 +4189,11 @@ impl CssProperty {
             CssProperty::BoxShadowRight(_) => CssPropertyType::BoxShadowRight,
             CssProperty::BoxShadowTop(_) => CssPropertyType::BoxShadowTop,
             CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
-            CssProperty::Scrollbar(_) => CssPropertyType::Scrollbar,
+            CssProperty::ScrollbarTrack(_) => CssPropertyType::ScrollbarTrack,
+            CssProperty::ScrollbarThumb(_) => CssPropertyType::ScrollbarThumb,
+            CssProperty::ScrollbarButton(_) => CssPropertyType::ScrollbarButton,
+            CssProperty::ScrollbarCorner(_) => CssPropertyType::ScrollbarCorner,
+            CssProperty::ScrollbarResizer(_) => CssPropertyType::ScrollbarResizer,
             CssProperty::ScrollbarWidth(_) => CssPropertyType::ScrollbarWidth,
             CssProperty::ScrollbarColor(_) => CssPropertyType::ScrollbarColor,
             CssProperty::ScrollbarVisibility(_) => CssPropertyType::ScrollbarVisibility,
@@ -4692,9 +4719,37 @@ impl CssProperty {
         }
     }
 
-    pub const fn as_scrollbar(&self) -> Option<&ScrollbarStyleValue> {
+    pub const fn as_scrollbar_track(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
-            CssProperty::Scrollbar(f) => Some(f),
+            CssProperty::ScrollbarTrack(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_thumb(&self) -> Option<&StyleBackgroundContentValue> {
+        match self {
+            CssProperty::ScrollbarThumb(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_button(&self) -> Option<&StyleBackgroundContentValue> {
+        match self {
+            CssProperty::ScrollbarButton(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_corner(&self) -> Option<&StyleBackgroundContentValue> {
+        match self {
+            CssProperty::ScrollbarCorner(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_resizer(&self) -> Option<&StyleBackgroundContentValue> {
+        match self {
+            CssProperty::ScrollbarResizer(f) => Some(f),
             _ => None,
         }
     }
@@ -5649,7 +5704,11 @@ impl CssProperty {
             BoxShadowRight(c) => c.is_initial(),
             BoxShadowTop(c) => c.is_initial(),
             BoxShadowBottom(c) => c.is_initial(),
-            Scrollbar(c) => c.is_initial(),
+            ScrollbarTrack(c) => c.is_initial(),
+            ScrollbarThumb(c) => c.is_initial(),
+            ScrollbarButton(c) => c.is_initial(),
+            ScrollbarCorner(c) => c.is_initial(),
+            ScrollbarResizer(c) => c.is_initial(),
             ScrollbarWidth(c) => c.is_initial(),
             ScrollbarColor(c) => c.is_initial(),
             ScrollbarVisibility(c) => c.is_initial(),
@@ -6382,9 +6441,25 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::ScrollbarFadeDuration({})",
             print_css_property_value(p, tabs, "ScrollbarFadeDuration")
         ),
-        CssProperty::Scrollbar(p) => format!(
-            "CssProperty::Scrollbar({})",
-            print_css_property_value(p, tabs, "Scrollbar")
+        CssProperty::ScrollbarTrack(p) => format!(
+            "CssProperty::ScrollbarTrack({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
+        ),
+        CssProperty::ScrollbarThumb(p) => format!(
+            "CssProperty::ScrollbarThumb({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
+        ),
+        CssProperty::ScrollbarButton(p) => format!(
+            "CssProperty::ScrollbarButton({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
+        ),
+        CssProperty::ScrollbarCorner(p) => format!(
+            "CssProperty::ScrollbarCorner({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
+        ),
+        CssProperty::ScrollbarResizer(p) => format!(
+            "CssProperty::ScrollbarResizer({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
         ),
         CssProperty::Opacity(p) => format!(
             "CssProperty::Opacity({})",

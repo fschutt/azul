@@ -30,7 +30,7 @@ use azul_css::{
             LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
             LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
             LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
-            LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
+            LayoutZIndexValue, OrphansValue, PageBreakValue,
             SelectionBackgroundColorValue, SelectionColorValue, ShapeImageThresholdValue,
             ShapeMarginValue, ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
