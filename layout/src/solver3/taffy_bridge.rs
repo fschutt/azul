@@ -1456,13 +1456,22 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
 
         // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll,
         // compute scrollbar_info by comparing Taffy's content_size against the
-        // CSS-specified container size. We ALWAYS recompute (no is_none() guard)
-        // because Taffy calls compute_child_layout multiple times per node
-        // (sizing pass, then layout pass). The first call often has content_size=(0,0)
-        // which would produce wrong scrollbar_info. The last call has the correct values.
+        // CSS-specified container size.
+        //
+        // We skip when content_size is (0,0) because that's the sizing pass
+        // where Taffy hasn't determined actual content size yet. The final
+        // layout pass always has non-zero content_size for nodes that need
+        // scroll. This avoids 2/3 of the compute_taffy_scrollbar_info calls
+        // (one sizing pass per axis) while still getting correct final values.
         if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
             let taffy_content_width = result.content_size.width;
             let taffy_content_height = result.content_size.height;
+
+            // Skip on sizing pass where content_size is still zero:
+            // scrollbar_info computed from zero content would be wrong anyway.
+            if taffy_content_width <= 0.0 && taffy_content_height <= 0.0 {
+                return result;
+            }
 
             let (scrollbar_info, eff_content_w, eff_content_h) =
                 compute_taffy_scrollbar_info(
