@@ -19,6 +19,8 @@ pub mod debug;
 /// Type definitions for various types of callbacks plus focus and scroll handling
 #[macro_use]
 pub mod callbacks;
+/// Accessibility types: core data definitions and helper functions
+pub mod a11y;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
 /// Unified drag context for text selection, scrollbar, node, and window drags

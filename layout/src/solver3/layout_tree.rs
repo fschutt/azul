@@ -394,7 +394,7 @@ pub struct LayoutNode {
     /// in logical pixels. Cached after first resolution.
     pub box_props: BoxProps,
     /// Cache for Taffy layout computations for this node.
-    pub taffy_cache: TaffyCache, // NEW FIELD
+    pub taffy_cache: TaffyCache,
     /// Multi-field fingerprint of this node's data (style, text, etc.)
     /// for granular change detection during reconciliation.
     pub node_data_fingerprint: NodeDataFingerprint,
@@ -417,6 +417,7 @@ pub struct LayoutNode {
     ///
     /// This field stores both the computed layout AND the constraints (available width,
     /// float state) under which it was computed. This is essential for correctness:
+    /// 
     /// - Table cells are measured multiple times with different widths
     /// - Min-content/max-content intrinsic sizing uses special constraint values
     /// - The final layout must use the actual available width, not a measurement width

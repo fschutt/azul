@@ -216,3 +216,15 @@ json = ["dep:serde_json", "std", "azul-core/serde-json"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip_support", "dep:material-icons"]
+
+[[test]]
+name = "solver3_calc"
+path = "tests/solver3/calc.rs"
+
+[[test]]
+name = "solver3_sizing"
+path = "tests/solver3/sizing.rs"
+
+[[test]]
+name = "managers_scroll_into_view"
+path = "tests/managers/scroll_into_view.rs"

@@ -354,11 +354,11 @@ pub struct LayoutWindow {
     pub undo_redo_manager: crate::managers::undo_redo::UndoRedoManager,
     /// Cached text layout constraints for each node
     /// This allows us to re-layout text with the same constraints after edits
-    text_constraints_cache: TextConstraintsCache,
+    pub text_constraints_cache: TextConstraintsCache,
     /// Tracks which nodes have been edited since last full layout.
     /// Key: (DomId, NodeId of IFC root)
     /// Value: The edited inline content that should be used for relayout
-    dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
+    pub dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
     /// Pending VirtualizedView updates from callbacks (processed in next frame)
     /// Map of DomId -> Set of NodeIds that need re-rendering
     pub pending_virtualized_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,

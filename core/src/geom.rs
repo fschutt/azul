@@ -1,3 +1,6 @@
+// Re-export DragDelta from drag module (moved in code reorganization)
+pub use crate::drag::{DragDelta, OptionDragDelta};
+
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct LogicalRect {
@@ -677,31 +680,5 @@ impl CursorNodePosition {
 impl_option!(
     CursorNodePosition,
     OptionCursorNodePosition,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
-);
-
-/// Drag offset from the cursor position at drag start (logical pixels).
-/// `dx`/`dy` are the delta from drag start to current position.
-#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct DragDelta {
-    pub dx: f32,
-    pub dy: f32,
-}
-
-impl DragDelta {
-    #[inline(always)]
-    pub const fn new(dx: f32, dy: f32) -> Self {
-        Self { dx, dy }
-    }
-    #[inline(always)]
-    pub const fn zero() -> Self {
-        Self::new(0.0, 0.0)
-    }
-}
-
-impl_option!(
-    DragDelta,
-    OptionDragDelta,
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );

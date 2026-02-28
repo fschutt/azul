@@ -389,7 +389,7 @@ fn calculate_scroll_delta(
 }
 
 /// Calculate scroll delta for a single axis
-fn calculate_axis_delta(
+pub fn calculate_axis_delta(
     target_start: f32,
     target_size: f32,
     container_start: f32,
@@ -511,89 +511,4 @@ fn get_node_rect(
     let size = layout_node.used_size?;
     
     Some(LogicalRect::new(position, size))
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_calculate_axis_delta_nearest_visible() {
-        // Target already visible - no scroll needed
-        let delta = calculate_axis_delta(
-            100.0,  // target_start
-            50.0,   // target_size
-            50.0,   // container_start
-            200.0,  // container_size
-            ScrollLogicalPosition::Nearest,
-        );
-        assert_eq!(delta, 0.0);
-    }
-    
-    #[test]
-    fn test_calculate_axis_delta_nearest_above() {
-        // Target above visible area
-        let delta = calculate_axis_delta(
-            20.0,   // target_start (above container)
-            50.0,   // target_size
-            100.0,  // container_start
-            200.0,  // container_size
-            ScrollLogicalPosition::Nearest,
-        );
-        assert_eq!(delta, -80.0); // scroll up by 80
-    }
-    
-    #[test]
-    fn test_calculate_axis_delta_nearest_below() {
-        // Target below visible area
-        let delta = calculate_axis_delta(
-            280.0,  // target_start (past container end)
-            50.0,   // target_size
-            100.0,  // container_start
-            200.0,  // container_size (ends at 300)
-            ScrollLogicalPosition::Nearest,
-        );
-        assert_eq!(delta, 30.0); // scroll down by 30 (target_end=330, container_end=300)
-    }
-    
-    #[test]
-    fn test_calculate_axis_delta_center() {
-        // Center target in container
-        let delta = calculate_axis_delta(
-            50.0,   // target_start
-            20.0,   // target_size (center at 60)
-            100.0,  // container_start
-            200.0,  // container_size (center at 200)
-            ScrollLogicalPosition::Center,
-        );
-        assert_eq!(delta, -140.0); // 60 - 200 = -140
-    }
-    
-    #[test]
-    fn test_calculate_axis_delta_start() {
-        let delta = calculate_axis_delta(
-            150.0,  // target_start
-            50.0,   // target_size
-            100.0,  // container_start
-            200.0,  // container_size
-            ScrollLogicalPosition::Start,
-        );
-        assert_eq!(delta, 50.0); // 150 - 100 = 50
-    }
-    
-    #[test]
-    fn test_calculate_axis_delta_end() {
-        let delta = calculate_axis_delta(
-            150.0,  // target_start
-            50.0,   // target_size (end at 200)
-            100.0,  // container_start
-            200.0,  // container_size (end at 300)
-            ScrollLogicalPosition::End,
-        );
-        assert_eq!(delta, -100.0); // 200 - 300 = -100
-    }
 }

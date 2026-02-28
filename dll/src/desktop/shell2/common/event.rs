@@ -1,7 +1,7 @@
-//! Cross-platform V2 event processing system
+//! Cross-platform event processing system
 //!
 //! This module contains the **complete unified event processing logic** that is shared across all
-//! platforms (macOS, Windows, X11, Wayland). The V2 system uses state-diffing between frames to
+//! platforms (macOS, Windows, X11, Wayland). The system uses state-diffing between frames to
 //! detect events, eliminating platform-specific event handling differences.
 //!
 //! ## Architecture
@@ -446,7 +446,7 @@ fn apply_focus_restyle(
 
     log_debug!(
         super::debug_server::LogCategory::Input,
-        "[Event V2] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}, max_scope={:?}",
+        "[Event] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}, max_scope={:?}",
         restyle_result.needs_layout,
         restyle_result.needs_display_list,
         restyle_result.changed_nodes.len(),
@@ -662,7 +662,7 @@ macro_rules! impl_platform_window_getters {
     };
 }
 
-/// Trait that platform-specific window types must implement to use the unified V2 event system.
+/// Trait that platform-specific window types must implement to use the unified event system.
 ///
 /// This trait provides **default implementations** for all complex cross-platform logic.
 /// Platform implementations only need to implement the simple getter methods (27 methods).
@@ -2608,7 +2608,7 @@ pub trait PlatformWindow {
     /// 4. Invoke callbacks in bubbling order, stopping if stopPropagation() is called
     /// Dispatch events using W3C Capture→Target→Bubble propagation model.
     ///
-    /// This replaces the old `invoke_callbacks_v2()` method with proper W3C event propagation:
+    /// This replaces the old `invoke_callbacks()` method with proper W3C event propagation:
     /// - **HoverEventFilter**: Capture→Target→Bubble through DOM tree via `propagate_event()`
     /// - **FocusEventFilter**: Fires on focused node only (no propagation)
     /// - **WindowEventFilter**: Fires on ALL nodes with matching callback (brute-force)
@@ -3080,7 +3080,7 @@ pub trait PlatformWindow {
 
     // PROVIDED: Event Processing (Cross-Platform Implementation)
 
-    /// V2: Record accessibility action and return affected nodes.
+    /// Record accessibility action and return affected nodes.
     ///
     /// Similar to `record_input_sample()` for gestures, this method takes an incoming
     /// accessibility action from assistive technologies (screen readers), applies
@@ -3123,9 +3123,9 @@ pub trait PlatformWindow {
         layout_window.process_accessibility_action(dom_id, node_id, action, now)
     }
 
-    /// Process all window events using the V2 state-diffing system.
+    /// Process all window events using the state-diffing system.
     ///
-    /// V2: Main entry point for processing window events.
+    /// Main entry point for processing window events.
     ///
     /// This is the **main entry point** for event processing. Call this after updating
     /// the current window state with platform events.
@@ -3658,7 +3658,7 @@ pub trait PlatformWindow {
 
                 log_debug!(
                     super::debug_server::LogCategory::Input,
-                    "[Event V2] Dispatched synthetic click for element activation: {:?}",
+                    "[Event] Dispatched synthetic click for element activation: {:?}",
                     click_target
                 );
             }
@@ -3667,7 +3667,7 @@ pub trait PlatformWindow {
         // Handle focus changes: generate synthetic FocusIn/FocusOut events
         log_debug!(
             super::debug_server::LogCategory::Input,
-            "[Event V2] Focus check: focus_changed={}, default_action_focus_changed={}, mouse_click_focus_changed={}, depth={}, old_focus={:?}",
+            "[Event] Focus check: focus_changed={}, default_action_focus_changed={}, mouse_click_focus_changed={}, depth={}, old_focus={:?}",
             focus_changed,
             default_action_focus_changed,
             mouse_click_focus_changed,
@@ -3683,7 +3683,7 @@ pub trait PlatformWindow {
 
             log_debug!(
                 super::debug_server::LogCategory::Input,
-                "[Event V2] Focus changed! old_focus={:?}, new_focus={:?}",
+                "[Event] Focus changed! old_focus={:?}, new_focus={:?}",
                 old_focus,
                 new_focus
             );
@@ -3709,7 +3709,7 @@ pub trait PlatformWindow {
                 if let Some(old_node) = old_focus {
                     log_debug!(
                         super::debug_server::LogCategory::Input,
-                        "[Event V2] Dispatching FocusLost to node {:?}",
+                        "[Event] Dispatching FocusLost to node {:?}",
                         old_node
                     );
                     focus_events.push(azul_core::events::SyntheticEvent::new(
@@ -3725,7 +3725,7 @@ pub trait PlatformWindow {
                 if let Some(new_node) = new_focus {
                     log_debug!(
                         super::debug_server::LogCategory::Input,
-                        "[Event V2] Dispatching FocusReceived to node {:?}",
+                        "[Event] Dispatching FocusReceived to node {:?}",
                         new_node
                     );
                     focus_events.push(azul_core::events::SyntheticEvent::new(

@@ -14,8 +14,8 @@
 //!     │
 //!     ▼
 //! ┌─────────────────────────────────────────────────────────────┐
-//! │                    Intermediate Representation (IR)          │
-//! │                                                              │
+//! │                    Intermediate Representation (IR)         │
+//! │                                                             │
 //! │  StructsIR: Vec<StructDef>     - All types with metadata    │
 //! │  FunctionsIR: Vec<FunctionDef> - ALL functions incl. traits │
 //! │  TraitsIR: Vec<TraitImpl>      - Trait implementations      │
@@ -23,8 +23,8 @@
 //!     │
 //!     ▼
 //! ┌─────────────────────────────────────────────────────────────┐
-//! │                      CodegenConfig                           │
-//! │                                                              │
+//! │                      CodegenConfig                          │
+//! │                                                             │
 //! │  target_lang: Rust | CHeader | CppHeader                    │
 //! │  cabi_funcs: InternalBindings | ExternalBindings | None     │
 //! │  structs: Prefixed | Unprefixed | None                      │
@@ -33,8 +33,8 @@
 //!     │
 //!     ▼
 //! ┌─────────────────────────────────────────────────────────────┐
-//! │                      CodeGenerator                           │
-//! │                                                              │
+//! │                      CodeGenerator                          │
+//! │                                                             │
 //! │  fn generate(ir: &IR, config: &CodegenConfig) -> String     │
 //! └─────────────────────────────────────────────────────────────┘
 //!     │

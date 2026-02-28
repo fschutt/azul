@@ -524,3 +524,95 @@ fn test_text_node_inherits_from_parent() {
         panic!("Text node should have font-size property");
     }
 }
+
+use azul_core::prop_cache::*;
+use azul_core::dom::{NodeData, NodeId};
+use azul_core::styled_dom::StyledNodeState;
+use azul_css::props::layout::LayoutDisplay;
+
+#[test]
+fn test_ua_css_p_tag_properties() {
+    // Create an empty CssPropertyCache
+    let cache = CssPropertyCache::empty(1);
+
+    // Create a minimal <p> tag NodeData using public API
+    let mut node_data = NodeData::create_node(NodeType::P);
+
+    let node_id = NodeId::new(0);
+    let node_state = StyledNodeState::default();
+
+    // Test that <p> has display: block from UA CSS
+    let display = cache.get_display(&node_data, &node_id, &node_state);
+    assert!(
+        display.is_some(),
+        "Expected <p> to have display property from UA CSS"
+    );
+    if let Some(d) = display {
+        if let Some(display_value) = d.get_property() {
+            assert_eq!(
+                *display_value,
+                LayoutDisplay::Block,
+                "Expected <p> to have display: block, got {:?}",
+                display_value
+            );
+        }
+    }
+
+    // NOTE: <p> does NOT have width: 100% in standard UA CSS
+    // Block elements have width: auto by default, which means "fill available width"
+    // but it's not the same as width: 100%. The difference is critical for flexbox.
+    let width = cache.get_width(&node_data, &node_id, &node_state);
+    // Width should be None because <p> should use auto width (no explicit width property)
+    assert!(
+        width.is_none(),
+        "Expected <p> to NOT have explicit width (should be auto), but got {:?}",
+        width
+    );
+
+    // Test that <p> does NOT have a default height from UA CSS
+    // (height should be auto, which means None)
+    let height = cache.get_height(&node_data, &node_id, &node_state);
+    println!("Height for <p> tag: {:?}", height);
+
+    // Height should be None because <p> should use auto height
+    assert!(
+        height.is_none(),
+        "Expected <p> to NOT have explicit height (should be auto), but got {:?}",
+        height
+    );
+}
+
+#[test]
+fn test_ua_css_body_tag_properties() {
+    let cache = CssPropertyCache::empty(1);
+
+    let node_data = NodeData::create_node(NodeType::Body);
+
+    let node_id = NodeId::new(0);
+    let node_state = StyledNodeState::default();
+
+    // NOTE: <body> does NOT have width: 100% in standard UA CSS
+    // It inherits from the Initial Containing Block (ICB) and has width: auto
+    let width = cache.get_width(&node_data, &node_id, &node_state);
+    // Width should be None because <body> should use auto width (no explicit width property)
+    assert!(
+        width.is_none(),
+        "Expected <body> to NOT have explicit width (should be auto), but got {:?}",
+        width
+    );
+
+    // Note: height: 100% was removed from UA CSS (ua_css.rs:506 commented out)
+    // This is correct - <body> should have height: auto by default per CSS spec
+    let height = cache.get_height(&node_data, &node_id, &node_state);
+    assert!(
+        height.is_none(),
+        "<body> should not have explicit height from UA CSS (should be auto)"
+    );
+
+    // Test margins (body has 8px margins from UA CSS)
+    let margin_top = cache.get_margin_top(&node_data, &node_id, &node_state);
+    assert!(
+        margin_top.is_some(),
+        "Expected <body> to have margin-top from UA CSS"
+    );
+}
