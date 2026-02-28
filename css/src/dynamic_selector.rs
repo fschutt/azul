@@ -1312,7 +1312,87 @@ impl CssPropertyWithConditionsVec {
                     _ => return None,
                 }
             }
-            
+
+            // @lang("de-DE") or @lang de-DE
+            if rule_content.starts_with("lang ") || rule_content.starts_with("lang(") {
+                let lang_str = if rule_content.starts_with("lang(") {
+                    rule_content[5..].trim_end_matches(')').trim()
+                } else {
+                    rule_content[5..].trim()
+                };
+                let lang_str = lang_str
+                    .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+                    .or_else(|| lang_str.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                    .unwrap_or(lang_str);
+                if !lang_str.is_empty() {
+                    return Some(vec![DynamicSelector::Language(
+                        LanguageCondition::Prefix(AzString::from(lang_str.to_string()))
+                    )]);
+                }
+            }
+
+            // @container (min-width: 400px) or @container sidebar (min-width: 400px)
+            if rule_content.starts_with("container ") || rule_content.starts_with("container(") {
+                let container_str = if rule_content.starts_with("container(") {
+                    &rule_content[9..] // keep the '(' for parsing
+                } else {
+                    rule_content[10..].trim()
+                };
+                let mut conds = Vec::new();
+                // Check for named container: "sidebar (min-width: 400px)"
+                let (name_part, query_part) = if container_str.starts_with('(') {
+                    (None, container_str)
+                } else if let Some(paren_idx) = container_str.find('(') {
+                    let name = container_str[..paren_idx].trim();
+                    if !name.is_empty() {
+                        (Some(name), &container_str[paren_idx..])
+                    } else {
+                        (None, container_str)
+                    }
+                } else {
+                    if !container_str.is_empty() {
+                        return Some(vec![DynamicSelector::ContainerName(
+                            AzString::from(container_str.to_string())
+                        )]);
+                    }
+                    return None;
+                };
+                if let Some(name) = name_part {
+                    conds.push(DynamicSelector::ContainerName(
+                        AzString::from(name.to_string())
+                    ));
+                }
+                // Parse (min-width: 400px) style conditions
+                if let Some(inner) = query_part.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+                    if let Some((key, value)) = inner.split_once(':') {
+                        let key = key.trim();
+                        let value = value.trim();
+                        let px_value = value.strip_suffix("px")
+                            .and_then(|v| v.trim().parse::<f32>().ok());
+                        match key {
+                            "min-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_min(px))); } }
+                            "max-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_max(px))); } }
+                            "min-height" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerHeight(MinMaxRange::with_min(px))); } }
+                            "max-height" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerHeight(MinMaxRange::with_max(px))); } }
+                            _ => {}
+                        }
+                    }
+                }
+                if !conds.is_empty() {
+                    return Some(conds);
+                }
+            }
+
+            // @prefers-reduced-motion or @reduced-motion
+            if rule_content == "prefers-reduced-motion" || rule_content == "reduced-motion" {
+                return Some(vec![DynamicSelector::PrefersReducedMotion(BoolCondition::True)]);
+            }
+
+            // @prefers-high-contrast or @high-contrast
+            if rule_content == "prefers-high-contrast" || rule_content == "high-contrast" {
+                return Some(vec![DynamicSelector::PrefersHighContrast(BoolCondition::True)]);
+            }
+
             return None;
         }
         
@@ -1390,7 +1470,12 @@ impl CssPropertyWithConditionsVec {
                             )]);
                         }
                     }
-                    _ => {}
+                    other => {
+                        // Try orientation, prefers-color-scheme, prefers-reduced-motion, etc.
+                        if let Some(sel) = Self::parse_media_feature_inline(other, value) {
+                            return Some(vec![sel]);
+                        }
+                    }
                 }
             }
         }
@@ -1400,6 +1485,51 @@ impl CssPropertyWithConditionsVec {
             "screen" => Some(vec![DynamicSelector::Media(MediaType::Screen)]),
             "print" => Some(vec![DynamicSelector::Media(MediaType::Print)]),
             "all" => Some(vec![DynamicSelector::Media(MediaType::All)]),
+            _ => None,
+        }
+    }
+
+    /// Parse a media query feature value into a DynamicSelector
+    /// Handles features like orientation, prefers-color-scheme, prefers-reduced-motion, etc.
+    #[cfg(feature = "parser")]
+    fn parse_media_feature_inline(key: &str, value: &str) -> Option<DynamicSelector> {
+        match key {
+            "orientation" => {
+                if value.eq_ignore_ascii_case("portrait") {
+                    Some(DynamicSelector::Orientation(OrientationType::Portrait))
+                } else if value.eq_ignore_ascii_case("landscape") {
+                    Some(DynamicSelector::Orientation(OrientationType::Landscape))
+                } else {
+                    None
+                }
+            }
+            "prefers-color-scheme" => {
+                if value.eq_ignore_ascii_case("dark") {
+                    Some(DynamicSelector::Theme(ThemeCondition::Dark))
+                } else if value.eq_ignore_ascii_case("light") {
+                    Some(DynamicSelector::Theme(ThemeCondition::Light))
+                } else {
+                    None
+                }
+            }
+            "prefers-reduced-motion" => {
+                if value.eq_ignore_ascii_case("reduce") {
+                    Some(DynamicSelector::PrefersReducedMotion(BoolCondition::True))
+                } else if value.eq_ignore_ascii_case("no-preference") {
+                    Some(DynamicSelector::PrefersReducedMotion(BoolCondition::False))
+                } else {
+                    None
+                }
+            }
+            "prefers-contrast" | "prefers-high-contrast" => {
+                if value.eq_ignore_ascii_case("more") || value.eq_ignore_ascii_case("high") || value.eq_ignore_ascii_case("active") {
+                    Some(DynamicSelector::PrefersHighContrast(BoolCondition::True))
+                } else if value.eq_ignore_ascii_case("no-preference") || value.eq_ignore_ascii_case("none") {
+                    Some(DynamicSelector::PrefersHighContrast(BoolCondition::False))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }

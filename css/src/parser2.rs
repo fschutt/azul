@@ -58,8 +58,8 @@ use crate::{
         NodeTypeTagParseErrorOwned, Stylesheet,
     },
     dynamic_selector::{
-        DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType, MinMaxRange,
-        OrientationType, OsCondition,
+        BoolCondition, DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType,
+        MinMaxRange, OrientationType, OsCondition, ThemeCondition, parse_os_version,
     },
     props::{
         basic::parse::parse_parentheses,
@@ -1042,6 +1042,42 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
                 return Some(DynamicSelector::Orientation(OrientationType::Landscape));
             }
         }
+        "prefers-color-scheme" => {
+            if value.eq_ignore_ascii_case("dark") {
+                return Some(DynamicSelector::Theme(ThemeCondition::Dark));
+            } else if value.eq_ignore_ascii_case("light") {
+                return Some(DynamicSelector::Theme(ThemeCondition::Light));
+            }
+        }
+        "prefers-reduced-motion" => {
+            if value.eq_ignore_ascii_case("reduce") {
+                return Some(DynamicSelector::PrefersReducedMotion(BoolCondition::True));
+            } else if value.eq_ignore_ascii_case("no-preference") {
+                return Some(DynamicSelector::PrefersReducedMotion(BoolCondition::False));
+            }
+        }
+        "prefers-contrast" | "prefers-high-contrast" => {
+            if value.eq_ignore_ascii_case("more") || value.eq_ignore_ascii_case("high") || value.eq_ignore_ascii_case("active") {
+                return Some(DynamicSelector::PrefersHighContrast(BoolCondition::True));
+            } else if value.eq_ignore_ascii_case("no-preference") || value.eq_ignore_ascii_case("none") {
+                return Some(DynamicSelector::PrefersHighContrast(BoolCondition::False));
+            }
+        }
+        "aspect-ratio" => {
+            if let Some(ratio) = parse_ratio_value(value) {
+                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(Some(ratio), Some(ratio))));
+            }
+        }
+        "min-aspect-ratio" => {
+            if let Some(ratio) = parse_ratio_value(value) {
+                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(Some(ratio), None)));
+            }
+        }
+        "max-aspect-ratio" => {
+            if let Some(ratio) = parse_ratio_value(value) {
+                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(None, Some(ratio))));
+            }
+        }
         _ => {}
     }
 
@@ -1056,6 +1092,179 @@ fn parse_px_value(value: &str) -> Option<f32> {
     } else {
         // Try parsing as a bare number
         value.parse::<f32>().ok()
+    }
+}
+
+/// Parses a ratio value like "16/9" or "1.777" and returns it as f32
+fn parse_ratio_value(value: &str) -> Option<f32> {
+    let value = value.trim();
+    if let Some((num, den)) = value.split_once('/') {
+        let num: f32 = num.trim().parse().ok()?;
+        let den: f32 = den.trim().parse().ok()?;
+        if den == 0.0 { return None; }
+        Some(num / den)
+    } else {
+        value.parse::<f32>().ok()
+    }
+}
+
+/// Parses @container conditions from the content following "@container"
+/// Format: @container (min-width: 400px) or @container sidebar (min-width: 400px)
+fn parse_container_conditions(content: &str) -> Vec<DynamicSelector> {
+    let mut conditions = Vec::new();
+    let content = content.trim();
+
+    // Check if there's a container name before the parenthesized condition
+    // e.g., "sidebar (min-width: 400px)" or just "(min-width: 400px)"
+    let (name_part, query_part) = if content.starts_with('(') {
+        (None, content)
+    } else if let Some(paren_idx) = content.find('(') {
+        let name = content[..paren_idx].trim();
+        if !name.is_empty() {
+            (Some(name), &content[paren_idx..])
+        } else {
+            (None, content)
+        }
+    } else {
+        // No parentheses - might be just a container name
+        if !content.is_empty() {
+            conditions.push(DynamicSelector::ContainerName(AzString::from(content.to_string())));
+        }
+        return conditions;
+    };
+
+    if let Some(name) = name_part {
+        conditions.push(DynamicSelector::ContainerName(AzString::from(name.to_string())));
+    }
+
+    // Parse the parenthesized query parts
+    for part in query_part.split(" and ") {
+        let part = part.trim();
+        if let Some(inner) = part.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+            if let Some(selector) = parse_container_feature(inner) {
+                conditions.push(selector);
+            }
+        }
+    }
+
+    conditions
+}
+
+/// Parses a single container query feature like "min-width: 400px"
+fn parse_container_feature(feature: &str) -> Option<DynamicSelector> {
+    let (key, value) = feature.split_once(':')?;
+    let key = key.trim();
+    let value = value.trim();
+
+    match key.to_lowercase().as_str() {
+        "min-width" => {
+            parse_px_value(value).map(|px| DynamicSelector::ContainerWidth(MinMaxRange::new(Some(px), None)))
+        }
+        "max-width" => {
+            parse_px_value(value).map(|px| DynamicSelector::ContainerWidth(MinMaxRange::new(None, Some(px))))
+        }
+        "min-height" => {
+            parse_px_value(value).map(|px| DynamicSelector::ContainerHeight(MinMaxRange::new(Some(px), None)))
+        }
+        "max-height" => {
+            parse_px_value(value).map(|px| DynamicSelector::ContainerHeight(MinMaxRange::new(None, Some(px))))
+        }
+        "aspect-ratio" => {
+            parse_ratio_value(value).map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(Some(r), Some(r))))
+        }
+        "min-aspect-ratio" => {
+            parse_ratio_value(value).map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(Some(r), None)))
+        }
+        "max-aspect-ratio" => {
+            parse_ratio_value(value).map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(None, Some(r))))
+        }
+        _ => None,
+    }
+}
+
+/// Parses @os-version conditions from the content following "@os-version"
+/// Format: @os-version(windows >= win-11) or @os-version(macos >= monterey)
+fn parse_os_version_condition_atrule(content: &str) -> Option<DynamicSelector> {
+    use crate::dynamic_selector::{OsFamily, OsVersionCondition};
+
+    let content = content.trim();
+    // Remove optional parentheses
+    let inner = content
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(content)
+        .trim();
+
+    // Parse: "os_family operator version" e.g. "windows >= win-11"
+    let mut chars = inner.chars().peekable();
+    let os_str: String = chars.by_ref().take_while(|c| c.is_alphabetic()).collect();
+    let os_family = match os_str.to_lowercase().as_str() {
+        "windows" | "win" => OsFamily::Windows,
+        "macos" | "mac" | "osx" => OsFamily::MacOS,
+        "ios" => OsFamily::IOS,
+        "android" => OsFamily::Android,
+        "linux" => OsFamily::Linux,
+        _ => return None,
+    };
+
+    let rest = inner[os_str.len()..].trim();
+
+    // Handle "linux de gnome" for desktop environments
+    if rest.starts_with("de ") || rest.starts_with("DE ") {
+        use crate::dynamic_selector::LinuxDesktopEnv;
+        let de_name = rest[3..].trim();
+        let de = match de_name.to_lowercase().as_str() {
+            "gnome" => LinuxDesktopEnv::Gnome,
+            "kde" => LinuxDesktopEnv::KDE,
+            "xfce" => LinuxDesktopEnv::XFCE,
+            "unity" => LinuxDesktopEnv::Unity,
+            "cinnamon" => LinuxDesktopEnv::Cinnamon,
+            "mate" => LinuxDesktopEnv::MATE,
+            _ => LinuxDesktopEnv::Other,
+        };
+        return Some(DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvironment(de)));
+    }
+
+    // Parse operator and version
+    let (op, version_str) = if let Some(rest) = rest.strip_prefix(">=") {
+        (">=", rest.trim())
+    } else if let Some(rest) = rest.strip_prefix("<=") {
+        ("<=", rest.trim())
+    } else if let Some(rest) = rest.strip_prefix('=') {
+        ("=", rest.trim())
+    } else {
+        return None;
+    };
+
+    let version = parse_os_version(os_family, version_str)?;
+    match op {
+        ">=" => Some(DynamicSelector::OsVersion(OsVersionCondition::Min(version))),
+        "<=" => Some(DynamicSelector::OsVersion(OsVersionCondition::Max(version))),
+        "=" => Some(DynamicSelector::OsVersion(OsVersionCondition::Exact(version))),
+        _ => None,
+    }
+}
+
+/// Parses @theme condition from the content following "@theme"
+/// Format: @theme(dark) or @theme dark
+fn parse_theme_condition(content: &str) -> Option<DynamicSelector> {
+    let content = content.trim();
+    let inner = content
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(content)
+        .trim();
+    let inner = inner
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| inner.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(inner)
+        .trim();
+
+    match inner.to_lowercase().as_str() {
+        "dark" => Some(DynamicSelector::Theme(ThemeCondition::Dark)),
+        "light" => Some(DynamicSelector::Theme(ThemeCondition::Light)),
+        _ => None,
     }
 }
 
@@ -1289,6 +1498,9 @@ fn new_from_str_inner<'a>(
                         "media" => parse_media_conditions(&combined_content),
                         "lang" => parse_lang_condition(&combined_content).into_iter().collect(),
                         "os" => parse_os_condition(&combined_content).into_iter().collect(),
+                        "os-version" => parse_os_version_condition_atrule(&combined_content).into_iter().collect(),
+                        "theme" => parse_theme_condition(&combined_content).into_iter().collect(),
+                        "container" => parse_container_conditions(&combined_content),
                         _ => {
                             // Unknown @-rule, ignore
                             Vec::new()
