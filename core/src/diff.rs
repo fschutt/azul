@@ -1435,7 +1435,27 @@ impl Default for NodeDataFingerprint {
 
 impl NodeDataFingerprint {
     /// Compute a fingerprint from a node's data and styled state.
+    ///
+    /// When `inline_style_key` is provided (from `CssPropertyCache::inline_style_keys`),
+    /// the inline CSS hash is computed in O(1) using the dedup table key instead of
+    /// hashing the full `CssProperty` content (~1520 B × N properties per node).
+    /// Pass `None` to fall back to the hash-based approach (used in tests and when
+    /// the inline style table has not yet been built).
     pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
+        Self::compute_with_inline_key(node, styled_state, None)
+    }
+
+    /// Like `compute`, but uses a pre-computed dedup key for the inline CSS hash
+    /// (O(1) vs hashing each property's full content).
+    ///
+    /// `inline_style_key` is the value from `CssPropertyCache::inline_style_keys[node_idx]`:
+    /// - `u32::MAX` → node has no inline styles → hash = 0
+    /// - Any other value → unique table index → used directly as the hash
+    pub fn compute_with_inline_key(
+        node: &NodeData,
+        styled_state: Option<&StyledNodeState>,
+        inline_style_key: Option<u32>,
+    ) -> Self {
         use highway::{HighwayHash, HighwayHasher, Key};
         use core::hash::Hash;
 
@@ -1455,13 +1475,23 @@ impl NodeDataFingerprint {
             h.finalize64()
         };
 
-        // Inline CSS hash
-        let inline_css_hash = {
-            let mut h = HighwayHasher::new(Key([3; 4]));
-            for prop in node.css_props.as_ref().iter() {
-                prop.hash(&mut h);
+        // Inline CSS hash — O(1) when dedup key is available, O(props×size) otherwise.
+        //
+        // The dedup key from `InlineStyleTable` already uniquely identifies the
+        // inline style set (it's an index into the dedup table, assigned by content
+        // hash). Using it directly avoids hashing up to N × ~1520 B of CssProperty
+        // data on every reconciliation frame.
+        let inline_css_hash = match inline_style_key {
+            Some(key) if key != u32::MAX => key as u64 + 1, // +1 so key=0 != "no styles"
+            Some(_) => 0u64, // u32::MAX = no inline styles
+            None => {
+                // Fallback: hash the raw props (used in tests / before table is built)
+                let mut h = HighwayHasher::new(Key([3; 4]));
+                for prop in node.css_props.as_ref().iter() {
+                    prop.hash(&mut h);
+                }
+                h.finalize64()
             }
-            h.finalize64()
         };
 
         // IDs and classes hash

@@ -786,9 +786,18 @@ pub fn reconcile_recursive(
     let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
 
     // Compute the new multi-field fingerprint instead of a single hash.
-    let new_fingerprint = NodeDataFingerprint::compute(
+    // Use the pre-computed dedup key for O(1) inline CSS hashing instead of
+    // hashing each property's full content (~1520 B each).
+    let inline_style_key = styled_dom
+        .css_property_cache
+        .ptr
+        .inline_style_keys
+        .get(new_dom_id.index())
+        .copied();
+    let new_fingerprint = NodeDataFingerprint::compute_with_inline_key(
         node_data,
         styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
+        inline_style_key,
     );
 
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).

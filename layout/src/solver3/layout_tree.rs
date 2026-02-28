@@ -1286,9 +1286,15 @@ impl LayoutTreeBuilder {
             anonymous_type: None,
             children: Vec::new(),
             dirty_flag: DirtyFlag::Layout,
-            node_data_fingerprint: NodeDataFingerprint::compute(
+            node_data_fingerprint: NodeDataFingerprint::compute_with_inline_key(
                 &styled_dom.node_data.as_container()[dom_id],
                 styled_dom.styled_nodes.as_container().get(dom_id).map(|n| &n.styled_node_state),
+                styled_dom
+                    .css_property_cache
+                    .ptr
+                    .inline_style_keys
+                    .get(dom_id.index())
+                    .copied(),
             ),
             subtree_hash: SubtreeHash(0),
             intrinsic_sizes: None,
