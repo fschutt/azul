@@ -108,51 +108,51 @@ pub enum Theme {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct SystemStyle {
-    pub theme: Theme,
-    pub platform: Platform,
-    /// Detected OS version (e.g., Windows 11 22H2, macOS Sonoma, etc.)
-    pub os_version: crate::dynamic_selector::OsVersion,
-    pub colors: SystemColors,
     pub fonts: SystemFonts,
     pub metrics: SystemMetrics,
+    /// Linux-specific customisation (icon theme, cursor theme, GTK theme, ...)
+    pub linux: LinuxCustomization,
+    pub platform: Platform,
+    /// Focus ring / indicator visual style
+    pub focus_visuals: FocusVisuals,
     /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
     /// Detected from OS settings at startup
     pub language: AzString,
-    /// User prefers reduced motion (accessibility setting)
-    pub prefers_reduced_motion: crate::dynamic_selector::BoolCondition,
-    /// User prefers high contrast (accessibility setting)
-    pub prefers_high_contrast: crate::dynamic_selector::BoolCondition,
     /// An optional, user-provided stylesheet loaded from a conventional
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
     /// application-specific "ricing". This is only loaded when the "io"
     /// feature is enabled and not disabled by the `AZUL_DISABLE_RICING` env var.
     pub app_specific_stylesheet: Option<Box<Stylesheet>>,
-    /// Icon-specific styling options (grayscale, tinting, etc.)
-    pub icon_style: IconStyleOptions,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
+    /// Global scroll physics configuration (momentum, friction, rubber-banding).
+    /// Platform-specific defaults are applied during system style discovery.
+    /// Applications can override this to change the "feel" of scrolling globally.
+    pub scroll_physics: ScrollPhysics,
+    pub theme: Theme,
+    /// Detected OS version (e.g., Windows 11 22H2, macOS Sonoma, etc.)
+    pub os_version: crate::dynamic_selector::OsVersion,
+    /// User prefers reduced motion (accessibility setting)
+    pub prefers_reduced_motion: crate::dynamic_selector::BoolCondition,
+    /// User prefers high contrast (accessibility setting)
+    pub prefers_high_contrast: crate::dynamic_selector::BoolCondition,
     /// Detailed accessibility settings (superset of prefers_reduced_motion / prefers_high_contrast)
     pub accessibility: AccessibilitySettings,
     /// Input interaction timing / distance thresholds from the OS
     pub input: InputMetrics,
     /// Text rendering / anti-aliasing hints from the OS
     pub text_rendering: TextRenderingHints,
-    /// Focus ring / indicator visual style
-    pub focus_visuals: FocusVisuals,
     /// OS-level scrollbar visibility / click-behaviour preferences
     pub scrollbar_preferences: ScrollbarPreferences,
-    /// Linux-specific customisation (icon theme, cursor theme, GTK theme, ...)
-    pub linux: LinuxCustomization,
     /// Visual hints: icons in menus/buttons, toolbar style, tooltips
     pub visual_hints: VisualHints,
     /// Animation enable/disable, speed factor, focus indicator behaviour
     pub animation: AnimationMetrics,
+    pub colors: SystemColors,
+    /// Icon-specific styling options (grayscale, tinting, etc.)
+    pub icon_style: IconStyleOptions,
     /// Audio feedback preferences (event sounds, input sounds)
     pub audio: AudioMetrics,
-    /// Global scroll physics configuration (momentum, friction, rubber-banding).
-    /// Platform-specific defaults are applied during system style discovery.
-    /// Applications can override this to change the "feel" of scrolling globally.
-    pub scroll_physics: ScrollPhysics,
 }
 
 /// Icon-specific styling options for accessibility and theming.
@@ -293,6 +293,8 @@ impl SystemFontType {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct AccessibilitySettings {
+    /// Text scaling factor (1.0 = normal, 1.5 = 150%, etc.)
+    pub text_scale_factor: f32,
     /// User prefers bold text for better readability
     /// macOS: UIAccessibility.isBoldTextEnabled
     /// Windows: N/A (font scaling)
@@ -303,8 +305,6 @@ pub struct AccessibilitySettings {
     /// Windows: SystemParametersInfo text scale factor
     /// Linux: org.gnome.desktop.interface text-scaling-factor
     pub prefers_larger_text: bool,
-    /// Text scaling factor (1.0 = normal, 1.5 = 150%, etc.)
-    pub text_scale_factor: f32,
     /// User prefers high contrast colors
     /// macOS: UIAccessibility.isDarkerSystemColorsEnabled
     /// Windows: SPI_GETHIGHCONTRAST
@@ -728,12 +728,12 @@ pub enum SubpixelType {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct TextRenderingHints {
-    /// Whether font smoothing (anti-aliasing) is enabled.
-    pub font_smoothing_enabled: bool,
     /// Subpixel rendering type.
     pub subpixel_type: SubpixelType,
     /// Font smoothing gamma (1000 = default, higher = more contrast).
     pub font_smoothing_gamma: u32,
+    /// Whether font smoothing (anti-aliasing) is enabled.
+    pub font_smoothing_enabled: bool,
     /// User prefers increased text contrast.
     pub increased_contrast: bool,
 }
@@ -741,9 +741,9 @@ pub struct TextRenderingHints {
 impl Default for TextRenderingHints {
     fn default() -> Self {
         Self {
-            font_smoothing_enabled: true,
             subpixel_type: SubpixelType::None,
             font_smoothing_gamma: 1000,
+            font_smoothing_enabled: true,
             increased_contrast: false,
         }
     }
@@ -863,15 +863,15 @@ pub enum ToolbarStyle {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct VisualHints {
+    /// Toolbar display style.
+    /// Linux: `org.gnome.desktop.interface toolbar-style`, KDE `ToolButtonStyle`.
+    pub toolbar_style: ToolbarStyle,
     /// Show icons on push buttons?  (Common in KDE, rare in Win/Mac.)
     /// Linux: `org.gnome.desktop.interface buttons-have-icons`, KDE ShowIconsOnPushButtons.
     pub show_button_images: bool,
     /// Show icons in context menus?  (GNOME defaults off since 3.x; Win/Mac/KDE usually on.)
     /// Linux: `org.gnome.desktop.interface menus-have-icons`.
     pub show_menu_images: bool,
-    /// Toolbar display style.
-    /// Linux: `org.gnome.desktop.interface toolbar-style`, KDE `ToolButtonStyle`.
-    pub toolbar_style: ToolbarStyle,
     /// Should tooltips be shown on hover?
     pub show_tooltips: bool,
     /// Flash the window taskbar entry on alert?
@@ -881,9 +881,9 @@ pub struct VisualHints {
 impl Default for VisualHints {
     fn default() -> Self {
         Self {
+            toolbar_style: ToolbarStyle::IconsOnly,
             show_button_images: false,
             show_menu_images: true,
-            toolbar_style: ToolbarStyle::IconsOnly,
             show_tooltips: true,
             flash_on_alert: true,
         }

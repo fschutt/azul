@@ -52,8 +52,8 @@ pub struct TextChangeset {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TextOpInsertText {
-    pub position: CursorPosition,
     pub text: AzString,
+    pub position: CursorPosition,
     pub new_cursor: CursorPosition,
 }
 
@@ -130,8 +130,8 @@ pub struct TextOpCut {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TextOpPaste {
-    pub position: CursorPosition,
     pub content: ClipboardContent,
+    pub position: CursorPosition,
     pub new_cursor: CursorPosition,
 }
 

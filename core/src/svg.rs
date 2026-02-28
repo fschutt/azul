@@ -1118,6 +1118,11 @@ impl Default for SvgFillStyle {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgStrokeStyle {
+    /// Dash pattern
+    pub dash_pattern: OptionSvgDashPattern,
+    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU -
+    /// expensive)
+    pub transform: SvgTransform,
     /// What cap to use at the start of each sub-path.
     ///
     /// Default value: `LineCap::Butt`.
@@ -1130,8 +1135,6 @@ pub struct SvgStrokeStyle {
     ///
     /// Default value: `LineJoin::Miter`.
     pub line_join: SvgLineJoin,
-    /// Dash pattern
-    pub dash_pattern: OptionSvgDashPattern,
     /// Line width
     ///
     /// Default value: `StrokeOptions::DEFAULT_LINE_WIDTH`.
@@ -1154,9 +1157,6 @@ pub struct SvgStrokeStyle {
     ///
     /// Default value: `true`. NOTE: currently unused!
     pub apply_line_width: bool,
-    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU -
-    /// expensive)
-    pub transform: SvgTransform,
     /// Whether the fill is intended to be anti-aliased (default: true)
     pub anti_alias: bool,
     /// Whether the anti-aliasing has to be of high quality (default: false)
@@ -1166,17 +1166,17 @@ pub struct SvgStrokeStyle {
 impl Default for SvgStrokeStyle {
     fn default() -> Self {
         Self {
+            dash_pattern: OptionSvgDashPattern::None,
+            transform: SvgTransform::default(),
             start_cap: SvgLineCap::default(),
             end_cap: SvgLineCap::default(),
             line_join: SvgLineJoin::default(),
-            dash_pattern: OptionSvgDashPattern::None,
             line_width: DEFAULT_LINE_WIDTH,
             miter_limit: DEFAULT_MITER_LIMIT,
             tolerance: DEFAULT_TOLERANCE,
             apply_line_width: true,
             anti_alias: true,
             high_quality_aa: false,
-            transform: SvgTransform::default(),
         }
     }
 }
@@ -1317,17 +1317,17 @@ impl Default for SvgFitTo {
 pub struct SvgParseOptions {
     /// SVG image path. Used to resolve relative image paths.
     pub relative_image_path: OptionString,
-    /// Target DPI. Impact units conversion. Default: 96.0
-    pub dpi: f32,
     /// Default font family. Will be used when no font-family attribute is set in the SVG. Default:
     /// Times New Roman
     pub default_font_family: AzString,
-    /// A default font size. Will be used when no font-size attribute is set in the SVG. Default:
-    /// 12
-    pub font_size: f32,
     /// A list of languages. Will be used to resolve a systemLanguage conditional attribute.
     /// Format: en, en-US. Default: [en]
     pub languages: StringVec,
+    /// Target DPI. Impact units conversion. Default: 96.0
+    pub dpi: f32,
+    /// A default font size. Will be used when no font-size attribute is set in the SVG. Default:
+    /// 12
+    pub font_size: f32,
     /// Specifies the default shape rendering method. Will be used when an SVG element's
     /// shape-rendering property is set to auto. Default: GeometricPrecision
     pub shape_rendering: ShapeRendering,
@@ -1337,11 +1337,11 @@ pub struct SvgParseOptions {
     /// Specifies the default image rendering method. Will be used when an SVG element's
     /// image-rendering property is set to auto. Default: OptimizeQuality
     pub image_rendering: ImageRendering,
+    /// When empty, text elements will be skipped. Default: `System`
+    pub fontdb: FontDatabase,
     /// Keep named groups. If set to true, all non-empty groups with id attribute will not be
     /// removed. Default: false
     pub keep_named_groups: bool,
-    /// When empty, text elements will be skipped. Default: `System`
-    pub fontdb: FontDatabase,
 }
 
 impl Default for SvgParseOptions {
@@ -1349,15 +1349,15 @@ impl Default for SvgParseOptions {
         let lang_vec: Vec<AzString> = vec![String::from("en").into()];
         SvgParseOptions {
             relative_image_path: OptionString::None,
-            dpi: 96.0,
             default_font_family: "Times New Roman".to_string().into(),
-            font_size: 12.0,
             languages: lang_vec.into(),
+            dpi: 96.0,
+            font_size: 12.0,
             shape_rendering: ShapeRendering::GeometricPrecision,
             text_rendering: TextRendering::OptimizeLegibility,
             image_rendering: ImageRendering::OptimizeQuality,
-            keep_named_groups: false,
             fontdb: FontDatabase::System,
+            keep_named_groups: false,
         }
     }
 }

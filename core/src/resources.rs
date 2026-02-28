@@ -164,24 +164,24 @@ impl Default for FontLoadingConfig {
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct CssMockEnvironment {
-    /// Override the detected operating system
-    pub os: azul_css::dynamic_selector::OptionOsCondition,
-    /// Override the detected OS version
-    pub os_version: azul_css::dynamic_selector::OptionOsVersion,
-    /// Override the Linux desktop environment (only applies when os = Linux)
-    pub desktop_env: azul_css::dynamic_selector::OptionLinuxDesktopEnv,
     /// Override the current theme (light/dark)
     pub theme: azul_css::dynamic_selector::OptionThemeCondition,
     /// Override the current language (BCP 47 tag, e.g., "de-DE", "en-US")
     pub language: azul_css::OptionString,
-    /// Override the reduced motion preference
-    pub prefers_reduced_motion: azul_css::OptionBool,
-    /// Override the high contrast preference
-    pub prefers_high_contrast: azul_css::OptionBool,
+    /// Override the detected OS version
+    pub os_version: azul_css::dynamic_selector::OptionOsVersion,
+    /// Override the detected operating system
+    pub os: azul_css::dynamic_selector::OptionOsCondition,
+    /// Override the Linux desktop environment (only applies when os = Linux)
+    pub desktop_env: azul_css::dynamic_selector::OptionLinuxDesktopEnv,
     /// Override viewport dimensions (for @media queries)
     /// Only use for testing - normally set by window size
     pub viewport_width: azul_css::OptionF32,
     pub viewport_height: azul_css::OptionF32,
+    /// Override the reduced motion preference
+    pub prefers_reduced_motion: azul_css::OptionBool,
+    /// Override the high contrast preference
+    pub prefers_high_contrast: azul_css::OptionBool,
 }
 
 impl CssMockEnvironment {

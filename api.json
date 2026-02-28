@@ -1909,10 +1909,7 @@
                                     "type": "KeyboardState"
                                 },
                                 "window_id": {
-                                    "type": "String",
-                                    "doc": [
-                                        "Semantic window identifier for multi-window debugging. Can be set to identify specific windows (e.g., 'main', 'settings', 'popup-1')"
-                                    ]
+                                    "type": "String"
                                 },
                                 "title": {
                                     "type": "String"
@@ -1938,6 +1935,9 @@
                                 "mouse_state": {
                                     "type": "MouseState"
                                 },
+                                "theme": {
+                                    "type": "WindowTheme"
+                                },
                                 "ime_position": {
                                     "type": "ImePosition"
                                 },
@@ -1947,17 +1947,11 @@
                                 "monitor_id": {
                                     "type": "OptionU32"
                                 },
-                                "theme": {
-                                    "type": "WindowTheme"
-                                },
                                 "debug_state": {
                                     "type": "DebugState"
                                 },
                                 "background_color": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Window background color. If None, uses system window background color."
-                                    ]
+                                    "type": "OptionColorU"
                                 },
                                 "window_focused": {
                                     "type": "bool"
@@ -29379,35 +29373,35 @@
                                 "scroll_physics": {
                                     "type": "ScrollPhysics"
                                 },
-                                "input": {
-                                    "type": "InputMetrics"
-                                },
-                                "accessibility": {
-                                    "type": "AccessibilitySettings"
-                                },
-                                "text_rendering": {
-                                    "type": "TextRenderingHints"
-                                },
-                                "visual_hints": {
-                                    "type": "VisualHints"
-                                },
-                                "animation": {
-                                    "type": "AnimationMetrics"
+                                "theme": {
+                                    "type": "Theme"
                                 },
                                 "os_version": {
                                     "type": "OsVersion"
-                                },
-                                "scrollbar_preferences": {
-                                    "type": "ScrollbarPreferences"
-                                },
-                                "theme": {
-                                    "type": "Theme"
                                 },
                                 "prefers_reduced_motion": {
                                     "type": "BoolCondition"
                                 },
                                 "prefers_high_contrast": {
                                     "type": "BoolCondition"
+                                },
+                                "accessibility": {
+                                    "type": "AccessibilitySettings"
+                                },
+                                "input": {
+                                    "type": "InputMetrics"
+                                },
+                                "text_rendering": {
+                                    "type": "TextRenderingHints"
+                                },
+                                "scrollbar_preferences": {
+                                    "type": "ScrollbarPreferences"
+                                },
+                                "visual_hints": {
+                                    "type": "VisualHints"
+                                },
+                                "animation": {
+                                    "type": "AnimationMetrics"
                                 },
                                 "colors": {
                                     "type": "SystemColors"
@@ -79300,6 +79294,9 @@
                             "instead of heap allocations. Size: 16 bytes on 64-bit (1 tag + 7 padding + 8 pointer)."
                         ],
                         "external": "azul_css::css::BoxOrStatic",
+                        "derive": [
+                            "Clone"
+                        ],
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -79313,26 +79310,13 @@
                             "PartialEq",
                             "PartialOrd"
                         ],
-                        "derive": [
-                            "Clone"
-                        ],
                         "enum_fields": [
                             {
                                 "Boxed": {
-                                    "type": "T",
-                                    "ref_kind": "mutptr",
-                                    "doc": [
-                                        "Heap-allocated (parsed at runtime). Owned - freed on Drop."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "*mut T"
+                                },
                                 "Static": {
-                                    "type": "T",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Compile-time constant (e.g. from const CSS defaults). Not freed."
-                                    ]
+                                    "type": "&T"
                                 }
                             }
                         ],

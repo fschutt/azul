@@ -26,10 +26,10 @@ use crate::callbacks::OptionCallback;
 #[repr(C)]
 pub struct WindowCreateOptions {
     pub window_state: FullWindowState,
-    pub size_to_content: bool,
+    pub create_callback: OptionCallback,
     pub renderer: azul_core::window::OptionRendererOptions,
     pub theme: azul_core::window::OptionWindowTheme,
-    pub create_callback: OptionCallback,
+    pub size_to_content: bool,
     pub hot_reload: bool,
 }
 
@@ -37,10 +37,10 @@ impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
             window_state: FullWindowState::default(),
-            size_to_content: false,
+            create_callback: OptionCallback::None,
             renderer: azul_core::window::OptionRendererOptions::None,
             theme: azul_core::window::OptionWindowTheme::None,
-            create_callback: OptionCallback::None,
+            size_to_content: false,
             hot_reload: false,
         }
     }
@@ -70,27 +70,28 @@ impl_vec_mut!(WindowCreateOptions, WindowCreateOptionsVec);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct FullWindowState {
+    /// Platform-specific window options
+    pub platform_specific_options: PlatformSpecificOptions,
+    pub keyboard_state: KeyboardState,
     /// Semantic window identifier for multi-window debugging
     /// Can be set by the user to identify specific windows (e.g., "main", "settings", "popup-1")
     pub window_id: AzString,
-    pub theme: WindowTheme,
     pub title: AzString,
-    pub size: WindowSize,
-    pub position: WindowPosition,
-    pub flags: WindowFlags,
-    pub debug_state: DebugState,
-    pub keyboard_state: KeyboardState,
-    pub mouse_state: MouseState,
-    pub touch_state: TouchState,
-    pub ime_position: ImePosition,
-    pub platform_specific_options: PlatformSpecificOptions,
-    pub renderer_options: RendererOptions,
-    /// Window background color. If None, uses system window background color.
-    pub background_color: OptionColorU,
-    pub layout_callback: LayoutCallback,
     pub close_callback: OptionCallback,
+    pub layout_callback: LayoutCallback,
+    pub position: WindowPosition,
+    pub touch_state: TouchState,
+    pub size: WindowSize,
+    pub flags: WindowFlags,
+    pub mouse_state: MouseState,
+    pub theme: WindowTheme,
+    pub ime_position: ImePosition,
+    pub renderer_options: RendererOptions,
     /// Monitor ID (not the full Monitor struct - just the identifier)
     pub monitor_id: OptionU32,
+    pub debug_state: DebugState,
+    /// Window background color. If None, uses system window background color.
+    pub background_color: OptionColorU,
     pub window_focused: bool,
 }
 
@@ -104,23 +105,23 @@ impl_option!(
 impl Default for FullWindowState {
     fn default() -> Self {
         Self {
-            window_id: AzString::from_const_str("azul-window"),
-            theme: WindowTheme::default(),
-            title: AzString::from_const_str("Azul Window"),
-            size: WindowSize::default(),
-            position: WindowPosition::default(),
-            flags: WindowFlags::default(),
-            debug_state: DebugState::default(),
-            keyboard_state: KeyboardState::default(),
-            mouse_state: MouseState::default(),
-            touch_state: TouchState::default(),
-            ime_position: ImePosition::default(),
             platform_specific_options: PlatformSpecificOptions::default(),
-            background_color: OptionColorU::None,
-            layout_callback: LayoutCallback::default(),
+            keyboard_state: KeyboardState::default(),
+            window_id: AzString::from_const_str("azul-window"),
+            title: AzString::from_const_str("Azul Window"),
             close_callback: OptionCallback::None,
+            layout_callback: LayoutCallback::default(),
+            position: WindowPosition::default(),
+            touch_state: TouchState::default(),
+            size: WindowSize::default(),
+            flags: WindowFlags::default(),
+            mouse_state: MouseState::default(),
+            theme: WindowTheme::default(),
+            ime_position: ImePosition::default(),
             renderer_options: RendererOptions::default(),
             monitor_id: OptionU32::None,
+            debug_state: DebugState::default(),
+            background_color: OptionColorU::None,
             window_focused: true,
         }
     }

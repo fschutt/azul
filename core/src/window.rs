@@ -830,11 +830,15 @@ impl Default for ImePosition {
 pub struct WindowFlags {
     /// Is the window currently maximized, minimized or fullscreen
     pub frame: WindowFrame,
+    /// Window decoration style (title bar, native controls)
+    pub decorations: WindowDecorations,
+    /// Compositor blur/transparency effect material
+    pub background_material: WindowBackgroundMaterial,
+    /// Window type classification (Normal, Menu, Tooltip, Dialog)
+    pub window_type: WindowType,
     /// User clicked the close button (set by WindowDelegate, checked by event loop)
     /// The close_callback can set this to false to prevent closing
     pub close_requested: bool,
-    /// Window decoration style (title bar, native controls)
-    pub decorations: WindowDecorations,
     /// Is the window currently visible?
     pub is_visible: bool,
     /// Is the window always on top?
@@ -843,14 +847,10 @@ pub struct WindowFlags {
     pub is_resizable: bool,
     /// Whether the window has focus or not (mutating this will request user attention)
     pub has_focus: bool,
-    /// Compositor blur/transparency effect material
-    pub background_material: WindowBackgroundMaterial,
     /// Is smooth scrolling enabled for this window?
     pub smooth_scroll_enabled: bool,
     /// Is automatic TAB switching supported?
     pub autotab_enabled: bool,
-    /// Window type classification (Normal, Menu, Tooltip, Dialog)
-    pub window_type: WindowType,
     /// Enable client-side decorations (custom titlebar with CSD)
     /// Only effective when decorations == WindowDecorations::None
     pub has_decorations: bool,
@@ -965,16 +965,16 @@ impl Default for WindowFlags {
     fn default() -> Self {
         Self {
             frame: WindowFrame::Normal,
-            close_requested: false,
             decorations: WindowDecorations::Normal,
+            background_material: WindowBackgroundMaterial::Opaque,
+            window_type: WindowType::Normal,
+            close_requested: false,
             is_visible: true,
             is_always_on_top: false,
             is_resizable: true,
             has_focus: true,
-            background_material: WindowBackgroundMaterial::Opaque,
             smooth_scroll_enabled: true,
             autotab_enabled: true,
-            window_type: WindowType::Normal,
             has_decorations: false,
             // Native menus are the default on platforms that support them (Windows/macOS)
             // The platform layer will override this appropriately
@@ -1176,28 +1176,11 @@ impl_option!(
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LinuxWindowOptions {
-    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
-    pub x11_visual: OptionX11Visual,
-    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
-    pub x11_screen: OptionI32,
-    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on
-    /// X11. Can only be set at window creation, can't be changed in callbacks.
-    pub x11_wm_classes: StringPairVec,
-    /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_override_redirect: bool,
-    /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_window_types: XWindowTypeVec,
+    pub wayland_theme: OptionWaylandTheme,
+    pub window_icon: OptionWindowIcon,
     /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only
     /// relevant on X11. Can only be set at window creation, can't be changed in callbacks.
     pub x11_gtk_theme_variant: OptionString,
-    /// Build window with resize increment hint. Only implemented on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_resize_increments: OptionLogicalSize,
-    /// Build window with base size hint. Only implemented on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_base_size: OptionLogicalSize,
     /// Build window with a given application ID. It should match the `.desktop` file distributed
     /// with your program. Only relevant on Wayland.
     /// Can only be set at window creation, can't be changed in callbacks.
@@ -1205,11 +1188,28 @@ pub struct LinuxWindowOptions {
     /// For details about application ID conventions, see the
     /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
     pub wayland_app_id: OptionString,
-    pub wayland_theme: OptionWaylandTheme,
+    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on
+    /// X11. Can only be set at window creation, can't be changed in callbacks.
+    pub x11_wm_classes: StringPairVec,
+    /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    pub x11_window_types: XWindowTypeVec,
+    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
+    pub x11_visual: OptionX11Visual,
+    /// Build window with resize increment hint. Only implemented on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    pub x11_resize_increments: OptionLogicalSize,
+    /// Build window with base size hint. Only implemented on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    pub x11_base_size: OptionLogicalSize,
+    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
+    pub x11_screen: OptionI32,
     pub request_user_attention: UserAttentionType,
-    pub window_icon: OptionWindowIcon,
     /// X11-specific: Client-side decoration state (drag position, button hover, etc.)
     pub x11_decorations_state: OptionLinuxDecorationsState,
+    /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    pub x11_override_redirect: bool,
 }
 
 pub type X11Visual = *const c_void;

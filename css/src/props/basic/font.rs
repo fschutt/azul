@@ -722,7 +722,36 @@ impl Panose {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FontMetrics {
-    // head table
+    // os/2 version 1 table (u32 fields - align 4, placed first)
+    pub ul_code_page_range1: OptionU32,
+    pub ul_code_page_range2: OptionU32,
+
+    // os/2 table (u32 fields)
+    pub ul_unicode_range1: u32,
+    pub ul_unicode_range2: u32,
+    pub ul_unicode_range3: u32,
+    pub ul_unicode_range4: u32,
+    pub ach_vend_id: u32,
+
+    // os/2 version 0 table (Option<i16>/Option<u16> - align 2)
+    pub s_typo_ascender: OptionI16,
+    pub s_typo_descender: OptionI16,
+    pub s_typo_line_gap: OptionI16,
+    pub us_win_ascent: OptionU16,
+    pub us_win_descent: OptionU16,
+
+    // os/2 version 2 table
+    pub sx_height: OptionI16,
+    pub s_cap_height: OptionI16,
+    pub us_default_char: OptionU16,
+    pub us_break_char: OptionU16,
+    pub us_max_context: OptionU16,
+
+    // os/2 version 3 table
+    pub us_lower_optical_point_size: OptionU16,
+    pub us_upper_optical_point_size: OptionU16,
+
+    // head table (u16/i16 - align 2)
     pub units_per_em: u16,
     pub font_flags: u16,
     pub x_min: i16,
@@ -743,7 +772,7 @@ pub struct FontMetrics {
     pub caret_offset: i16,
     pub num_h_metrics: u16,
 
-    // os/2 table
+    // os/2 table (u16/i16 fields)
     pub x_avg_char_width: i16,
     pub us_weight_class: u16,
     pub us_width_class: u16,
@@ -759,37 +788,12 @@ pub struct FontMetrics {
     pub y_strikeout_size: i16,
     pub y_strikeout_position: i16,
     pub s_family_class: i16,
-    pub panose: Panose,
-    pub ul_unicode_range1: u32,
-    pub ul_unicode_range2: u32,
-    pub ul_unicode_range3: u32,
-    pub ul_unicode_range4: u32,
-    pub ach_vend_id: u32,
     pub fs_selection: u16,
     pub us_first_char_index: u16,
     pub us_last_char_index: u16,
 
-    // os/2 version 0 table
-    pub s_typo_ascender: OptionI16,
-    pub s_typo_descender: OptionI16,
-    pub s_typo_line_gap: OptionI16,
-    pub us_win_ascent: OptionU16,
-    pub us_win_descent: OptionU16,
-
-    // os/2 version 1 table
-    pub ul_code_page_range1: OptionU32,
-    pub ul_code_page_range2: OptionU32,
-
-    // os/2 version 2 table
-    pub sx_height: OptionI16,
-    pub s_cap_height: OptionI16,
-    pub us_default_char: OptionU16,
-    pub us_break_char: OptionU16,
-    pub us_max_context: OptionU16,
-
-    // os/2 version 3 table
-    pub us_lower_optical_point_size: OptionU16,
-    pub us_upper_optical_point_size: OptionU16,
+    // panose (align 1 - last)
+    pub panose: Panose,
 }
 
 impl Default for FontMetrics {
@@ -803,6 +807,25 @@ impl FontMetrics {
     /// (`units_per_em = 1000`)
     pub const fn zero() -> Self {
         FontMetrics {
+            ul_code_page_range1: OptionU32::None,
+            ul_code_page_range2: OptionU32::None,
+            ul_unicode_range1: 0,
+            ul_unicode_range2: 0,
+            ul_unicode_range3: 0,
+            ul_unicode_range4: 0,
+            ach_vend_id: 0,
+            s_typo_ascender: OptionI16::None,
+            s_typo_descender: OptionI16::None,
+            s_typo_line_gap: OptionI16::None,
+            us_win_ascent: OptionU16::None,
+            us_win_descent: OptionU16::None,
+            sx_height: OptionI16::None,
+            s_cap_height: OptionI16::None,
+            us_default_char: OptionU16::None,
+            us_break_char: OptionU16::None,
+            us_max_context: OptionU16::None,
+            us_lower_optical_point_size: OptionU16::None,
+            us_upper_optical_point_size: OptionU16::None,
             units_per_em: 1000,
             font_flags: 0,
             x_min: 0,
@@ -835,29 +858,10 @@ impl FontMetrics {
             y_strikeout_size: 0,
             y_strikeout_position: 0,
             s_family_class: 0,
-            panose: Panose::zero(),
-            ul_unicode_range1: 0,
-            ul_unicode_range2: 0,
-            ul_unicode_range3: 0,
-            ul_unicode_range4: 0,
-            ach_vend_id: 0,
             fs_selection: 0,
             us_first_char_index: 0,
             us_last_char_index: 0,
-            s_typo_ascender: OptionI16::None,
-            s_typo_descender: OptionI16::None,
-            s_typo_line_gap: OptionI16::None,
-            us_win_ascent: OptionU16::None,
-            us_win_descent: OptionU16::None,
-            ul_code_page_range1: OptionU32::None,
-            ul_code_page_range2: OptionU32::None,
-            sx_height: OptionI16::None,
-            s_cap_height: OptionI16::None,
-            us_default_char: OptionU16::None,
-            us_break_char: OptionU16::None,
-            us_max_context: OptionU16::None,
-            us_lower_optical_point_size: OptionU16::None,
-            us_upper_optical_point_size: OptionU16::None,
+            panose: Panose::zero(),
         }
     }
 

@@ -1,0 +1,140 @@
+NodeData Analyse – 320 Bytes
+Struct-Definition
+Aus core/src/dom.rs:
+
+#[repr(C)]
+pub struct NodeData {
+    pub node_type: NodeType,                        //  72 B
+    pub dataset: OptionRefAny,                      //  32 B
+    pub ids_and_classes: IdOrClassVec,               //  48 B
+    pub attributes: AttributeTypeVec,                //  48 B
+    pub callbacks: CoreCallbackDataVec,              //  48 B
+    pub css_props: CssPropertyWithConditionsVec,     //  48 B
+    pub tab_index: OptionTabIndex,                   //  12 B
+    pub contenteditable: bool,                       //   1 B
+    extra: Option<Box<NodeDataExt>>,                 //   8 B
+}                                           // Sum: 317 B + 3B padding = 320 B
+Feld-für-Feld Analyse
+Offset	Feld	Typ	Größe	Align	Beschreibung
+0	node_type	NodeType	72 B	8	repr(C, u8) Enum; größte Variante: IFrame(IFrameNode) = 64B Payload
+72	dataset	OptionRefAny	32 B	8	repr(C, u8) Option um RefAny (24B: RefCount 16B + instance_id 8B)
+104	ids_and_classes	IdOrClassVec	48 B	8	C-kompatibler Vec (ptr+len+cap+destructor+flag)
+152	attributes	AttributeTypeVec	48 B	8	C-kompatibler Vec
+200	callbacks	CoreCallbackDataVec	48 B	8	C-kompatibler Vec
+248	css_props	CssPropertyWithConditionsVec	48 B	8	C-kompatibler Vec
+296	tab_index	OptionTabIndex	12 B	4	repr(C, u8) Option um TabIndex (8B: tag+pad+u32)
+308	contenteditable	bool	1 B	1	
+309	(padding)		3 B		Alignment-Padding vor nächstem 8-align Feld
+312	extra	Option<Box<NodeDataExt>>	8 B	8	Niche-optimiert: Null-Pointer = None
+Padding-Waste: nur 3 Bytes – die Feld-Reihenfolge ist fast optimal.
+
+NodeType Enum (72 Bytes)
+Aus core/src/dom.rs:
+
+#[repr(C, u8)]
+pub enum NodeType {
+    // ~90 Unit-Varianten: Html, Div, Span, P, H1, ...  (0B Payload)
+    Text(AzString),        // 48B Payload (U8Vec = C-compat Vec)
+    Image(ImageRef),       // 24B Payload (ptr + copies + flag)
+    IFrame(IFrameNode),    // 64B Payload (IFrameCallback 40B + RefAny 24B)
+    Icon(AzString),        // 48B Payload
+}
+// Layout: 1B tag + 7B padding + 64B (max payload) = 72B
+Problem: ~99% der Nodes sind einfache Tags (Div, Span, etc.) mit 0B Payload, aber jeder Node zahlt 72B wegen der IFrame-Variante.
+
+C-kompatibler Vec (48 Bytes pro Stück)
+Jeder impl_vec!-Typ (css/src/macros.rs) hat dieses Layout:
+
+#[repr(C)]
+pub struct XxxVec {
+    ptr: *const T,           //  8B
+    len: usize,              //  8B
+    cap: usize,              //  8B
+    destructor: XxxDestructor, // 16B (repr(C,u8) enum: tag 1B + 7B pad + 8B fn ptr)
+    run_destructor: bool,    //  1B + 7B padding
+}                            // = 48B
+Ein Rust Vec<T> ist nur 24 Bytes. Der C-ABI-Overhead beträgt 24 Bytes pro Vec (destructor + flag + padding).
+
+4 Vec-Felder × 48B = 192 Bytes (62.5% der gesamten NodeData für Vecs, die bei den meisten Nodes leer sind).
+
+NodeDataExt (256 Bytes, heap-allokiert)
+Aus core/src/dom.rs:
+
+#[repr(C)]
+pub struct NodeDataExt {
+    pub clip_mask: Option<ImageMask>,
+    pub accessibility: Option<Box<AccessibilityInfo>>,
+    pub menu_bar: Option<Box<Menu>>,
+    pub context_menu: Option<Box<Menu>>,
+    pub is_anonymous: bool,
+    pub key: Option<u64>,
+    pub dataset_merge_callback: Option<DatasetMergeCallback>,
+    pub component_origin: Option<ComponentOrigin>,
+}
+Dies wird bereits gut als Option<Box<NodeDataExt>> (8B) im NodeData gehalten – keine Verschwendung, wenn nicht benutzt.
+
+Optimierungsvorschläge
+1. NodeType boxen – spart ~64B (72B → 8B)
+Die größten Varianten boxen:
+
+pub enum NodeType {
+    // Unit-Varianten bleiben direkt
+    Div, Span, P, ...
+    // Payloads hinter Box
+    Text(Box<AzString>),
+    Image(Box<ImageRef>),
+    IFrame(Box<IFrameNode>),
+    Icon(Box<AzString>),
+}
+// → 8B (1 tag + 7 pad + 0 oder 8B Box-Pointer via niche)
+Einsparung: ~64 Bytes pro Node – die mit Abstand größte Optimierung. Nachteil: eine Extra-Heap-Allokation für Text/Image/IFrame-Nodes.
+
+2. dataset in NodeDataExt verschieben – spart ~24B
+OptionRefAny (32B) ist selten genutzt. Verschieben in NodeDataExt:
+
+// Statt:
+pub dataset: OptionRefAny,    // 32B immer
+// Nutze:
+// In NodeDataExt: pub dataset: Option<RefAny>,   // nur 24B wenn gebraucht
+Einsparung: ~24 Bytes (32B Feld weg, kein Mehrkosten da extra schon existiert).
+
+3. C-Vec-Overhead reduzieren – spart bis zu 96B
+Wenn reine Rust-Nutzung (kein C-ABI nötig): Standard-Vec<T> (24B) statt C-Vec (48B).
+
+Alternativ: destructor + run_destructor in ein kompakteres Format (z.B. tagged pointer):
+
+Option	Einsparung
+Rust-Vec statt C-Vec	24B × 4 = 96B
+Kompakter Destructor (8B statt 24B)	16B × 4 = 64B
+4. attributes in NodeDataExt verschieben – spart ~40B
+Die meisten Nodes haben 0 HTML-Attribute. Verschieben in NodeDataExt:
+
+Einsparung: ~40B (48B Feld weg, 8B mehr in NodeDataExt-pointer).
+
+5. Selten genutzte Vecs zusammenfassen
+ids_and_classes, attributes, callbacks, und css_props könnten in einem einzigen Box<NodeDataAllocations> zusammengefasst werden, das nur allokiert wird wenn mindestens ein Vec non-empty ist:
+
+struct NodeDataAllocations {
+    ids_and_classes: Vec<IdOrClass>,
+    attributes: Vec<AttributeType>,
+    callbacks: Vec<CoreCallbackData>,
+    css_props: Vec<CssPropertyWithConditions>,
+}
+// NodeData: allocs: Option<Box<NodeDataAllocations>>  // 8B statt 192B
+Einsparung: ~184B für Nodes ohne Classes/Callbacks/Styles (trade-off: Indirektion).
+
+6. OptionTabIndex → Option in NodeDataExt – spart ~4B
+OptionTabIndex (12B) ist ein C-kompatibles repr(C, u8) Option. Wenn in NodeDataExt verschoben, spart man 12B minus was schon existiert.
+
+Zusammenfassung der Optimierungspotenziale
+Maßnahme	Ersparnis	Neue Größe	Aufwand	Bemerkung
+Box-en der NodeType-Payloads	~64B	~256B	Mittel	1 Extra-Allokation für Text/Image/IFrame
+dataset → NodeDataExt	~24B	~232B	Gering	Nur selten genutzt
+attributes → NodeDataExt	~40B	~192B	Gering	Meiste Nodes haben 0 Attrs
+Kompakter Destructor in Vecs	~64B	~128B	Hoch	ABI-Änderung
+Alle Vecs → Side-Table	~184B	~100B	Hoch	Radikaler Umbau
+Voller Rust-Vec (kein C-ABI)	~96B	~??B	Hoch	Nur wenn C-ABI nicht nötig
+Realistisches Ziel ohne ABI-Bruch: ~192B (NodeType boxen + dataset/attributes verschieben)
+Aggressives Ziel mit ABI-Änderung: ~80–100B
+
+Die Test-Datei mit der detaillierten Analyse liegt in core/tests/nodedata_analysis.rs.

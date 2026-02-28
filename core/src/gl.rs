@@ -2448,21 +2448,21 @@ impl Ord for GlContextPtr {
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
 #[repr(C)]
 pub struct Texture {
-    /// Raw OpenGL texture ID
-    pub texture_id: GLuint,
-    /// Hints and flags for optimization purposes
-    pub flags: TextureFlags,
-    /// Size of this texture (in pixels)
-    pub size: PhysicalSizeU32,
-    /// Background color of this texture
-    pub background_color: ColorU,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in
     /// the destructor)
     pub gl_context: GlContextPtr,
-    /// Format of the texture (rgba8, brga8, etc.)
-    pub format: RawImageFormat,
+    /// Raw OpenGL texture ID
+    pub texture_id: GLuint,
     /// Reference count, shared across
     pub refcount: *const AtomicUsize,
+    /// Size of this texture (in pixels)
+    pub size: PhysicalSizeU32,
+    /// Format of the texture (rgba8, brga8, etc.)
+    pub format: RawImageFormat,
+    /// Background color of this texture
+    pub background_color: ColorU,
+    /// Hints and flags for optimization purposes
+    pub flags: TextureFlags,
     pub run_destructor: bool,
 }
 
@@ -2472,13 +2472,13 @@ impl Clone for Texture {
             (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst);
         }
         Self {
-            texture_id: self.texture_id.clone(),
-            flags: self.flags.clone(),
-            size: self.size.clone(),
-            background_color: self.background_color.clone(),
             gl_context: self.gl_context.clone(),
-            format: self.format.clone(),
+            texture_id: self.texture_id.clone(),
             refcount: self.refcount,
+            size: self.size.clone(),
+            format: self.format.clone(),
+            background_color: self.background_color.clone(),
+            flags: self.flags.clone(),
             run_destructor: true,
         }
     }
@@ -3049,13 +3049,13 @@ impl Drop for VertexArrayObject {
 
 #[repr(C)]
 pub struct VertexBuffer {
+    pub vao: VertexArrayObject,
     pub vertex_buffer_id: GLuint,
     pub vertex_buffer_len: usize,
-    pub vao: VertexArrayObject,
     pub index_buffer_id: GLuint,
     pub index_buffer_len: usize,
-    pub index_buffer_format: IndexBufferFormat,
     pub refcount: *const AtomicUsize,
+    pub index_buffer_format: IndexBufferFormat,
     pub run_destructor: bool,
 }
 
@@ -3075,13 +3075,13 @@ impl Clone for VertexBuffer {
     fn clone(&self) -> Self {
         unsafe { (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst) };
         Self {
+            vao: self.vao.clone(),
             vertex_buffer_id: self.vertex_buffer_id.clone(),
             vertex_buffer_len: self.vertex_buffer_len.clone(),
-            vao: self.vao.clone(),
             index_buffer_id: self.index_buffer_id.clone(),
             index_buffer_len: self.index_buffer_len.clone(),
-            index_buffer_format: self.index_buffer_format.clone(),
             refcount: self.refcount,
+            index_buffer_format: self.index_buffer_format.clone(),
             run_destructor: true,
         }
     }

@@ -1553,27 +1553,27 @@ pub struct AccessibilityInfo {
     /// Get the "value" of the `IAccessible`, for example a number in a slider,
     /// a URL for a link, the text a user entered in a field.
     pub accessibility_value: OptionString,
-    /// Get an enumerated value representing what this IAccessible is used for,
-    /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
-    pub role: AccessibilityRole,
-    /// Possible on/off states, such as focused, focusable, selected, selectable,
-    /// visible, protected (for passwords), checked, etc.
-    pub states: AccessibilityStateVec,
     /// Optional keyboard accelerator.
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional "default action" description. Only used when there is at least
     /// one `ComponentEventFilter::DefaultAction` callback present on this node.
     pub default_action: OptionString,
+    /// Possible on/off states, such as focused, focusable, selected, selectable,
+    /// visible, protected (for passwords), checked, etc.
+    pub states: AccessibilityStateVec,
     /// A list of actions the user can perform on this element.
     /// Maps to accesskit's Action enum.
     pub supported_actions: AccessibilityActionVec,
-    /// For live regions that update automatically (e.g., chat messages, timers).
-    /// Maps to accesskit's `Live` property.
-    pub is_live_region: bool,
     /// ID of another node that labels this one (for `aria-labelledby`).
     pub labelled_by: OptionDomNodeId,
     /// ID of another node that describes this one (for `aria-describedby`).
     pub described_by: OptionDomNodeId,
+    /// Get an enumerated value representing what this IAccessible is used for,
+    /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
+    pub role: AccessibilityRole,
+    /// For live regions that update automatically (e.g., chat messages, timers).
+    /// Maps to accesskit's `Live` property.
+    pub is_live_region: bool,
 }
 
 /// Actions that can be performed on an accessible element.

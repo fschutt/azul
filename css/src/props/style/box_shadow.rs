@@ -39,10 +39,10 @@ impl fmt::Display for BoxShadowClipMode {
 pub struct StyleBoxShadow {
     pub offset_x: PixelValueNoPercent,
     pub offset_y: PixelValueNoPercent,
-    pub color: ColorU,
     pub blur_radius: PixelValueNoPercent,
     pub spread_radius: PixelValueNoPercent,
     pub clip_mode: BoxShadowClipMode,
+    pub color: ColorU,
 }
 
 impl Default for StyleBoxShadow {
@@ -50,10 +50,10 @@ impl Default for StyleBoxShadow {
         Self {
             offset_x: PixelValueNoPercent::default(),
             offset_y: PixelValueNoPercent::default(),
-            color: ColorU::BLACK,
             blur_radius: PixelValueNoPercent::default(),
             spread_radius: PixelValueNoPercent::default(),
             clip_mode: BoxShadowClipMode::default(),
+            color: ColorU::BLACK,
         }
     }
 }

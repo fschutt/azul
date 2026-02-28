@@ -176,6 +176,35 @@ impl FontRefExt for FontRef {
 
         // PdfFontMetrics only has a subset of fields; fill others with defaults
         azul_css::props::basic::FontMetrics {
+            // OS/2 version 1 fields (u32 - align 4, placed first)
+            ul_code_page_range1: OptionU32::None,
+            ul_code_page_range2: OptionU32::None,
+
+            // OS/2 table (u32 fields)
+            ul_unicode_range1: 0,   // Not in PdfFontMetrics
+            ul_unicode_range2: 0,   // Not in PdfFontMetrics
+            ul_unicode_range3: 0,   // Not in PdfFontMetrics
+            ul_unicode_range4: 0,   // Not in PdfFontMetrics
+            ach_vend_id: 0,         // Not in PdfFontMetrics
+
+            // OS/2 version 0 fields (optional)
+            s_typo_ascender: OptionI16::None,
+            s_typo_descender: OptionI16::None,
+            s_typo_line_gap: OptionI16::None,
+            us_win_ascent: OptionU16::None,
+            us_win_descent: OptionU16::None,
+
+            // OS/2 version 2 fields (optional)
+            sx_height: OptionI16::None,
+            s_cap_height: OptionI16::None,
+            us_default_char: OptionU16::None,
+            us_break_char: OptionU16::None,
+            us_max_context: OptionU16::None,
+
+            // OS/2 version 3 fields (optional)
+            us_lower_optical_point_size: OptionU16::None,
+            us_upper_optical_point_size: OptionU16::None,
+
             // HEAD table fields
             units_per_em: pdf.units_per_em,
             font_flags: pdf.font_flags,
@@ -213,37 +242,12 @@ impl FontRefExt for FontRef {
             y_strikeout_size: pdf.y_strikeout_size,
             y_strikeout_position: pdf.y_strikeout_position,
             s_family_class: 0, // Not in PdfFontMetrics
-            panose: azul_css::props::basic::Panose::zero(),
-            ul_unicode_range1: 0,   // Not in PdfFontMetrics
-            ul_unicode_range2: 0,   // Not in PdfFontMetrics
-            ul_unicode_range3: 0,   // Not in PdfFontMetrics
-            ul_unicode_range4: 0,   // Not in PdfFontMetrics
-            ach_vend_id: 0,         // Not in PdfFontMetrics
             fs_selection: 0,        // Not in PdfFontMetrics
             us_first_char_index: 0, // Not in PdfFontMetrics
             us_last_char_index: 0,  // Not in PdfFontMetrics
 
-            // OS/2 version 0 fields (optional)
-            s_typo_ascender: OptionI16::None,
-            s_typo_descender: OptionI16::None,
-            s_typo_line_gap: OptionI16::None,
-            us_win_ascent: OptionU16::None,
-            us_win_descent: OptionU16::None,
-
-            // OS/2 version 1 fields (optional)
-            ul_code_page_range1: OptionU32::None,
-            ul_code_page_range2: OptionU32::None,
-
-            // OS/2 version 2 fields (optional)
-            sx_height: OptionI16::None,
-            s_cap_height: OptionI16::None,
-            us_default_char: OptionU16::None,
-            us_break_char: OptionU16::None,
-            us_max_context: OptionU16::None,
-
-            // OS/2 version 3 fields (optional)
-            us_lower_optical_point_size: OptionU16::None,
-            us_upper_optical_point_size: OptionU16::None,
+            // Panose (align 1 - last)
+            panose: azul_css::props::basic::Panose::zero(),
         }
     }
 }
