@@ -5942,7 +5942,12 @@ fn process_debug_event(
                     None,
                 );
             }
-            needs_update = true;
+            // NOTE: Do NOT set needs_update = true here!
+            // callback_info.scroll_to() already pushes CallbackChange::ScrollTo
+            // which will be processed by the event system as a lightweight repaint
+            // (ShouldReRenderCurrentWindow → build_image_only_transaction).
+            // Setting needs_update would cause Update::RefreshDom → full DOM rebuild
+            // (~1s for 500 rows), during which the scrollbar opacity fades to 0.
 
             send_ok(request, None, None);
         }
