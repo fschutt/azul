@@ -9,7 +9,6 @@ use crate::prop_cache::CssPropertyCache;
 use crate::styled_dom::StyledNodeState;
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
-use azul_css::props::property::{CssProperty, CssPropertyType};
 use azul_css::props::basic::length::SizeMetric;
 use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
 use azul_css::props::layout::flex::LayoutFlexBasis;
@@ -22,15 +21,15 @@ impl CssPropertyCache {
     ///
     /// Must be called after `restyle()`, `apply_ua_css()`, and `compute_inherited_values()`.
     /// Resolves all layout-relevant properties for every node in the "normal" state
-    /// (no hover/active/focus) and encodes them into compact arrays.
+    /// (no hover/active/focus) and encodes them into compact tier1/2/2b arrays.
     ///
-    /// `resolved_props` is the pre-resolved property cache (from `build_resolved_cache()`).
-    /// All resolved properties are stored in `tier3_overflow` for generic property access,
-    /// while tier1/2/2b provide fast-path access for layout-hot properties.
+    /// Fix 3: `tier3_overflow` is no longer populated. `get_property()` falls through
+    /// to `get_property_slow()` (cascade binary search) for non-compact properties.
+    /// This eliminates the `build_resolved_cache()` startup cost and the per-node
+    /// `Vec<(CssPropertyType, CssProperty)>` clone (~5 MB for 500 nodes).
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],
-        resolved_props: Vec<Vec<(CssPropertyType, CssProperty)>>,
     ) -> CompactLayoutCache {
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
@@ -390,17 +389,9 @@ impl CssPropertyCache {
             }
         }
 
-        // =====================================================================
-        // Tier 3: Populate overflow with ALL resolved properties
-        // =====================================================================
-        // This serves as the generic property store for get_property() lookups.
-        // Properties already encoded in tier1/2/2b are also stored here so that
-        // get_property() can return CssProperty references for any property type.
-        for (i, props) in resolved_props.into_iter().enumerate() {
-            if !props.is_empty() {
-                result.tier3_overflow[i] = Some(Box::new(props));
-            }
-        }
+        // Fix 3: tier3_overflow is no longer populated here.
+        // get_property() calls get_property_slow() directly, which walks the
+        // cascade layers (already sorted Vecs + compact inline table).
 
         result
     }

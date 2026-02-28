@@ -1528,18 +1528,18 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&CssProperty> {
-        // Fast path: use compact cache tier3_overflow (stores ALL resolved properties)
-        if let Some(compact) = &self.compact_cache {
-            return compact.get_overflow_prop(node_id.index(), css_property_type);
-        }
-
-        // Slow path: full cascade resolution (before compact cache is built)
+        // Direct cascade resolution — no tier3_overflow clone needed.
+        // Fix 3: tier3_overflow removed; the cascade layers (user_overridden_properties,
+        // compact inline table, css_props, cascaded_props, UA CSS) are already sorted
+        // Vecs that support O(log N) binary search, and the compact inline table gives
+        // O(1) for inline styles. This avoids the per-node Vec<CssProperty> clone that
+        // tier3_overflow required, saving ~5 MB for 500 nodes and eliminating the
+        // build_resolved_cache() startup cost (~O(N × P × log P)).
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
     /// Full cascade resolution without using the resolved cache.
-    /// Used internally by build_resolved_cache() and as fallback when cache is not built.
-    /// Also used by restyle functions that need state-aware lookups.
+    /// Used by restyle functions and get_property().
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,

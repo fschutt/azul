@@ -911,30 +911,23 @@ impl StyledDom {
         );
         let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
 
-        // Build the deduplicated inline style table BEFORE resolving the property cache.
-        // This allows build_resolved_cache() to use O(log n) binary search instead of
-        // O(n) linear scan for inline style lookups.
+        // Build the deduplicated inline style table BEFORE building the compact cache.
+        // This allows get_property_slow() to use O(1) compact inline table lookup
+        // instead of O(n) linear scan for inline style lookups.
         css_property_cache.build_inline_style_table(compact_dom.node_data.as_ref().internal);
 
-        // Build pre-resolved property cache (temporary, consumed by compact cache builder).
-        let t_resolved = std::time::Instant::now();
-        let resolved_props = css_property_cache.build_resolved_cache(
-            compact_dom.node_data.as_ref().internal,
-            &styled_nodes,
-        );
-        let resolved_ms = t_resolved.elapsed().as_secs_f64() * 1000.0;
-
-        // Build compact layout cache (includes tier3_overflow with all resolved properties)
+        // Build compact layout cache (tier1 enum bits + tier2 dimensions + tier2b text).
+        // Fix 3: build_resolved_cache() + tier3_overflow removed — get_property() calls
+        // get_property_slow() directly, which uses cascade binary search + compact inline.
         let t_compact = std::time::Instant::now();
         let compact = css_property_cache.build_compact_cache(
             compact_dom.node_data.as_ref().internal,
-            resolved_props,
         );
         css_property_cache.compact_cache = Some(compact);
         let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, resolved_ms, compact_ms, total_ms);
+        let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, compact_ms, total_ms);
 
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
