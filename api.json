@@ -10486,6 +10486,10 @@
                                 "flags": {
                                     "type": "NodeFlags"
                                 },
+                                "accessibility": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
                                 "extra": {
                                     "type": "c_void",
                                     "ref_kind": "mutptr"
@@ -10944,6 +10948,66 @@
                                     "type": "NodeData"
                                 },
                                 "fn_body": "object.with_merge_callback(callback)"
+                            },
+                            "get_tab_index": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabIndex"
+                                },
+                                "fn_body": "object.get_tab_index().into()"
+                            },
+                            "has_id": {
+                                "doc": [
+                                    "Checks whether this node has the searched ID attached."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "id": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has_id(id.as_str())"
+                            },
+                            "has_class": {
+                                "doc": [
+                                    "Checks whether this node has the searched class attached."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "class": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has_class(class.as_str())"
+                            },
+                            "get_ids_and_classes": {
+                                "doc": [
+                                    "Returns IDs and classes as a computed `IdOrClassVec`.",
+                                    "Note: this allocates a new vec each time, prefer `has_id()`/`has_class()` for checks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IdOrClassVec"
+                                },
+                                "fn_body": "object.get_ids_and_classes()"
                             }
                         },
                         "repr": "C"
@@ -12486,6 +12550,9 @@
                             "Packed representation of tab index + contenteditable flag as a u32."
                         ],
                         "external": "azul_core::dom::NodeFlags",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Copy",
                             "PartialOrd",
@@ -12495,9 +12562,6 @@
                             "Hash",
                             "Eq",
                             "Ord"
-                        ],
-                        "custom_impls": [
-                            "Default"
                         ],
                         "struct_fields": [
                             {

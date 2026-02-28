@@ -1330,10 +1330,12 @@ pub struct NodeData {
     /// These are evaluated at runtime based on OS, viewport, container, theme, and pseudo-state.
     /// Uses "last wins" semantics - properties are evaluated in order, last match wins.
     pub css_props: CssPropertyWithConditionsVec,
-    /// Packed flags: tab_index + contenteditable.
+    /// Packed flags: tab_index + contenteditable + is_anonymous.
     pub flags: NodeFlags,
-    /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
-    /// etc.
+    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
+    /// 8 bytes (Option<Box<T>> is pointer-sized).
+    pub accessibility: Option<Box<AccessibilityInfo>>,
+    /// Stores "extra", not commonly used data of the node: clip-mask, menus, etc.
     ///
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI.
@@ -1373,8 +1375,6 @@ impl Hash for NodeData {
             if let Some(c) = ext.clip_mask.as_ref() {
                 c.hash(state);
             }
-            // Note: AccessibilityInfo doesn't implement Hash (has non-hashable fields)
-            // Skipping accessibility field in hash
             if let Some(c) = ext.menu_bar.as_ref() {
                 c.hash(state);
             }
@@ -1455,17 +1455,10 @@ pub struct NodeDataExt {
     pub dataset: Option<RefAny>,
     /// Optional clip mask for this DOM node.
     pub clip_mask: Option<ImageMask>,
-    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
-    pub accessibility: Option<Box<AccessibilityInfo>>,
     /// Menu bar that should be displayed at the top of this nodes rect.
     pub menu_bar: Option<Box<Menu>>,
     /// Context menu that should be opened when the item is left-clicked.
     pub context_menu: Option<Box<Menu>>,
-    /// Whether this node is an anonymous box (generated for table layout).
-    /// Anonymous boxes are not part of the original DOM tree and are created
-    /// by the layout engine to satisfy table layout requirements (e.g., wrapping
-    /// non-table children of table elements in anonymous table-row/table-cell boxes).
-    pub is_anonymous: bool,
     /// Stable key for reconciliation. If provided, allows the framework to track
     /// this node across frames even if its position in the array changes.
     /// This is crucial for correct lifecycle events when lists are reordered.
@@ -2292,6 +2285,7 @@ impl Clone for NodeData {
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
+            accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
         }
     }
@@ -2380,7 +2374,8 @@ impl Default for TabIndex {
 ///              01 = Auto
 ///              10 = OverrideInParent (value in bits [28:0])
 ///              11 = NoKeyboardFocus
-///   [28:0]   OverrideInParent value (max ~536 million)
+///   [28]     is_anonymous (1 = anonymous box for table layout)
+///   [27:0]   OverrideInParent value (max ~268 million)
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeFlags {
@@ -2396,7 +2391,8 @@ impl Default for NodeFlags {
 impl NodeFlags {
     const CONTENTEDITABLE_BIT: u32 = 1 << 31;
     const TAB_INDEX_MASK: u32      = 0b11 << 29;
-    const TAB_VALUE_MASK: u32      = (1 << 29) - 1;
+    const ANONYMOUS_BIT: u32       = 1 << 28;
+    const TAB_VALUE_MASK: u32      = (1 << 28) - 1;
 
     const TAB_NONE: u32            = 0b00 << 29;
     const TAB_AUTO: u32            = 0b01 << 29;
@@ -2441,9 +2437,23 @@ impl NodeFlags {
         }
     }
 
+    /// Returns whether this node is an anonymous box generated for table layout.
+    pub const fn is_anonymous(&self) -> bool {
+        (self.inner & Self::ANONYMOUS_BIT) != 0
+    }
+
+    pub fn set_anonymous(&mut self, v: bool) {
+        if v {
+            self.inner |= Self::ANONYMOUS_BIT;
+        } else {
+            self.inner &= !Self::ANONYMOUS_BIT;
+        }
+    }
+
     pub fn set_tab_index(&mut self, tab_index: Option<TabIndex>) {
-        // Clear tab index bits (bits 29-30) and value bits (bits 0-28)
-        self.inner &= Self::CONTENTEDITABLE_BIT; // keep only contenteditable bit
+        // Clear tab index bits (bits 29-30) and value bits (bits 0-27)
+        // keep contenteditable bit (31) and anonymous bit (28)
+        self.inner &= Self::CONTENTEDITABLE_BIT | Self::ANONYMOUS_BIT;
         match tab_index {
             None => { /* TAB_NONE = 0, already cleared */ }
             Some(TabIndex::Auto) => {
@@ -2526,6 +2536,7 @@ impl NodeData {
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
             flags: NodeFlags::new(),
+            accessibility: None,
             extra: None,
         }
     }
@@ -2660,7 +2671,7 @@ impl NodeData {
     }
     #[inline]
     pub fn get_accessibility_info(&self) -> Option<&Box<AccessibilityInfo>> {
-        self.extra.as_ref().and_then(|e| e.accessibility.as_ref())
+        self.accessibility.as_ref()
     }
     #[inline]
     pub fn get_menu_bar(&self) -> Option<&Box<Menu>> {
@@ -2674,7 +2685,7 @@ impl NodeData {
     /// Returns whether this node is an anonymous box generated for table layout.
     #[inline]
     pub fn is_anonymous(&self) -> bool {
-        self.extra.as_ref().map(|e| e.is_anonymous).unwrap_or(false)
+        self.flags.is_anonymous()
     }
 
     #[inline(always)]
@@ -2743,17 +2754,13 @@ impl NodeData {
     }
     #[inline]
     pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo) {
-        self.extra
-            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
-            .accessibility = Some(Box::new(accessibility_info));
+        self.accessibility = Some(Box::new(accessibility_info));
     }
 
     /// Marks this node as an anonymous box (generated for table layout).
     #[inline]
     pub fn set_anonymous(&mut self, is_anonymous: bool) {
-        self.extra
-            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
-            .is_anonymous = is_anonymous;
+        self.flags.set_anonymous(is_anonymous);
     }
     #[inline]
     pub fn set_menu_bar(&mut self, menu_bar: Menu) {
@@ -3231,6 +3238,7 @@ impl NodeData {
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
+            accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
         }
     }
@@ -3275,19 +3283,17 @@ impl NodeData {
         }
 
         // Check accessibility role for button-like elements
-        if let Some(ref ext) = self.extra {
-            if let Some(ref accessibility) = ext.accessibility {
-                use crate::dom::AccessibilityRole;
-                match accessibility.role {
-                    AccessibilityRole::PushButton  // Button
-                    | AccessibilityRole::Link
-                    | AccessibilityRole::CheckButton  // Checkbox
-                    | AccessibilityRole::RadioButton  // Radio
-                    | AccessibilityRole::MenuItem
-                    | AccessibilityRole::PageTab  // Tab
-                    => return true,
-                    _ => {}
-                }
+        if let Some(ref accessibility) = self.accessibility {
+            use crate::dom::AccessibilityRole;
+            match accessibility.role {
+                AccessibilityRole::PushButton  // Button
+                | AccessibilityRole::Link
+                | AccessibilityRole::CheckButton  // Checkbox
+                | AccessibilityRole::RadioButton  // Radio
+                | AccessibilityRole::MenuItem
+                | AccessibilityRole::PageTab  // Tab
+                => return true,
+                _ => {}
             }
         }
 
@@ -3304,17 +3310,15 @@ impl NodeData {
         }
 
         // Check for disabled state in accessibility info
-        if let Some(ref ext) = self.extra {
-            if let Some(ref accessibility) = ext.accessibility {
-                // Check if explicitly marked as unavailable
-                if accessibility
-                    .states
-                    .as_ref()
-                    .iter()
-                    .any(|s| matches!(s, AccessibilityState::Unavailable))
-                {
-                    return false;
-                }
+        if let Some(ref accessibility) = self.accessibility {
+            // Check if explicitly marked as unavailable
+            if accessibility
+                .states
+                .as_ref()
+                .iter()
+                .any(|s| matches!(s, AccessibilityState::Unavailable))
+            {
+                return false;
             }
         }
 
