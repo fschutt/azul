@@ -350,7 +350,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     constraints: &LayoutConstraints,
-    float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
+    float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
@@ -373,7 +373,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             // InlineBlock ALWAYS establishes a BFC for its contents.
             // The element itself participates as an atomic inline in its parent's IFC,
             // but its children are laid out in a BFC, not an IFC.
-            let mut temp_float_cache = std::collections::BTreeMap::new();
+            let mut temp_float_cache = HashMap::new();
             layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
         }
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints)
@@ -383,7 +383,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         }
         _ => {
             // Unknown formatting context - fall back to BFC
-            let mut temp_float_cache = std::collections::BTreeMap::new();
+            let mut temp_float_cache = HashMap::new();
             layout_bfc(
                 ctx,
                 tree,
@@ -749,7 +749,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     constraints: &LayoutConstraints,
-    float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
+    float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     let node = tree
         .get(node_index)
@@ -3781,7 +3781,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         };
 
         // Layout the caption node
-        let mut empty_float_cache = std::collections::BTreeMap::new();
+        let mut empty_float_cache = HashMap::new();
         let caption_result = layout_formatting_context(
             ctx,
             tree,
@@ -4098,7 +4098,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
 
     let mut temp_positions: super::PositionVec = Vec::new();
     let mut temp_scrollbar_reflow = false;
-    let mut temp_float_cache = std::collections::BTreeMap::new();
+    let mut temp_float_cache = HashMap::new();
 
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
@@ -4161,7 +4161,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
 
     let mut temp_positions: super::PositionVec = Vec::new();
     let mut temp_scrollbar_reflow = false;
-    let mut temp_float_cache = std::collections::BTreeMap::new();
+    let mut temp_float_cache = HashMap::new();
 
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
@@ -4559,7 +4559,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
         let mut temp_positions: super::PositionVec = Vec::new();
         let mut temp_scrollbar_reflow = false;
-        let mut temp_float_cache = std::collections::BTreeMap::new();
+        let mut temp_float_cache = HashMap::new();
 
         crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
@@ -5230,7 +5230,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 drop(child_node);
 
                 // Recursively lay out the inline-block to get its final height and baseline.
-                let mut empty_float_cache = std::collections::BTreeMap::new();
+                let mut empty_float_cache = HashMap::new();
                 let layout_result = layout_formatting_context(
                     ctx,
                     tree,
@@ -5625,7 +5625,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             // Recursively lay out the inline-block to get its final height and baseline.
             // Note: This does not affect its final position, only its dimensions.
-            let mut empty_float_cache = std::collections::BTreeMap::new();
+            let mut empty_float_cache = HashMap::new();
             let layout_result = layout_formatting_context(
                 ctx,
                 tree,
@@ -5977,7 +5977,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
 
                 drop(child_node);
 
-                let mut empty_float_cache = std::collections::BTreeMap::new();
+                let mut empty_float_cache = HashMap::new();
                 let layout_result = layout_formatting_context(
                     ctx,
                     tree,
@@ -6325,7 +6325,7 @@ fn generate_list_marker_text(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     marker_index: usize,
-    counters: &BTreeMap<(usize, String), i32>,
+    counters: &HashMap<(usize, String), i32>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> String {
     use crate::solver3::counters::format_counter;
@@ -6469,7 +6469,7 @@ fn generate_list_marker_segments(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     marker_index: usize,
-    counters: &BTreeMap<(usize, String), i32>,
+    counters: &HashMap<(usize, String), i32>,
     base_style: Arc<StyleProperties>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<StyledRun> {

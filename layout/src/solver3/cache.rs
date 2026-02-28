@@ -14,7 +14,7 @@
 //!    container size, which is a significant optimization.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     hash::{DefaultHasher, Hash, Hasher},
 };
 
@@ -346,19 +346,19 @@ pub struct LayoutCache {
     /// The viewport size from the last layout pass, used to detect resizes.
     pub viewport: Option<LogicalRect>,
     /// Stable scroll IDs computed from node_data_hash (layout index -> scroll ID)
-    pub scroll_ids: BTreeMap<usize, u64>,
+    pub scroll_ids: HashMap<usize, u64>,
     /// Mapping from scroll ID to DOM NodeId for hit testing
-    pub scroll_id_to_node_id: BTreeMap<u64, NodeId>,
+    pub scroll_id_to_node_id: HashMap<u64, NodeId>,
     /// CSS counter values for each node and counter name.
     /// Key: (layout_index, counter_name), Value: counter value
     /// This stores the computed counter values after processing counter-reset and
     /// counter-increment.
-    pub counters: BTreeMap<(usize, String), i32>,
+    pub counters: HashMap<(usize, String), i32>,
     /// Cache of positioned floats for each BFC node (layout_index -> FloatingContext).
     /// This persists float positions across multiple layout passes, ensuring IFC
     /// children always have access to correct float exclusions even when layout is
     /// recalculated.
-    pub float_cache: BTreeMap<usize, fc::FloatingContext>,
+    pub float_cache: HashMap<usize, fc::FloatingContext>,
     /// Per-node multi-slot cache (inspired by Taffy's 9+1 architecture).
     /// External to LayoutTree — indexed by node index for O(1) lookup.
     /// Persists across frames; resized after reconciliation.
@@ -1375,7 +1375,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
     is_flex_or_grid: bool,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
-    float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     // Set relative position on child
     // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
@@ -1575,7 +1575,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     containing_block_size: LogicalSize,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
-    float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
 ) -> Result<()> {
     // === PER-NODE CACHE CHECK (Taffy-inspired 9+1 slot cache) ===
@@ -1907,7 +1907,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     available_size: LogicalSize,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
-    float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
     let children: Vec<usize> = node.children.clone();
@@ -2138,7 +2138,7 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
 pub fn compute_counters(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
-    counters: &mut BTreeMap<(usize, String), i32>,
+    counters: &mut HashMap<(usize, String), i32>,
 ) {
     use std::collections::HashMap;
 
@@ -2164,7 +2164,7 @@ fn compute_counters_recursive(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
     node_idx: usize,
-    counters: &mut BTreeMap<(usize, String), i32>,
+    counters: &mut HashMap<(usize, String), i32>,
     counter_stacks: &mut std::collections::HashMap<String, Vec<i32>>,
     scope_stack: &mut Vec<Vec<String>>,
 ) {

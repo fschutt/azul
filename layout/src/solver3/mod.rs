@@ -123,7 +123,7 @@ macro_rules! debug_display_type {
 // #[cfg(test)]
 // mod tests_arabic;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
 use azul_core::{
     dom::{DomId, NodeId},
@@ -206,7 +206,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// New multi-node text selection with anchor/focus model
     pub text_selections: &'a BTreeMap<DomId, TextSelection>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
-    pub counters: &'a mut BTreeMap<(usize, String), i32>,
+    pub counters: &'a mut HashMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one DisplayList per page
@@ -434,7 +434,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // Create temporary context without counters for tree generation
-    let mut counter_values = BTreeMap::new();
+    let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
         styled_dom: &new_dom,
         font_manager,

@@ -10,7 +10,7 @@
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
 //! provides programmatic control over page decoration as a temporary solution.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use azul_core::{
     dom::{DomId, NodeId},
@@ -39,7 +39,7 @@ use crate::{
 /// needed to generate a display list afterwards. The tree and
 /// calculated_positions are stored in the `LayoutCache` that was passed in.
 pub struct FragmentationLayoutResult {
-    pub scroll_ids: BTreeMap<usize, u64>,
+    pub scroll_ids: HashMap<usize, u64>,
 }
 
 /// Layout a document with integrated pagination, returning one DisplayList per page.
@@ -401,7 +401,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     };
 
     // Create temporary context without counters for tree generation
-    let mut counter_values = BTreeMap::new();
+    let mut counter_values = HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
         styled_dom: new_dom,

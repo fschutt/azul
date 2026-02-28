@@ -1135,7 +1135,7 @@ pub fn render_component_preview(
     opts: ComponentPreviewOptions,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<ComponentPreviewResult, String> {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -1213,10 +1213,10 @@ pub fn render_component_preview(
         tree: None,
         calculated_positions: Vec::new(),
         viewport: None,
-        scroll_ids: BTreeMap::new(),
-        scroll_id_to_node_id: BTreeMap::new(),
-        counters: BTreeMap::new(),
-        float_cache: BTreeMap::new(),
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
         cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();

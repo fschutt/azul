@@ -1,6 +1,6 @@
 //! Generates a renderer-agnostic display list from a laid-out tree
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
 use allsorts::glyph_position;
 use azul_core::{
@@ -1295,7 +1295,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     tree: &LayoutTree,
     calculated_positions: &super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
-    scroll_ids: &BTreeMap<usize, u64>,
+    scroll_ids: &HashMap<usize, u64>,
     gpu_value_cache: Option<&GpuValueCache>,
     renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
@@ -1392,7 +1392,7 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
     positioned_tree: &'a PositionedTree<'a>,
-    scroll_ids: &'a BTreeMap<usize, u64>,
+    scroll_ids: &'a HashMap<usize, u64>,
     gpu_value_cache: Option<&'a GpuValueCache>,
     renderer_resources: &'a RendererResources,
     id_namespace: IdNamespace,
@@ -1417,7 +1417,7 @@ where
         ctx: &'a mut LayoutContext<'b, T>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a>,
-        scroll_ids: &'a BTreeMap<usize, u64>,
+        scroll_ids: &'a HashMap<usize, u64>,
         gpu_value_cache: Option<&'a GpuValueCache>,
         renderer_resources: &'a RendererResources,
         id_namespace: IdNamespace,

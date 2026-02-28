@@ -296,7 +296,7 @@ pub fn layout_justify_items_to_taffy(
 // TODO: gap, grid, visibility, z_index, flex_basis, etc. analog ergänzen
 // --- CSS <-> Taffy Übersetzungsfunktionen ---
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
 use azul_core::{dom::NodeId, geom::LogicalSize, styled_dom::StyledDom};
 use azul_css::props::{
@@ -1605,7 +1605,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Use a temporary float cache for this subtree
-        let mut float_cache = std::collections::BTreeMap::new();
+        let mut float_cache = HashMap::new();
 
         // Call layout_formatting_context - this handles ALL formatting context types
         // including nested flex/grid, tables, BFC, and IFC

@@ -9,7 +9,7 @@
 //! across window resizes and DOM updates.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -230,10 +230,10 @@ pub struct DomLayoutResult {
     pub display_list: DisplayList,
     /// Stable scroll IDs computed from node_data_hash
     /// Maps layout node index -> external scroll ID
-    pub scroll_ids: BTreeMap<usize, u64>,
+    pub scroll_ids: HashMap<usize, u64>,
     /// Mapping from scroll IDs to DOM NodeIds for hit testing
     /// This allows us to map WebRender scroll IDs back to DOM nodes
-    pub scroll_id_to_node_id: BTreeMap<u64, NodeId>,
+    pub scroll_id_to_node_id: HashMap<u64, NodeId>,
 }
 
 /// State for tracking scrollbar drag interaction
@@ -423,10 +423,10 @@ impl LayoutWindow {
                 tree: None,
                 calculated_positions: Vec::new(),
                 viewport: None,
-                scroll_ids: BTreeMap::new(),
-                scroll_id_to_node_id: BTreeMap::new(),
-                counters: BTreeMap::new(),
-                float_cache: BTreeMap::new(),
+                scroll_ids: HashMap::new(),
+                scroll_id_to_node_id: HashMap::new(),
+                counters: HashMap::new(),
+                float_cache: HashMap::new(),
                 cache_map: Default::default(),
             },
             text_cache: TextLayoutCache::new(),
@@ -497,10 +497,10 @@ impl LayoutWindow {
                 tree: None,
                 calculated_positions: Vec::new(),
                 viewport: None,
-                scroll_ids: BTreeMap::new(),
-                scroll_id_to_node_id: BTreeMap::new(),
-                counters: BTreeMap::new(),
-                float_cache: BTreeMap::new(),
+                scroll_ids: HashMap::new(),
+                scroll_id_to_node_id: HashMap::new(),
+                counters: HashMap::new(),
+                float_cache: HashMap::new(),
                 cache_map: Default::default(),
             },
             text_cache: TextLayoutCache::new(),
@@ -1046,10 +1046,10 @@ impl LayoutWindow {
             tree: None,
             calculated_positions: Vec::new(),
             viewport: None,
-            scroll_ids: BTreeMap::new(),
-            scroll_id_to_node_id: BTreeMap::new(),
-            counters: BTreeMap::new(),
-            float_cache: BTreeMap::new(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+            counters: HashMap::new(),
+            float_cache: HashMap::new(),
             cache_map: Default::default(),
         };
         self.text_cache = TextLayoutCache::new();
@@ -2257,13 +2257,13 @@ impl LayoutWindow {
     pub fn compute_scroll_ids(
         layout_tree: &LayoutTree,
         styled_dom: &azul_core::styled_dom::StyledDom,
-    ) -> (BTreeMap<usize, u64>, BTreeMap<u64, NodeId>) {
+    ) -> (HashMap<usize, u64>, HashMap<u64, NodeId>) {
         use azul_css::props::layout::LayoutOverflow;
 
         use crate::solver3::getters::{get_overflow_x, get_overflow_y};
 
-        let mut scroll_ids = BTreeMap::new();
-        let mut scroll_id_to_node_id = BTreeMap::new();
+        let mut scroll_ids = HashMap::new();
+        let mut scroll_id_to_node_id = HashMap::new();
 
         // Iterate through all layout nodes
         for (layout_idx, node) in layout_tree.nodes.iter().enumerate() {
@@ -4728,7 +4728,7 @@ impl LayoutWindow {
         });
 
         // Build a temporary LayoutContext with all the state we need
-        let mut counter_values = BTreeMap::new();
+        let mut counter_values = HashMap::new();
         let mut debug_messages: Option<Vec<LayoutDebugMessage>> = None;
         let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
 
