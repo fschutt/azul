@@ -12,7 +12,7 @@ use azul_layout::solver3::pagination::FakePageConfig;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::Solver3LayoutCache;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[test]
 fn test_inline_block_text_generates_text_items() {
@@ -46,10 +46,10 @@ fn test_inline_block_text_generates_text_items() {
         tree: None,
         calculated_positions: Vec::new(),
         viewport: None,
-        scroll_ids: BTreeMap::new(),
-        scroll_id_to_node_id: BTreeMap::new(),
-        counters: BTreeMap::new(),
-        float_cache: BTreeMap::new(),
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
             cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
@@ -263,10 +263,10 @@ fn test_text_wraps_at_constrained_width() {
         tree: None,
         calculated_positions: Vec::new(),
         viewport: None,
-        scroll_ids: BTreeMap::new(),
-        scroll_id_to_node_id: BTreeMap::new(),
-        counters: BTreeMap::new(),
-        float_cache: BTreeMap::new(),
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
             cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
@@ -324,7 +324,7 @@ fn test_text_wraps_at_constrained_width() {
     for (i, bounds) in text_layouts.iter().enumerate() {
         println!(
             "TextLayout[{}]: {}x{} @ ({}, {})",
-            i, bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y
+            i, bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
         );
     }
 
@@ -354,7 +354,7 @@ fn test_text_wraps_at_constrained_width() {
     for (i, rect) in rectangles.iter().enumerate() {
         println!(
             "Rectangle[{}]: {}x{} @ ({}, {})",
-            i, rect.size.width, rect.size.height, rect.origin.x, rect.origin.y
+            i, rect.size().width, rect.size().height, rect.origin().x, rect.origin().y
         );
     }
 
@@ -368,9 +368,9 @@ fn test_text_wraps_at_constrained_width() {
 
     // Width should be exactly 150px (CSS specified)
     assert!(
-        (box_rect.size.width - 150.0).abs() < 1.0,
+        (box_rect.size().width - 150.0).abs() < 1.0,
         "Box width should be 150px, got {}",
-        box_rect.size.width
+        box_rect.size().width
     );
 
     // Height should be > 1 line height (~16px) because text should wrap
@@ -378,14 +378,14 @@ fn test_text_wraps_at_constrained_width() {
     // If text wraps, height should be at least 32px (2 lines)
     let min_expected_height = 28.0; // At least close to 2 lines
     assert!(
-        box_rect.size.height >= min_expected_height,
+        box_rect.size().height >= min_expected_height,
         "Box height should be >= {}px (text should wrap to 2 lines), got {}px. Text is NOT wrapping!",
-        min_expected_height, box_rect.size.height
+        min_expected_height, box_rect.size().height
     );
 
     println!(
         "SUCCESS: Box size = {}x{}",
-        box_rect.size.width, box_rect.size.height
+        box_rect.size().width, box_rect.size().height
     );
     println!("Text appears to wrap correctly (height indicates multiple lines)");
 }
@@ -433,10 +433,10 @@ fn test_inline_text_and_inline_block_on_same_line() {
         tree: None,
         calculated_positions: Vec::new(),
         viewport: None,
-        scroll_ids: BTreeMap::new(),
-        scroll_id_to_node_id: BTreeMap::new(),
-        counters: BTreeMap::new(),
-        float_cache: BTreeMap::new(),
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
             cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
@@ -526,8 +526,8 @@ fn test_inline_text_and_inline_block_on_same_line() {
         println!(
             "Text[{}]: {} glyphs, font_size={}, clip_rect=({}, {}) {}x{}",
             i, glyph_count, font_size, 
-            clip_rect.origin.x, clip_rect.origin.y,
-            clip_rect.size.width, clip_rect.size.height
+            clip_rect.origin().x, clip_rect.origin().y,
+            clip_rect.size().width, clip_rect.size().height
         );
     }
 
@@ -548,8 +548,8 @@ fn test_inline_text_and_inline_block_on_same_line() {
     for (i, (bounds, color)) in rect_items.iter().enumerate() {
         println!(
             "Rect[{}]: ({}, {}) {}x{} color=#{:02x}{:02x}{:02x}",
-            i, bounds.origin.x, bounds.origin.y,
-            bounds.size.width, bounds.size.height,
+            i, bounds.origin().x, bounds.origin().y,
+            bounds.size().width, bounds.size().height,
             color.r, color.g, color.b
         );
     }
@@ -564,8 +564,8 @@ fn test_inline_text_and_inline_block_on_same_line() {
     let counter_text = &text_items[0];
     let button_text = &text_items[1];
     
-    println!("\nCounter text: y={}", counter_text.1.origin.y);
-    println!("Button text: y={}", button_text.1.origin.y);
+    println!("\nCounter text: y={}", counter_text.1.origin().y);
+    println!("Button text: y={}", button_text.1.origin().y);
     
     // Find the button background (should be #efefef)
     let button_bg = rect_items.iter().find(|(_, color)| {
@@ -573,7 +573,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
     });
     
     if let Some((button_bounds, _)) = button_bg {
-        println!("Button background: x={}, y={}", button_bounds.origin.x, button_bounds.origin.y);
+        println!("Button background: x={}, y={}", button_bounds.origin().x, button_bounds.origin().y);
         
         // The button's X position should be after the counter text
         // Counter is at body margin (8px) + counter width
@@ -587,10 +587,10 @@ fn test_inline_text_and_inline_block_on_same_line() {
         // CRITICAL ASSERTION: Button should NOT be at the left margin
         // If it is, the inline-block is being placed on a new line incorrectly
         assert!(
-            button_bounds.origin.x > 30.0,
+            button_bounds.origin().x > 30.0,
             "FAIL: Button is at x={}, should be > 30 if on same line as counter. \
              The inline-block is being placed on a NEW LINE instead of inline with the text!",
-            button_bounds.origin.x
+            button_bounds.origin().x
         );
         
         // Also check that button is NOT below the counter's baseline
@@ -602,10 +602,10 @@ fn test_inline_text_and_inline_block_on_same_line() {
         let counter_y_end = counter_y_start + counter_line_height;
         
         assert!(
-            button_bounds.origin.y < counter_y_end + 10.0, // allow small tolerance
+            button_bounds.origin().y < counter_y_end + 10.0, // allow small tolerance
             "FAIL: Button is at y={}, should be < {} (within counter's line). \
              The inline-block is being placed BELOW the inline text!",
-            button_bounds.origin.y, counter_y_end
+            button_bounds.origin().y, counter_y_end
         );
         
         println!("\nSUCCESS: Button is positioned inline with the counter text!");
@@ -648,10 +648,10 @@ fn test_body_as_root_inline_block_positioning() {
         tree: None,
         calculated_positions: Vec::new(),
         viewport: None,
-        scroll_ids: BTreeMap::new(),
-        scroll_id_to_node_id: BTreeMap::new(),
-        counters: BTreeMap::new(),
-        float_cache: BTreeMap::new(),
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
             cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
@@ -739,8 +739,8 @@ fn test_body_as_root_inline_block_positioning() {
     for (i, (bounds, color)) in rect_items.iter().enumerate() {
         println!(
             "Rect[{}]: ({}, {}) {}x{} color=#{:02x}{:02x}{:02x}",
-            i, bounds.origin.x, bounds.origin.y,
-            bounds.size.width, bounds.size.height,
+            i, bounds.origin().x, bounds.origin().y,
+            bounds.size().width, bounds.size().height,
             color.r, color.g, color.b
         );
     }
@@ -751,16 +751,16 @@ fn test_body_as_root_inline_block_positioning() {
     });
 
     if let Some((button_bounds, _)) = button_bg {
-        println!("\nButton background: x={}, y={}", button_bounds.origin.x, button_bounds.origin.y);
+        println!("\nButton background: x={}, y={}", button_bounds.origin().x, button_bounds.origin().y);
 
         // CRITICAL: Button should be at x > 15 (after margin 8 + text ~25, minus padding ~10)
         // The background rect now correctly includes the padding area, so its origin
         // is shifted left by padding-left. If button is at x ~= 0, the body margin bug exists.
         assert!(
-            button_bounds.origin.x > 15.0,
+            button_bounds.origin().x > 15.0,
             "BUG: Button is at x={:.1}, expected > 15 (margin 8 + text ~25 - padding 10). \
              Body margin is NOT being applied to calculated_positions!",
-            button_bounds.origin.x
+            button_bounds.origin().x
         );
 
         println!("\nSUCCESS: Body margin is correctly applied!");

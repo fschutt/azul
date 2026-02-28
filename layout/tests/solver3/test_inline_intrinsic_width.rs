@@ -11,7 +11,7 @@
 
 #[cfg(test)]
 mod inline_intrinsic_width_tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
     
     use azul_core::{
         dom::{Dom, DomId, FormattingContext, NodeType},
@@ -59,12 +59,12 @@ mod inline_intrinsic_width_tests {
 
         let mut layout_cache = LayoutCache {
             tree: None,
-            calculated_positions: BTreeMap::new(),
+            calculated_positions: Vec::new(),
             viewport: None,
-            scroll_ids: BTreeMap::new(),
-            scroll_id_to_node_id: BTreeMap::new(),
-            counters: BTreeMap::new(),
-            float_cache: BTreeMap::new(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+            counters: HashMap::new(),
+            float_cache: HashMap::new(),
             cache_map: Default::default(),
         };
         let mut text_cache = TextLayoutCache::new();
@@ -172,12 +172,12 @@ mod inline_intrinsic_width_tests {
 
         let mut layout_cache = LayoutCache {
             tree: None,
-            calculated_positions: BTreeMap::new(),
+            calculated_positions: Vec::new(),
             viewport: None,
-            scroll_ids: BTreeMap::new(),
-            scroll_id_to_node_id: BTreeMap::new(),
-            counters: BTreeMap::new(),
-            float_cache: BTreeMap::new(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+            counters: HashMap::new(),
+            float_cache: HashMap::new(),
             cache_map: Default::default(),
         };
         let mut text_cache = TextLayoutCache::new();

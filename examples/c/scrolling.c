@@ -21,7 +21,7 @@ typedef struct {
 void ScrollData_destructor(void* d) { }
 AZ_REFLECT(ScrollData, ScrollData_destructor);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     ScrollDataRef d = ScrollDataRef_create(&data);
     int total = TOTAL_ROWS;
@@ -89,7 +89,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 75);
     AzDom_setInlineStyle(&body, body_style);
 
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty());
+    return body;
 }
 
 int main(void) {

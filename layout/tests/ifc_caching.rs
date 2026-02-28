@@ -21,7 +21,7 @@ use azul_layout::text3::cache::AvailableSpace;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::Solver3LayoutCache;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 // ==================== RelayoutScope Classification Tests ====================
@@ -354,10 +354,10 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         tree: None,
         calculated_positions: Vec::new(),
         viewport: None,
-        scroll_ids: BTreeMap::new(),
-        scroll_id_to_node_id: BTreeMap::new(),
-        counters: BTreeMap::new(),
-        float_cache: BTreeMap::new(),
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
         cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();

@@ -48,10 +48,10 @@ AzDom create_scroll_item(int index) {
     return item;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ScrollTestDataRef d = ScrollTestDataRef_create(&data);
     if (!ScrollTestData_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     int item_count = d.ptr->item_count;
@@ -106,7 +106,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setInlineStyle(&body, body_style);
     
     AzCss css = AzCss_empty();
-    return AzDom_style(&body, css);
+    AzDom_style(&body, css);
+    return body;
 }
 
 int main(int argc, char** argv) {
