@@ -315,8 +315,15 @@ define_class!(
             // Forward to MacOSWindow for scroll handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_scroll_wheel(event);
+                    let result = macos_window.handle_scroll_wheel(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
+                        macos_window.common.frame_needs_regeneration = true;
+                    }
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -868,8 +875,15 @@ define_class!(
             // Forward to MacOSWindow for scroll handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_scroll_wheel(event);
+                    let result = macos_window.handle_scroll_wheel(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
+                        macos_window.common.frame_needs_regeneration = true;
+                    }
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
