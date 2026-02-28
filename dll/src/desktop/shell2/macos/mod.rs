@@ -4803,6 +4803,17 @@ impl MacOSWindow {
             );
         }
 
+        // If any scrollbar is still visible (opacity > 0), schedule another
+        // frame so that `synchronize_scrollbar_opacity` can continue driving
+        // the fade-out animation.  Without this, the opacity freezes at its
+        // last value once the scroll physics timer terminates.
+        let needs_fade_frame = self.common.layout_window.as_ref()
+            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+            .unwrap_or(false);
+        if needs_fade_frame {
+            self.request_redraw();
+        }
+
         log_trace!(
             LogCategory::Rendering,
             "[render_and_present] FRAME COMPLETE"

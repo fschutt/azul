@@ -1665,6 +1665,16 @@ impl X11Window {
             );
         }
 
+        // If any scrollbar is still visible (opacity > 0), schedule another
+        // frame so that synchronize_scrollbar_opacity can continue driving
+        // the fade-out animation.
+        let needs_fade_frame = self.common.layout_window.as_ref()
+            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+            .unwrap_or(false);
+        if needs_fade_frame {
+            self.request_redraw();
+        }
+
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_debug!(
