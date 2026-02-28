@@ -919,8 +919,8 @@ pub fn get_ua_property(
 //   @os android              { -azul-scrollbar-fade-duration: 150ms; }
 //   /* default */            { -azul-scrollbar-fade-duration: 0; }
 //
-//   @os macos @theme dark    { scrollbar-color: rgba(255,255,255,0.4) transparent; }
-//   @os macos @theme light   { scrollbar-color: rgba(0,0,0,0.4) transparent; }
+//   @os macos @theme dark    { scrollbar-color: rgba(180,180,180,0.78) rgba(40,40,40,0.31); }
+//   @os macos @theme light   { scrollbar-color: rgba(80,80,80,0.78) rgba(200,200,200,0.31); }
 //   @os windows @theme dark  { scrollbar-color: #6e6e6e #202020; }
 //   @os windows @theme light { scrollbar-color: #828282 #f1f1f1; }
 //   @os ios @theme dark      { scrollbar-color: rgba(255,255,255,0.4) transparent; }
@@ -1043,19 +1043,19 @@ pub static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
     ),
 
     // ── scrollbar-color per OS + theme ──────────────────────────────────
-    // macOS dark: semi-transparent white thumb, transparent track
+    // macOS dark: light grey thumb on dark semi-transparent track
     CssPropertyWithConditions::with_single_condition(
         scrollbar_color(
-            ColorU { r: 255, g: 255, b: 255, a: 100 },
-            ColorU::TRANSPARENT,
+            ColorU { r: 180, g: 180, b: 180, a: 200 },
+            ColorU { r: 40, g: 40, b: 40, a: 80 },
         ),
         &[DynamicSelector::Os(OsCondition::MacOS), DynamicSelector::Theme(ThemeCondition::Dark)],
     ),
-    // macOS light: semi-transparent black thumb, transparent track
+    // macOS light: dark grey thumb on light semi-transparent track
     CssPropertyWithConditions::with_single_condition(
         scrollbar_color(
-            ColorU { r: 0, g: 0, b: 0, a: 100 },
-            ColorU::TRANSPARENT,
+            ColorU { r: 80, g: 80, b: 80, a: 200 },
+            ColorU { r: 200, g: 200, b: 200, a: 80 },
         ),
         &[DynamicSelector::Os(OsCondition::MacOS), DynamicSelector::Theme(ThemeCondition::Light)],
     ),
