@@ -9,7 +9,6 @@ use crate::prop_cache::CssPropertyCache;
 use crate::styled_dom::StyledNodeState;
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
-use azul_css::props::property::{CssProperty, CssPropertyType};
 use azul_css::props::basic::length::SizeMetric;
 use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
 use azul_css::props::layout::flex::LayoutFlexBasis;
