@@ -2606,9 +2606,18 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
             }
         }
 
-        // Compare IDs and classes (affects CSS selector matching)
-        if old_node.ids_and_classes.as_ref() != new_node.ids_and_classes.as_ref() {
-            return false;
+        // Compare IDs and classes (now stored in attributes as AttributeType::Id/Class)
+        {
+            use crate::dom::AttributeType;
+            let old_ids_classes: Vec<_> = old_node.attributes.as_ref().iter()
+                .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
+                .collect();
+            let new_ids_classes: Vec<_> = new_node.attributes.as_ref().iter()
+                .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
+                .collect();
+            if old_ids_classes != new_ids_classes {
+                return false;
+            }
         }
 
         // Compare inline CSS properties (direct layout input)

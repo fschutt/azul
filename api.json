@@ -10474,9 +10474,6 @@
                                 "node_type": {
                                     "type": "NodeType"
                                 },
-                                "ids_and_classes": {
-                                    "type": "IdOrClassVec"
-                                },
                                 "attributes": {
                                     "type": "AttributeTypeVec"
                                 },

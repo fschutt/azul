@@ -2166,9 +2166,8 @@ fn build_selector_for_node(
     let mut selector = tag_name;
     
     // Add ID if present (first ID wins)
-    let ids_and_classes = node_data.get_ids_and_classes();
-    for idc in ids_and_classes.iter() {
-        if let Some(id) = idc.as_id() {
+    for attr in node_data.attributes.as_ref().iter() {
+        if let Some(id) = attr.as_id() {
             selector.push('#');
             selector.push_str(id);
             break; // Only one ID
@@ -2176,15 +2175,16 @@ fn build_selector_for_node(
     }
     
     // Add all classes
-    for idc in ids_and_classes.iter() {
-        if let Some(class) = idc.as_class() {
+    for attr in node_data.attributes.as_ref().iter() {
+        if let Some(class) = attr.as_class() {
             selector.push('.');
             selector.push_str(class);
         }
     }
     
     // If no ID or classes, add node index to make it unique
-    let has_id_or_class = ids_and_classes.iter().any(|idc| idc.as_id().is_some() || idc.as_class().is_some());
+    let has_id_or_class = node_data.attributes.as_ref().iter()
+        .any(|a| a.as_id().is_some() || a.as_class().is_some());
     if !has_id_or_class {
         selector.push_str(&alloc::format!(":nth-child({})", node_id.index() + 1));
     }
@@ -4245,11 +4245,8 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
             },
         };
 
-        let classes: Vec<String> = nd.ids_and_classes.as_ref().iter().filter_map(|ic| {
-            match ic {
-                azul_core::dom::IdOrClass::Class(s) => Some(s.as_str().to_string()),
-                _ => None,
-            }
+        let classes: Vec<String> = nd.attributes.as_ref().iter().filter_map(|attr| {
+            attr.as_class().map(|s| s.to_string())
         }).collect();
 
         // Collect children
@@ -6354,13 +6351,14 @@ fn process_debug_event(
                     // Extract tag name from node type
                     let tag = Some(node_type.clone());
 
-                    // Extract ID and classes from ids_and_classes
+                    // Extract ID and classes from attributes
                     let mut id_attr = None;
                     let mut classes = Vec::new();
-                    for ioc in data.ids_and_classes.as_ref().iter() {
-                        match ioc {
-                            azul_core::dom::IdOrClass::Id(s) => { id_attr = Some(s.as_str().to_string()); }
-                            azul_core::dom::IdOrClass::Class(s) => { classes.push(s.as_str().to_string()); }
+                    for attr in data.attributes.as_ref().iter() {
+                        if let Some(id) = attr.as_id() {
+                            id_attr = Some(id.to_string());
+                        } else if let Some(class) = attr.as_class() {
+                            classes.push(class.to_string());
                         }
                     }
 

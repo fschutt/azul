@@ -204,9 +204,18 @@ pub fn compute_node_changes(
         _ => {} // Same non-content type → no content change
     }
 
-    // 3. IDs and classes
-    if old_node.ids_and_classes.as_ref() != new_node.ids_and_classes.as_ref() {
-        changes.insert(NodeChangeSet::IDS_AND_CLASSES);
+    // 3. IDs and classes (now stored in attributes as AttributeType::Id/Class)
+    {
+        use crate::dom::AttributeType;
+        let old_ids_classes: Vec<_> = old_node.attributes.as_ref().iter()
+            .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
+            .collect();
+        let new_ids_classes: Vec<_> = new_node.attributes.as_ref().iter()
+            .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
+            .collect();
+        if old_ids_classes != new_ids_classes {
+            changes.insert(NodeChangeSet::IDS_AND_CLASSES);
+        }
     }
 
     // 4. Inline CSS properties — classify into layout-affecting vs paint-only
@@ -363,10 +372,10 @@ pub fn calculate_reconciliation_key(
     }
     
     // Priority 2: CSS ID
-    for id_or_class in node.ids_and_classes.as_ref().iter() {
-        if let IdOrClass::Id(id) = id_or_class {
+    for attr in node.attributes.as_ref().iter() {
+        if let Some(id) = attr.as_id() {
             let mut hasher = HighwayHasher::new(Key([0; 4]));
-            id.as_str().hash(&mut hasher);
+            id.hash(&mut hasher);
             return hasher.finalize64();
         }
     }
@@ -376,9 +385,9 @@ pub fn calculate_reconciliation_key(
     
     // Hash node type discriminant and classes (nth-of-type logic)
     core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-    for id_or_class in node.ids_and_classes.as_ref().iter() {
-        if let IdOrClass::Class(class) = id_or_class {
-            class.as_str().hash(&mut hasher);
+    for attr in node.attributes.as_ref().iter() {
+        if let Some(class) = attr.as_class() {
+            class.hash(&mut hasher);
         }
     }
     
@@ -833,7 +842,6 @@ pub fn calculate_contenteditable_key(
     node_id: NodeId,
 ) -> u64 {
     use highway::{HighwayHash, HighwayHasher, Key};
-    use crate::dom::IdOrClass;
     
     let node = &node_data[node_id.index()];
     
@@ -843,10 +851,10 @@ pub fn calculate_contenteditable_key(
     }
     
     // Priority 2: CSS ID
-    for id_or_class in node.get_ids_and_classes().as_ref().iter() {
-        if let IdOrClass::Id(id) = id_or_class {
+    for attr in node.attributes.as_ref().iter() {
+        if let Some(id) = attr.as_id() {
             let mut hasher = HighwayHasher::new(Key([1; 4])); // Different seed for ID keys
-            hasher.append(id.as_str().as_bytes());
+            hasher.append(id.as_bytes());
             return hasher.finalize64();
         }
     }
@@ -903,9 +911,9 @@ pub fn calculate_contenteditable_key(
     }
     
     // Also hash the classes for additional stability
-    for id_or_class in node.get_ids_and_classes().as_ref().iter() {
-        if let IdOrClass::Class(class) = id_or_class {
-            hasher.append(class.as_str().as_bytes());
+    for attr in node.attributes.as_ref().iter() {
+        if let Some(class) = attr.as_class() {
+            hasher.append(class.as_bytes());
         }
     }
     
@@ -1462,11 +1470,19 @@ impl NodeDataFingerprint {
             h.finalize64()
         };
 
-        // IDs and classes hash
+        // IDs and classes hash (now stored in attributes)
         let ids_classes_hash = {
             let mut h = HighwayHasher::new(Key([4; 4]));
-            for id_or_class in node.ids_and_classes.as_ref().iter() {
-                id_or_class.hash(&mut h);
+            for attr in node.attributes.as_ref().iter() {
+                match attr {
+                    crate::dom::AttributeType::Id(s) => {
+                        crate::dom::IdOrClass::Id(s.clone()).hash(&mut h);
+                    }
+                    crate::dom::AttributeType::Class(s) => {
+                        crate::dom::IdOrClass::Class(s.clone()).hash(&mut h);
+                    }
+                    _ => {}
+                }
             }
             h.finalize64()
         };

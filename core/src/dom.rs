@@ -1117,6 +1117,20 @@ impl_vec_eq!(AttributeType, AttributeTypeVec);
 impl_vec_hash!(AttributeType, AttributeTypeVec);
 
 impl AttributeType {
+    /// Returns the id string if this is an `Id` attribute, `None` otherwise.
+    pub fn as_id(&self) -> Option<&str> {
+        match self {
+            AttributeType::Id(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+    /// Returns the class string if this is a `Class` attribute, `None` otherwise.
+    pub fn as_class(&self) -> Option<&str> {
+        match self {
+            AttributeType::Class(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
     /// Get the attribute name (e.g., "href", "aria-label", "data-foo")
     pub fn name(&self) -> &str {
         match self {
@@ -1305,10 +1319,8 @@ impl SmallAriaInfo {
 pub struct NodeData {
     /// `div`, `p`, `img`, etc.
     pub node_type: NodeType,
-    /// Stores all ids and classes as one vec - size optimization since
-    /// most nodes don't have any classes or IDs.
-    pub ids_and_classes: IdOrClassVec,
     /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
+    /// IDs and classes are now stored as `AttributeType::Id` and `AttributeType::Class` entries.
     pub attributes: AttributeTypeVec,
     /// Callbacks attached to this node:
     ///
@@ -1338,7 +1350,6 @@ impl_option!(
 impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
-        self.ids_and_classes.as_ref().hash(state);
         self.attributes.as_ref().hash(state);
         self.flags.hash(state);
 
@@ -2277,8 +2288,6 @@ impl Clone for NodeData {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
-                                                            * they are &'static */
             attributes: self.attributes.clone(),
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
@@ -2475,7 +2484,7 @@ impl fmt::Display for NodeData {
 fn node_data_to_string(node_data: &NodeData) -> String {
     let mut id_string = String::new();
     let ids = node_data
-        .ids_and_classes
+        .attributes
         .as_ref()
         .iter()
         .filter_map(|s| s.as_id())
@@ -2488,7 +2497,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 
     let mut class_string = String::new();
     let classes = node_data
-        .ids_and_classes
+        .attributes
         .as_ref()
         .iter()
         .filter_map(|s| s.as_class())
@@ -2513,7 +2522,6 @@ impl NodeData {
     pub const fn create_node(node_type: NodeType) -> Self {
         Self {
             node_type,
-            ids_and_classes: IdOrClassVec::from_const_slice(&[]),
             attributes: AttributeTypeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
@@ -2571,16 +2579,16 @@ impl NodeData {
 
     /// Checks whether this node has the searched ID attached.
     pub fn has_id(&self, id: &str) -> bool {
-        self.ids_and_classes
+        self.attributes
             .iter()
-            .any(|id_or_class| id_or_class.as_id() == Some(id))
+            .any(|attr| attr.as_id() == Some(id))
     }
 
     /// Checks whether this node has the searched class attached.
     pub fn has_class(&self, class: &str) -> bool {
-        self.ids_and_classes
+        self.attributes
             .iter()
-            .any(|id_or_class| id_or_class.as_class() == Some(class))
+            .any(|attr| attr.as_class() == Some(class))
     }
 
     pub fn has_context_menu(&self) -> bool {
@@ -2620,9 +2628,18 @@ impl NodeData {
     pub fn take_dataset(&mut self) -> Option<RefAny> {
         self.extra.as_mut().and_then(|e| e.dataset.take())
     }
-    #[inline(always)]
-    pub const fn get_ids_and_classes(&self) -> &IdOrClassVec {
-        &self.ids_and_classes
+    /// Returns IDs and classes as a computed `IdOrClassVec`.
+    /// Note: this allocates a new vec each time, prefer `has_id()`/`has_class()` for checks.
+    #[inline]
+    pub fn get_ids_and_classes(&self) -> IdOrClassVec {
+        let v: Vec<IdOrClass> = self.attributes.as_ref().iter().filter_map(|attr| {
+            match attr {
+                AttributeType::Id(s) => Some(IdOrClass::Id(s.clone())),
+                AttributeType::Class(s) => Some(IdOrClass::Class(s.clone())),
+                _ => None,
+            }
+        }).collect();
+        v.into()
     }
     #[inline(always)]
     pub const fn get_callbacks(&self) -> &CoreCallbackDataVec {
@@ -2679,9 +2696,24 @@ impl NodeData {
             }
         }
     }
-    #[inline(always)]
+    /// Sets the IDs and classes by converting `IdOrClassVec` entries into
+    /// `AttributeType::Id`/`AttributeType::Class` and merging them into `self.attributes`.
+    /// Any existing Id/Class attributes are removed first.
+    #[inline]
     pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) {
-        self.ids_and_classes = ids_and_classes;
+        // Remove existing Id/Class from attributes
+        let mut v: AttributeTypeVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.attributes);
+        let mut v = v.into_library_owned_vec();
+        v.retain(|a| !matches!(a, AttributeType::Id(_) | AttributeType::Class(_)));
+        // Convert and append
+        for ioc in ids_and_classes.as_ref().iter() {
+            match ioc {
+                IdOrClass::Id(s) => v.push(AttributeType::Id(s.clone())),
+                IdOrClass::Class(s) => v.push(AttributeType::Class(s.clone())),
+            }
+        }
+        self.attributes = v.into();
     }
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: CoreCallbackDataVec) {
@@ -2859,19 +2891,19 @@ impl NodeData {
 
     #[inline]
     pub fn add_id(&mut self, s: AzString) {
-        let mut v: IdOrClassVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.ids_and_classes);
+        let mut v: AttributeTypeVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.attributes);
         let mut v = v.into_library_owned_vec();
-        v.push(IdOrClass::Id(s));
-        self.ids_and_classes = v.into();
+        v.push(AttributeType::Id(s));
+        self.attributes = v.into();
     }
     #[inline]
     pub fn add_class(&mut self, s: AzString) {
-        let mut v: IdOrClassVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.ids_and_classes);
+        let mut v: AttributeTypeVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.attributes);
         let mut v = v.into_library_owned_vec();
-        v.push(IdOrClass::Class(s));
-        self.ids_and_classes = v.into();
+        v.push(AttributeType::Class(s));
+        self.attributes = v.into();
     }
 
     /// Add a CSS property with optional conditions (hover, focus, active, etc.)
@@ -2944,12 +2976,19 @@ impl NodeData {
         }
         
         // Hash IDs and classes - these are structural and shouldn't change
-        self.ids_and_classes.as_ref().hash(&mut hasher);
-        
-        // Hash attributes - but skip contenteditable since that might change
+        // (They are now stored as AttributeType::Id / AttributeType::Class in attributes)
         for attr in self.attributes.as_ref().iter() {
-            // Skip ContentEditable attribute - it's state, not structure
-            if !matches!(attr, AttributeType::ContentEditable(_)) {
+            match attr {
+                AttributeType::Id(s) => { 0u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
+                AttributeType::Class(s) => { 1u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
+                _ => {}
+            }
+        }
+        
+        // Hash other attributes - but skip contenteditable since that might change
+        // Also skip Id/Class since they were already hashed above
+        for attr in self.attributes.as_ref().iter() {
+            if !matches!(attr, AttributeType::ContentEditable(_) | AttributeType::Id(_) | AttributeType::Class(_)) {
                 attr.hash(&mut hasher);
             }
         }
@@ -2996,7 +3035,7 @@ impl NodeData {
     }
     #[inline(always)]
     pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self {
-        self.ids_and_classes = ids_and_classes;
+        self.set_ids_and_classes(ids_and_classes);
         self
     }
     #[inline(always)]
@@ -3188,8 +3227,6 @@ impl NodeData {
     pub fn copy_special(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
-                                                            * they are &'static */
             attributes: self.attributes.clone(),
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
@@ -5033,7 +5070,7 @@ impl Dom {
     }
     #[inline(always)]
     pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self {
-        self.root.ids_and_classes = ids_and_classes;
+        self.root.set_ids_and_classes(ids_and_classes);
         self
     }
 

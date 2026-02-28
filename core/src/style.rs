@@ -440,20 +440,12 @@ fn match_single_selector(
 
 /// Returns true if the node has the given CSS class.
 fn match_class(node_data: &NodeData, class_name: &str) -> bool {
-    node_data
-        .get_ids_and_classes()
-        .iter()
-        .filter_map(|i| i.as_class())
-        .any(|class| class == class_name)
+    node_data.has_class(class_name)
 }
 
 /// Returns true if the node has the given HTML id.
 fn match_id(node_data: &NodeData, id_name: &str) -> bool {
-    node_data
-        .get_ids_and_classes()
-        .iter()
-        .filter_map(|i| i.as_id())
-        .any(|html_id| html_id == id_name)
+    node_data.has_id(id_name)
 }
 
 /// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.

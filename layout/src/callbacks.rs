@@ -957,12 +957,8 @@ impl CallbackInfo {
 
         // Search through all nodes to find one with matching ID attribute
         for (node_idx, node_data) in styled_dom.node_data.as_ref().iter().enumerate() {
-            for id_or_class in node_data.ids_and_classes.as_ref() {
-                if let IdOrClass::Id(node_id_str) = id_or_class {
-                    if node_id_str.as_str() == id {
-                        return Some(NodeId::new(node_idx));
-                    }
-                }
+            if node_data.has_id(id) {
+                return Some(NodeId::new(node_idx));
             }
         }
 
@@ -1936,27 +1932,21 @@ impl CallbackInfo {
             }
         }
 
-        // Fallback: check ids_and_classes for "id" and "class"
+        // Fallback: check attributes for "id" and "class"
         if attr_name == "id" {
-            for id_or_class in node_data.ids_and_classes.as_ref() {
-                if let IdOrClass::Id(id) = id_or_class {
-                    return Some(id.clone());
+            for attr in node_data.attributes.as_ref().iter() {
+                if let Some(id) = attr.as_id() {
+                    return Some(id.to_string().into());
                 }
             }
         }
 
         if attr_name == "class" {
             let classes: Vec<&str> = node_data
-                .ids_and_classes
+                .attributes
                 .as_ref()
                 .iter()
-                .filter_map(|ioc| {
-                    if let IdOrClass::Class(class) = ioc {
-                        Some(class.as_str())
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|attr| attr.as_class())
                 .collect();
             if !classes.is_empty() {
                 return Some(classes.join(" ").into());
@@ -1983,15 +1973,11 @@ impl CallbackInfo {
         };
 
         let classes: Vec<AzString> = node_data
-            .ids_and_classes
+            .attributes
             .as_ref()
             .iter()
-            .filter_map(|ioc| {
-                if let IdOrClass::Class(class) = ioc {
-                    Some(class.clone())
-                } else {
-                    None
-                }
+            .filter_map(|attr| {
+                attr.as_class().map(|c| c.to_string().into())
             })
             .collect();
 
@@ -2006,9 +1992,9 @@ impl CallbackInfo {
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_cont.get(node_id_internal)?;
 
-        for id_or_class in node_data.ids_and_classes.as_ref() {
-            if let IdOrClass::Id(id) = id_or_class {
-                return Some(id.clone());
+        for attr in node_data.attributes.as_ref().iter() {
+            if let Some(id) = attr.as_id() {
+                return Some(id.to_string().into());
             }
         }
         None
