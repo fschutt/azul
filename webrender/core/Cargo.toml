@@ -13,8 +13,6 @@ default = []
 # All profiling, capture/replay, and display_list_stats features removed for minimal build
 
 [build-dependencies]
-build-parallel = "0.1.2"
-glslopt = "0.1.11"
 webrender_build = { path = "../build" }
 
 [dependencies]
