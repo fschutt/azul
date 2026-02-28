@@ -54,7 +54,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         char style[192];
         const char* bg = (i % 2 == 0) ? "#e8e8e8" : "#ffffff";
         int slen = snprintf(style, sizeof(style),
-            "height: %.0fpx; min-height: %.0fpx; flex-shrink: 0; line-height: %.0fpx; padding-left: 8px; background: %s;",
+            "height: %.0fpx; min-height: %.0fpx; flex-shrink: 0; line-height: %.0fpx; padding-left: 8px; color: #000000; background: %s;",
             ROW_HEIGHT, ROW_HEIGHT, ROW_HEIGHT, bg);
         AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, (size_t)slen);
         AzDom_setInlineStyle(&row, style_str);
@@ -63,8 +63,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
 
     AzString container_style = AzString_copyFromBytes(
-        (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; overflow: auto; background: #ffff00; border: 3px solid #00ff00; margin: 8px; min-height: 0;",
-        0, 161);
+        (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; overflow: auto; background: #ffff00; border: 10px solid #00ff00; margin: 8px; min-height: 0;",
+        0, 162);
     AzDom_setInlineStyle(&container, container_style);
 
     // Footer
