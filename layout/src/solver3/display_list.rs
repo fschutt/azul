@@ -2864,7 +2864,7 @@ where
             let border_box = BorderBoxRect(paint_rect);
             let mut content_box_rect =
                 border_box.to_content_box(&node.box_props.padding, &node.box_props.border).rect();
-            
+
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
             // what fits in the viewport. Otherwise glyphs beyond the viewport are not rendered.
@@ -3297,7 +3297,7 @@ where
         }
 
         // SECOND PASS: Render text runs
-        for (idx, glyph_run) in glyph_runs.iter().enumerate() {
+        for (_idx, glyph_run) in glyph_runs.iter().enumerate() {
             let clip_rect = container_rect; // Clip to the container rect
 
             // Fix: Offset glyph positions by the container origin.
