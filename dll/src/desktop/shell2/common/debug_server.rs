@@ -6425,10 +6425,7 @@ fn process_debug_event(
                     });
 
                     // Check if dataset is present
-                    let has_dataset = match &data.dataset {
-                        azul_core::refany::OptionRefAny::Some(_) => Some(true),
-                        azul_core::refany::OptionRefAny::None => None,
-                    };
+                    let has_dataset = data.get_dataset().map(|_| true);
 
                     nodes.push(HierarchyNodeInfo {
                         index: i,
@@ -8089,8 +8086,8 @@ fn process_debug_event(
 
                 if nid < node_data.len() {
                     let data = &node_data[NodeId::new(nid)];
-                    match &data.dataset {
-                        azul_core::refany::OptionRefAny::Some(refany) => {
+                    match data.get_dataset() {
+                        Some(refany) => {
                             let metadata = RefAnyMetadata {
                                 type_id: refany.get_type_id(),
                                 type_name: refany.get_type_name().as_str().to_string(),
@@ -8131,7 +8128,7 @@ fn process_debug_event(
                                 }
                             }
                         }
-                        azul_core::refany::OptionRefAny::None => {
+                        None => {
                             send_err(request, &alloc::format!("Node {} has no dataset", node_id));
                         }
                     }

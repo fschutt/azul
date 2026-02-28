@@ -1780,7 +1780,7 @@ impl CallbackInfo {
         let node_id_internal = node_id.node.into_crate_internal()?;
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_cont.get(node_id_internal)?;
-        node_data.get_dataset().clone().into_option()
+        node_data.get_dataset().cloned()
     }
 
     pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
@@ -1796,7 +1796,7 @@ impl CallbackInfo {
 
             let node_data_cont = layout_result.styled_dom.node_data.as_container();
             for (node_idx, node_data) in node_data_cont.iter().enumerate() {
-                if let Some(dataset) = node_data.get_dataset().clone().into_option() {
+                if let Some(dataset) = node_data.get_dataset().cloned() {
                     if dataset.get_type_id() == search_type_id {
                         let node_id = DomNodeId {
                             dom: dom_id,

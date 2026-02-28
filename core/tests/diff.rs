@@ -753,10 +753,10 @@ fn test_transfer_states_basic() {
     };
     
     let mut old_node = NodeData::create_div();
-    old_node.dataset = OptionRefAny::Some(RefAny::new(old_state));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(old_state)));
     
     let mut new_node = NodeData::create_div();
-    new_node.dataset = OptionRefAny::Some(RefAny::new(new_state));
+    new_node.set_dataset(OptionRefAny::Some(RefAny::new(new_state)));
     new_node.set_merge_callback(merge_video_state as DatasetMergeCallbackType);
     
     let mut old_data = vec![old_node];
@@ -771,7 +771,7 @@ fn test_transfer_states_basic() {
     transfer_states(&mut old_data, &mut new_data, &moves);
     
     // Verify the handle was transferred
-    if let OptionRefAny::Some(ref mut dataset) = new_data[0].dataset {
+    if let Some(dataset) = new_data[0].get_dataset_mut() {
         let guard = dataset.downcast_ref::<VideoPlayerState>().unwrap();
         assert_eq!(guard.decoder_handle, Some(12345));
     } else {
@@ -793,10 +793,10 @@ fn test_transfer_states_no_callback_no_transfer() {
     };
     
     let mut old_node = NodeData::create_div();
-    old_node.dataset = OptionRefAny::Some(RefAny::new(old_state));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(old_state)));
     
     let mut new_node = NodeData::create_div();
-    new_node.dataset = OptionRefAny::Some(RefAny::new(new_state));
+    new_node.set_dataset(OptionRefAny::Some(RefAny::new(new_state)));
     // NO merge callback set!
     
     let mut old_data = vec![old_node];
@@ -810,7 +810,7 @@ fn test_transfer_states_no_callback_no_transfer() {
     transfer_states(&mut old_data, &mut new_data, &moves);
     
     // Handle should NOT be transferred (no callback)
-    if let OptionRefAny::Some(ref mut dataset) = new_data[0].dataset {
+    if let Some(dataset) = new_data[0].get_dataset_mut() {
         let guard = dataset.downcast_ref::<VideoPlayerState>().unwrap();
         assert_eq!(guard.decoder_handle, None); // Still None!
     } else {
@@ -830,7 +830,7 @@ fn test_transfer_states_no_old_dataset() {
     let old_node = NodeData::create_div(); // No dataset
     
     let mut new_node = NodeData::create_div();
-    new_node.dataset = OptionRefAny::Some(RefAny::new(new_state));
+    new_node.set_dataset(OptionRefAny::Some(RefAny::new(new_state)));
     new_node.set_merge_callback(merge_video_state as DatasetMergeCallbackType);
     
     let mut old_data = vec![old_node];
@@ -845,7 +845,7 @@ fn test_transfer_states_no_old_dataset() {
     transfer_states(&mut old_data, &mut new_data, &moves);
     
     // New node should still have its dataset (unmodified)
-    if let OptionRefAny::Some(ref mut dataset) = new_data[0].dataset {
+    if let Some(dataset) = new_data[0].get_dataset_mut() {
         let guard = dataset.downcast_ref::<VideoPlayerState>().unwrap();
         assert_eq!(guard.decoder_handle, None);
     } else {
@@ -863,7 +863,7 @@ fn test_transfer_states_no_new_dataset() {
     };
     
     let mut old_node = NodeData::create_div();
-    old_node.dataset = OptionRefAny::Some(RefAny::new(old_state));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(old_state)));
     
     let mut new_node = NodeData::create_div();
     // No dataset on new node!
@@ -881,7 +881,7 @@ fn test_transfer_states_no_new_dataset() {
     transfer_states(&mut old_data, &mut new_data, &moves);
     
     // New node should still have no dataset
-    assert!(matches!(new_data[0].dataset, OptionRefAny::None));
+    assert!(new_data[0].get_dataset().is_none());
 }
 
 #[test]
@@ -894,11 +894,11 @@ fn test_transfer_states_reorder_preserves_handles() {
     
     let mut old_a = NodeData::create_div();
     old_a.set_key("player-a");
-    old_a.dataset = OptionRefAny::Some(RefAny::new(state_a));
+    old_a.set_dataset(OptionRefAny::Some(RefAny::new(state_a)));
     
     let mut old_b = NodeData::create_div();
     old_b.set_key("player-b");
-    old_b.dataset = OptionRefAny::Some(RefAny::new(state_b));
+    old_b.set_dataset(OptionRefAny::Some(RefAny::new(state_b)));
     
     // New order: B, A (swapped)
     let new_state_b = VideoPlayerState { url: "b.mp4".into(), decoder_handle: None };
@@ -906,12 +906,12 @@ fn test_transfer_states_reorder_preserves_handles() {
     
     let mut new_b = NodeData::create_div();
     new_b.set_key("player-b");
-    new_b.dataset = OptionRefAny::Some(RefAny::new(new_state_b));
+    new_b.set_dataset(OptionRefAny::Some(RefAny::new(new_state_b)));
     new_b.set_merge_callback(merge_video_state as DatasetMergeCallbackType);
     
     let mut new_a = NodeData::create_div();
     new_a.set_key("player-a");
-    new_a.dataset = OptionRefAny::Some(RefAny::new(new_state_a));
+    new_a.set_dataset(OptionRefAny::Some(RefAny::new(new_state_a)));
     new_a.set_merge_callback(merge_video_state as DatasetMergeCallbackType);
     
     let mut old_data = vec![old_a, old_b];  // [A@0, B@1]
@@ -926,7 +926,7 @@ fn test_transfer_states_reorder_preserves_handles() {
     transfer_states(&mut old_data, &mut new_data, &moves);
     
     // new[0] should be B with handle 222
-    if let OptionRefAny::Some(ref mut ds) = new_data[0].dataset {
+    if let Some(ds) = new_data[0].get_dataset_mut() {
         let guard = ds.downcast_ref::<VideoPlayerState>().unwrap();
         assert_eq!(guard.url, "b.mp4");
         assert_eq!(guard.decoder_handle, Some(222));
@@ -935,7 +935,7 @@ fn test_transfer_states_reorder_preserves_handles() {
     }
     
     // new[1] should be A with handle 111
-    if let OptionRefAny::Some(ref mut ds) = new_data[1].dataset {
+    if let Some(ds) = new_data[1].get_dataset_mut() {
         let guard = ds.downcast_ref::<VideoPlayerState>().unwrap();
         assert_eq!(guard.url, "a.mp4");
         assert_eq!(guard.decoder_handle, Some(111));
@@ -951,7 +951,7 @@ fn test_transfer_states_out_of_bounds() {
     let state = VideoPlayerState { url: "test.mp4".into(), decoder_handle: Some(123) };
     
     let mut old_node = NodeData::create_div();
-    old_node.dataset = OptionRefAny::Some(RefAny::new(state));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(state)));
     
     let mut old_data = vec![old_node];
     let mut new_data: Vec<NodeData> = vec![]; // Empty!
@@ -994,10 +994,10 @@ fn test_transfer_states_complex_type() {
     };
     
     let mut old_node = NodeData::create_div();
-    old_node.dataset = OptionRefAny::Some(RefAny::new(old_ctx));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(old_ctx)));
     
     let mut new_node = NodeData::create_div();
-    new_node.dataset = OptionRefAny::Some(RefAny::new(new_ctx));
+    new_node.set_dataset(OptionRefAny::Some(RefAny::new(new_ctx)));
     new_node.set_merge_callback(merge_webgl_context as DatasetMergeCallbackType);
     
     let mut old_data = vec![old_node];
@@ -1010,7 +1010,7 @@ fn test_transfer_states_complex_type() {
     
     transfer_states(&mut old_data, &mut new_data, &moves);
     
-    if let OptionRefAny::Some(ref mut ds) = new_data[0].dataset {
+    if let Some(ds) = new_data[0].get_dataset_mut() {
         let guard = ds.downcast_ref::<WebGLContext>().unwrap();
         assert_eq!(guard.texture_ids, vec![1, 2, 3, 4, 5]);
         assert_eq!(guard.shader_program, Some(42));
@@ -1036,10 +1036,10 @@ fn test_transfer_states_callback_returns_old_data() {
     let new_counter = Counter { value: 0 };
     
     let mut old_node = NodeData::create_div();
-    old_node.dataset = OptionRefAny::Some(RefAny::new(old_counter));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(old_counter)));
     
     let mut new_node = NodeData::create_div();
-    new_node.dataset = OptionRefAny::Some(RefAny::new(new_counter));
+    new_node.set_dataset(OptionRefAny::Some(RefAny::new(new_counter)));
     new_node.set_merge_callback(prefer_old as DatasetMergeCallbackType);
     
     let mut old_data = vec![old_node];
@@ -1053,7 +1053,7 @@ fn test_transfer_states_callback_returns_old_data() {
     transfer_states(&mut old_data, &mut new_data, &moves);
     
     // The callback returned old_data, so new node should have value=100
-    if let OptionRefAny::Some(ref mut ds) = new_data[0].dataset {
+    if let Some(ds) = new_data[0].get_dataset_mut() {
         let guard = ds.downcast_ref::<Counter>().unwrap();
         assert_eq!(guard.value, 100);
     } else {
@@ -1079,17 +1079,17 @@ fn test_transfer_states_multiple_nodes_partial_callbacks() {
     let mut old_nodes = vec![
         {
             let mut n = NodeData::create_div();
-            n.dataset = OptionRefAny::Some(RefAny::new(Simple { val: 1 }));
+            n.set_dataset(OptionRefAny::Some(RefAny::new(Simple { val: 1 })));
             n
         },
         {
             let mut n = NodeData::create_div();
-            n.dataset = OptionRefAny::Some(RefAny::new(Simple { val: 2 }));
+            n.set_dataset(OptionRefAny::Some(RefAny::new(Simple { val: 2 })));
             n
         },
         {
             let mut n = NodeData::create_div();
-            n.dataset = OptionRefAny::Some(RefAny::new(Simple { val: 3 }));
+            n.set_dataset(OptionRefAny::Some(RefAny::new(Simple { val: 3 })));
             n
         },
     ];
@@ -1097,19 +1097,19 @@ fn test_transfer_states_multiple_nodes_partial_callbacks() {
     let mut new_nodes = vec![
         {
             let mut n = NodeData::create_div();
-            n.dataset = OptionRefAny::Some(RefAny::new(Simple { val: 10 }));
+            n.set_dataset(OptionRefAny::Some(RefAny::new(Simple { val: 10 })));
             // NO callback
             n
         },
         {
             let mut n = NodeData::create_div();
-            n.dataset = OptionRefAny::Some(RefAny::new(Simple { val: 20 }));
+            n.set_dataset(OptionRefAny::Some(RefAny::new(Simple { val: 20 })));
             n.set_merge_callback(merge_simple as DatasetMergeCallbackType); // HAS callback
             n
         },
         {
             let mut n = NodeData::create_div();
-            n.dataset = OptionRefAny::Some(RefAny::new(Simple { val: 30 }));
+            n.set_dataset(OptionRefAny::Some(RefAny::new(Simple { val: 30 })));
             // NO callback
             n
         },
@@ -1124,19 +1124,19 @@ fn test_transfer_states_multiple_nodes_partial_callbacks() {
     transfer_states(&mut old_nodes, &mut new_nodes, &moves);
     
     // Node 0: no callback, should keep val=10
-    if let OptionRefAny::Some(ref mut ds) = new_nodes[0].dataset {
+    if let Some(ds) = new_nodes[0].get_dataset_mut() {
         let g = ds.downcast_ref::<Simple>().unwrap();
         assert_eq!(g.val, 10);
     }
     
     // Node 1: has callback, should get val=2 from old
-    if let OptionRefAny::Some(ref mut ds) = new_nodes[1].dataset {
+    if let Some(ds) = new_nodes[1].get_dataset_mut() {
         let g = ds.downcast_ref::<Simple>().unwrap();
         assert_eq!(g.val, 2);
     }
     
     // Node 2: no callback, should keep val=30
-    if let OptionRefAny::Some(ref mut ds) = new_nodes[2].dataset {
+    if let Some(ds) = new_nodes[2].get_dataset_mut() {
         let g = ds.downcast_ref::<Simple>().unwrap();
         assert_eq!(g.val, 30);
     }
@@ -1175,13 +1175,13 @@ fn test_reconcile_then_transfer_integration() {
     let old_state = AppState { name: "old".into(), heavy_handle: Some(999) };
     let mut old_node = NodeData::create_div();
     old_node.set_key("main");
-    old_node.dataset = OptionRefAny::Some(RefAny::new(old_state));
+    old_node.set_dataset(OptionRefAny::Some(RefAny::new(old_state)));
     
     // NEW DOM: same key, new state, needs merge
     let new_state = AppState { name: "new".into(), heavy_handle: None };
     let mut new_node = NodeData::create_div();
     new_node.set_key("main");
-    new_node.dataset = OptionRefAny::Some(RefAny::new(new_state));
+    new_node.set_dataset(OptionRefAny::Some(RefAny::new(new_state)));
     new_node.set_merge_callback(merge_app as DatasetMergeCallbackType);
     
     let mut old_data = vec![old_node];
@@ -1211,7 +1211,7 @@ fn test_reconcile_then_transfer_integration() {
     transfer_states(&mut old_data, &mut new_data, &diff.node_moves);
     
     // Verify: name should be "new", handle should be 999
-    if let OptionRefAny::Some(ref mut ds) = new_data[0].dataset {
+    if let Some(ds) = new_data[0].get_dataset_mut() {
         let g = ds.downcast_ref::<AppState>().unwrap();
         assert_eq!(g.name, "new");
         assert_eq!(g.heavy_handle, Some(999));

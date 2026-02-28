@@ -284,7 +284,7 @@ pub fn compute_node_changes(
     }
 
     // 6. Dataset
-    if old_node.dataset != new_node.dataset {
+    if old_node.get_dataset() != new_node.get_dataset() {
         changes.insert(NodeChangeSet::DATASET);
     }
 
@@ -784,28 +784,26 @@ pub fn transfer_states(
 
         // 2. Check if BOTH nodes have datasets
         // We need to temporarily take the datasets to satisfy borrow checker
-        let old_dataset = core::mem::replace(
-            &mut old_node_data[old_idx].dataset, 
-            OptionRefAny::None
-        );
-        let new_dataset = core::mem::replace(
-            &mut new_node_data[new_idx].dataset, 
-            OptionRefAny::None
-        );
+        let old_dataset = old_node_data[old_idx].take_dataset();
+        let new_dataset = new_node_data[new_idx].take_dataset();
 
         match (new_dataset, old_dataset) {
-            (OptionRefAny::Some(new_data), OptionRefAny::Some(old_data)) => {
+            (Some(new_data), Some(old_data)) => {
                 // 3. EXECUTE THE MERGE CALLBACK
                 // The callback receives both datasets and returns the merged result
                 let merged = (merge_callback.cb)(new_data, old_data);
                 
                 // 4. Store the merged result back in the new node
-                new_node_data[new_idx].dataset = OptionRefAny::Some(merged);
+                new_node_data[new_idx].set_dataset(OptionRefAny::Some(merged));
             }
             (new_ds, old_ds) => {
                 // One or both datasets missing - restore what we had
-                new_node_data[new_idx].dataset = new_ds;
-                old_node_data[old_idx].dataset = old_ds;
+                if let Some(ds) = new_ds {
+                    new_node_data[new_idx].set_dataset(OptionRefAny::Some(ds));
+                }
+                if let Some(ds) = old_ds {
+                    old_node_data[old_idx].set_dataset(OptionRefAny::Some(ds));
+                }
             }
         }
     }
@@ -1488,7 +1486,7 @@ impl NodeDataFingerprint {
             let mut h = HighwayHasher::new(Key([6; 4]));
             node.is_contenteditable().hash(&mut h);
             node.flags.hash(&mut h);
-            node.dataset.hash(&mut h);
+            node.get_dataset().hash(&mut h);
             h.finalize64()
         };
 

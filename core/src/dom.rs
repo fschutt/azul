@@ -1305,8 +1305,6 @@ impl SmallAriaInfo {
 pub struct NodeData {
     /// `div`, `p`, `img`, etc.
     pub node_type: NodeType,
-    /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
-    pub dataset: OptionRefAny,
     /// Stores all ids and classes as one vec - size optimization since
     /// most nodes don't have any classes or IDs.
     pub ids_and_classes: IdOrClassVec,
@@ -1340,7 +1338,6 @@ impl_option!(
 impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
-        self.dataset.hash(state);
         self.ids_and_classes.as_ref().hash(state);
         self.attributes.as_ref().hash(state);
         self.flags.hash(state);
@@ -1359,6 +1356,9 @@ impl Hash for NodeData {
             core::mem::discriminant(&prop.property).hash(state);
         }
         if let Some(ext) = self.extra.as_ref() {
+            if let Some(ds) = ext.dataset.as_ref() {
+                ds.hash(state);
+            }
             if let Some(c) = ext.clip_mask.as_ref() {
                 c.hash(state);
             }
@@ -1440,6 +1440,8 @@ impl Default for ComponentOrigin {
 pub struct NodeDataExt {
     /// IFrame callback data, only set when node_type == NodeType::IFrame.
     pub iframe: Option<IFrameNode>,
+    /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
+    pub dataset: Option<RefAny>,
     /// Optional clip mask for this DOM node.
     pub clip_mask: Option<ImageMask>,
     /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
@@ -2275,10 +2277,6 @@ impl Clone for NodeData {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            dataset: match &self.dataset {
-                OptionRefAny::None => OptionRefAny::None,
-                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
-            },
             ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
                                                             * they are &'static */
             attributes: self.attributes.clone(),
@@ -2515,7 +2513,6 @@ impl NodeData {
     pub const fn create_node(node_type: NodeType) -> Self {
         Self {
             node_type,
-            dataset: OptionRefAny::None,
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
             attributes: AttributeTypeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
@@ -2611,13 +2608,17 @@ impl NodeData {
     pub const fn get_node_type(&self) -> &NodeType {
         &self.node_type
     }
-    #[inline(always)]
-    pub fn get_dataset_mut(&mut self) -> &mut OptionRefAny {
-        &mut self.dataset
+    #[inline]
+    pub fn get_dataset_mut(&mut self) -> Option<&mut RefAny> {
+        self.extra.as_mut().and_then(|e| e.dataset.as_mut())
     }
-    #[inline(always)]
-    pub const fn get_dataset(&self) -> &OptionRefAny {
-        &self.dataset
+    #[inline]
+    pub fn get_dataset(&self) -> Option<&RefAny> {
+        self.extra.as_ref().and_then(|e| e.dataset.as_ref())
+    }
+    /// Take the dataset out of the node, replacing it with None.
+    pub fn take_dataset(&mut self) -> Option<RefAny> {
+        self.extra.as_mut().and_then(|e| e.dataset.take())
     }
     #[inline(always)]
     pub const fn get_ids_and_classes(&self) -> &IdOrClassVec {
@@ -2663,9 +2664,20 @@ impl NodeData {
     pub fn set_node_type(&mut self, node_type: NodeType) {
         self.node_type = node_type;
     }
-    #[inline(always)]
+    #[inline]
     pub fn set_dataset(&mut self, data: OptionRefAny) {
-        self.dataset = data;
+        match data {
+            OptionRefAny::None => {
+                if let Some(ext) = self.extra.as_mut() {
+                    ext.dataset = None;
+                }
+            }
+            OptionRefAny::Some(r) => {
+                self.extra
+                    .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                    .dataset = Some(r);
+            }
+        }
     }
     #[inline(always)]
     pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) {
@@ -2977,8 +2989,9 @@ impl NodeData {
         self
     }
     #[inline(always)]
+    #[inline]
     pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
-        self.dataset = data;
+        self.set_dataset(data);
         self
     }
     #[inline(always)]
@@ -3175,10 +3188,6 @@ impl NodeData {
     pub fn copy_special(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            dataset: match &self.dataset {
-                OptionRefAny::None => OptionRefAny::None,
-                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
-            },
             ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
                                                             * they are &'static */
             attributes: self.attributes.clone(),
@@ -5017,9 +5026,9 @@ impl Dom {
         self.root.set_contenteditable(contenteditable);
         self
     }
-    #[inline(always)]
+    #[inline]
     pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
-        self.root.dataset = data;
+        self.root.set_dataset(data);
         self
     }
     #[inline(always)]

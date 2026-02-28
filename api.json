@@ -10474,9 +10474,6 @@
                                 "node_type": {
                                     "type": "NodeType"
                                 },
-                                "dataset": {
-                                    "type": "OptionRefAny"
-                                },
                                 "ids_and_classes": {
                                     "type": "IdOrClassVec"
                                 },
