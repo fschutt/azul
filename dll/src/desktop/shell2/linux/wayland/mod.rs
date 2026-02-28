@@ -2716,6 +2716,15 @@ impl WaylandWindow {
             (self.wayland.wl_surface_commit)(self.surface);
         }
 
+        // If any scrollbar is actively fading (0 < opacity < 1), schedule
+        // another frame so the fade-out animation runs to completion.
+        let needs_fade_frame = self.common.layout_window.as_ref()
+            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+            .unwrap_or(false);
+        if needs_fade_frame {
+            self.request_redraw();
+        }
+
         self.common.frame_needs_regeneration = false;
         self.frame_callback_pending = true;
     }

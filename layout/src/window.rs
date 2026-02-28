@@ -2089,7 +2089,13 @@ impl LayoutWindow {
                 0.0
             };
 
-            if vertical_opacity > 0.0 || horizontal_opacity > 0.0 {
+            // Track whether any scrollbar is actively fading (0 < opacity < 1).
+            // We do NOT count fully-visible scrollbars (opacity == 1.0) because
+            // those are driven by the scroll physics timer already. We only need
+            // extra frames for the fade-out interpolation phase.
+            if (vertical_opacity > 0.0 && vertical_opacity < 1.0)
+                || (horizontal_opacity > 0.0 && horizontal_opacity < 1.0)
+            {
                 any_opacity_nonzero = true;
             }
 

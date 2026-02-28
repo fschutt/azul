@@ -1,0 +1,125 @@
+Performance Analysis Report: scrolling.c with 500 DOM Nodes                                                                                                                                                   
+                                                                                                                                                                                                                
+  Profile: profile.json.gz — 3,226 samples @ 1 ms interval over 8.85 seconds                                                                                                                                    
+  Binary: scrolling.bin + libazul.dylib on macOS arm64            
+  Symbolication: Local samply server (/symbolicate/v5)
+
+  ---
+  1. Is the Example Actually Hanging?
+
+  No. The example is not hanging.
+
+  60.6% of all CPU samples (1,956/3,226) are in mach_msg2_trap inside libsystem_kernel.dylib. This is the macOS kernel's Mach IPC blocking call — the standard mechanism the macOS event loop uses to sleep the
+  process while waiting for the next user event. A process blocked in mach_msg2_trap is healthy and idle, not frozen.
+
+  The full idle call chain (top inclusive callers):
+
+  main (98.3%)
+    └─ AzApp_run / App::run (98.3%)
+         └─ NSApplication::nextEventMatchingMask (80.0%)
+              └─ CFRunLoopRunSpecific (80.4%)
+                   └─ ReceiveNextEventCommon (57.0%)
+                        └─ mach_msg2_trap (60.6%)  ← sleeping, waiting for events
+
+  An additional 34.7% is spent in CGLFlushDrawable / NSOpenGLContext::flushBuffer, which is the GPU v-sync wait. This is also expected behavior: the driver blocks until the display's refresh window opens.
+
+  The app is event-driven and responsive — it only wakes up when events arrive and when the display is ready to present a new frame.
+
+  ---
+  2. What Is Causing the Stuttering Screen Update?
+
+  Three root causes, in descending order of impact:
+
+  Cause A — NSOpenGLContext::update() Called Every Frame (5.1%, 166 samples)
+
+  Location: dll/src/desktop/shell2/macos/mod.rs:4516
+
+  // Inside render_and_present_in_draw_rect(), called every drawRect:
+  gl_context.update(self.mtm);   // ← unconditional, every frame
+
+  NSOpenGLContext::update() is an Apple-documented expensive operation that resynchronizes the GL context's drawable surface with the window server compositor (SkyLight). It is intended to be called only when
+   the view bounds change (resize, window move between screens, fullscreen toggle). Calling it every drawRect: forces the compositor to perform a full surface reconciliation every frame, which introduces a
+  GPU pipeline stall that disrupts the render cadence.
+
+  This is the single most likely cause of visible jank: each frame that calls update() takes longer than a v-sync interval, causing frame drops. With macOS overlay compositing, this stall propagates into the
+  CATransaction::commit path, which explains why CA::Layer::display_if_needed (55.1%) and CA::Transaction::commit() (55.3%) dominate the "active" side of the profile.
+
+  Cause B — Unconditional scrollbar_info Recomputation in Taffy Bridge (commit 0345ad4a)
+
+  Location: layout/src/solver3/taffy_bridge.rs:1457–1488
+
+  The fix "always recompute scrollbar_info" removed the is_none() guard from compute_child_layout. Taffy calls compute_child_layout multiple times per node per layout pass (at minimum: one sizing pass + one
+  layout pass). For the scrolling example with 500 DOM items each with flex layout, this means:
+
+  - ~500 nodes × 2–3 Taffy passes = 1,000–1,500 calls to compute_taffy_scrollbar_info per layout
+  - Each call executes get_css_height, get_css_width, get_layout_scrollbar_width_px → get_scrollbar_style (a CSS property chain walk), plus compute_scrollbar_info_core
+
+  Before this commit, the guard ensured at most 1 call per node per full layout. This commit multiplied that work by 2–3×. Combined with a 500-item DOM, the effective layout cost scales linearly with list
+  length.
+
+  Cause C — Font Chain Resolution on Every Layout Pass (3.7%, 120 samples)
+
+  Location: layout/src/window.rs:688–715
+
+  Even with the !fonts_to_load.is_empty() disk-read guard, the following are executed unconditionally on every call to layout_and_generate_display_list:
+
+  let chains = collect_and_resolve_font_chains(&styled_dom, ...);  // walks all CSS nodes
+  let required_fonts = collect_font_ids_from_chains(&chains);       // reduces chain results
+  let already_loaded = self.font_manager.get_loaded_font_ids();     // hash set query
+  let fonts_to_load = compute_fonts_to_load(&required_fonts, ...);  // set difference
+
+  For a 500-node DOM where every node might carry font properties, collect_and_resolve_font_chains walks the entire styled DOM on every scroll-triggered layout pass. Font chains don't change unless CSS
+  changes, so this work is redundant after the first layout.
+
+  ---
+  3. Easiest Optimizations in the Layout Building Phase
+
+  From the symbolicated inclusive-time data on azul/layout functions:
+
+  ┌─────────────────────────────────────────────────────────────────────────────────┬─────────────┬────────────────────────────────────────────────────────────────────────────────────────┐
+  │                                    Function                                     │ Inclusive % │                                       Easy Win?                                        │
+  ├─────────────────────────────────────────────────────────────────────────────────┼─────────────┼────────────────────────────────────────────────────────────────────────────────────────┤
+  │ load_fonts_from_disk (PathLoader::load_font)                                    │ 3.7%        │ Only called when new fonts needed, but the 4-step setup before it runs unconditionally │
+  ├─────────────────────────────────────────────────────────────────────────────────┼─────────────┼────────────────────────────────────────────────────────────────────────────────────────┤
+  │ layout_dom_recursive                                                            │ 5.1% + 2.3% │ Main Taffy execution; gains come from reducing work inside it                          │
+  ├─────────────────────────────────────────────────────────────────────────────────┼─────────────┼────────────────────────────────────────────────────────────────────────────────────────┤
+  │ layout_taffy_subtree → layout_formatting_context → calculate_layout_for_subtree │ 1.2% each   │ Whole layout chain — caching at any level saves the rest                               │
+  ├─────────────────────────────────────────────────────────────────────────────────┼─────────────┼────────────────────────────────────────────────────────────────────────────────────────┤
+  │ taffy::compute::flexbox::compute_flexbox_layout                                 │ 1.1%        │ Taffy itself; not easily reduced                                                       │
+  ├─────────────────────────────────────────────────────────────────────────────────┼─────────────┼────────────────────────────────────────────────────────────────────────────────────────┤
+  │ TaffyBridge::compute_child_layout                                               │ 1.1%        │ Direct target of Cause B above                                                         │
+  └─────────────────────────────────────────────────────────────────────────────────┴─────────────┴────────────────────────────────────────────────────────────────────────────────────────┘
+
+  Ranked by ease of implementation:
+
+  Win 1 (high impact, small code change): Restore the is_none() guard with a smarter condition
+  The original guard broke scroll registration because the first Taffy pass has content_size=(0,0). A targeted fix: keep the unconditional recompute but skip it when content_size is (0,0). This preserves
+  correctness while eliminating 2/3 of compute_taffy_scrollbar_info calls on the sizing pass.
+
+  Win 2 (medium impact, small change): Gate NSOpenGLContext::update() on resize/move
+  Track a surface_needs_update: bool flag. Set it in resize/move handlers; clear it after calling update() in render_and_present_in_draw_rect. This eliminates the per-frame GPU stall entirely. The comment in
+  the code ("must be called every frame to handle window moves/resizes") is incorrect per Apple's documentation.
+
+  Win 3 (medium impact, requires dirty tracking): Cache font chain resolution
+  Add a font_chains_dirty: bool flag to LayoutWindow, set when CSS properties change, cleared after resolution. Skip collect_and_resolve_font_chains when not dirty. This converts the per-layout O(N_nodes)
+  font chain walk to O(1) on all scroll-only updates.
+
+  Win 4 (lower impact): Cache get_scrollbar_style results per node per layout
+  get_scrollbar_style is called from get_layout_scrollbar_width_px (inside compute_taffy_scrollbar_info) AND again during display list construction. Memoize it per (NodeId, StyledNodeState) within a single
+  layout pass using a small HashMap or fixed-size array on the stack.
+
+  ---
+  Summary Table
+
+  ┌───────────────────────────────────────┬───────────────────────────────────────────────────────┬───────────────────────────────────┬───────────────────────────┐
+  │                 Issue                 │                         Cause                         │         Samples affected          │           Type            │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┼───────────────────────────┤
+  │ NSOpenGLContext::update() every frame │ Unconditional call in render_and_present_in_draw_rect │ 166 (5.1%)                        │ GPU stall / frame pacing  │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┼───────────────────────────┤
+  │ Always-recompute scrollbar_info       │ Commit 0345ad4a removed is_none() guard               │ Part of 245 layout samples (7.6%) │ CPU regression            │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┼───────────────────────────┤
+  │ Font chain resolution every layout    │ No dirty flag in layout_and_generate_display_list     │ 120 (3.7%)                        │ Pre-existing inefficiency │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┼───────────────────────────┤
+  │ App idle in event loop                │ Normal macOS behavior                                 │ 1,956 (60.6%)                     │ Not a bug                 │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┼───────────────────────────┤
+  │ VSync wait in CGLFlushDrawable        │ Normal display sync                                   │ 1,120 (34.7%)                     │ Not a bug                 │

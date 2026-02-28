@@ -841,6 +841,15 @@ impl Win32Window {
                 );
             }
 
+            // If any scrollbar is actively fading (0 < opacity < 1), schedule
+            // another frame so the fade-out animation runs to completion.
+            let needs_fade_frame = self.common.layout_window.as_ref()
+                .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                .unwrap_or(false);
+            if needs_fade_frame {
+                self.request_redraw();
+            }
+
             // CI testing: Exit successfully after first frame render if env var is set
             if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
                 log_info!(

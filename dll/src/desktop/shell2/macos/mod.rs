@@ -4803,6 +4803,17 @@ impl MacOSWindow {
             );
         }
 
+        // If any scrollbar is actively fading (0 < opacity < 1), schedule
+        // another frame so the fade-out animation runs to completion.
+        // This does NOT fire when scrollbars are fully visible (opacity == 1.0)
+        // because the scroll physics timer already drives rendering then.
+        let needs_fade_frame = self.common.layout_window.as_ref()
+            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+            .unwrap_or(false);
+        if needs_fade_frame {
+            self.request_redraw();
+        }
+
         log_trace!(
             LogCategory::Rendering,
             "[render_and_present] FRAME COMPLETE"
