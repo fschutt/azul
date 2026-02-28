@@ -1242,22 +1242,31 @@ impl<'a> IRBuilder<'a> {
 
     /// Substitute generic type parameters (like "T") with concrete types
     fn substitute_generic_param(&self, type_str: &str, generic_args: &[String]) -> String {
-        // Common generic parameter names
-        if type_str == "T" || type_str == "U" || type_str == "V" {
-            // Get the index based on the parameter name
-            let idx = match type_str {
-                "T" => 0,
-                "U" => 1,
-                "V" => 2,
-                _ => 0,
-            };
-            generic_args
+        // Map generic parameter names to their index
+        let generic_names = ["T", "U", "V"];
+
+        // Check if the entire type_str is a bare generic parameter
+        if let Some(idx) = generic_names.iter().position(|&g| type_str == g) {
+            return generic_args
                 .get(idx)
                 .cloned()
-                .unwrap_or_else(|| type_str.to_string())
-        } else {
-            type_str.to_string()
+                .unwrap_or_else(|| type_str.to_string());
         }
+
+        // Otherwise, substitute generic params inside compound types like "*const T", "*mut T"
+        let mut result = type_str.to_string();
+        for (idx, &name) in generic_names.iter().enumerate() {
+            if let Some(concrete) = generic_args.get(idx) {
+                // Replace the generic name as a whole word (not inside other identifiers)
+                // Simple approach: replace " T" suffix or standalone "T" in pointer types
+                result = result.replace(&format!(" {}", name), &format!(" {}", concrete));
+                // Also handle if T appears at start (unlikely in practice)
+                if result == name {
+                    result = concrete.clone();
+                }
+            }
+        }
+        result
     }
 
     /// Check if an enum has data in any variant (making it a tagged union)

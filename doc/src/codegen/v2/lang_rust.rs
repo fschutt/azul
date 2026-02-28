@@ -2173,40 +2173,85 @@ impl RustGenerator {
         config: &CodegenConfig,
         _external_crate: &str,
     ) {
-        // Skip generic enums entirely - can't transmute dependent-sized types
-        if !enum_def.generic_params.is_empty() {
-            return;
-        }
+        let is_generic = !enum_def.generic_params.is_empty();
 
         let name = config.apply_prefix(&enum_def.name);
-        let full_name = name.clone(); // No generics since we skip generic enums
 
-        let external_path = enum_def
+        let generics = if is_generic {
+            format!("<{}>", enum_def.generic_params.join(", "))
+        } else {
+            String::new()
+        };
+        let full_name = format!("{}{}", name, generics);
+
+        let external_path_base = enum_def
             .external_path
             .as_ref()
             .map(|p| config.transform_external_path(p))
             .unwrap_or_else(|| format!("crate::{}", enum_def.name));
+        let external_path = if is_generic {
+            format!("{}{}", external_path_base, generics)
+        } else {
+            external_path_base.clone()
+        };
 
-        // Clone impl - generate via transmute only if Clone is in custom_impls (not derived)
+        // Clone impl - generate only if Clone is in custom_impls (not derived)
         // Types with clone_is_derived get Clone via #[derive(Clone)] in generate_enum
         if enum_def.traits.is_clone && !enum_def.traits.clone_is_derived {
-            builder.line(&format!("impl Clone for {} {{", full_name));
-            builder.indent();
-            builder.line("fn clone(&self) -> Self {");
-            builder.indent();
-            builder.line(&format!(
-                "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}",
-                external_path, full_name, full_name, external_path
-            ));
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
+            if is_generic {
+                // For generic enums: can't use transmute (size depends on type param).
+                // Use ptr::read + mem::forget to reinterpret between same-layout repr(C) types.
+                // Delegate to the source type's Clone impl which knows the correct semantics.
+                let clone_bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: Clone", p)).collect();
+                builder.line(&format!("impl<{}> Clone for {} {{", clone_bounds.join(", "), full_name));
+                builder.indent();
+                builder.line("fn clone(&self) -> Self {");
+                builder.indent();
+                builder.line("unsafe {");
+                builder.indent();
+                builder.line(&format!(
+                    "let src = &*(self as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line("let cloned = src.clone();");
+                builder.line(&format!(
+                    "let result = core::ptr::read(&cloned as *const {} as *const {});",
+                    external_path, full_name
+                ));
+                builder.line("core::mem::forget(cloned);");
+                builder.line("result");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            } else {
+                // For non-generic enums: use transmute
+                builder.line(&format!("impl Clone for {} {{", full_name));
+                builder.indent();
+                builder.line("fn clone(&self) -> Self {");
+                builder.indent();
+                builder.line(&format!(
+                    "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}",
+                    external_path, full_name, full_name, external_path
+                ));
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
         }
 
         // Debug impl
-        builder.line(&format!("impl core::fmt::Debug for {} {{", full_name));
+        if is_generic {
+            let debug_bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: core::fmt::Debug", p)).collect();
+            builder.line(&format!("impl<{}> core::fmt::Debug for {} {{", debug_bounds.join(", "), full_name));
+        } else {
+            builder.line(&format!("impl core::fmt::Debug for {} {{", full_name));
+        }
         builder.indent();
         builder.line("fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
         builder.indent();
@@ -2218,66 +2263,165 @@ impl RustGenerator {
         builder.blank();
 
         // PartialEq impl
-        // Skip for generic types - size_of::<Self>() doesn't work in const context for generics
-        if enum_def.traits.is_partial_eq && enum_def.generic_params.is_empty() {
-            builder.line(&format!("impl PartialEq for {} {{", full_name));
-            builder.indent();
-            builder.line("fn eq(&self, other: &Self) -> bool {");
-            builder.indent();
-            builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
+        if enum_def.traits.is_partial_eq {
+            if is_generic {
+                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: PartialEq", p)).collect();
+                builder.line(&format!("impl<{}> PartialEq for {} {{", bounds.join(", "), full_name));
+                builder.indent();
+                builder.line("fn eq(&self, other: &Self) -> bool {");
+                builder.indent();
+                builder.line("unsafe {");
+                builder.indent();
+                builder.line(&format!(
+                    "let a = &*(self as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line(&format!(
+                    "let b = &*(other as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line("a == b");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            } else {
+                builder.line(&format!("impl PartialEq for {} {{", full_name));
+                builder.indent();
+                builder.line("fn eq(&self, other: &Self) -> bool {");
+                builder.indent();
+                builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+        }
+
+        // Eq impl
+        if enum_def.traits.is_eq {
+            if is_generic {
+                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: Eq", p)).collect();
+                builder.line(&format!("impl<{}> Eq for {} {{ }}", bounds.join(", "), full_name));
+            } else {
+                builder.line(&format!("impl Eq for {} {{ }}", full_name));
+            }
             builder.blank();
         }
 
-        // Eq impl - Skip for generic types
-        if enum_def.traits.is_eq && enum_def.generic_params.is_empty() {
-            builder.line(&format!("impl Eq for {} {{ }}", full_name));
-            builder.blank();
+        // PartialOrd impl
+        if enum_def.traits.is_partial_ord {
+            if is_generic {
+                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: PartialOrd", p)).collect();
+                builder.line(&format!("impl<{}> PartialOrd for {} {{", bounds.join(", "), full_name));
+                builder.indent();
+                builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
+                builder.indent();
+                builder.line("unsafe {");
+                builder.indent();
+                builder.line(&format!(
+                    "let a = &*(self as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line(&format!(
+                    "let b = &*(other as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line("a.partial_cmp(b)");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            } else {
+                builder.line(&format!("impl PartialOrd for {} {{", full_name));
+                builder.indent();
+                builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
+                builder.indent();
+                builder.line("Some(unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) })");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
         }
 
-        // PartialOrd impl - Skip for generic types
-        if enum_def.traits.is_partial_ord && enum_def.generic_params.is_empty() {
-            builder.line(&format!("impl PartialOrd for {} {{", full_name));
-            builder.indent();
-            builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
-            builder.indent();
-            builder.line("Some(unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) })");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
+        // Ord impl
+        if enum_def.traits.is_ord {
+            if is_generic {
+                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: Ord", p)).collect();
+                builder.line(&format!("impl<{}> Ord for {} {{", bounds.join(", "), full_name));
+                builder.indent();
+                builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
+                builder.indent();
+                builder.line("unsafe {");
+                builder.indent();
+                builder.line(&format!(
+                    "let a = &*(self as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line(&format!(
+                    "let b = &*(other as *const {} as *const {});",
+                    full_name, external_path
+                ));
+                builder.line("a.cmp(b)");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            } else {
+                builder.line(&format!("impl Ord for {} {{", full_name));
+                builder.indent();
+                builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
+                builder.indent();
+                builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
         }
 
-        // Ord impl - Skip for generic types
-        if enum_def.traits.is_ord && enum_def.generic_params.is_empty() {
-            builder.line(&format!("impl Ord for {} {{", full_name));
-            builder.indent();
-            builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
-            builder.indent();
-            builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-        }
-
-        // Hash impl - Skip for generic types
-        if enum_def.traits.is_hash && enum_def.generic_params.is_empty() {
-            builder.line(&format!("impl core::hash::Hash for {} {{", full_name));
-            builder.indent();
-            builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
-            builder.indent();
-            builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
+        // Hash impl
+        if enum_def.traits.is_hash {
+            if is_generic {
+                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: core::hash::Hash", p)).collect();
+                builder.line(&format!("impl<{}> core::hash::Hash for {} {{", bounds.join(", "), full_name));
+                builder.indent();
+                builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
+                builder.indent();
+                builder.line(&format!(
+                    "unsafe {{ (&*(self as *const {} as *const {})).hash(state) }}",
+                    full_name, external_path
+                ));
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            } else {
+                builder.line(&format!("impl core::hash::Hash for {} {{", full_name));
+                builder.indent();
+                builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
+                builder.indent();
+                builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
         }
     }
 }

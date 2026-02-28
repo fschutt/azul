@@ -195,17 +195,17 @@ pub struct DynamicCssProperty {
 /// by storing them behind a pointer instead of inline.
 ///
 /// - Size: 1 (tag) + 7 (padding) + 8 (pointer) = **16 bytes** on 64-bit
-/// - `Static` variant: no allocation, just a `&'static T` pointer
+/// - `Static` variant: no allocation, just a `*const T` pointer to static data
 /// - `Boxed` variant: heap-allocated via `Box::into_raw`, freed on Drop
 #[repr(C, u8)]
-pub enum BoxOrStatic<T: 'static> {
+pub enum BoxOrStatic<T> {
     /// Heap-allocated (parsed at runtime). Owned — freed on Drop.
     Boxed(*mut T),
     /// Compile-time constant (e.g. from `const` CSS defaults). Not freed.
-    Static(&'static T),
+    Static(*const T),
 }
 
-impl<T: 'static> BoxOrStatic<T> {
+impl<T> BoxOrStatic<T> {
     /// Allocate `value` on the heap and return a `Boxed` variant.
     #[inline]
     pub fn heap(value: T) -> Self {
@@ -217,7 +217,7 @@ impl<T: 'static> BoxOrStatic<T> {
     pub fn as_ref(&self) -> &T {
         match self {
             BoxOrStatic::Boxed(ptr) => unsafe { &**ptr },
-            BoxOrStatic::Static(r) => r,
+            BoxOrStatic::Static(ptr) => unsafe { &**ptr },
         }
     }
 
@@ -241,7 +241,7 @@ impl<T: 'static> BoxOrStatic<T> {
     }
 }
 
-impl<T: 'static> Drop for BoxOrStatic<T> {
+impl<T> Drop for BoxOrStatic<T> {
     fn drop(&mut self) {
         if let BoxOrStatic::Boxed(ptr) = self {
             if !ptr.is_null() {
@@ -252,57 +252,57 @@ impl<T: 'static> Drop for BoxOrStatic<T> {
     }
 }
 
-impl<T: Clone + 'static> Clone for BoxOrStatic<T> {
+impl<T: Clone> Clone for BoxOrStatic<T> {
     fn clone(&self) -> Self {
         match self {
             BoxOrStatic::Boxed(ptr) => {
                 let val = unsafe { &**ptr }.clone();
                 BoxOrStatic::Boxed(Box::into_raw(Box::new(val)))
             }
-            BoxOrStatic::Static(r) => BoxOrStatic::Static(r),
+            BoxOrStatic::Static(ptr) => BoxOrStatic::Static(*ptr),
         }
     }
 }
 
-impl<T: core::fmt::Debug + 'static> core::fmt::Debug for BoxOrStatic<T> {
+impl<T: core::fmt::Debug> core::fmt::Debug for BoxOrStatic<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_ref().fmt(f)
     }
 }
 
-impl<T: core::fmt::Display + 'static> core::fmt::Display for BoxOrStatic<T> {
+impl<T: core::fmt::Display> core::fmt::Display for BoxOrStatic<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_ref().fmt(f)
     }
 }
 
-impl<T: PartialEq + 'static> PartialEq for BoxOrStatic<T> {
+impl<T: PartialEq> PartialEq for BoxOrStatic<T> {
     fn eq(&self, other: &Self) -> bool {
         self.as_ref() == other.as_ref()
     }
 }
 
-impl<T: Eq + 'static> Eq for BoxOrStatic<T> {}
+impl<T: Eq> Eq for BoxOrStatic<T> {}
 
-impl<T: core::hash::Hash + 'static> core::hash::Hash for BoxOrStatic<T> {
+impl<T: core::hash::Hash> core::hash::Hash for BoxOrStatic<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.as_ref().hash(state)
     }
 }
 
-impl<T: PartialOrd + 'static> PartialOrd for BoxOrStatic<T> {
+impl<T: PartialOrd> PartialOrd for BoxOrStatic<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.as_ref().partial_cmp(other.as_ref())
     }
 }
 
-impl<T: Ord + 'static> Ord for BoxOrStatic<T> {
+impl<T: Ord> Ord for BoxOrStatic<T> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.as_ref().cmp(other.as_ref())
     }
 }
 
-impl<T: 'static> core::ops::Deref for BoxOrStatic<T> {
+impl<T> core::ops::Deref for BoxOrStatic<T> {
     type Target = T;
     #[inline]
     fn deref(&self) -> &T {
@@ -310,13 +310,13 @@ impl<T: 'static> core::ops::Deref for BoxOrStatic<T> {
     }
 }
 
-impl<T: Default + 'static> Default for BoxOrStatic<T> {
+impl<T: Default> Default for BoxOrStatic<T> {
     fn default() -> Self {
         BoxOrStatic::heap(T::default())
     }
 }
 
-impl<T: PrintAsCssValue + 'static> PrintAsCssValue for BoxOrStatic<T> {
+impl<T: PrintAsCssValue> PrintAsCssValue for BoxOrStatic<T> {
     fn print_as_css_value(&self) -> String {
         self.as_ref().print_as_css_value()
     }
