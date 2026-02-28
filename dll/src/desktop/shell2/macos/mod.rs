@@ -1428,6 +1428,7 @@ define_class!(
                             // Mark frame for regeneration with new size
                             // Window state sync happens in build_atomic_txn before WebRender transaction
                             macos_window.common.frame_needs_regeneration = true;
+                            macos_window.surface_needs_update = true;
 
                             // Trigger re-layout and request redraw
                             // Must call request_redraw() to trigger drawRect: with new size
@@ -1490,6 +1491,8 @@ define_class!(
                             lw.current_window_state.position = pos;
                         }
                     }
+                    // GL surface may have moved to a different screen
+                    macos_window.surface_needs_update = true;
                 }
             }
         }
@@ -1513,6 +1516,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
+                    window.surface_needs_update = true;
                     if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
                             *guard = crate::desktop::display::get_monitors();
@@ -1665,6 +1669,9 @@ pub struct MacOSWindow {
     cg_functions: Option<Arc<CoreGraphicsFunctions>>,
     /// Current display ID (CGDirectDisplayID) for this window
     current_display_id: Option<u32>,
+    /// Whether the GL surface geometry changed (resize, move between screens)
+    /// and `NSOpenGLContext::update()` needs to be called before the next frame.
+    surface_needs_update: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -2748,6 +2755,7 @@ impl MacOSWindow {
             cv_functions,
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
+            surface_needs_update: true, // First frame always needs update
         };
 
         // NOTE: Do NOT set the delegate pointer here!
@@ -4524,10 +4532,18 @@ impl MacOSWindow {
                 // Make context current before any GL operations
                 gl_context.makeCurrentContext();
 
-                log_trace!(LogCategory::Rendering, "[GL] context.update()");
-                // CRITICAL: Synchronize context with the view's drawable surface
-                // This must be called every frame to handle window moves/resizes
-                gl_context.update(self.mtm);
+                // Synchronize context with the view's drawable surface.
+                // Only call update() when the surface geometry changed (resize,
+                // move between screens, fullscreen toggle). Calling it every
+                // frame causes a GPU pipeline stall via SkyLight compositor
+                // reconciliation, which introduces per-frame jank.
+                // The reshape() callback already calls update() on resize;
+                // this flag catches any remaining cases.
+                if self.surface_needs_update {
+                    log_trace!(LogCategory::Rendering, "[GL] context.update()");
+                    gl_context.update(self.mtm);
+                    self.surface_needs_update = false;
+                }
 
                 // CRITICAL: Set the viewport to the physical size of the window
                 let physical_size = self.common.current_window_state.size.get_physical_size();
