@@ -549,7 +549,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         (raw.height - border_top).max(0.0),
     );
 
-    let children: Vec<usize> = tree.get(node_index).unwrap().children.clone();
+    let children: Vec<usize> = tree.children(node_index).to_vec();
     for &child_idx in &children {
         if let Some(child_node) = tree.get(child_idx) {
             if let Some(pos) = child_node.relative_position {
@@ -762,7 +762,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         ctx,
         "\n[layout_bfc] ENTERED for node_index={}, children.len()={}, incoming_bfc_state={}",
         node_index,
-        node.children.len(),
+        tree.children(node_index).len(),
         constraints.bfc_state.is_some()
     );
 
@@ -857,7 +857,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         let mut temp_positions: super::PositionVec = Vec::new();
         let mut temp_scrollbar_reflow = false;
 
-        for &child_index in &node.children {
+        let bfc_children = tree.children(node_index).to_vec();
+        for &child_index in &bfc_children {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
 
@@ -926,7 +927,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Track if we have any actual content (non-empty blocks)
     let mut has_content = false;
 
-    for &child_index in &node.children {
+    let pos_children = tree.children(node_index).to_vec();
+    for &child_index in &pos_children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
@@ -1111,7 +1113,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         );
 
         // PHASE 1: Empty Block Detection & Self-Collapse
-        let is_empty = is_empty_block(child_node);
+        let is_empty = is_empty_block(tree, child_index);
 
         // Handle empty blocks FIRST (they collapse through and don't participate in layout)
         // EXCEPTION: Elements with clear property are NOT skipped even if empty!
@@ -2093,7 +2095,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 id
             } else {
                 // Try to find DOM ID from first child
-                node.children
+                tree.children(node_index)
                     .iter()
                     .filter_map(|&child_idx| tree.get(child_idx))
                     .filter_map(|n| n.dom_node_id)
@@ -3516,7 +3518,7 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
     };
 
     // No children = empty
-    if cell_node.children.is_empty() {
+    if tree.children(cell_index).is_empty() {
         return true;
     }
 
@@ -3873,7 +3875,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
 
     // CSS 2.2 Section 17.4: A table may have one table-caption child.
     // Traverse children to find caption, columns/colgroups, rows, and row groups
-    for &child_idx in &table_node.children {
+    for &child_idx in tree.children(table_index) {
         if let Some(child) = tree.get(child_idx) {
             // Check if this is a table caption
             if matches!(child.formatting_context, FormattingContext::TableCaption) {
@@ -3898,7 +3900,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
                 }
                 FormattingContext::TableRowGroup => {
                     // Process rows within the row group
-                    for &row_idx in &child.children {
+                    for &row_idx in tree.children(child_idx) {
                         if let Some(row) = tree.get(row_idx) {
                             if matches!(row.formatting_context, FormattingContext::TableRow) {
                                 analyze_table_row(tree, row_idx, &mut table_ctx, ctx)?;
@@ -3951,7 +3953,7 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
     }
 
     // Check for individual column elements within the group
-    for &col_idx in &colgroup_node.children {
+    for &col_idx in tree.children(colgroup_index) {
         if let Some(col_node) = tree.get(col_idx) {
             // Note: Individual columns don't have a FormattingContext::TableColumn
             // They are represented as children of TableColumnGroup
@@ -3986,7 +3988,7 @@ fn analyze_table_row<T: ParsedFontTrait>(
 
     let mut col_index = 0;
 
-    for &cell_idx in &row_node.children {
+    for &cell_idx in tree.children(row_index) {
         if let Some(cell) = tree.get(cell_idx) {
             if matches!(cell.formatting_context, FormattingContext::TableCell) {
                 // Get colspan and rowspan (TODO: from CSS properties)
@@ -5095,8 +5097,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 id
             } else {
                 // Try to find DOM ID from first child
-                match ifc_root_node
-                    .children
+                match tree.children(ifc_root_index)
                     .iter()
                     .filter_map(|&child_idx| tree.get(child_idx))
                     .filter_map(|n| n.dom_node_id)
@@ -5113,7 +5114,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     };
 
     // Collect children to avoid holding an immutable borrow during iteration
-    let children: Vec<_> = ifc_root_node.children.clone();
+    let children: Vec<_> = tree.children(ifc_root_index).to_vec();
     drop(ifc_root_node);
 
     debug_ifc_layout!(
@@ -5371,9 +5372,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         if let Some(list_idx) = list_item_layout_idx {
             // Per CSS spec, the ::marker pseudo-element is the first child of the list-item
             // Find the ::marker pseudo-element in the list-item's children
-            let list_item_node = tree.get(list_idx).ok_or(LayoutError::InvalidTree)?;
-            let marker_idx = list_item_node
-                .children
+            let marker_idx = tree.children(list_idx)
                 .iter()
                 .find(|&&child_idx| {
                     tree.get(child_idx)
@@ -6284,7 +6283,11 @@ fn has_margin_collapse_blocker(
 /// # Returns
 ///
 /// `true` if the element is empty and its margins can collapse internally
-fn is_empty_block(node: &LayoutNode) -> bool {
+fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
+    let node = match tree.get(node_index) {
+        Some(n) => n,
+        None => return true,
+    };
     // Per CSS 2.2 § 8.3.1: An empty block is one that:
     // - Has zero computed 'min-height'
     // - Has zero or 'auto' computed 'height'
@@ -6292,7 +6295,7 @@ fn is_empty_block(node: &LayoutNode) -> bool {
     // - Has no line boxes (no text/inline content)
 
     // Check if node has children
-    if !node.children.is_empty() {
+    if !tree.children(node_index).is_empty() {
         return false;
     }
 

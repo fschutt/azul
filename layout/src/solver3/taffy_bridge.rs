@@ -1196,7 +1196,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             return Vec::new();
         };
 
-        node.children
+        self.tree.children(node_idx)
             .iter()
             .filter(|&&child_idx| {
                 let Some(child_node) = self.tree.get(child_idx) else {
@@ -1229,7 +1229,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     node_idx: usize,
     inputs: LayoutInput,
 ) -> LayoutOutput {
-    let children: Vec<usize> = tree.get(node_idx).unwrap().children.clone();
+    let children: Vec<usize> = tree.children(node_idx).to_vec();
 
     // DEBUG: Log Taffy inputs
     if ctx.debug_messages.is_some() {

@@ -576,7 +576,7 @@ pub fn reposition_block_flow_siblings(
 
     let mut main_pen = 0.0;
 
-    for &child_idx in &parent_node.children {
+    for &child_idx in tree.children(parent_idx) {
         let child_node = match tree.get(child_idx) {
             Some(n) => n,
             None => continue,
@@ -653,7 +653,8 @@ pub fn shift_subtree_position(
     }
 
     if let Some(node) = tree.get(node_idx) {
-        for &child_idx in &node.children {
+        let children = tree.children(node_idx).to_vec();
+        for &child_idx in &children {
             shift_subtree_position(child_idx, delta, tree, calculated_positions);
         }
     }
@@ -843,7 +844,9 @@ pub fn reconcile_recursive(
 
     // Reconcile children to check for structural changes and build the new tree structure.
     let new_children_dom_ids: Vec<_> = collect_children_dom_ids(styled_dom, new_dom_id);
-    let old_children_indices: Vec<_> = old_node.map(|n| n.children.clone()).unwrap_or_default();
+    let old_children_indices: Vec<_> = old_tree
+        .and_then(|t| old_tree_idx.map(|idx| t.children(idx).to_vec()))
+        .unwrap_or_default();
 
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
     let mut new_child_hashes = Vec::new();
@@ -1413,7 +1416,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
     let child_inner_size = child_node
         .box_props
         .inner_size(child_node.used_size.unwrap_or_default(), writing_mode);
-    let child_children: Vec<usize> = child_node.children.clone();
+    let child_children: Vec<usize> = tree.children(child_index).to_vec();
     let child_fc = child_node.formatting_context.clone();
 
     // Recurse to position grandchildren
@@ -1460,7 +1463,7 @@ fn position_bfc_child_descendants(
 ) {
     let Some(node) = tree.get(node_index) else { return };
     
-    for &child_index in &node.children {
+    for &child_index in tree.children(node_index) {
         let Some(child_node) = tree.get(child_index) else { continue };
         
         // Use the relative_position that was set during formatting context layout
@@ -1499,8 +1502,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
     // Collect out-of-flow children (those not already positioned)
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let current_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        current_node
-            .children
+        tree.children(node_index)
             .iter()
             .filter_map(|&child_index| {
                 if super::pos_contains(calculated_positions, child_index) {
@@ -1910,7 +1912,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-    let children: Vec<usize> = node.children.clone();
+    let children: Vec<usize> = tree.children(node_index).to_vec();
     let fc = node.formatting_context.clone();
 
     // If this node is itself a Flex/Grid container, its children were laid out by Taffy
@@ -1958,7 +1960,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
         // For Block/Inline/Table children, their descendants need proper layout calculation
         // Use the output.positions from their own layout
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let children: Vec<usize> = node.children.clone();
+        let children: Vec<usize> = tree.children(node_index).to_vec();
 
         for &child_index in &children {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -2013,7 +2015,7 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
 ) -> Result<()> {
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        node.children
+        tree.children(node_index)
             .iter()
             .filter_map(|&child_index| {
                 if super::pos_contains(calculated_positions, child_index) {
@@ -2202,7 +2204,7 @@ fn compute_counters_recursive(
         Some(id) => id,
         None => {
             // For anonymous boxes, just recurse to children
-            for &child_idx in &node.children {
+            for &child_idx in tree.children(node_idx) {
                 compute_counters_recursive(
                     styled_dom,
                     tree,
@@ -2298,7 +2300,7 @@ fn compute_counters_recursive(
     scope_stack.push(reset_counters_at_this_level.clone());
 
     // Recurse to children
-    for &child_idx in &node.children {
+    for &child_idx in tree.children(node_idx) {
         compute_counters_recursive(
             styled_dom,
             tree,

@@ -645,9 +645,28 @@ pub struct LayoutTree {
     pub root: usize,
     /// Mapping from DOM node IDs to layout node indices
     pub dom_to_layout: HashMap<NodeId, Vec<usize>>,
+    /// Flat arena holding all children indices contiguously.
+    /// After `build()`, each node's `children` Vec is drained into this arena
+    /// and `children_offsets[node_idx]` stores `(start, len)` into this Vec.
+    /// This eliminates N heap allocations and improves cache locality.
+    pub children_arena: Vec<usize>,
+    /// Per-node (start, len) into `children_arena`. Indexed by node index.
+    pub children_offsets: Vec<(u32, u32)>,
 }
 
 impl LayoutTree {
+    /// Returns the children of node `index` as a contiguous slice from the arena.
+    /// After `build()`, all per-node `Vec<usize>` children have been flattened
+    /// into `children_arena`, so this is a single pointer + length lookup.
+    #[inline]
+    pub fn children(&self, index: usize) -> &[usize] {
+        if let Some(&(start, len)) = self.children_offsets.get(index) {
+            &self.children_arena[start as usize..(start + len) as usize]
+        } else {
+            &[]
+        }
+    }
+
     pub fn get(&self, index: usize) -> Option<&LayoutNode> {
         self.nodes.get(index)
     }
@@ -726,13 +745,14 @@ impl LayoutTree {
         // on large subtrees.
         let mut stack = vec![start_index];
         while let Some(index) = stack.pop() {
+            let children = self.children(index).to_vec();
             if let Some(node) = self.get_mut(index) {
                 // Only update if the new flag is an upgrade.
                 if node.dirty_flag < flag {
                     node.dirty_flag = flag;
                 }
                 // Add all children to be processed.
-                stack.extend_from_slice(&node.children);
+                stack.extend_from_slice(&children);
             }
         }
     }
@@ -1384,10 +1404,29 @@ impl LayoutTreeBuilder {
     }
 
     pub fn build(self, root_idx: usize) -> LayoutTree {
+        let mut nodes = self.nodes;
+
+        // Flatten per-node children Vecs into a single contiguous arena.
+        // This eliminates N heap allocations and improves cache locality.
+        let total_children: usize = nodes.iter().map(|n| n.children.len()).sum();
+        let mut arena = Vec::with_capacity(total_children);
+        let mut offsets = Vec::with_capacity(nodes.len());
+
+        for node in &mut nodes {
+            let start = arena.len() as u32;
+            let len = node.children.len() as u32;
+            arena.extend_from_slice(&node.children);
+            offsets.push((start, len));
+            // Free the per-node heap allocation
+            node.children = Vec::new();
+        }
+
         LayoutTree {
-            nodes: self.nodes,
+            nodes,
             root: root_idx,
             dom_to_layout: self.dom_to_layout,
+            children_arena: arena,
+            children_offsets: offsets,
         }
     }
 }

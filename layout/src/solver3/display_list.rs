@@ -1731,7 +1731,7 @@ where
         let mut child_contexts = Vec::new();
         let mut in_flow_children = Vec::new();
 
-        for &child_index in &node.children {
+        for &child_index in self.positioned_tree.tree.children(node_index) {
             if self.establishes_stacking_context(child_index) {
                 child_contexts.push(self.collect_stacking_contexts(child_index)?);
             } else {
@@ -2085,7 +2085,7 @@ where
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
 
             // Paint descendants inside the clip/scroll frame
-            self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
+            self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualizedView children: emit placeholder INSIDE the clip
             if let Some(dom_id) = child_node.dom_node_id {
@@ -2149,7 +2149,7 @@ where
             // Same as above: paint background BEFORE clips
             self.paint_node_background_and_border(builder, child_index)?;
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
-            self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
+            self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualizedView children: emit placeholder INSIDE the clip
             if let Some(dom_id) = child_node.dom_node_id {
@@ -2212,7 +2212,7 @@ where
             // Same as above: paint background BEFORE clips
             self.paint_node_background_and_border(builder, child_index)?;
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
-            self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
+            self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualizedView children: emit placeholder INSIDE the clip
             if let Some(dom_id) = child_node.dom_node_id {
@@ -2671,7 +2671,7 @@ where
 
         // Layer 2: Column group backgrounds
         // Layer 3: Column backgrounds (columns are children of column groups)
-        for &child_idx in &table_node.children {
+        for &child_idx in self.positioned_tree.tree.children(table_index) {
             let child_node = self.positioned_tree.tree.get(child_idx);
             if let Some(node) = child_node {
                 if matches!(node.formatting_context, FormattingContext::TableColumnGroup) {
@@ -2679,7 +2679,7 @@ where
                     self.paint_element_background(builder, child_idx)?;
 
                     // Paint backgrounds of individual columns within this group
-                    for &col_idx in &node.children {
+                    for &col_idx in self.positioned_tree.tree.children(child_idx) {
                         self.paint_element_background(builder, col_idx)?;
                     }
                 }
@@ -2689,7 +2689,7 @@ where
         // Layer 4: Row group backgrounds (tbody, thead, tfoot)
         // Layer 5: Row backgrounds
         // Layer 6: Cell backgrounds
-        for &child_idx in &table_node.children {
+        for &child_idx in self.positioned_tree.tree.children(table_index) {
             let child_node = self.positioned_tree.tree.get(child_idx);
             if let Some(node) = child_node {
                 match node.formatting_context {
@@ -2698,7 +2698,7 @@ where
                         self.paint_element_background(builder, child_idx)?;
 
                         // Paint rows within this group
-                        for &row_idx in &node.children {
+                        for &row_idx in self.positioned_tree.tree.children(child_idx) {
                             self.paint_table_row_and_cells(builder, row_idx)?;
                         }
                     }
@@ -2732,7 +2732,7 @@ where
         // Layer 6: Paint cell backgrounds (topmost layer)
         let row_node = self.positioned_tree.tree.get(row_idx);
         if let Some(node) = row_node {
-            for &cell_idx in &node.children {
+            for &cell_idx in self.positioned_tree.tree.children(row_idx) {
                 self.paint_element_background(builder, cell_idx)?;
             }
         }

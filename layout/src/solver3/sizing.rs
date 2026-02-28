@@ -165,7 +165,8 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
 
         // First, calculate children's intrinsic sizes
         let mut child_intrinsics = BTreeMap::new();
-        for &child_index in &node.children {
+        let children = tree.children(node_index).to_vec();
+        for &child_index in &children {
             let child_intrinsic = self.calculate_intrinsic_recursive(tree, child_index)?;
             child_intrinsics.insert(child_index, child_intrinsic);
         }
@@ -230,7 +231,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 // because a display:block element with only inline children gets
                 // FormattingContext::Inline (meaning "establishes IFC for its children"),
                 // which is different from being an inline element itself.
-                let has_block_child = node.children.iter().any(|&child_idx| {
+                let has_block_child = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
                         .map(|dom_id| {
@@ -253,7 +254,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                         .unwrap_or(false)
                 });
 
-                let has_inline_child = node.children.iter().any(|&child_idx| {
+                let has_inline_child = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
                         .map(|dom_id| {
@@ -342,7 +343,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 // Inline-block IS an atomic inline - it needs its own intrinsic size.
                 // BUT, if the inline-block contains inline/text children, it's an IFC root
                 // and we need to measure its inline content, not just aggregate child intrinsics.
-                let has_inline_children = node.children.iter().any(|&child_idx| {
+                let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
                         .unwrap_or(false)
@@ -512,7 +513,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let mut max_child_max_cross = 0.0f32;
         let mut total_main_size = 0.0;
 
-        for &child_index in &node.children {
+        for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
                 let (child_min_cross, child_max_cross, child_main_size) = match writing_mode {
                     LayoutWritingMode::HorizontalTb => (
@@ -757,7 +758,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // We need to check the DOM children for text content.
     let Some(dom_id) = node.dom_node_id else {
         // No DOM ID means this is a synthetic node, skip text extraction
-        return process_layout_children(ctx, tree, node, content);
+        return process_layout_children(ctx, tree, node_index, content);
     };
 
     // First check if THIS node is a text node
@@ -807,21 +808,21 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         }
     }
 
-    process_layout_children(ctx, tree, node, content)
+    process_layout_children(ctx, tree, node_index, content)
 }
 
 /// Helper to process layout tree children for inline content collection
 fn process_layout_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
-    node: &LayoutNode,
+    node_index: usize,
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
     use azul_css::props::basic::SizeMetric;
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
     // Process layout tree children (these are elements with layout properties)
-    for &child_index in &node.children {
+    for &child_index in tree.children(node_index) {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let Some(child_dom_id) = child_node.dom_node_id else {
             continue;
@@ -948,7 +949,8 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
 
     // First, calculate children's intrinsic sizes
     let mut child_intrinsics = BTreeMap::new();
-    for &child_index in &node.children {
+    let children = tree.children(node_index).to_vec();
+    for &child_index in &children {
         let child_intrinsic = calculate_intrinsic_recursive(ctx, tree, child_index)?;
         child_intrinsics.insert(child_index, child_intrinsic);
     }
