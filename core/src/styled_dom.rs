@@ -914,8 +914,13 @@ impl StyledDom {
         // Build compact layout cache (tier1/2/2b for layout-hot properties)
         // Non-compact properties use the slow cascade path via get_property_slow()
         let t_compact = std::time::Instant::now();
+        let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
+            .as_ref()
+            .map(|c| c.prev_font_hashes.clone())
+            .unwrap_or_default();
         let compact = css_property_cache.build_compact_cache(
             compact_dom.node_data.as_ref().internal,
+            &prev_font_hashes,
         );
         css_property_cache.compact_cache = Some(compact);
         let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
@@ -1322,10 +1327,17 @@ impl StyledDom {
             );
 
         // Rebuild compact cache from the freshly-inherited property values.
+        let prev_font_hashes: Vec<u64> = self.css_property_cache
+            .downcast_mut()
+            .compact_cache
+            .as_ref()
+            .map(|c| c.prev_font_hashes.clone())
+            .unwrap_or_default();
         let compact = self.css_property_cache
             .downcast_mut()
             .build_compact_cache(
                 self.node_data.as_container().internal,
+                &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
     }

@@ -681,25 +681,22 @@ impl LayoutWindow {
                 text3::default::PathLoader,
             };
 
-            // Compute a fingerprint of the font requirements for this DOM.
-            // XOR of all tier2b.font_family_hash values: changes when any node's
-            // font-family changes, stays constant on scroll/resize-only frames.
-            let current_font_hash: u64 = styled_dom
+            // Per-node font dirty tracking (P4):
+            // Check font_dirty_nodes populated by build_compact_cache(),
+            // which compares each node's font_family_hash against the
+            // previous frame. This replaces the collision-prone global XOR
+            // approach: XOR(a,b,a,b) == 0 even though fonts changed.
+            let font_dirty_count = styled_dom
                 .css_property_cache
                 .ptr
                 .compact_cache
                 .as_ref()
-                .map(|cc| {
-                    cc.tier2b_text
-                        .iter()
-                        .fold(0u64, |acc, t| acc ^ t.font_family_hash)
-                })
-                .unwrap_or(0);
+                .map(|cc| cc.font_dirty_nodes.len())
+                .unwrap_or(1); // if no compact cache, treat as dirty
 
-            // Skip all font resolution steps if the font requirements haven't changed
-            // AND the font_chain_cache has already been populated (not first frame).
-            let font_requirements_unchanged = current_font_hash != 0
-                && current_font_hash == self.font_stacks_hash
+            // Skip all font resolution steps if NO node's font_family_hash
+            // changed AND the font_chain_cache has already been populated.
+            let font_requirements_unchanged = font_dirty_count == 0
                 && !self.font_manager.font_chain_cache.is_empty();
 
             if font_requirements_unchanged {
@@ -785,9 +782,8 @@ impl LayoutWindow {
                     }
                 }
 
-                // Step 5: Update font chain cache and store the hash for next frame
+                // Step 5: Update font chain cache
                 self.font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
-                self.font_stacks_hash = current_font_hash;
             }
         }
 

@@ -26,9 +26,15 @@ impl CssPropertyCache {
     /// Tier 1/2/2b provide fast-path access for layout-hot properties.
     /// Non-compact properties (background, transform, box-shadow, etc.) are
     /// resolved via the slow cascade path in `get_property_slow()`.
+    ///
+    /// `prev_font_hashes` is the per-node font hash array from the previous frame.
+    /// When non-empty, each node's new `font_family_hash` is compared against the
+    /// previous value, and differing nodes are recorded in `font_dirty_nodes`.
+    /// On the first build (empty slice), ALL text nodes are marked dirty.
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],
+        prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
@@ -387,6 +393,23 @@ impl CssPropertyCache {
                 result.tier2b_text[i].text_indent = encode_css_pixel_as_i16(val);
             }
         }
+
+        // =====================================================================
+        // Per-node font dirty tracking (P4)
+        // Compare each node's font_family_hash against the previous frame's hash.
+        // Nodes whose hash changed are recorded in font_dirty_nodes for
+        // incremental font chain re-resolution instead of all-or-nothing.
+        // =====================================================================
+        result.font_dirty_nodes.clear();
+        for i in 0..node_count {
+            let new_hash = result.tier2b_text[i].font_family_hash;
+            let old_hash = prev_font_hashes.get(i).copied().unwrap_or(0);
+            if new_hash != old_hash {
+                result.font_dirty_nodes.push(i);
+            }
+        }
+        // Save current hashes as prev_font_hashes for next frame comparison
+        result.prev_font_hashes = result.tier2b_text.iter().map(|t| t.font_family_hash).collect();
 
         result
     }

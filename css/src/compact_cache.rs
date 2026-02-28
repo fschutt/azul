@@ -1168,6 +1168,22 @@ pub struct CompactLayoutCache {
     pub tier2_dims: Vec<CompactNodeProps>,
     /// Tier 2b: Text/IFC properties per node (24 B/node)
     pub tier2b_text: Vec<CompactTextProps>,
+    /// Indices of nodes whose `font_family_hash` changed since the last frame.
+    ///
+    /// Enables **per-node** font dirty tracking instead of the global all-or-nothing
+    /// `font_stacks_hash` XOR approach. When this list is non-empty, only the
+    /// font chains for these specific nodes need to be re-resolved, avoiding O(N)
+    /// re-resolution when a single node's `font-family` changes.
+    ///
+    /// Populated during `build_compact_cache()` by comparing each node's
+    /// `font_family_hash` against `prev_font_hashes`.
+    pub font_dirty_nodes: Vec<usize>,
+    /// Previous frame's per-node `font_family_hash` values.
+    ///
+    /// Stored after each compact cache build so that the next build can detect
+    /// which specific nodes' font-family changed (rather than relying on a
+    /// collision-prone global XOR hash).
+    pub prev_font_hashes: Vec<u64>,
 }
 
 impl CompactLayoutCache {
@@ -1177,6 +1193,8 @@ impl CompactLayoutCache {
             tier1_enums: Vec::new(),
             tier2_dims: Vec::new(),
             tier2b_text: Vec::new(),
+            font_dirty_nodes: Vec::new(),
+            prev_font_hashes: Vec::new(),
         }
     }
 
@@ -1186,6 +1204,8 @@ impl CompactLayoutCache {
             tier1_enums: vec![0u64; node_count],
             tier2_dims: vec![CompactNodeProps::default(); node_count],
             tier2b_text: vec![CompactTextProps::default(); node_count],
+            font_dirty_nodes: Vec::new(),
+            prev_font_hashes: vec![0u64; node_count],
         }
     }
 
