@@ -50,6 +50,10 @@ pub struct GpuStateManager {
     pub fade_duration: Duration,
     /// Per-scrollbar fade state: (DomId, NodeId) → last activity time
     pub fade_states: BTreeMap<(DomId, NodeId), ScrollbarFadeState>,
+    /// Whether any scrollbar currently has opacity > 0 and needs continued
+    /// frame generation for the fade-out animation to complete.
+    /// Set by `synchronize_scrollbar_opacity`, read by the platform render loop.
+    pub scrollbar_fade_active: bool,
 }
 
 impl Default for GpuStateManager {
@@ -96,6 +100,7 @@ impl GpuStateManager {
             fade_delay,
             fade_duration,
             fade_states: BTreeMap::new(),
+            scrollbar_fade_active: false,
         }
     }
 

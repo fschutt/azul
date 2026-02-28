@@ -2047,6 +2047,7 @@ impl LayoutWindow {
         fade_duration: azul_core::task::Duration,
     ) -> Vec<azul_core::gpu::GpuScrollbarOpacityEvent> {
         let mut events = Vec::new();
+        let mut any_opacity_nonzero = false;
         let gpu_cache = gpu_state_manager.caches.entry(dom_id).or_default();
 
         // Get current time from system callbacks
@@ -2087,6 +2088,10 @@ impl LayoutWindow {
             } else {
                 0.0
             };
+
+            if vertical_opacity > 0.0 || horizontal_opacity > 0.0 {
+                any_opacity_nonzero = true;
+            }
 
             // Handle vertical scrollbar
             // IMPORTANT: Always pre-register the opacity key when the node needs a
@@ -2188,6 +2193,15 @@ impl LayoutWindow {
                     ));
                 }
             }
+        }
+
+        // Signal to the platform render loop that more frames are needed
+        // to complete the scrollbar fade animation. The caller should
+        // schedule a redraw while this flag is true.
+        if any_opacity_nonzero {
+            gpu_state_manager.scrollbar_fade_active = true;
+        } else {
+            gpu_state_manager.scrollbar_fade_active = false;
         }
 
         events
