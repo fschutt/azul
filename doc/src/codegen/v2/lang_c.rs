@@ -1224,7 +1224,7 @@ impl CGenerator {
 
             // Find the destructor field to get its type
             let destructor_field = struct_def.fields.iter().find(|f| f.name == "destructor");
-            let has_run_destructor = struct_def.fields.iter().any(|f| f.name == "run_destructor");
+            let has_run_destructor = false; // run_destructor field has been removed, destructor enum now uses AlreadyDestroyed variant
 
             if let Some(destr_field) = destructor_field {
                 let prefixed_name = config.apply_prefix(&struct_def.name);
@@ -1302,7 +1302,6 @@ impl CGenerator {
         builder.line("        .len = sizeof(s) - 1, \\");
         builder.line("        .cap = sizeof(s) - 1, \\");
         builder.line("        .destructor = { .NoDestructor = { .tag = AzU8VecDestructor_Tag_NoDestructor } }, \\");
-        builder.line("        .run_destructor = false, \\");
         builder.line("    } \\");
         builder.line("}");
         builder.blank();
@@ -1377,7 +1376,7 @@ impl CGenerator {
         builder.line("    static AzString const structName##_Type_RttiString = AzString_fromConstStr(#structName); \\");
         builder.line("    \\");
         builder.line("    AzRefAny structName##_upcast(structName const s) { \\");
-        builder.line("        AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s, .run_destructor = false }; \\");
+        builder.line("        AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s }; \\");
         builder.line("        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor, serializeFn, deserializeFn); \\");
         builder.line("    } \\");
         builder.line("    \\");

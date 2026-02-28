@@ -321,7 +321,6 @@ fn az_glintvec_to_py_veci32(input: AzGLintVec) -> Vec<i32> {
                 len,
                 cap,
                 destructor: AzU8VecDestructor::DefaultRust,
-                run_destructor: true,
             }
         }
     }
@@ -351,7 +350,6 @@ impl From<Vec<u8>> for AzU8Vec {
             len,
             cap,
             destructor: AzU8VecDestructor::DefaultRust,
-            run_destructor: true,
         }
     }
 }
@@ -438,7 +436,6 @@ impl AzStringVec {
             len,
             cap,
             destructor: AzStringVecDestructor::DefaultRust,
-            run_destructor: true,
         }
     }
     

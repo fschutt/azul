@@ -1211,8 +1211,8 @@ impl RustGenerator {
                     ));
                     builder.indent();
                     builder.line("let v = unsafe { &mut *v };");
-                    builder.line("if !v.run_destructor { return; }");
-                    builder.line("v.run_destructor = false;");
+                    builder.line(&format!("match v.destructor {{ {}::AlreadyDestroyed | {}::NoDestructor => return, _ => {{ }} }}", prefixed_destructor, prefixed_destructor));
+                    builder.line(&format!("v.destructor = {}::AlreadyDestroyed;", prefixed_destructor));
                     builder.line("if v.ptr.is_null() || v.cap == 0 { return; }");
                     builder.line("unsafe {");
                     builder.indent();
@@ -1252,7 +1252,6 @@ impl RustGenerator {
                         "destructor: {}::External({} as {}),",
                         prefixed_destructor, drop_fn_name, destructor_fn_type
                     ));
-                    builder.line("run_destructor: true,");
                     builder.dedent();
                     builder.line("}");
                     builder.dedent();

@@ -754,7 +754,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("    static azul::RefAny structName##_upcast(structName model) { \\\r\n");
         code.push_str("        structName* heap = new structName(model); \\\r\n");
         code.push_str(
-            "        AzGlVoidPtrConst ptr; ptr.ptr = heap; ptr.run_destructor = 1; \\\r\n",
+            "        AzGlVoidPtrConst ptr; ptr.ptr = heap; \\\r\n",
         );
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
         code.push_str("        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), \\\r\n");

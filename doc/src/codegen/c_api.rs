@@ -1273,8 +1273,8 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                         .find(|(name, _)| *name == "destructor")
                         .map(|(_, data)| &data.r#type);
 
-                    // Check if it has run_destructor field (some vecs have this extra field)
-                    let has_run_destructor = field_names.contains(&&"run_destructor".to_string());
+                    // run_destructor field has been removed, destructor enum now uses AlreadyDestroyed variant
+                    let has_run_destructor = false;
 
                     if let Some(destr_type) = destructor_type {
                         // Generate the empty macro

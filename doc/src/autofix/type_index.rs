@@ -212,7 +212,7 @@ impl TypeDefinition {
                 match kind {
                     MacroGeneratedKind::Vec => {
                         // impl_vec!(BaseType, VecType, DestructorType)
-                        // VecType has: ptr, len, cap, destructor, run_destructor
+                        // VecType has: ptr, len, cap, destructor
                         // Destructor is named VecTypeDestructor (e.g. U8Vec -> U8VecDestructor)
                         let destructor_type = format!("{}Destructor", self.type_name);
                         let mut fields = IndexMap::new();
@@ -253,15 +253,6 @@ impl TypeDefinition {
                                 doc: Vec::new(),
                             },
                         );
-                        fields.insert(
-                            "run_destructor".to_string(),
-                            FieldDef {
-                                name: "run_destructor".to_string(),
-                                ty: "bool".to_string(),
-                                ref_kind: RefKind::Value,
-                                doc: Vec::new(),
-                            },
-                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
@@ -278,7 +269,7 @@ impl TypeDefinition {
                     }
                     MacroGeneratedKind::VecDestructor => {
                         // VecDestructor enum: DefaultRust, NoDestructor,
-                        // External(DestructorTypeType)
+                        // External(DestructorTypeType), AlreadyDestroyed
                         let destructor_type_type = format!("{}Type", self.type_name);
                         let mut variants = IndexMap::new();
                         variants.insert(
@@ -302,6 +293,14 @@ impl TypeDefinition {
                             VariantDef {
                                 name: "External".to_string(),
                                 ty: Some(destructor_type_type),
+                                doc: Vec::new(),
+                            },
+                        );
+                        variants.insert(
+                            "AlreadyDestroyed".to_string(),
+                            VariantDef {
+                                name: "AlreadyDestroyed".to_string(),
+                                ty: None,
                                 doc: Vec::new(),
                             },
                         );

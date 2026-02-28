@@ -270,7 +270,7 @@ impl AzString {
     #[inline]
     pub fn into_library_owned_string(self) -> String {
         match self.vec.destructor {
-            U8VecDestructor::NoDestructor | U8VecDestructor::External(_) => {
+            U8VecDestructor::NoDestructor | U8VecDestructor::External(_) | U8VecDestructor::AlreadyDestroyed => {
                 self.as_str().to_string()
             }
             U8VecDestructor::DefaultRust => {
@@ -293,7 +293,6 @@ impl AzString {
             len: m.vec.len,
             cap: m.vec.cap,
             destructor: m.vec.destructor,
-            run_destructor: m.vec.run_destructor,
         }
     }
 

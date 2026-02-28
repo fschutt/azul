@@ -52782,9 +52782,6 @@
                                 },
                                 "destructor": {
                                     "type": "ListViewRowVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -52989,9 +52986,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleFilterVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -53196,9 +53190,6 @@
                                 },
                                 "destructor": {
                                     "type": "AccessibilityStateVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -53403,9 +53394,6 @@
                                 },
                                 "destructor": {
                                     "type": "MenuItemVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -53610,9 +53598,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleFontFamilyVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -53817,9 +53802,6 @@
                                 },
                                 "destructor": {
                                     "type": "DomVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -54024,9 +54006,6 @@
                                 },
                                 "destructor": {
                                     "type": "IdOrClassVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -54227,9 +54206,6 @@
                                 },
                                 "destructor": {
                                     "type": "DynamicSelectorVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -54434,9 +54410,6 @@
                                 },
                                 "destructor": {
                                     "type": "CssPropertyWithConditionsVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -54641,9 +54614,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundContentVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -54848,9 +54818,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundPositionVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -55055,9 +55022,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundRepeatVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -55262,9 +55226,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundSizeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -55469,9 +55430,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyleTransformVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -55673,9 +55631,6 @@
                                 },
                                 "destructor": {
                                     "type": "SvgVertexVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -55880,9 +55835,6 @@
                                 },
                                 "destructor": {
                                     "type": "U32VecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -56087,9 +56039,6 @@
                                 },
                                 "destructor": {
                                     "type": "VirtualKeyCodeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -56291,9 +56240,6 @@
                                 },
                                 "destructor": {
                                     "type": "CascadeInfoVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -56498,9 +56444,6 @@
                                 },
                                 "destructor": {
                                     "type": "CssDeclarationVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -56705,9 +56648,6 @@
                                 },
                                 "destructor": {
                                     "type": "CssPathSelectorVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -56909,9 +56849,6 @@
                                 },
                                 "destructor": {
                                     "type": "StylesheetVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -57113,9 +57050,6 @@
                                 },
                                 "destructor": {
                                     "type": "CssRuleBlockVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -57320,9 +57254,6 @@
                                 },
                                 "destructor": {
                                     "type": "U16VecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -57524,9 +57455,6 @@
                                 },
                                 "destructor": {
                                     "type": "F32VecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -57731,9 +57659,6 @@
                                 },
                                 "destructor": {
                                     "type": "U8VecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -57971,9 +57896,6 @@
                                 },
                                 "destructor": {
                                     "type": "GLuintVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -58178,9 +58100,6 @@
                                 },
                                 "destructor": {
                                     "type": "GLintVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -58386,9 +58305,6 @@
                                 },
                                 "destructor": {
                                     "type": "StringVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -58593,9 +58509,6 @@
                                 },
                                 "destructor": {
                                     "type": "StringPairVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -58800,9 +58713,6 @@
                                 },
                                 "destructor": {
                                     "type": "NormalizedLinearColorStopVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -59007,9 +58917,6 @@
                                 },
                                 "destructor": {
                                     "type": "NormalizedRadialColorStopVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -59211,9 +59118,6 @@
                                 },
                                 "destructor": {
                                     "type": "NodeHierarchyItemVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -59415,9 +59319,6 @@
                                 },
                                 "destructor": {
                                     "type": "TagIdToNodeIdMappingVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -59619,9 +59520,6 @@
                                 },
                                 "destructor": {
                                     "type": "ParentWithNodeDepthVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -59826,9 +59724,6 @@
                                 },
                                 "destructor": {
                                     "type": "NodeDataVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -60033,9 +59928,6 @@
                                 },
                                 "destructor": {
                                     "type": "AttributeTypeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -60240,9 +60132,6 @@
                                 },
                                 "destructor": {
                                     "type": "CoreCallbackDataVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -60447,9 +60336,6 @@
                                 },
                                 "destructor": {
                                     "type": "AccessibilityActionVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -60654,9 +60540,6 @@
                                 },
                                 "destructor": {
                                     "type": "XmlNodeChildVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -60861,9 +60744,6 @@
                                 },
                                 "destructor": {
                                     "type": "GridTrackSizingVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -61295,7 +61175,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleFilterVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61311,7 +61192,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleTransformVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61387,7 +61269,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "GLuintVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61403,7 +61286,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "XmlNodeChildVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61431,7 +61315,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleBackgroundContentVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61459,7 +61344,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CascadeInfoVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61487,7 +61373,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "AccessibilityStateVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61515,7 +61402,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "DomVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61531,7 +61419,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StringVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61559,7 +61448,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "NodeDataVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61575,7 +61465,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "MenuItemVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61603,7 +61494,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ListViewRowVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61643,7 +61535,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "SvgVertexVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61659,7 +61552,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StylesheetVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61675,7 +61569,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "U32VecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61691,7 +61586,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CssRuleBlockVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61719,7 +61615,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "NormalizedLinearColorStopVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61747,7 +61644,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleFontFamilyVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61799,7 +61697,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CssPathSelectorVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61839,7 +61738,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "NodeHierarchyItemVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61855,7 +61755,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "VirtualKeyCodeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61883,7 +61784,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "F32VecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61899,7 +61801,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleBackgroundRepeatVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61915,7 +61818,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "AccessibilityActionVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61979,7 +61883,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "U16VecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -61995,7 +61900,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "TagIdToNodeIdMappingVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62047,7 +61953,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ParentWithNodeDepthVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62063,7 +61970,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "GLintVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62079,7 +61987,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CssPropertyWithConditionsVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62107,7 +62016,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "DynamicSelectorVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62135,7 +62045,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "NormalizedRadialColorStopVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62151,7 +62062,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleBackgroundPositionVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62191,7 +62103,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "AttributeTypeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62219,7 +62132,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CssDeclarationVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62235,7 +62149,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "IdOrClassVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62251,7 +62166,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyleBackgroundSizeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62279,7 +62195,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StringPairVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62295,7 +62212,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CoreCallbackDataVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62311,7 +62229,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "U8VecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62327,7 +62246,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "GridTrackSizingVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62403,7 +62323,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "VertexAttributeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62436,9 +62357,6 @@
                                 },
                                 "destructor": {
                                     "type": "VertexAttributeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -62622,7 +62540,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "DebugMessageVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62667,9 +62586,6 @@
                                 },
                                 "destructor": {
                                     "type": "DebugMessageVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -62853,7 +62769,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ShapePointVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -62899,9 +62816,6 @@
                                 },
                                 "destructor": {
                                     "type": "ShapePointVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -63099,9 +63013,6 @@
                                 },
                                 "destructor": {
                                     "type": "MonitorVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -63325,9 +63236,6 @@
                                 },
                                 "destructor": {
                                     "type": "VideoModeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -63528,9 +63436,6 @@
                                 },
                                 "destructor": {
                                     "type": "XWindowTypeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -63714,7 +63619,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "XWindowTypeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -63743,7 +63649,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "MonitorVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -63759,7 +63666,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "VideoModeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -63788,7 +63696,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ScanCodeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -63821,9 +63730,6 @@
                                 },
                                 "destructor": {
                                     "type": "ScanCodeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -64007,7 +63913,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyledNodeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -64037,9 +63944,6 @@
                                 },
                                 "destructor": {
                                     "type": "ContentGroupVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -64237,9 +64141,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyledNodeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -64436,7 +64337,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ContentGroupVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -64508,9 +64410,6 @@
                                 },
                                 "destructor": {
                                     "type": "DomIdVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -64694,7 +64593,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "DomIdVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -64730,7 +64630,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "TimerIdVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -64764,9 +64665,6 @@
                                 },
                                 "destructor": {
                                     "type": "TimerIdVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -64964,9 +64862,6 @@
                                 },
                                 "destructor": {
                                     "type": "SelectionRangeVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -65162,7 +65057,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ThreadIdVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -65196,9 +65092,6 @@
                                 },
                                 "destructor": {
                                     "type": "ThreadIdVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -65382,7 +65275,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "SelectionRangeVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -65410,7 +65304,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StyledTextRunVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -65451,9 +65346,6 @@
                                 },
                                 "destructor": {
                                     "type": "StyledTextRunVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -65664,9 +65556,6 @@
                                 },
                                 "destructor": {
                                     "type": "SelectionVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -65850,7 +65739,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "SelectionVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -65879,9 +65769,6 @@
                                 },
                                 "destructor": {
                                     "type": "HttpHeaderVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -66103,9 +65990,6 @@
                                 },
                                 "destructor": {
                                     "type": "FmtArgVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -66289,7 +66173,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "FmtArgVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -66305,7 +66190,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "HttpHeaderVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -66334,9 +66220,6 @@
                                 },
                                 "destructor": {
                                     "type": "JsonVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -66536,7 +66419,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "JsonVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -66577,9 +66461,6 @@
                                 },
                                 "destructor": {
                                     "type": "DirEntryVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -66776,7 +66657,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "DirEntryVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -66804,9 +66686,6 @@
                                 },
                                 "destructor": {
                                     "type": "JsonKeyValueVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -67019,7 +66898,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "JsonKeyValueVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -67048,7 +66928,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "NamedFontVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -67081,9 +66962,6 @@
                                 },
                                 "destructor": {
                                     "type": "NamedFontVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -67284,9 +67162,6 @@
                                 },
                                 "destructor": {
                                     "type": "ExternalResourceVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -67470,7 +67345,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ExternalResourceVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -67499,7 +67375,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "NodeHierarchyItemIdVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -67545,9 +67422,6 @@
                                 },
                                 "destructor": {
                                     "type": "NodeHierarchyItemIdVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -67731,9 +67605,6 @@
                                 },
                                 "destructor": {
                                     "type": "CalcAstItemVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -67913,7 +67784,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "CalcAstItemVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -67946,9 +67818,6 @@
                                 },
                                 "destructor": {
                                     "type": "GridAreaDefinitionVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68115,7 +67984,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "GridAreaDefinitionVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -68157,9 +68027,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentDataFieldVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68338,7 +68205,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentDataFieldVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -68354,7 +68222,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentDefVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -68394,9 +68263,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentDefVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68575,9 +68441,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentLibraryVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68756,7 +68619,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentLibraryVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -68785,7 +68649,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentDataModelVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -68813,9 +68678,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentDataModelVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68995,7 +68857,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentEnumVariantVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -69024,9 +68887,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentEnumModelVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -69193,7 +69053,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentEnumModelVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -69235,9 +69096,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentEnumVariantVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -69447,9 +69305,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentCallbackArgVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -69616,7 +69471,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentFieldOverrideVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -69645,9 +69501,6 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentFieldOverrideVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -69814,7 +69667,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "ComponentCallbackArgVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -69830,7 +69684,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "SvgPathElementVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -69872,9 +69727,6 @@
                                 },
                                 "destructor": {
                                     "type": "SvgPathElementVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -70041,7 +69893,8 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "SvgPathVecDestructorType"
-                                }
+                                },
+                                "AlreadyDestroyed": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -70083,9 +69936,6 @@
                                 },
                                 "destructor": {
                                     "type": "SvgPathVecDestructor"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -79294,9 +79144,6 @@
                             "instead of heap allocations. Size: 16 bytes on 64-bit (1 tag + 7 padding + 8 pointer)."
                         ],
                         "external": "azul_css::css::BoxOrStatic",
-                        "derive": [
-                            "Clone"
-                        ],
                         "custom_impls": [
                             "Clone",
                             "Debug",

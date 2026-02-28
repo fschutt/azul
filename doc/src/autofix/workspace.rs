@@ -959,7 +959,7 @@ fn is_result_type(type_name: &str) -> bool {
     type_name.ends_with("Result")
 }
 
-/// Generate standard Vec structure: ptr, len, cap, destructor, run_destructor
+/// Generate standard Vec structure: ptr, len, cap, destructor
 /// Each field must be a separate IndexMap element to conform to the API schema
 /// Also generates standard Vec functions: create(), len(), is_empty(), get(), as_slice()
 fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &str) -> ClassPatch {
@@ -975,7 +975,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
     let lowercase_type_name = type_name.to_lowercase();
 
     // IMPORTANT: Each field must be its own IndexMap element to preserve order
-    // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}, {"run_destructor": {...}}]
+    // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}]
     let mut ptr_field = IndexMap::new();
     ptr_field.insert(
         "ptr".to_string(),
@@ -1024,18 +1024,6 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         },
     );
 
-    let mut run_destructor_field = IndexMap::new();
-    run_destructor_field.insert(
-        "run_destructor".to_string(),
-        FieldData {
-            r#type: "bool".to_string(),
-            ref_kind: RefKind::Value,
-            arraysize: None,
-            doc: None,
-            derive: None,
-        },
-    );
-
     // Generate standard Vec functions (without known_types check since this is for initial structure generation)
     let functions = generate_vec_functions(type_name, element_type, &lowercase_type_name, None);
 
@@ -1054,7 +1042,6 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             len_field,
             cap_field,
             destructor_field,
-            run_destructor_field,
         ]),
         vec_element_type: Some(element_type.to_string()),
         functions: Some(functions),
