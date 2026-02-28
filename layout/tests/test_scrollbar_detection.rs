@@ -583,20 +583,20 @@ fn layout_dom_and_get_scrollbar_bounds(
                     ..
                 } => {
                     result.push((
-                        bounds.origin.x,
-                        bounds.origin.y,
-                        bounds.size.width,
-                        bounds.size.height,
+                        bounds.origin().x,
+                        bounds.origin().y,
+                        bounds.size().width,
+                        bounds.size().height,
                         format!("{:?}", orientation),
                     ));
                 }
                 DisplayListItem::ScrollBarStyled { info } => {
                     // Use track bounds for overall scrollbar position
                     result.push((
-                        info.track_bounds.origin.x,
-                        info.track_bounds.origin.y,
-                        info.track_bounds.size.width,
-                        info.track_bounds.size.height,
+                        info.track_bounds.origin().x,
+                        info.track_bounds.origin().y,
+                        info.track_bounds.size().width,
+                        info.track_bounds.size().height,
                         format!("{:?}", info.orientation),
                     ));
                 }
@@ -869,10 +869,10 @@ fn layout_dom_and_get_scrollbar_info(
                     };
                     // Store bounds (simple scrollbar)
                     result.push((
-                        bounds.origin.x,
-                        bounds.origin.y,
-                        bounds.size.width,
-                        bounds.size.height,
+                        bounds.origin().x,
+                        bounds.origin().y,
+                        bounds.size().width,
+                        bounds.size().height,
                         format!("{}", orientation_str),
                     ));
                 }
@@ -884,18 +884,18 @@ fn layout_dom_and_get_scrollbar_info(
                     };
                     // Store thumb bounds
                     result.push((
-                        info.thumb_bounds.origin.x,
-                        info.thumb_bounds.origin.y,
-                        info.thumb_bounds.size.width,
-                        info.thumb_bounds.size.height,
+                        info.thumb_bounds.origin().x,
+                        info.thumb_bounds.origin().y,
+                        info.thumb_bounds.size().width,
+                        info.thumb_bounds.size().height,
                         format!("{}Thumb", orientation_str),
                     ));
                     // Store track bounds
                     result.push((
-                        info.track_bounds.origin.x,
-                        info.track_bounds.origin.y,
-                        info.track_bounds.size.width,
-                        info.track_bounds.size.height,
+                        info.track_bounds.origin().x,
+                        info.track_bounds.origin().y,
+                        info.track_bounds.size().width,
+                        info.track_bounds.size().height,
                         format!("{}Track", orientation_str),
                     ));
                 }

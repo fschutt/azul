@@ -38,10 +38,10 @@ use alloc::{
     boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
-    sync::Arc,
     vec::Vec,
 };
 use core::fmt::Write;
+use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::Mutex;
 use std::io::{Read, Write as IoWrite, Cursor, Seek};
 
@@ -281,7 +281,7 @@ impl FluentLocaleBundle {
 }
 
 /// Inner data for FluentLocalizerHandle
-struct FluentLocalizerInner {
+pub struct FluentLocalizerInner {
     /// Bundles for each locale
     bundles: Mutex<BTreeMap<String, FluentLocaleBundle>>,
     /// Default locale
@@ -299,14 +299,47 @@ struct FluentLocalizerInner {
 ///
 /// All methods are thread-safe and can be called from multiple threads.
 #[repr(C)]
-#[derive(Clone)]
 pub struct FluentLocalizerHandle {
-    ptr: Arc<FluentLocalizerInner>,
+    pub ptr: *const FluentLocalizerInner,
+    pub copies: *const AtomicUsize,
+    pub run_destructor: bool,
+}
+
+unsafe impl Send for FluentLocalizerHandle {}
+unsafe impl Sync for FluentLocalizerHandle {}
+
+impl Clone for FluentLocalizerHandle {
+    fn clone(&self) -> Self {
+        unsafe {
+            self.copies
+                .as_ref()
+                .map(|m| m.fetch_add(1, AtomicOrdering::SeqCst));
+        }
+        Self {
+            ptr: self.ptr,
+            copies: self.copies,
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for FluentLocalizerHandle {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+        unsafe {
+            let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
+            if copies == 1 {
+                let _ = Box::from_raw(self.ptr as *mut FluentLocalizerInner);
+                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+            }
+        }
+    }
 }
 
 impl core::fmt::Debug for FluentLocalizerHandle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let default_locale = self.ptr.default_locale.lock()
+        let inner = self.inner();
+        let default_locale = inner.default_locale.lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| String::new());
         f.debug_struct("FluentLocalizerHandle")
@@ -325,24 +358,32 @@ impl FluentLocalizerHandle {
     /// Create a new Fluent localizer with the given default locale.
     pub fn create(default_locale: &str) -> Self {
         Self {
-            ptr: Arc::new(FluentLocalizerInner {
+            ptr: Box::into_raw(Box::new(FluentLocalizerInner {
                 bundles: Mutex::new(BTreeMap::new()),
                 default_locale: Mutex::new(default_locale.to_string()),
                 fallback_chain: Mutex::new(BTreeMap::new()),
-            }),
+            })),
+            copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
         }
+    }
+
+    /// Get a reference to the inner data.
+    #[inline]
+    fn inner(&self) -> &FluentLocalizerInner {
+        unsafe { &*self.ptr }
     }
 
     /// Get the default locale string.
     pub fn get_default_locale(&self) -> AzString {
-        self.ptr.default_locale.lock()
+        self.inner().default_locale.lock()
             .map(|g| AzString::from(g.clone()))
             .unwrap_or_else(|_| AzString::from("en-US"))
     }
 
     /// Set the default locale.
     pub fn set_default_locale(&self, locale: &str) {
-        if let Ok(mut guard) = self.ptr.default_locale.lock() {
+        if let Ok(mut guard) = self.inner().default_locale.lock() {
             *guard = locale.to_string();
         }
     }
@@ -358,7 +399,7 @@ impl FluentLocalizerHandle {
     /// localizer.set_fallback_chain("de-CH", &["de-DE", "en-US"]);
     /// ```
     pub fn set_fallback_chain(&self, locale: &str, fallbacks: &[&str]) {
-        if let Ok(mut guard) = self.ptr.fallback_chain.lock() {
+        if let Ok(mut guard) = self.inner().fallback_chain.lock() {
             guard.insert(
                 locale.to_string(),
                 fallbacks.iter().map(|s| s.to_string()).collect(),
@@ -375,7 +416,7 @@ impl FluentLocalizerHandle {
     /// # Returns
     /// `true` if the resource was successfully added, `false` if there were errors.
     pub fn add_resource(&self, locale: &str, source: &str) -> bool {
-        if let Ok(mut bundles) = self.ptr.bundles.lock() {
+        if let Ok(mut bundles) = self.inner().bundles.lock() {
             let bundle = bundles
                 .entry(locale.to_string())
                 .or_insert_with(|| FluentLocaleBundle::new(locale).unwrap_or_else(|| {
@@ -620,7 +661,7 @@ impl FluentLocalizerHandle {
         }
 
         // Try fallback chain
-        if let Ok(fallbacks) = self.ptr.fallback_chain.lock() {
+        if let Ok(fallbacks) = self.inner().fallback_chain.lock() {
             if let Some(chain) = fallbacks.get(locale) {
                 for fallback in chain {
                     if let Some(result) = self.try_translate(fallback, message_id, &args) {
@@ -631,7 +672,7 @@ impl FluentLocalizerHandle {
         }
 
         // Try default locale
-        let default_locale = self.ptr.default_locale.lock()
+        let default_locale = self.inner().default_locale.lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| "en-US".to_string());
 
@@ -652,7 +693,7 @@ impl FluentLocalizerHandle {
         message_id: &str,
         args: &FmtArgVec,
     ) -> Option<AzString> {
-        self.ptr.bundles.lock().ok().and_then(|bundles| {
+        self.inner().bundles.lock().ok().and_then(|bundles| {
             bundles.get(locale).and_then(|bundle| {
                 bundle.format(message_id, args).map(AzString::from)
             })
@@ -661,21 +702,21 @@ impl FluentLocalizerHandle {
 
     /// Check if a message ID exists in the given locale.
     pub fn has_message(&self, locale: &str, message_id: &str) -> bool {
-        self.ptr.bundles.lock().ok().map(|bundles| {
+        self.inner().bundles.lock().ok().map(|bundles| {
             bundles.get(locale).map(|b| b.has_message(message_id)).unwrap_or(false)
         }).unwrap_or(false)
     }
 
     /// Get the list of all loaded locales.
     pub fn get_loaded_locales(&self) -> Vec<AzString> {
-        self.ptr.bundles.lock().ok().map(|bundles| {
+        self.inner().bundles.lock().ok().map(|bundles| {
             bundles.keys().map(|k| AzString::from(k.clone())).collect()
         }).unwrap_or_default()
     }
 
     /// Get information about all loaded languages.
     pub fn get_language_info(&self) -> FluentLanguageInfoVec {
-        self.ptr.bundles.lock().ok().map(|bundles| {
+        self.inner().bundles.lock().ok().map(|bundles| {
             bundles.iter().map(|(locale, bundle)| {
                 FluentLanguageInfo {
                     locale: AzString::from(locale.clone()),
@@ -688,14 +729,14 @@ impl FluentLocalizerHandle {
 
     /// Clear all loaded resources for a specific locale.
     pub fn clear_locale(&self, locale: &str) {
-        if let Ok(mut bundles) = self.ptr.bundles.lock() {
+        if let Ok(mut bundles) = self.inner().bundles.lock() {
             bundles.remove(locale);
         }
     }
 
     /// Clear all loaded resources.
     pub fn clear_all(&self) {
-        if let Ok(mut bundles) = self.ptr.bundles.lock() {
+        if let Ok(mut bundles) = self.inner().bundles.lock() {
             bundles.clear();
         }
     }
@@ -783,7 +824,7 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
 
 /// Export all translations from a FluentLocalizerHandle to a ZIP archive.
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
-    let bundles = localizer.ptr.bundles.lock()
+    let bundles = localizer.inner().bundles.lock()
         .map_err(|e| format!("Lock error: {:?}", e))?;
 
     let entries: Vec<ZipFileEntry> = bundles.iter().flat_map(|(locale, bundle)| {

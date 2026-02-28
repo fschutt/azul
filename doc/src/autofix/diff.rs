@@ -13,7 +13,7 @@ use anyhow::Result;
 use super::{
     module_map::get_correct_module,
     type_index::{TypeDefKind, TypeDefinition, TypeIndex},
-    type_resolver::{ResolutionContext, ResolvedType, ResolvedTypeSet, TypeResolver},
+    type_resolver::{ResolutionContext, ResolvedType, ResolvedTypeSet, TypeResolver, TypeWarning},
     utils::canonicalize_option_type_name,
 };
 use crate::api::ApiData;
@@ -667,7 +667,7 @@ pub fn analyze_api_diff(
     workspace_root: &Path,
     api_data: &ApiData,
     verbose: bool,
-) -> Result<(ApiDiff, TypeIndex)> {
+) -> Result<(ApiDiff, TypeIndex, Vec<TypeWarning>)> {
     use colored::Colorize;
 
     // Step 1: Build type index from workspace (source of truth for types)
@@ -729,7 +729,7 @@ pub fn analyze_api_diff(
         );
     }
 
-    Ok((diff, index))
+    Ok((diff, index, expected.warnings))
 }
 
 /// Resolve all types referenced by api.json functions, using the WORKSPACE INDEX

@@ -79422,16 +79422,22 @@
                         "external": "azul_layout::icu::IcuLocalizerHandle",
                         "custom_impls": [
                             "Debug",
-                            "Default"
-                        ],
-                        "derive": [
-                            "Clone"
+                            "Default",
+                            "Clone",
+                            "Drop"
                         ],
                         "struct_fields": [
                             {
                                 "ptr": {
                                     "type": "c_void",
                                     "ref_kind": "constptr"
+                                },
+                                "copies": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -79865,16 +79871,22 @@
                         "external": "azul_layout::fluent::FluentLocalizerHandle",
                         "custom_impls": [
                             "Debug",
-                            "Default"
-                        ],
-                        "derive": [
-                            "Clone"
+                            "Default",
+                            "Clone",
+                            "Drop"
                         ],
                         "struct_fields": [
                             {
                                 "ptr": {
                                     "type": "c_void",
                                     "ref_kind": "constptr"
+                                },
+                                "copies": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
                                 }
                             }
                         ],

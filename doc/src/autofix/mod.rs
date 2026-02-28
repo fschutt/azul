@@ -88,12 +88,26 @@ pub fn autofix_api(
 
     println!("\n{}\n", "Autofix: Starting analysis...".cyan().bold());
 
-    // Run the full diff analysis (returns both diff and type index)
-    let (diff, index) = analyze_api_diff(project_root, api_data, verbose)?;
+    // Run the full diff analysis (returns diff, type index, and type resolver warnings)
+    let (diff, index, type_warnings) = analyze_api_diff(project_root, api_data, verbose)?;
 
     // Check FFI safety for types that exist in api.json AND types about to be added
     let addition_names: Vec<String> = diff.additions.iter().map(|a| a.type_name.clone()).collect();
     let mut ffi_warnings = check_ffi_safety(&index, api_data, &addition_names);
+
+    // Convert type resolver warnings (Arc/Rc, Vec<T>, etc.) into FfiSafetyWarnings
+    // so they are counted in the critical error total
+    for tw in &type_warnings {
+        ffi_warnings.push(FfiSafetyWarning {
+            type_name: tw.type_expr.clone(),
+            file_path: tw.context.clone(),
+            kind: FfiSafetyWarningKind::NonCCompatibleSourceType {
+                type_expr: tw.type_expr.clone(),
+                message: tw.message.clone(),
+                origin: tw.origin.clone(),
+            },
+        });
+    }
 
     // Also check documentation for invalid characters
     let doc_warnings = check_doc_characters(api_data);
@@ -1310,6 +1324,16 @@ pub enum FfiSafetyWarningKind {
         /// The merged repr value
         merged_repr: String,
     },
+    /// Source code uses a non-C-compatible type (Arc<T>, Rc<T>, Vec<T>, etc.)
+    /// detected by the type resolver when scanning workspace source files.
+    NonCCompatibleSourceType {
+        /// The problematic type expression (e.g., "Arc<FooInner>")
+        type_expr: String,
+        /// Human-readable description of the problem
+        message: String,
+        /// The original function/field that started the resolution chain
+        origin: Option<String>,
+    },
     /// Struct field order is not optimal for minimizing padding in repr(C) layout.
     /// Fields should be sorted by decreasing alignment (largest-aligned first).
     SuboptimalFieldOrder {
@@ -1368,6 +1392,8 @@ impl FfiSafetyWarningKind {
             }
             // Critical - multiple #[repr(...)] attributes are ambiguous
             FfiSafetyWarningKind::DuplicateReprAttribute { .. } => true,
+            // Critical - source code uses non-C-compatible types like Arc<T>, Rc<T>
+            FfiSafetyWarningKind::NonCCompatibleSourceType { .. } => true,
             // Critical - suboptimal field ordering wastes memory in repr(C) layout
             FfiSafetyWarningKind::SuboptimalFieldOrder { .. } => true,
         }
@@ -1664,6 +1690,9 @@ pub fn check_ffi_safety(
         }
     }
 
+    // Cache for recursive type size estimation (shared across all checks)
+    let mut type_size_cache: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+
     // Iterate over all types, but only check those in api.json
     for (type_name, defs) in index.iter_all() {
         // Skip types that aren't in api.json
@@ -1744,6 +1773,49 @@ pub fn check_ffi_safety(
                                 array_type: field_def.ty.clone(),
                             },
                         });
+                    }
+                }
+
+                // Check 3: Struct field ordering for repr(C) padding optimization
+                // This checks the SOURCE CODE field ordering, not api.json
+                if !fields.is_empty() {
+                    let is_repr_c = match repr {
+                        Some(r) => r.to_lowercase().contains("c"),
+                        None => false,
+                    };
+                    if is_repr_c {
+                        let fields_with_size_align: Vec<(String, usize, usize)> = fields
+                            .iter()
+                            .map(|(name, fd)| {
+                                let (size, align) = estimate_type_size_align(
+                                    &fd.ty, &fd.ref_kind, api_data, &mut type_size_cache,
+                                );
+                                (name.clone(), size, align)
+                            })
+                            .collect();
+
+                        // Optimal ordering: sort by decreasing alignment,
+                        // then by decreasing size as tiebreaker to further reduce gaps
+                        let mut optimal = fields_with_size_align.clone();
+                        optimal.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.1.cmp(&a.1)));
+
+                        if fields_with_size_align != optimal {
+                            let waste = estimate_padding_waste(&fields_with_size_align)
+                                .saturating_sub(estimate_padding_waste(&optimal));
+                            if waste > 0 {
+                                let current_display: Vec<(String, usize)> = fields_with_size_align.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
+                                let optimal_display: Vec<(String, usize)> = optimal.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: type_name.clone(),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::SuboptimalFieldOrder {
+                                        current_order: current_display,
+                                        optimal_order: optimal_display,
+                                        estimated_padding_waste: waste,
+                                    },
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -1928,9 +2000,6 @@ pub fn check_ffi_safety(
         }
     }
 
-    // Cache for recursive type size estimation (shared across all checks)
-    let mut type_size_cache: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
-
     // Check api.json types for repr mismatches AND struct issues
     for (_version_name, version) in &api_data.0 {
         for (module_name, module) in &version.api {
@@ -2005,50 +2074,7 @@ pub fn check_ffi_safety(
                         });
                     }
 
-                    // Check 3: Struct field ordering for repr(C) padding optimization
-                    if !struct_fields.is_empty() && !all_empty {
-                        let is_repr_c = match &class_def.repr {
-                            Some(r) => r.to_lowercase().contains("c"),
-                            None => false,
-                        };
-                        if is_repr_c {
-                            let fields_with_size_align: Vec<(String, usize, usize)> = struct_fields
-                                .iter()
-                                .flat_map(|m| m.iter())
-                                .map(|(name, fd)| {
-                                    let (size, align) = estimate_type_size_align(
-                                        &fd.r#type, &fd.ref_kind, api_data, &mut type_size_cache,
-                                    );
-                                    (name.clone(), size, align)
-                                })
-                                .collect();
-
-                            // Optimal ordering: sort by decreasing alignment,
-                            // then by decreasing size as tiebreaker to further reduce gaps
-                            let mut optimal = fields_with_size_align.clone();
-                            optimal.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.1.cmp(&a.1)));
-
-                            if fields_with_size_align != optimal {
-                                let waste = estimate_padding_waste(&fields_with_size_align)
-                                    .saturating_sub(estimate_padding_waste(&optimal));
-                                if waste > 0 {
-                                    let current_display: Vec<(String, usize)> = fields_with_size_align.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
-                                    let optimal_display: Vec<(String, usize)> = optimal.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
-                                    warnings.push(FfiSafetyWarning {
-                                        type_name: class_name.clone(),
-                                        file_path: file_path.clone(),
-                                        kind: FfiSafetyWarningKind::SuboptimalFieldOrder {
-                                            current_order: current_display,
-                                            optimal_order: optimal_display,
-                                            estimated_padding_waste: waste,
-                                        },
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    // Check 4: Fields using BTreeMap/HashMap, Result<>, or tuple types
+                    // Check 3: Fields using BTreeMap/HashMap, Result<>, or tuple types
                     for field_map in struct_fields {
                         for (field_name, field_data) in field_map {
                             let ty = &field_data.r#type;
@@ -2627,6 +2653,23 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!(
                 "    {} Remove duplicate #[repr(...)] attributes. Only one is allowed per type.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::NonCCompatibleSourceType { type_expr, message, origin } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {}: {}",
+                "→".dimmed(),
+                type_expr.red(),
+                message.yellow()
+            );
+            if let Some(ref orig) = origin {
+                println!("    {} from: {}", "ORIGIN:".cyan(), orig.cyan());
+            }
+            println!(
+                "    {} Replace with FFI-safe alternative (e.g., *const T + AtomicUsize ref counting).",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
