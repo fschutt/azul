@@ -593,8 +593,7 @@ refactoring.
 6. Remove `Dom::style() -> StyledDom` signature (the new `.style()` returns `Dom`)
 7. Remove `.restyle()` — multiple `.style()` calls replace it
 8. Update all examples (C, Rust, Python)
-9. Update VirtualizedView callbacks: either keep returning `StyledDom` (they're
-   framework-invoked, separate DomIds) or also switch to `Dom`
+9. Update VirtualizedView callbacks: switch the callback to `Dom`
 
 ### 7.3 Phase 3: Cherry-pick from perf-fixes
 

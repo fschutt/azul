@@ -188,6 +188,26 @@ pub fn regenerate_layout(
         user_styled_dom
     };
 
+    // 3.4. PHASE 7.1 FIX: Re-compute inheritance and compact cache on the composed tree.
+    //
+    // The user's layout callback may have merged multiple StyledDom subtrees via
+    // append_child(). Each subtree was independently styled (restyle → apply_ua_css
+    // → compute_inherited_values → build_compact_cache), but append_child() only
+    // concatenates the CSS caches — it does NOT re-run inheritance or rebuild the
+    // compact cache. This causes two correctness bugs:
+    //
+    //   1. Inherited properties (color, font-size, direction) from parent nodes
+    //      do not flow into appended child subtrees.
+    //   2. The compact cache entries from child subtrees are stale — they reflect
+    //      the child's isolated cascade, not the composed tree with parent overrides.
+    //
+    // Additionally, CSD injection (step 3) may have prepended titlebar nodes via
+    // another append_child(), further invalidating the cache.
+    //
+    // Re-running inheritance + compact cache rebuild on the fully composed tree
+    // fixes both issues. Cost: one extra O(n) pass — acceptable for correctness.
+    styled_dom.recompute_inheritance_and_compact_cache();
+
     // 3.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
     // This allows components like video players to preserve their decoder handles
     // across frame updates without polluting the application data model.

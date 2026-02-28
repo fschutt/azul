@@ -1247,6 +1247,51 @@ impl StyledDom {
         self
     }
 
+    /// Re-compute inherited CSS values and rebuild the compact layout cache.
+    ///
+    /// This MUST be called after `append_child()` merges multiple `StyledDom`s.
+    /// `append_child()` concatenates the CSS property caches but does NOT
+    /// re-run inheritance or rebuild the compact cache. This means:
+    ///
+    /// 1. **Broken inheritance**: Inherited properties (`color`, `font-size`,
+    ///    `direction`) from the parent DOM do not flow into appended subtrees.
+    /// 2. **Stale compact cache**: The child's tier 1/2/2b entries still reflect
+    ///    the child's isolated cascade, not the composed tree.
+    ///
+    /// Calling this method after all `append_child()` calls fixes both issues
+    /// by re-running a full depth-first inheritance pass and rebuilding the
+    /// compact cache from scratch on the composed tree.
+    pub fn recompute_inheritance_and_compact_cache(&mut self) {
+        // Re-run UA CSS on the merged tree — append_child may have introduced
+        // new nodes (e.g. CSD titlebar) that were never styled by the child's
+        // cascade. apply_ua_css is idempotent: it only fills properties that
+        // are not already set, so re-running it on already-styled nodes is safe.
+        self.css_property_cache
+            .downcast_mut()
+            .apply_ua_css(self.node_data.as_container().internal);
+        self.css_property_cache
+            .downcast_mut()
+            .sort_cascaded_props();
+
+        // Re-compute inherited values across the entire composed tree.
+        // This is the key correctness fix: inherited properties from parent
+        // nodes now correctly flow into appended child subtrees.
+        self.css_property_cache
+            .downcast_mut()
+            .compute_inherited_values(
+                self.node_hierarchy.as_container().internal,
+                self.node_data.as_container().internal,
+            );
+
+        // Rebuild compact cache from the freshly-inherited property values.
+        let compact = self.css_property_cache
+            .downcast_mut()
+            .build_compact_cache(
+                self.node_data.as_container().internal,
+            );
+        self.css_property_cache.downcast_mut().compact_cache = Some(compact);
+    }
+
     /// Re-applies CSS styles to the existing DOM structure.
     pub fn restyle(&mut self, mut css: Css) {
         let new_tag_ids = self.css_property_cache.downcast_mut().restyle(
