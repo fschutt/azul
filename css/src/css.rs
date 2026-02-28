@@ -190,6 +190,143 @@ pub struct DynamicCssProperty {
     pub default_value: CssProperty,
 }
 
+/// A value that is either heap-allocated (parsed at runtime) or a compile-time
+/// static reference. Used to reduce enum size for large CSS property payloads
+/// by storing them behind a pointer instead of inline.
+///
+/// - Size: 1 (tag) + 7 (padding) + 8 (pointer) = **16 bytes** on 64-bit
+/// - `Static` variant: no allocation, just a `&'static T` pointer
+/// - `Boxed` variant: heap-allocated via `Box::into_raw`, freed on Drop
+#[repr(C, u8)]
+pub enum BoxOrStatic<T: 'static> {
+    /// Heap-allocated (parsed at runtime). Owned — freed on Drop.
+    Boxed(*mut T),
+    /// Compile-time constant (e.g. from `const` CSS defaults). Not freed.
+    Static(&'static T),
+}
+
+impl<T: 'static> BoxOrStatic<T> {
+    /// Allocate `value` on the heap and return a `Boxed` variant.
+    #[inline]
+    pub fn heap(value: T) -> Self {
+        BoxOrStatic::Boxed(Box::into_raw(Box::new(value)))
+    }
+
+    /// Return a reference to the inner value.
+    #[inline]
+    pub fn as_ref(&self) -> &T {
+        match self {
+            BoxOrStatic::Boxed(ptr) => unsafe { &**ptr },
+            BoxOrStatic::Static(r) => r,
+        }
+    }
+
+    /// Return a mutable reference to the inner value (only for Boxed).
+    /// Panics if called on Static.
+    #[inline]
+    pub fn as_mut(&mut self) -> &mut T {
+        match self {
+            BoxOrStatic::Boxed(ptr) => unsafe { &mut **ptr },
+            BoxOrStatic::Static(_) => panic!("Cannot mutate a static BoxOrStatic value"),
+        }
+    }
+
+    /// Consume self and return the inner value.
+    #[inline]
+    pub fn into_inner(self) -> T where T: Clone {
+        let val = self.as_ref().clone();
+        // Don't double-free: std::mem::forget prevents Drop from running
+        core::mem::forget(self);
+        val
+    }
+}
+
+impl<T: 'static> Drop for BoxOrStatic<T> {
+    fn drop(&mut self) {
+        if let BoxOrStatic::Boxed(ptr) = self {
+            if !ptr.is_null() {
+                unsafe { drop(Box::from_raw(*ptr)); }
+                *ptr = core::ptr::null_mut();
+            }
+        }
+    }
+}
+
+impl<T: Clone + 'static> Clone for BoxOrStatic<T> {
+    fn clone(&self) -> Self {
+        match self {
+            BoxOrStatic::Boxed(ptr) => {
+                let val = unsafe { &**ptr }.clone();
+                BoxOrStatic::Boxed(Box::into_raw(Box::new(val)))
+            }
+            BoxOrStatic::Static(r) => BoxOrStatic::Static(r),
+        }
+    }
+}
+
+impl<T: core::fmt::Debug + 'static> core::fmt::Debug for BoxOrStatic<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        self.as_ref().fmt(f)
+    }
+}
+
+impl<T: core::fmt::Display + 'static> core::fmt::Display for BoxOrStatic<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        self.as_ref().fmt(f)
+    }
+}
+
+impl<T: PartialEq + 'static> PartialEq for BoxOrStatic<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+impl<T: Eq + 'static> Eq for BoxOrStatic<T> {}
+
+impl<T: core::hash::Hash + 'static> core::hash::Hash for BoxOrStatic<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state)
+    }
+}
+
+impl<T: PartialOrd + 'static> PartialOrd for BoxOrStatic<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.as_ref().partial_cmp(other.as_ref())
+    }
+}
+
+impl<T: Ord + 'static> Ord for BoxOrStatic<T> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_ref().cmp(other.as_ref())
+    }
+}
+
+impl<T: 'static> core::ops::Deref for BoxOrStatic<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T: Default + 'static> Default for BoxOrStatic<T> {
+    fn default() -> Self {
+        BoxOrStatic::heap(T::default())
+    }
+}
+
+impl<T: PrintAsCssValue + 'static> PrintAsCssValue for BoxOrStatic<T> {
+    fn print_as_css_value(&self) -> String {
+        self.as_ref().print_as_css_value()
+    }
+}
+
+// Safety: BoxOrStatic<T> is Send if T is Send
+unsafe impl<T: Send + 'static> Send for BoxOrStatic<T> {}
+// Safety: BoxOrStatic<T> is Sync if T is Sync
+unsafe impl<T: Sync + 'static> Sync for BoxOrStatic<T> {}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)] // necessary for ABI stability
 pub enum CssPropertyValue<T> {

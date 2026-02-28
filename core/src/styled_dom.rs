@@ -1345,9 +1345,10 @@ impl StyledDom {
                 );
 
                 if let Some(style_backgrounds) = opt_background_image {
+                    let bos_default = azul_css::css::BoxOrStatic::heap(default_backgrounds.clone());
                     v.background_image = style_backgrounds
                         .get_property()
-                        .unwrap_or(&default_backgrounds)
+                        .unwrap_or(&bos_default)
                         .iter()
                         .filter_map(|bg| {
                             use azul_css::props::style::StyleBackgroundContent::*;

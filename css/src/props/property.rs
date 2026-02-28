@@ -11,7 +11,7 @@ use core::fmt;
 
 use crate::{
     corety::AzString,
-    css::CssPropertyValue,
+    css::{BoxOrStatic, CssPropertyValue},
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
 // Import all property types from their new locations
@@ -267,7 +267,7 @@ pub type CaretWidthValue = CssPropertyValue<CaretWidth>;
 pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
 pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
 pub type SelectionRadiusValue = CssPropertyValue<SelectionRadius>;
-pub type StyleBackgroundContentVecValue = CssPropertyValue<StyleBackgroundContentVec>;
+pub type StyleBackgroundContentVecValue = CssPropertyValue<BoxOrStatic<StyleBackgroundContentVec>>;
 pub type StyleBackgroundPositionVecValue = CssPropertyValue<StyleBackgroundPositionVec>;
 pub type StyleBackgroundSizeVecValue = CssPropertyValue<StyleBackgroundSizeVec>;
 pub type StyleBackgroundRepeatVecValue = CssPropertyValue<StyleBackgroundRepeatVec>;
@@ -290,7 +290,7 @@ pub type StyleHyphenationLanguageValue = CssPropertyValue<StyleHyphenationLangua
 pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
 pub type StyleTabSizeValue = CssPropertyValue<StyleTabSize>;
 pub type StyleCursorValue = CssPropertyValue<StyleCursor>;
-pub type StyleBoxShadowValue = CssPropertyValue<StyleBoxShadow>;
+pub type StyleBoxShadowValue = CssPropertyValue<BoxOrStatic<StyleBoxShadow>>;
 pub type StyleBorderTopColorValue = CssPropertyValue<StyleBorderTopColor>;
 pub type StyleBorderLeftColorValue = CssPropertyValue<StyleBorderLeftColor>;
 pub type StyleBorderRightColorValue = CssPropertyValue<StyleBorderRightColor>;
@@ -2611,16 +2611,16 @@ pub fn parse_css_property<'a>(
             CssPropertyType::BorderBottomWidth => parse_border_bottom_width(value)?.into(),
 
             CssPropertyType::BoxShadowLeft => {
-                CssProperty::BoxShadowLeft(parse_style_box_shadow(value)?.into())
+                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
             }
             CssPropertyType::BoxShadowRight => {
-                CssProperty::BoxShadowRight(parse_style_box_shadow(value)?.into())
+                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
             }
             CssPropertyType::BoxShadowTop => {
-                CssProperty::BoxShadowTop(parse_style_box_shadow(value)?.into())
+                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
             }
             CssPropertyType::BoxShadowBottom => {
-                CssProperty::BoxShadowBottom(parse_style_box_shadow(value)?.into())
+                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
             }
 
             CssPropertyType::ScrollbarTrack => CssProperty::ScrollbarTrack(parse_style_background_content(value)?.into()),
@@ -2646,7 +2646,7 @@ pub fn parse_css_property<'a>(
                 CssProperty::BackdropFilter(parse_style_filter_vec(value)?.into())
             }
             CssPropertyType::TextShadow => {
-                CssProperty::TextShadow(parse_style_box_shadow(value)?.into())
+                CssProperty::TextShadow(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
             }
 
             // DTP properties
@@ -3273,26 +3273,26 @@ pub fn parse_combined_css_property<'a>(
         BoxShadow => {
             let box_shadow = parse_style_box_shadow(value)?;
             Ok(vec![
-                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(box_shadow)),
-                CssProperty::BoxShadowRight(CssPropertyValue::Exact(box_shadow)),
-                CssProperty::BoxShadowTop(CssPropertyValue::Exact(box_shadow)),
-                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(box_shadow)),
+                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
+                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
+                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
+                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
             ])
         }
         BackgroundColor => {
             let color = parse_css_color(value)?;
             let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            Ok(vec![CssProperty::BackgroundContent(vec.into())])
+            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(vec)))])
         }
         BackgroundImage => {
             let background_content = parse_style_background_content(value)?;
             let vec: StyleBackgroundContentVec = vec![background_content].into();
-            Ok(vec![CssProperty::BackgroundContent(vec.into())])
+            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(vec)))])
         }
         Background => {
             let background_content = parse_style_background_content_multiple(value)?;
             Ok(vec![CssProperty::BackgroundContent(
-                background_content.into(),
+                CssPropertyValue::Exact(BoxOrStatic::heap(background_content)),
             )])
         }
         Flex => {
@@ -3543,7 +3543,13 @@ impl_from_css_prop!(LayoutGap, CssProperty::Gap);
 impl_from_css_prop!(LayoutAlignSelf, CssProperty::AlignSelf);
 impl_from_css_prop!(LayoutWritingMode, CssProperty::WritingMode);
 impl_from_css_prop!(LayoutClear, CssProperty::Clear);
-impl_from_css_prop!(StyleBackgroundContentVec, CssProperty::BackgroundContent);
+
+// Manual impl needed because BackgroundContent uses BoxOrStatic wrapper
+impl From<StyleBackgroundContentVec> for CssProperty {
+    fn from(e: StyleBackgroundContentVec) -> Self {
+        CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(e)))
+    }
+}
 
 impl_from_css_prop!(StyleBackgroundPositionVec, CssProperty::BackgroundPosition);
 impl_from_css_prop!(StyleBackgroundSizeVec, CssProperty::BackgroundSize);
@@ -4412,8 +4418,8 @@ impl CssProperty {
     pub const fn align_content(input: LayoutAlignContent) -> Self {
         CssProperty::AlignContent(CssPropertyValue::Exact(input))
     }
-    pub const fn background_content(input: StyleBackgroundContentVec) -> Self {
-        CssProperty::BackgroundContent(CssPropertyValue::Exact(input))
+    pub fn background_content(input: StyleBackgroundContentVec) -> Self {
+        CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
     pub const fn background_position(input: StyleBackgroundPositionVec) -> Self {
         CssProperty::BackgroundPosition(CssPropertyValue::Exact(input))
@@ -4502,17 +4508,17 @@ impl CssProperty {
     pub const fn border_bottom_width(input: LayoutBorderBottomWidth) -> Self {
         CssProperty::BorderBottomWidth(CssPropertyValue::Exact(input))
     }
-    pub const fn box_shadow_left(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowLeft(CssPropertyValue::Exact(input))
+    pub fn box_shadow_left(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    pub const fn box_shadow_right(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowRight(CssPropertyValue::Exact(input))
+    pub fn box_shadow_right(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    pub const fn box_shadow_top(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowTop(CssPropertyValue::Exact(input))
+    pub fn box_shadow_top(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    pub const fn box_shadow_bottom(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowBottom(CssPropertyValue::Exact(input))
+    pub fn box_shadow_bottom(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
     pub const fn opacity(input: StyleOpacity) -> Self {
         CssProperty::Opacity(CssPropertyValue::Exact(input))
@@ -5875,8 +5881,8 @@ impl CssProperty {
     pub const fn const_align_content(input: LayoutAlignContent) -> Self {
         CssProperty::AlignContent(LayoutAlignContentValue::Exact(input))
     }
-    pub const fn const_background_content(input: StyleBackgroundContentVec) -> Self {
-        CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(input))
+    pub fn const_background_content(input: StyleBackgroundContentVec) -> Self {
+        CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(BoxOrStatic::heap(input)))
     }
     pub const fn const_background_position(input: StyleBackgroundPositionVec) -> Self {
         CssProperty::BackgroundPosition(StyleBackgroundPositionVecValue::Exact(input))
@@ -5965,17 +5971,17 @@ impl CssProperty {
     pub const fn const_border_bottom_width(input: LayoutBorderBottomWidth) -> Self {
         CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(input))
     }
-    pub const fn const_box_shadow_left(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(input))
+    pub fn const_box_shadow_left(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    pub const fn const_box_shadow_right(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(input))
+    pub fn const_box_shadow_right(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    pub const fn const_box_shadow_top(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(input))
+    pub fn const_box_shadow_top(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    pub const fn const_box_shadow_bottom(input: StyleBoxShadow) -> Self {
-        CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(input))
+    pub fn const_box_shadow_bottom(input: StyleBoxShadow) -> Self {
+        CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
     pub const fn const_opacity(input: StyleOpacity) -> Self {
         CssProperty::Opacity(StyleOpacityValue::Exact(input))
