@@ -2049,12 +2049,12 @@ pub fn get_style_properties(
         })
     };
 
-    // Use system text color as fallback (respects dark/light mode)
-    let system_text_color = system_style
-        .and_then(|ss| ss.colors.text.as_option().copied())
-        .unwrap_or(ColorU::BLACK); // Ultimate fallback if no system style
-    
-    let color = color_from_cache.unwrap_or(system_text_color);
+    // CSS initial value for 'color' is UA-dependent but conventionally black.
+    // Do NOT use system_style.colors.text here — that reflects the OS theme
+    // (e.g. white on macOS dark mode) and would produce white text on
+    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
+    // should only be used when referenced through CSS system-color keywords.
+    let color = color_from_cache.unwrap_or(ColorU::BLACK);
 
     let line_height = {
         // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16)
@@ -3218,6 +3218,16 @@ pub struct ComputedScrollbarStyle {
     pub scroll_button_size_px: f32,
     /// Whether to show the corner rect where V and H scrollbars meet.
     pub show_corner_rect: bool,
+    /// Thumb color when hovered (None = use thumb_color)
+    pub thumb_color_hover: Option<ColorU>,
+    /// Thumb color when pressed/active (None = use thumb_color)
+    pub thumb_color_active: Option<ColorU>,
+    /// Track color when hovered (None = use track_color)
+    pub track_color_hover: Option<ColorU>,
+    /// Visual width when hovered (None = use visual_width_px)
+    pub visual_width_px_hover: Option<f32>,
+    /// Visual width when pressed (None = use visual_width_px)
+    pub visual_width_px_active: Option<f32>,
 }
 
 impl Default for ComputedScrollbarStyle {
@@ -3266,6 +3276,30 @@ impl ComputedScrollbarStyle {
             _ => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
         };
 
+        // Compute hover / active variants:
+        // Hover: lighten thumb by ~20%, widen by +4px
+        // Active: darken thumb by ~10%, widen by +4px
+        let thumb_hover = ColorU {
+            r: thumb_color.r.saturating_add(30),
+            g: thumb_color.g.saturating_add(30),
+            b: thumb_color.b.saturating_add(30),
+            a: thumb_color.a.saturating_add(40).min(255),
+        };
+        let thumb_active = ColorU {
+            r: thumb_color.r.saturating_sub(15),
+            g: thumb_color.g.saturating_sub(15),
+            b: thumb_color.b.saturating_sub(15),
+            a: 255,  // fully opaque when pressed
+        };
+        let track_hover = ColorU {
+            r: track_color.r,
+            g: track_color.g,
+            b: track_color.b,
+            a: track_color.a.saturating_add(40).min(255),
+        };
+        let hover_width = visual_width_px + 4.0;
+        let active_width = visual_width_px + 4.0;
+
         Self {
             width_mode,
             visual_width_px,
@@ -3281,6 +3315,11 @@ impl ComputedScrollbarStyle {
             show_scroll_buttons,
             scroll_button_size_px,
             show_corner_rect,
+            thumb_color_hover: Some(thumb_hover),
+            thumb_color_active: Some(thumb_active),
+            track_color_hover: Some(track_hover),
+            visual_width_px_hover: Some(hover_width),
+            visual_width_px_active: Some(active_width),
         }
     }
 }
