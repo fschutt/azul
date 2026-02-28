@@ -6,6 +6,8 @@ output/
 vendor/
 **/*.rs.bk
 *.pdf
+*.bin
+*.json.gz
 *.sublime-project
 .vscode/*
 .vs/*
