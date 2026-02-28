@@ -1502,7 +1502,6 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-        let empty_vec = Vec::new();
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
@@ -1510,11 +1509,11 @@ impl StyledDom {
             .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.css_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    css_property_cache.css_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Hover,
                 ).collect();
                 let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.cascaded_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    css_property_cache.cascaded_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Hover,
                 ).collect();
                 let keys_inline: Vec<CssPropertyType> = {
@@ -1621,7 +1620,6 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-        let empty_vec = Vec::new();
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
@@ -1629,12 +1627,12 @@ impl StyledDom {
             .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.css_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    css_property_cache.css_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Active,
                 ).collect();
 
                 let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.cascaded_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    css_property_cache.cascaded_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Active,
                 ).collect();
 
@@ -1744,7 +1742,6 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-        let empty_vec = Vec::new();
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
@@ -1752,13 +1749,13 @@ impl StyledDom {
             .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.css_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    css_property_cache.css_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Focus,
                 ).collect();
                 
 
                 let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.cascaded_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    css_property_cache.cascaded_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Focus,
                 ).collect();
                 

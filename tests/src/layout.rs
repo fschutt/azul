@@ -277,7 +277,7 @@ mod text2 {
         use azul_core::prop_cache::StatefulCssProperty;
         use azul_css::dynamic_selector::PseudoStateType;
         for (property_type, property_value) in properties {
-            property_cache.css_props[0].push(StatefulCssProperty {
+            property_cache.css_props.push_to(0, StatefulCssProperty {
                 state: PseudoStateType::Normal,
                 prop_type: property_type,
                 property: property_value,
@@ -1353,7 +1353,7 @@ mod context {
         use azul_css::dynamic_selector::PseudoStateType;
         for (node_id, property_type, property_value) in properties {
             // Insert properties directly into the unified properties vec
-            property_cache.css_props[node_id.index()].push(StatefulCssProperty {
+            property_cache.css_props.push_to(node_id.index(), StatefulCssProperty {
                 state: PseudoStateType::Normal,
                 prop_type: property_type,
                 property: property_value,
