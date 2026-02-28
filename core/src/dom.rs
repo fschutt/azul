@@ -482,8 +482,8 @@ pub enum NodeType {
     Text(AzString),
     /// Image element, ::image
     Image(ImageRef),
-    /// IFrame (embedded content)
-    IFrame(IFrameNode),
+    /// IFrame (embedded content) - payload stored in NodeDataExt.iframe
+    IFrame,
     /// Icon element - resolved to actual content by IconProvider
     /// The string is the icon name (e.g., "home", "settings", "search")
     Icon(AzString),
@@ -613,10 +613,7 @@ impl NodeType {
 
             Text(s) => Text(s.clone_self()),
             Image(i) => Image(i.clone()), // note: shallow clone
-            IFrame(i) => IFrame(IFrameNode {
-                callback: i.callback.clone(),
-                refany: i.refany.clone(),
-            }),
+            IFrame => IFrame,
             Icon(s) => Icon(s.clone_self()),
         }
     }
@@ -626,7 +623,7 @@ impl NodeType {
         match self {
             Text(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
-            IFrame(i) => Some(format!("iframe({:?})", i)),
+            IFrame => Some("iframe".to_string()),
             Icon(s) => Some(format!("icon({})", s)),
             _ => None,
         }
@@ -748,7 +745,7 @@ impl NodeType {
             Self::Base => NodeTypeTag::Base,
             Self::Text(_) => NodeTypeTag::Text,
             Self::Image(_) => NodeTypeTag::Img,
-            Self::IFrame(_) => NodeTypeTag::IFrame,
+            Self::IFrame => NodeTypeTag::IFrame,
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
@@ -1376,6 +1373,9 @@ impl Hash for NodeData {
             if let Some(c) = ext.context_menu.as_ref() {
                 c.hash(state);
             }
+            if let Some(iframe) = ext.iframe.as_ref() {
+                iframe.hash(state);
+            }
         }
     }
 }
@@ -1441,6 +1441,8 @@ impl Default for ComponentOrigin {
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
+    /// IFrame callback data, only set when node_type == NodeType::IFrame.
+    pub iframe: Option<IFrameNode>,
     /// Optional clip mask for this DOM node.
     pub clip_mask: Option<ImageMask>,
     /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
@@ -2472,10 +2474,13 @@ impl NodeData {
 
     #[inline(always)]
     pub fn create_iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::create_node(NodeType::IFrame(IFrameNode {
+        let mut nd = Self::create_node(NodeType::IFrame);
+        let ext = nd.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()));
+        ext.iframe = Some(IFrameNode {
             callback: callback.into(),
             refany: data,
-        }))
+        });
+        nd
     }
 
     /// Checks whether this node is of the given node type (div, image, text).
@@ -2513,10 +2518,7 @@ impl NodeData {
     }
 
     pub fn is_iframe_node(&self) -> bool {
-        match self.node_type {
-            NodeType::IFrame(_) => true,
-            _ => false,
-        }
+        matches!(self.node_type, NodeType::IFrame)
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -2818,9 +2820,12 @@ impl NodeData {
         core::mem::discriminant(&self.node_type).hash(&mut hasher);
         
         // For IFrame nodes, hash the callback to distinguish different iframes
-        if let NodeType::IFrame(ref iframe) = self.node_type {
-            // Hash iframe callback (it implements Hash)
-            iframe.hash(&mut hasher);
+        if let NodeType::IFrame = self.node_type {
+            if let Some(ext) = self.extra.as_ref() {
+                if let Some(iframe) = ext.iframe.as_ref() {
+                    iframe.hash(&mut hasher);
+                }
+            }
         }
         
         // For Image nodes, hash the image reference to distinguish different images.
@@ -3217,10 +3222,11 @@ impl NodeData {
     }
 
     pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
-        match &mut self.node_type {
-            NodeType::IFrame(i) => Some(i),
-            _ => None,
-        }
+        self.extra.as_mut()?.iframe.as_mut()
+    }
+
+    pub fn get_iframe_node_ref(&self) -> Option<&IFrameNode> {
+        self.extra.as_ref()?.iframe.as_ref()
     }
 
     pub fn get_render_image_callback_node<'a>(
@@ -3624,10 +3630,7 @@ impl Dom {
 
     #[inline(always)]
     pub fn create_iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::create_node(NodeType::IFrame(IFrameNode {
-            callback: callback.into(),
-            refany: data,
-        }))
+        Self::from_data(NodeData::create_iframe(data, callback))
     }
 
     // Semantic HTML Elements with Accessibility Guidance

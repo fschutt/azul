@@ -955,7 +955,7 @@ impl LayoutWindow {
             .filter_map(|(idx, node)| {
                 let node_dom_id = node.dom_node_id?;
                 let node_data = node_data_container.get(node_dom_id)?;
-                if matches!(node_data.get_node_type(), NodeType::IFrame(_)) {
+                if matches!(node_data.get_node_type(), NodeType::IFrame) {
                     let pos = calculated_positions.get(idx).copied().unwrap_or_default();
                     let size = node.used_size.unwrap_or_default();
                     Some((node_dom_id, LogicalRect::new(pos, size)))
@@ -1107,10 +1107,7 @@ impl LayoutWindow {
         let iframe_node = if let Some(styled_dom) = styled_dom_override {
             let node_data_container = styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            match node_data.get_node_type() {
-                NodeType::IFrame(iframe) => iframe.clone(),
-                _ => return None,
-            }
+            node_data.get_iframe_node_ref()?.clone()
         } else {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
             if let Some(msgs) = debug_messages {
@@ -1121,13 +1118,13 @@ impl LayoutWindow {
             }
             let node_data_container = layout_result.styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            match node_data.get_node_type() {
-                NodeType::IFrame(iframe) => iframe.clone(),
-                other => {
+            match node_data.get_iframe_node_ref() {
+                Some(iframe) => iframe.clone(),
+                None => {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::info(format!(
                             "Node is NOT IFrame, type = {:?}",
-                            other
+                            node_data.get_node_type()
                         )));
                     }
                     return None;
@@ -4437,7 +4434,7 @@ impl LayoutWindow {
                     source_node_id: Some(node_id),
                 })]
             }
-            NodeType::Div | NodeType::Body | NodeType::IFrame(_) => {
+            NodeType::Div | NodeType::Body | NodeType::IFrame => {
                 // Container nodes - recursively collect text from children
                 self.collect_text_from_children(dom_id, node_id)
             }
@@ -6210,7 +6207,7 @@ impl LayoutWindow {
         let node_data_container = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_container.get(node_id)?;
 
-        if !matches!(node_data.get_node_type(), NodeType::IFrame(_)) {
+        if !matches!(node_data.get_node_type(), NodeType::IFrame) {
             return None;
         }
 

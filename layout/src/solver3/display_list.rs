@@ -2243,7 +2243,7 @@ where
         let node_data_container = self.ctx.styled_dom.node_data.as_container();
         node_data_container
             .get(dom_id)
-            .map(|nd| matches!(nd.get_node_type(), NodeType::IFrame(_)))
+            .map(|nd| matches!(nd.get_node_type(), NodeType::IFrame))
             .unwrap_or(false)
     }
 

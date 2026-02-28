@@ -11775,9 +11775,8 @@
                             },
                             {
                                 "IFrame": {
-                                    "type": "IFrameNode",
                                     "doc": [
-                                        "IFrame (embedded content)"
+                                        "IFrame (embedded content) - payload stored in NodeDataExt.iframe"
                                     ]
                                 }
                             },
@@ -35013,29 +35012,6 @@
                                 },
                                 "callback": {
                                     "type": "ListViewOnRowClickCallback"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "IFrameNode": {
-                        "external": "azul_core::dom::IFrameNode",
-                        "derive": [
-                            "Clone",
-                            "PartialEq",
-                            "Debug",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "callback": {
-                                    "type": "IFrameCallback"
-                                },
-                                "refany": {
-                                    "type": "RefAny"
                                 }
                             }
                         ],

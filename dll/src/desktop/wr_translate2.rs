@@ -620,7 +620,7 @@ pub fn fullhittest_new_webrender(
                         .as_container()
                         .get(node_id)
                         .map_or(false, |nd| {
-                            matches!(nd.get_node_type(), azul_core::dom::NodeType::IFrame(_))
+                            matches!(nd.get_node_type(), azul_core::dom::NodeType::IFrame)
                         });
 
                     if !is_iframe {

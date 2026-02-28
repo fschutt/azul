@@ -1946,7 +1946,7 @@ impl StyledDom {
             .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| match node_data.get_node_type() {
-                NodeType::IFrame(_) => Some(NodeId::new(node_id)),
+                NodeType::IFrame => Some(NodeId::new(node_id)),
                 _ => None,
             })
             .collect()
