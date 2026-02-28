@@ -327,6 +327,9 @@ unsafe impl<T: Send + 'static> Send for BoxOrStatic<T> {}
 // Safety: BoxOrStatic<T> is Sync if T is Sync
 unsafe impl<T: Sync + 'static> Sync for BoxOrStatic<T> {}
 
+/// Type alias: `BoxOrStatic<StyleBoxShadow>` — used by codegen for FFI monomorphization.
+pub type BoxOrStaticStyleBoxShadow = BoxOrStatic<crate::props::style::box_shadow::StyleBoxShadow>;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)] // necessary for ABI stability
 pub enum CssPropertyValue<T> {

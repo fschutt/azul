@@ -981,6 +981,7 @@ impl WorkspaceIndex {
                         EnumVariantData {
                             r#type: variant.ty.clone(),
                             doc: variant.doc.clone(),
+                            ref_kind: Default::default(),
                         },
                     );
                 }

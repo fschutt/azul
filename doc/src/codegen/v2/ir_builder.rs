@@ -504,7 +504,7 @@ impl<'a> IRBuilder<'a> {
                         EnumVariantKind::Tuple(types) => {
                             types
                                 .iter()
-                                .filter_map(|t| {
+                                .filter_map(|(t, _ref_kind)| {
                                     let base = self.extract_base_type(t);
                                     
                                     // Skip primitives and unknown types
@@ -1013,8 +1013,17 @@ impl<'a> IRBuilder<'a> {
         // or struct variants - those would need schema changes
 
         if let Some(ref type_name) = variant_data.r#type {
-            // Single-element tuple variant
-            return Ok(EnumVariantKind::Tuple(vec![type_name.clone()]));
+            // Single-element tuple variant, with optional ref_kind
+            let ref_kind = match &variant_data.ref_kind {
+                crate::api::RefKind::Ref => FieldRefKind::Ref,
+                crate::api::RefKind::RefMut => FieldRefKind::RefMut,
+                crate::api::RefKind::ConstPtr => FieldRefKind::Ptr,
+                crate::api::RefKind::MutPtr => FieldRefKind::PtrMut,
+                crate::api::RefKind::Value => FieldRefKind::Owned,
+                crate::api::RefKind::Boxed => FieldRefKind::Boxed,
+                crate::api::RefKind::OptionBoxed => FieldRefKind::OptionBoxed,
+            };
+            return Ok(EnumVariantKind::Tuple(vec![(type_name.clone(), ref_kind)]));
         }
 
         // Unit variant
@@ -1160,9 +1169,19 @@ impl<'a> IRBuilder<'a> {
                             // Substitute generic type parameter with concrete type
                             self.substitute_generic_param(t, generic_args)
                         });
+                        let payload_ref_kind = match &variant_data.ref_kind {
+                            crate::api::RefKind::Ref => FieldRefKind::Ref,
+                            crate::api::RefKind::RefMut => FieldRefKind::RefMut,
+                            crate::api::RefKind::ConstPtr => FieldRefKind::Ptr,
+                            crate::api::RefKind::MutPtr => FieldRefKind::PtrMut,
+                            crate::api::RefKind::Value => FieldRefKind::Owned,
+                            crate::api::RefKind::Boxed => FieldRefKind::Boxed,
+                            crate::api::RefKind::OptionBoxed => FieldRefKind::OptionBoxed,
+                        };
                         MonomorphizedVariant {
                             name: variant_name.clone(),
                             payload_type,
+                            payload_ref_kind,
                         }
                     })
                     .collect();
@@ -1574,7 +1593,7 @@ impl<'a> IRBuilder<'a> {
                 let args: Vec<FunctionArg> = if types.len() == 1 {
                     vec![FunctionArg {
                         name: "payload".to_string(),
-                        type_name: types[0].clone(),
+                        type_name: types[0].0.clone(),
                         ref_kind: ArgRefKind::Owned,
                         doc: None,
                         callback_info: None,
@@ -1583,7 +1602,7 @@ impl<'a> IRBuilder<'a> {
                     types
                         .iter()
                         .enumerate()
-                        .map(|(i, t)| FunctionArg {
+                        .map(|(i, (t, _))| FunctionArg {
                             name: format!("payload{}", i),
                             type_name: t.clone(),
                             ref_kind: ArgRefKind::Owned,

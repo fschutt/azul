@@ -380,13 +380,23 @@ fn generate_monomorphized_type(
                             base_type
                         };
 
+                        // Determine pointer syntax from ref_kind
+                        let (ptr_prefix, ptr_suffix) = match &variant_data.ref_kind {
+                            crate::api::RefKind::ConstPtr => ("const ", "*"),
+                            crate::api::RefKind::MutPtr => ("", "*"),
+                            crate::api::RefKind::Ref => ("const ", "*"),
+                            crate::api::RefKind::RefMut => ("", "* restrict"),
+                            crate::api::RefKind::Boxed | crate::api::RefKind::OptionBoxed => ("", "*"),
+                            crate::api::RefKind::Value => ("", ""),
+                        };
+
                         if is_primitive_arg(&concrete_type) {
                             let c_type = replace_primitive_ctype(&concrete_type);
-                            code.push_str(&format!("    {} payload{};\r\n", c_type, array_suffix));
+                            code.push_str(&format!("    {}{}{} payload{};\r\n", ptr_prefix, c_type, ptr_suffix, array_suffix));
                         } else {
                             code.push_str(&format!(
-                                "    {}{} payload{};\r\n",
-                                PREFIX, concrete_type, array_suffix
+                                "    {}{}{}{} payload{};\r\n",
+                                ptr_prefix, PREFIX, concrete_type, ptr_suffix, array_suffix
                             ));
                         }
                     }
@@ -517,15 +527,26 @@ fn generate_tagged_union(
 
             if let Some(variant_type) = &variant_data.r#type {
                 let (base_type, array_suffix) = extract_array_from_type(variant_type);
+
+                // Determine pointer syntax from ref_kind
+                let (ptr_prefix, ptr_suffix) = match &variant_data.ref_kind {
+                    crate::api::RefKind::ConstPtr => ("const ", "*"),
+                    crate::api::RefKind::MutPtr => ("", "*"),
+                    crate::api::RefKind::Ref => ("const ", "*"),
+                    crate::api::RefKind::RefMut => ("", "* restrict"),
+                    crate::api::RefKind::Boxed | crate::api::RefKind::OptionBoxed => ("", "*"),
+                    crate::api::RefKind::Value => ("", ""),
+                };
+
                 if is_primitive_arg(&base_type) {
                     let c_type = replace_primitive_ctype(&base_type);
-                    code.push_str(&format!("    {} payload{};\r\n", c_type, array_suffix));
+                    code.push_str(&format!("    {}{}{} payload{};\r\n", ptr_prefix, c_type, ptr_suffix, array_suffix));
                 } else if let Some((_, type_class_name)) =
                     search_for_class_by_class_name(version_data, &base_type)
                 {
                     code.push_str(&format!(
-                        "    {}{} payload{};\r\n",
-                        PREFIX, type_class_name, array_suffix
+                        "    {}{}{}{} payload{};\r\n",
+                        ptr_prefix, PREFIX, type_class_name, ptr_suffix, array_suffix
                     ));
                 }
             }

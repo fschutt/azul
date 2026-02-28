@@ -1214,6 +1214,9 @@ pub struct EnumVariantData {
     // Variants might not have an associated type (e.g., simple enums like MsgBoxIcon)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
+    /// Reference kind for pointer types in enum variant payloads
+    #[serde(default, skip_serializing_if = "is_ref_kind_value")]
+    pub ref_kind: RefKind,
     #[serde(
         default,
         skip_serializing_if = "is_none_or_empty_vec",
@@ -2515,6 +2518,69 @@ pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
                             type_alias.generic_args = extracted_generic_args;
                         }
                         count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    count
+}
+
+/// Normalize enum variant types in api.json by extracting pointer prefixes into ref_kind.
+///
+/// Autofix generates enum variant types with raw Rust pointer syntax like `"*mut T"` or `"&T"`.
+/// This function extracts those into the `ref_kind` field on `EnumVariantData`.
+///
+/// Before: `{ "type": "*mut T" }` → After: `{ "type": "T", "ref_kind": "mutptr" }`
+/// Before: `{ "type": "&T" }`     → After: `{ "type": "T", "ref_kind": "constptr" }`
+/// Before: `{ "type": "*const T" }` → After: `{ "type": "T", "ref_kind": "constptr" }`
+pub fn normalize_enum_variant_types(api_data: &mut ApiData) -> usize {
+    use crate::autofix::types::ref_kind::RefKind;
+
+    let mut count = 0;
+
+    for (_version_name, version_data) in &mut api_data.0 {
+        for (_module_name, module_data) in &mut version_data.api {
+            for (_class_name, class_data) in &mut module_data.classes {
+                if let Some(enum_fields) = &mut class_data.enum_fields {
+                    for variant_map in enum_fields.iter_mut() {
+                        for (_variant_name, variant_data) in variant_map.iter_mut() {
+                            if let Some(ref mut type_str) = variant_data.r#type {
+                                let trimmed = type_str.trim();
+                                let (new_type, new_ref_kind) = if trimmed.starts_with("*mut ") {
+                                    (
+                                        trimmed.strip_prefix("*mut ").unwrap().trim().to_string(),
+                                        Some(RefKind::MutPtr),
+                                    )
+                                } else if trimmed.starts_with("*const ") {
+                                    (
+                                        trimmed.strip_prefix("*const ").unwrap().trim().to_string(),
+                                        Some(RefKind::ConstPtr),
+                                    )
+                                } else if trimmed.starts_with("&mut ") {
+                                    (
+                                        trimmed.strip_prefix("&mut ").unwrap().trim().to_string(),
+                                        Some(RefKind::RefMut),
+                                    )
+                                } else if trimmed.starts_with("&") && !trimmed.starts_with("&mut") {
+                                    (
+                                        trimmed.strip_prefix("&").unwrap().trim().to_string(),
+                                        Some(RefKind::ConstPtr),
+                                    )
+                                } else {
+                                    continue;
+                                };
+
+                                *type_str = new_type;
+                                if let Some(rk) = new_ref_kind {
+                                    if variant_data.ref_kind == RefKind::Value {
+                                        variant_data.ref_kind = rk;
+                                    }
+                                }
+                                count += 1;
+                            }
+                        }
                     }
                 }
             }

@@ -343,8 +343,8 @@ pub enum EnumVariantKind {
     /// Unit variant: `None`
     Unit,
 
-    /// Tuple variant with types: `Some(T)`
-    Tuple(Vec<String>),
+    /// Tuple variant with (type_name, ref_kind) pairs: `Some(T)`, `Boxed(*mut T)`
+    Tuple(Vec<(String, FieldRefKind)>),
 
     /// Struct variant with named fields: `Point { x: f32, y: f32 }`
     Struct(Vec<FieldDef>),
@@ -639,6 +639,8 @@ pub struct MonomorphizedVariant {
     pub name: String,
     /// Payload type if any (already substituted with concrete types)
     pub payload_type: Option<String>,
+    /// Reference kind for payload (pointer types in variants like BoxOrStatic)
+    pub payload_ref_kind: FieldRefKind,
 }
 
 // ============================================================================

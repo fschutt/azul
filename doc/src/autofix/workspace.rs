@@ -1322,6 +1322,7 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
         EnumVariantData {
             r#type: None,
             doc: None,
+            ref_kind: Default::default(),
         },
     );
 
@@ -1331,6 +1332,7 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
         EnumVariantData {
             r#type: None,
             doc: None,
+            ref_kind: Default::default(),
         },
     );
 
@@ -1340,6 +1342,7 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
         EnumVariantData {
             r#type: Some(destructor_callback_simple),
             doc: None,
+            ref_kind: Default::default(),
         },
     );
 
@@ -1669,6 +1672,7 @@ fn generate_synthetic_option_type(
         EnumVariantData {
             r#type: None,
             doc: None,
+            ref_kind: Default::default(),
         },
     );
 
@@ -1678,6 +1682,7 @@ fn generate_synthetic_option_type(
         EnumVariantData {
             r#type: Some(inner_type.to_string()),
             doc: None,
+            ref_kind: Default::default(),
         },
     );
 
@@ -1811,6 +1816,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                         EnumVariantData {
                             r#type: normalized_type,
                             doc: variant_info.doc.clone(),
+                            ref_kind: Default::default(),
                         },
                     );
                     single_variant

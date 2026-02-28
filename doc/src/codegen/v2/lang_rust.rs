@@ -836,7 +836,7 @@ impl RustGenerator {
             // Get the inner type from the Some variant
             let some_variant = enum_def.variants.iter().find(|v| v.name == "Some").unwrap();
             let inner_type = match &some_variant.kind {
-                EnumVariantKind::Tuple(types) if types.len() == 1 => &types[0],
+                EnumVariantKind::Tuple(types) if types.len() == 1 => &types[0].0,
                 _ => continue, // Skip if Some doesn't have exactly one field
             };
 
@@ -1971,7 +1971,7 @@ impl RustGenerator {
                 }
                 EnumVariantKind::Tuple(types) => {
                     let types_str: Vec<String> =
-                        types.iter().map(|t| config.apply_prefix(t)).collect();
+                        types.iter().map(|(t, rk)| self.format_field_type(t, rk, config)).collect();
                     builder.line(&format!("{}({}),", variant.name, types_str.join(", ")));
                 }
                 EnumVariantKind::Struct(fields) => {

@@ -784,6 +784,7 @@ impl AutofixPatch {
                                         EnumVariantData {
                                             r#type: v.variant_type.clone(),
                                             doc: None,
+                                            ref_kind: Default::default(),
                                         },
                                     )
                                 })
@@ -967,6 +968,7 @@ impl AutofixPatch {
                         EnumVariantData {
                             r#type: variant_type.clone(),
                             doc: None,
+                            ref_kind: Default::default(),
                         },
                     );
                 }
@@ -979,6 +981,7 @@ impl AutofixPatch {
                         EnumVariantData {
                             r#type: new_type.clone(),
                             doc: None,
+                            ref_kind: Default::default(),
                         },
                     );
                 }
@@ -1092,6 +1095,7 @@ impl AutofixPatch {
                             EnumVariantData {
                                 r#type: variant.variant_type.clone(),
                                 doc: None,
+                                ref_kind: Default::default(),
                             },
                         );
                     }
@@ -1409,6 +1413,7 @@ fn generate_dependency_type_patch(
                 EnumVariantData {
                     r#type: None,
                     doc: Some(vec!["No value".to_string()]),
+                    ref_kind: Default::default(),
                 },
             );
             enum_variants.insert(
@@ -1416,6 +1421,7 @@ fn generate_dependency_type_patch(
                 EnumVariantData {
                     r#type: Some(element_type.to_string()),
                     doc: Some(vec![format!("Some value of type {}", element_type)]),
+                    ref_kind: Default::default(),
                 },
             );
             

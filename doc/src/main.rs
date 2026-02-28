@@ -67,6 +67,15 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
+            // Normalize enum variant types: "*mut T" -> type: "T", ref_kind: "mutptr"
+            let enum_variant_count = api::normalize_enum_variant_types(&mut api_data);
+            if enum_variant_count > 0 {
+                println!(
+                    "[ENUM_VARIANT] Normalized {} enum variant type entries",
+                    enum_variant_count
+                );
+            }
+
             let api_json = to_json_pretty_4space(&api_data)?;
 
             // Only write if content actually changed

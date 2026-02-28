@@ -517,7 +517,8 @@ impl CGenerator {
 
                     if let Some(ref payload_type) = variant.payload_type {
                         let c_type = self.rust_type_to_c_with_prefix(payload_type, config);
-                        builder.line(&format!("{} payload;", c_type));
+                        let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&variant.payload_ref_kind);
+                        builder.line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
                     }
 
                     builder.dedent();
@@ -768,12 +769,13 @@ impl CGenerator {
             match &variant.kind {
                 EnumVariantKind::Tuple(types) if !types.is_empty() => {
                     // Single payload field (Rust enum tuple variants typically have one element)
-                    for (i, type_name) in types.iter().enumerate() {
+                    for (i, (type_name, ref_kind)) in types.iter().enumerate() {
                         let c_type = self.rust_type_to_c_with_prefix(type_name, config);
+                        let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(ref_kind);
                         if types.len() == 1 {
-                            builder.line(&format!("{} payload;", c_type));
+                            builder.line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
                         } else {
-                            builder.line(&format!("{} payload_{};", c_type, i));
+                            builder.line(&format!("{}{}{} payload_{};", ptr_prefix, c_type, ptr_suffix, i));
                         }
                     }
                 }
@@ -1135,7 +1137,7 @@ impl CGenerator {
             for variant in &enum_def.variants {
                 // Get the payload type(s) for this variant
                 let payload_types: Vec<String> = match &variant.kind {
-                    EnumVariantKind::Tuple(types) => types.clone(),
+                    EnumVariantKind::Tuple(types) => types.iter().map(|(t, _)| t.clone()).collect(),
                     EnumVariantKind::Struct(_) => continue, // Skip struct variants for now
                     EnumVariantKind::Unit => continue,      // Skip unit variants
                 };

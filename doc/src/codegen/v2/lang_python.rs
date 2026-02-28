@@ -1279,7 +1279,7 @@ extern "C" fn invoke_py_layout_callback(
                     builder.blank();
                 }
                 EnumVariantKind::Tuple(types) => {
-                    if let Some(ty) = types.first() {
+                    if let Some((ty, _ref_kind)) = types.first() {
                         if !self.is_python_compatible_type(ty, ir) {
                             continue;
                         }
@@ -1946,7 +1946,7 @@ extern "C" fn invoke_py_layout_callback(
         for variant in &enum_def.variants {
             match &variant.kind {
                 EnumVariantKind::Tuple(types) => {
-                    for ty in types {
+                    for (ty, _ref_kind) in types {
                         if self.field_type_needs_unsendable(ty, ir) {
                             return true;
                         }
@@ -2090,7 +2090,7 @@ extern "C" fn invoke_py_layout_callback(
             for variant in &enum_def.variants {
                 match &variant.kind {
                     crate::codegen::v2::ir::EnumVariantKind::Tuple(types) => {
-                        for ty in types {
+                        for (ty, _ref_kind) in types {
                             if self.field_type_needs_unsendable(ty, ir) {
                                 return true;
                             }

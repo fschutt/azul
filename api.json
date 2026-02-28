@@ -16115,8 +16115,20 @@
                                 "BoxShadowBottom": {
                                     "type": "StyleBoxShadowValue"
                                 },
-                                "Scrollbar": {
-                                    "type": "ScrollbarStyleValue"
+                                "ScrollbarTrack": {
+                                    "type": "StyleBackgroundContentValue"
+                                },
+                                "ScrollbarThumb": {
+                                    "type": "StyleBackgroundContentValue"
+                                },
+                                "ScrollbarButton": {
+                                    "type": "StyleBackgroundContentValue"
+                                },
+                                "ScrollbarCorner": {
+                                    "type": "StyleBackgroundContentValue"
+                                },
+                                "ScrollbarResizer": {
+                                    "type": "StyleBackgroundContentValue"
                                 },
                                 "ScrollbarWidth": {
                                     "type": "LayoutScrollbarWidthValue"
@@ -22235,103 +22247,6 @@
                         ],
                         "repr": "C"
                     },
-                    "ScrollbarInfo": {
-                        "doc": [
-                            "Holds info necessary for layouting / styling -webkit-scrollbar properties."
-                        ],
-                        "external": "azul_css::props::style::scrollbar::ScrollbarInfo",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Eq",
-                            "Hash",
-                            "PartialOrd",
-                            "Ord",
-                            "Debug",
-                            "PartialEq",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "width": {
-                                    "type": "LayoutWidth"
-                                },
-                                "padding_left": {
-                                    "type": "LayoutPaddingLeft"
-                                },
-                                "padding_right": {
-                                    "type": "LayoutPaddingRight"
-                                },
-                                "track": {
-                                    "type": "StyleBackgroundContent"
-                                },
-                                "thumb": {
-                                    "type": "StyleBackgroundContent"
-                                },
-                                "button": {
-                                    "type": "StyleBackgroundContent"
-                                },
-                                "corner": {
-                                    "type": "StyleBackgroundContent"
-                                },
-                                "resizer": {
-                                    "type": "StyleBackgroundContent"
-                                },
-                                "clip_to_container_border": {
-                                    "type": "bool"
-                                },
-                                "scroll_behavior": {
-                                    "type": "ScrollBehavior"
-                                },
-                                "overscroll_behavior_x": {
-                                    "type": "OverscrollBehavior"
-                                },
-                                "overscroll_behavior_y": {
-                                    "type": "OverscrollBehavior"
-                                },
-                                "overflow_scrolling": {
-                                    "type": "OverflowScrolling"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ScrollbarStyle": {
-                        "doc": [
-                            "Scrollbar style for both horizontal and vertical scrollbars."
-                        ],
-                        "external": "azul_css::props::style::scrollbar::ScrollbarStyle",
-                        "derive": [
-                            "PartialEq",
-                            "Debug",
-                            "Ord",
-                            "Hash",
-                            "Default",
-                            "PartialOrd",
-                            "Eq",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "horizontal": {
-                                    "type": "ScrollbarInfo",
-                                    "doc": [
-                                        "Horizontal scrollbar style, if any"
-                                    ]
-                                }
-                            },
-                            {
-                                "vertical": {
-                                    "type": "ScrollbarInfo",
-                                    "doc": [
-                                        "Vertical scrollbar style, if any"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "StyleFontFamily": {
                         "doc": [
                             "Represents a `font-family` attribute"
@@ -23086,13 +23001,11 @@
                             "Type alias for CssPropertyValue < StyleBoxShadow >"
                         ],
                         "external": "azul_css::props::property::StyleBoxShadowValue",
-                        "derive": [
-                            "Copy"
-                        ],
+                        "derive": [],
                         "type_alias": {
                             "target": "CssPropertyValue",
                             "generic_args": [
-                                "StyleBoxShadow"
+                                "BoxOrStaticStyleBoxShadow"
                             ]
                         }
                     },
@@ -23528,18 +23441,6 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "LayoutOverflow"
-                            ]
-                        }
-                    },
-                    "ScrollbarStyleValue": {
-                        "doc": [
-                            "Type alias for CssPropertyValue < ScrollbarStyle >"
-                        ],
-                        "external": "azul_css::props::property::ScrollbarStyleValue",
-                        "type_alias": {
-                            "target": "CssPropertyValue",
-                            "generic_args": [
-                                "ScrollbarStyle"
                             ]
                         }
                     },
@@ -28661,7 +28562,11 @@
                                 "BoxShadowRight": {},
                                 "BoxShadowTop": {},
                                 "BoxShadowBottom": {},
-                                "Scrollbar": {},
+                                "ScrollbarTrack": {},
+                                "ScrollbarThumb": {},
+                                "ScrollbarButton": {},
+                                "ScrollbarCorner": {},
+                                "ScrollbarResizer": {},
                                 "ScrollbarWidth": {},
                                 "ScrollbarColor": {},
                                 "ScrollbarVisibility": {},
@@ -30739,31 +30644,6 @@
                         ],
                         "repr": "C"
                     },
-                    "OverflowScrolling": {
-                        "doc": [
-                            "Per-node overflow scrolling mode (`-azul-overflow-scrolling: auto | touch`).",
-                            "Controls whether rubber-banding / momentum scrolling is forced on a node."
-                        ],
-                        "external": "azul_css::props::style::scrollbar::OverflowScrolling",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Touch": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "LayoutInsetBottomParseErrorOwned": {
                         "external": "azul_css::props::layout::position::LayoutInsetBottomParseErrorOwned",
                         "derive": [
@@ -30896,22 +30776,6 @@
                             {
                                 "PixelValue": {
                                     "type": "CssPixelValueParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "CssScrollbarStyleParseErrorOwned": {
-                        "external": "azul_css::props::style::scrollbar::CssScrollbarStyleParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Invalid": {
-                                    "type": "String"
                                 }
                             }
                         ],
@@ -32936,6 +32800,29 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "StyleBackgroundContentValue": {
+                        "external": "azul_css::props::property::StyleBackgroundContentValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleBackgroundContent"
+                            ]
+                        }
+                    },
+                    "BoxOrStaticStyleBoxShadow": {
+                        "doc": [
+                            "BoxOrStatic instantiated with StyleBoxShadow"
+                        ],
+                        "external": "azul_css::css::BoxOrStaticStyleBoxShadow",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "StyleBoxShadow"
+                            ]
+                        }
                     }
                 }
             },
@@ -76041,9 +75928,6 @@
                                 "Visibility": {
                                     "type": "StyleVisibilityParseErrorOwned"
                                 },
-                                "Scrollbar": {
-                                    "type": "CssScrollbarStyleParseErrorOwned"
-                                },
                                 "LayoutScrollbarWidth": {
                                     "type": "LayoutScrollbarWidthParseErrorOwned"
                                 },
@@ -77559,28 +77443,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OverscrollBehavior": {
-                        "external": "azul_css::props::style::scrollbar::OverscrollBehavior",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Contain": {},
-                                "None": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ScrollPhysics": {
                         "doc": [
                             "Scroll physics configuration for momentum scrolling.",
@@ -77628,27 +77490,6 @@
                                 "timer_interval_ms": {
                                     "type": "u32"
                                 }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ScrollBehavior": {
-                        "external": "azul_css::props::style::scrollbar::ScrollBehavior",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Smooth": {}
                             }
                         ],
                         "repr": "C"
@@ -79451,6 +79292,54 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "BoxOrStatic": {
+                        "doc": [
+                            "Enum that stores either a heap-allocated Box<T> or a &'static T reference.",
+                            "Used to optimize CSS property values by storing compile-time constants as static references",
+                            "instead of heap allocations. Size: 16 bytes on 64-bit (1 tag + 7 padding + 8 pointer)."
+                        ],
+                        "external": "azul_css::css::BoxOrStatic",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Deref",
+                            "Display",
+                            "Drop",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Boxed": {
+                                    "type": "T",
+                                    "ref_kind": "mutptr",
+                                    "doc": [
+                                        "Heap-allocated (parsed at runtime). Owned - freed on Drop."
+                                    ]
+                                }
+                            },
+                            {
+                                "Static": {
+                                    "type": "T",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Compile-time constant (e.g. from const CSS defaults). Not freed."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8",
+                        "generic_params": [
+                            "T"
+                        ]
                     }
                 }
             },

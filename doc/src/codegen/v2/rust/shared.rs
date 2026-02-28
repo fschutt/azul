@@ -212,7 +212,7 @@ pub fn generate_enum(builder: &mut CodeBuilder, enum_def: &EnumDef, config: &Cod
                 builder.line(&format!("{},", variant.name));
             }
             EnumVariantKind::Tuple(types) => {
-                let types_str: Vec<String> = types.iter().map(|t| config.apply_prefix(t)).collect();
+                let types_str: Vec<String> = types.iter().map(|(t, rk)| format_field_type(t, rk, config)).collect();
                 builder.line(&format!("{}({}),", variant.name, types_str.join(", ")));
             }
             EnumVariantKind::Struct(fields) => {
