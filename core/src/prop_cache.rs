@@ -294,6 +294,68 @@ pub struct StatefulCssProperty {
     pub property: CssProperty,
 }
 
+/// Compact, pre-sorted representation of all inline CSS properties for a single unique style set.
+///
+/// Stores properties separated by pseudo-state in sorted Vecs for O(log n) binary search.
+/// Only handles pure pseudo-state conditions (consistent with `get_property_slow`).
+/// Properties with complex conditions (@os, @media, etc.) are excluded since
+/// `get_property_slow` cannot match them anyway.
+///
+/// One entry per unique inline style set; multiple nodes with identical `css_props`
+/// content share the same entry via `CssPropertyCache::inline_style_keys`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CompactInlineProps {
+    /// Unconditional properties (`apply_if` is empty). Sorted by CssPropertyType.
+    pub normal: Vec<(CssPropertyType, CssProperty)>,
+    /// Properties that apply on `:hover`. Sorted by CssPropertyType.
+    pub hover: Vec<(CssPropertyType, CssProperty)>,
+    /// Properties that apply on `:active`. Sorted by CssPropertyType.
+    pub active: Vec<(CssPropertyType, CssProperty)>,
+    /// Properties that apply on `:focus`. Sorted by CssPropertyType.
+    pub focus: Vec<(CssPropertyType, CssProperty)>,
+    /// Properties that apply while `:dragging`. Sorted by CssPropertyType.
+    pub dragging: Vec<(CssPropertyType, CssProperty)>,
+    /// Properties that apply on `:drag-over`. Sorted by CssPropertyType.
+    pub drag_over: Vec<(CssPropertyType, CssProperty)>,
+}
+
+impl CompactInlineProps {
+    /// Look up a property by type in one of the sorted state slices.
+    #[inline]
+    pub fn find_in_state<'a>(
+        props: &'a [(CssPropertyType, CssProperty)],
+        prop_type: &CssPropertyType,
+    ) -> Option<&'a CssProperty> {
+        props
+            .binary_search_by_key(prop_type, |(k, _)| *k)
+            .ok()
+            .map(|idx| &props[idx].1)
+    }
+
+    /// Insert or overwrite a property in a sorted state slice ("last wins" semantics).
+    fn insert_sorted(
+        props: &mut Vec<(CssPropertyType, CssProperty)>,
+        prop_type: CssPropertyType,
+        property: CssProperty,
+    ) {
+        match props.binary_search_by_key(&prop_type, |(k, _)| *k) {
+            Ok(idx) => props[idx] = (prop_type, property),
+            Err(idx) => props.insert(idx, (prop_type, property)),
+        }
+    }
+}
+
+/// Deduplicated table of inline CSS property sets.
+///
+/// Built once during `StyledDom::create()` from all nodes' `css_props`.
+/// Nodes with identical inline styles share the same `CompactInlineProps` entry,
+/// referenced via `CssPropertyCache::inline_style_keys`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct InlineStyleTable {
+    /// Dense storage of unique compact inline style sets.
+    pub entries: Vec<CompactInlineProps>,
+}
+
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -332,6 +394,16 @@ pub struct CssPropertyCache {
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
     // Built once after restyle + apply_ua_css + compute_inherited_values.
     pub compact_cache: Option<azul_css::compact_cache::CompactLayoutCache>,
+
+    /// Deduplicated inline style table.
+    /// Built once during StyledDom::create() before build_resolved_cache().
+    /// Maps unique inline style content to a compact pre-sorted representation.
+    pub inline_style_table: InlineStyleTable,
+
+    /// Per-node index into `inline_style_table.entries`.
+    /// `u32::MAX` means this node has no inline styles.
+    /// Length equals `node_count` after `build_inline_style_table()` is called.
+    pub inline_style_keys: Vec<u32>,
 }
 
 impl CssPropertyCache {
@@ -1187,6 +1259,8 @@ impl CssPropertyCache {
 
             computed_values: vec![Vec::new(); node_count],
             compact_cache: None,
+            inline_style_table: InlineStyleTable::default(),
+            inline_style_keys: Vec::new(),
         }
     }
 
@@ -1204,8 +1278,117 @@ impl CssPropertyCache {
 
         self.node_count += other.node_count;
 
-        // Invalidate compact cache since node IDs shifted
+        // Invalidate compact cache and inline style table since node IDs shifted.
+        // Both will be rebuilt on the next StyledDom::create() / build_inline_style_table() call.
         self.compact_cache = None;
+        self.inline_style_table = InlineStyleTable::default();
+        self.inline_style_keys.clear();
+    }
+
+    /// Build the deduplicated inline style table from the given node data.
+    ///
+    /// Must be called after all nodes have been added but before `build_resolved_cache()`.
+    /// Nodes with identical `css_props` content share one `CompactInlineProps` entry,
+    /// referenced by index via `inline_style_keys`.
+    ///
+    /// Only pure pseudo-state conditions are preserved in the compact form
+    /// (consistent with `get_property_slow`). Properties with @os, @media,
+    /// or multi-condition rules are excluded — they are evaluated only via
+    /// `get_property_with_context`.
+    pub fn build_inline_style_table(&mut self, node_data: &[NodeData]) {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        use core::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        use std::collections::HashMap;
+
+        let mut hash_to_key: HashMap<u64, u32> = HashMap::new();
+        let mut table = InlineStyleTable::default();
+        let mut keys: Vec<u32> = Vec::with_capacity(node_data.len());
+
+        for nd in node_data.iter() {
+            let css_props_slice = nd.css_props.as_ref();
+
+            if css_props_slice.is_empty() {
+                keys.push(u32::MAX);
+                continue;
+            }
+
+            // Hash the css_props content for deduplication.
+            // We hash property type discriminants + condition structure, which is
+            // sufficient to distinguish different inline style sets.
+            let mut hasher = DefaultHasher::new();
+            for prop in css_props_slice.iter() {
+                // Hash property type (stable discriminant)
+                prop.property.get_type().hash(&mut hasher);
+                // Hash condition structure
+                for cond in prop.apply_if.as_slice().iter() {
+                    core::mem::discriminant(cond).hash(&mut hasher);
+                    if let DynamicSelector::PseudoState(ps) = cond {
+                        (*ps as u8).hash(&mut hasher);
+                    }
+                }
+                prop.apply_if.as_slice().len().hash(&mut hasher);
+            }
+            let hash = hasher.finish();
+
+            let key = *hash_to_key.entry(hash).or_insert_with(|| {
+                let compact = Self::build_compact_inline_props(css_props_slice);
+                let idx = table.entries.len() as u32;
+                table.entries.push(compact);
+                idx
+            });
+
+            keys.push(key);
+        }
+
+        self.inline_style_table = table;
+        self.inline_style_keys = keys;
+    }
+
+    /// Convert a `CssPropertyWithConditions` slice into a `CompactInlineProps`.
+    ///
+    /// Only includes properties with:
+    /// - Empty `apply_if` → Normal state
+    /// - Exactly one `DynamicSelector::PseudoState(_)` condition → that state
+    ///
+    /// Properties with complex or multi-condition `apply_if` are excluded
+    /// (they can't be matched by `get_property_slow` anyway).
+    fn build_compact_inline_props(
+        props: &[azul_css::dynamic_selector::CssPropertyWithConditions],
+    ) -> CompactInlineProps {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+        let mut result = CompactInlineProps::default();
+
+        for prop in props.iter() {
+            let conditions = prop.apply_if.as_slice();
+
+            let pseudo_state = if conditions.is_empty() {
+                PseudoStateType::Normal
+            } else if conditions.len() == 1 {
+                match &conditions[0] {
+                    DynamicSelector::PseudoState(ps) => *ps,
+                    _ => continue, // Non-pseudo-state single condition → skip
+                }
+            } else {
+                // Multiple conditions: get_property_slow() can't match these
+                continue;
+            };
+
+            let prop_type = prop.property.get_type();
+            let target = match pseudo_state {
+                PseudoStateType::Normal => &mut result.normal,
+                PseudoStateType::Hover => &mut result.hover,
+                PseudoStateType::Active => &mut result.active,
+                PseudoStateType::Focus => &mut result.focus,
+                PseudoStateType::Dragging => &mut result.dragging,
+                PseudoStateType::DragOver => &mut result.drag_over,
+                _ => &mut result.normal, // Disabled, Checked, etc. → treat as normal
+            };
+            CompactInlineProps::insert_sorted(target, prop_type, prop.property.clone());
+        }
+
+        result
     }
 
     pub fn is_horizontal_overflow_visible(
@@ -1363,9 +1546,9 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
 
-        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        use azul_css::dynamic_selector::PseudoStateType;
 
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
@@ -1374,11 +1557,22 @@ impl CssPropertyCache {
             }
         }
 
-        // Helper to check if property matches a specific pseudo state
-        fn matches_pseudo_state(
+        // Look up the compact inline style entry for this node (O(1)).
+        // Falls back to None if build_inline_style_table() has not been called yet,
+        // in which case we fall through to the linear-scan path at the end.
+        let inline_compact: Option<&CompactInlineProps> = self
+            .inline_style_keys
+            .get(node_id.index())
+            .copied()
+            .filter(|&k| k != u32::MAX)
+            .and_then(|k| self.inline_style_table.entries.get(k as usize));
+
+        // Helper for fallback linear scan (used when inline_style_table is not yet built).
+        fn matches_pseudo_state_slow(
             prop: &azul_css::dynamic_selector::CssPropertyWithConditions,
             state: PseudoStateType,
         ) -> bool {
+            use azul_css::dynamic_selector::DynamicSelector;
             let conditions = prop.apply_if.as_slice();
             if conditions.is_empty() {
                 state == PseudoStateType::Normal
@@ -1389,181 +1583,93 @@ impl CssPropertyCache {
             }
         }
 
-        // If that fails, see if there is an inline CSS property that matches
-        // :focus > :active > :hover > normal (fallback)
-        if node_state.focused {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
-                if matches_pseudo_state(css_prop, PseudoStateType::Focus)
-                    && css_prop.property.get_type() == *css_property_type
-                {
-                    Some(&css_prop.property)
-                } else {
-                    None
+        // Macro: check inline compact table (fast path) or linear scan (fallback),
+        // then stylesheet + cascade for one pseudo-state.
+        macro_rules! check_state {
+            ($state_field:ident, $state_enum:expr, $compact_field:ident) => {{
+                if node_state.$state_field {
+                    // PRIORITY 1: Inline CSS
+                    if let Some(compact) = inline_compact {
+                        // Fast path: O(log n) binary search in pre-sorted compact table
+                        if let Some(p) = CompactInlineProps::find_in_state(
+                            &compact.$compact_field,
+                            css_property_type,
+                        ) {
+                            return Some(p);
+                        }
+                    } else {
+                        // Fallback: O(n) linear scan (table not yet built)
+                        if let Some(p) =
+                            node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                                if matches_pseudo_state_slow(css_prop, $state_enum)
+                                    && css_prop.property.get_type() == *css_property_type
+                                {
+                                    Some(&css_prop.property)
+                                } else {
+                                    None
+                                }
+                            })
+                        {
+                            return Some(p);
+                        }
+                    }
+
+                    // PRIORITY 2: CSS stylesheet properties
+                    if let Some(p) = Self::find_in_stateful(
+                        self.css_props
+                            .get(node_id.index())
+                            .map(|v| v.as_slice())
+                            .unwrap_or(&[]),
+                        $state_enum,
+                        css_property_type,
+                    ) {
+                        return Some(p);
+                    }
+
+                    // PRIORITY 3: Cascaded/inherited properties
+                    if let Some(p) = Self::find_in_stateful(
+                        self.cascaded_props
+                            .get(node_id.index())
+                            .map(|v| v.as_slice())
+                            .unwrap_or(&[]),
+                        $state_enum,
+                        css_property_type,
+                    ) {
+                        return Some(p);
+                    }
                 }
-            }) {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Focus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Focus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
+            }};
         }
 
-        if node_state.active {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
-                if matches_pseudo_state(css_prop, PseudoStateType::Active)
-                    && css_prop.property.get_type() == *css_property_type
-                {
-                    Some(&css_prop.property)
-                } else {
-                    None
-                }
-            }) {
-                return Some(p);
-            }
+        // Priority order: :focus > :active > :dragging > :drag-over > :hover > normal
+        check_state!(focused,  PseudoStateType::Focus,    focus);
+        check_state!(active,   PseudoStateType::Active,   active);
+        check_state!(dragging, PseudoStateType::Dragging, dragging);
+        check_state!(drag_over,PseudoStateType::DragOver, drag_over);
+        check_state!(hover,    PseudoStateType::Hover,    hover);
 
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Active,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Active,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :dragging pseudo-state (higher priority than :hover)
-        if node_state.dragging {
-            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
-                if matches_pseudo_state(css_prop, PseudoStateType::Dragging)
-                    && css_prop.property.get_type() == *css_property_type
-                {
-                    Some(&css_prop.property)
-                } else {
-                    None
-                }
-            }) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Dragging,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Dragging,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :drag-over pseudo-state (higher priority than :hover)
-        if node_state.drag_over {
-            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
-                if matches_pseudo_state(css_prop, PseudoStateType::DragOver)
-                    && css_prop.property.get_type() == *css_property_type
-                {
-                    Some(&css_prop.property)
-                } else {
-                    None
-                }
-            }) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::DragOver,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::DragOver,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        if node_state.hover {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
-                if matches_pseudo_state(css_prop, PseudoStateType::Hover)
-                    && css_prop.property.get_type() == *css_property_type
-                {
-                    Some(&css_prop.property)
-                } else {
-                    None
-                }
-            }) {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Hover,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
-                PseudoStateType::Hover,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // Normal/fallback properties - always apply as base layer
-        // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
-            if matches_pseudo_state(css_prop, PseudoStateType::Normal)
-                && css_prop.property.get_type() == *css_property_type
+        // Normal/fallback: always checked as the base layer.
+        // PRIORITY 1: Inline CSS
+        if let Some(compact) = inline_compact {
+            // Fast path: O(log n) binary search
+            if let Some(p) =
+                CompactInlineProps::find_in_state(&compact.normal, css_property_type)
             {
-                Some(&css_prop.property)
-            } else {
-                None
+                return Some(p);
             }
-        }) {
-            return Some(p);
+        } else {
+            // Fallback: O(n) linear scan (table not yet built)
+            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                if matches_pseudo_state_slow(css_prop, PseudoStateType::Normal)
+                    && css_prop.property.get_type() == *css_property_type
+                {
+                    Some(&css_prop.property)
+                } else {
+                    None
+                }
+            }) {
+                return Some(p);
+            }
         }
 
         // PRIORITY 2: CSS stylesheet properties
@@ -4650,22 +4756,52 @@ impl CssPropertyCache {
             if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
                 prop_types.extend(v.iter().map(|(k, _)| *k));
             }
-            for css_prop in nd.css_props.iter() {
-                let conditions = css_prop.apply_if.as_slice();
-                let matches = if conditions.is_empty() {
-                    true
-                } else {
-                    conditions.iter().all(|c| match c {
-                        DynamicSelector::PseudoState(PseudoStateType::Hover) => node_state.hover,
-                        DynamicSelector::PseudoState(PseudoStateType::Active) => node_state.active,
-                        DynamicSelector::PseudoState(PseudoStateType::Focus) => node_state.focused,
-                        DynamicSelector::PseudoState(PseudoStateType::Dragging) => node_state.dragging,
-                        DynamicSelector::PseudoState(PseudoStateType::DragOver) => node_state.drag_over,
-                        _ => false,
-                    })
-                };
-                if matches {
-                    prop_types.insert(css_prop.property.get_type());
+
+            // Collect inline CSS property types.
+            // Fast path: use the pre-built compact table (O(m) where m = unique types per state).
+            // Fallback: linear scan of node_data.css_props (before table is built).
+            let inline_key = self.inline_style_keys.get(node_index).copied().unwrap_or(u32::MAX);
+            if inline_key != u32::MAX {
+                if let Some(compact) = self.inline_style_table.entries.get(inline_key as usize) {
+                    // Always include normal-state inline properties
+                    for (pt, _) in &compact.normal {
+                        prop_types.insert(*pt);
+                    }
+                    if node_state.hover {
+                        for (pt, _) in &compact.hover { prop_types.insert(*pt); }
+                    }
+                    if node_state.active {
+                        for (pt, _) in &compact.active { prop_types.insert(*pt); }
+                    }
+                    if node_state.focused {
+                        for (pt, _) in &compact.focus { prop_types.insert(*pt); }
+                    }
+                    if node_state.dragging {
+                        for (pt, _) in &compact.dragging { prop_types.insert(*pt); }
+                    }
+                    if node_state.drag_over {
+                        for (pt, _) in &compact.drag_over { prop_types.insert(*pt); }
+                    }
+                }
+            } else {
+                // Fallback: linear scan (table not yet built or node has no inline styles)
+                for css_prop in nd.css_props.iter() {
+                    let conditions = css_prop.apply_if.as_slice();
+                    let matches = if conditions.is_empty() {
+                        true
+                    } else {
+                        conditions.iter().all(|c| match c {
+                            DynamicSelector::PseudoState(PseudoStateType::Hover) => node_state.hover,
+                            DynamicSelector::PseudoState(PseudoStateType::Active) => node_state.active,
+                            DynamicSelector::PseudoState(PseudoStateType::Focus) => node_state.focused,
+                            DynamicSelector::PseudoState(PseudoStateType::Dragging) => node_state.dragging,
+                            DynamicSelector::PseudoState(PseudoStateType::DragOver) => node_state.drag_over,
+                            _ => false,
+                        })
+                    };
+                    if matches {
+                        prop_types.insert(css_prop.property.get_type());
+                    }
                 }
             }
             if let Some(v) = self.css_props.get(node_id.index()) {

@@ -369,6 +369,10 @@ pub struct LayoutWindow {
     /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
     /// across all CallbackInfoRefData without cloning the Vec each time.
     pub monitors: std::sync::Arc<std::sync::Mutex<MonitorVec>>,
+    /// XOR of all tier2b.font_family_hash values from the last resolved DOM.
+    /// Used to skip font chain resolution on frames where the font requirements
+    /// haven't changed (e.g. scroll-only frames).
+    font_stacks_hash: u64,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
@@ -464,6 +468,7 @@ impl LayoutWindow {
             pending_iframe_updates: BTreeMap::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            font_stacks_hash: 0,
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -537,6 +542,7 @@ impl LayoutWindow {
             pending_iframe_updates: BTreeMap::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            font_stacks_hash: 0,
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -675,84 +681,114 @@ impl LayoutWindow {
                 text3::default::PathLoader,
             };
 
-            if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(
-                    "[FontLoading] Starting font resolution for DOM".to_string(),
-                ));
-            }
+            // Compute a fingerprint of the font requirements for this DOM.
+            // XOR of all tier2b.font_family_hash values: changes when any node's
+            // font-family changes, stays constant on scroll/resize-only frames.
+            let current_font_hash: u64 = styled_dom
+                .css_property_cache
+                .ptr
+                .compact_cache
+                .as_ref()
+                .map(|cc| {
+                    cc.tier2b_text
+                        .iter()
+                        .fold(0u64, |acc, t| acc ^ t.font_family_hash)
+                })
+                .unwrap_or(0);
 
-            // Step 0: Register embedded FontRefs (e.g. Material Icons)
-            // These fonts bypass fontconfig and are used directly
-            register_embedded_fonts_from_styled_dom(&styled_dom, &self.font_manager, &platform);
+            // Skip all font resolution steps if the font requirements haven't changed
+            // AND the font_chain_cache has already been populated (not first frame).
+            let font_requirements_unchanged = current_font_hash != 0
+                && current_font_hash == self.font_stacks_hash
+                && !self.font_manager.font_chain_cache.is_empty();
 
-            // Step 1: Resolve font chains (cached by FontChainKey)
-            let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache, &platform);
-            if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[FontLoading] Resolved {} font chains",
-                    chains.len()
-                )));
-            }
+            if font_requirements_unchanged {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(
+                        "[FontLoading] Font requirements unchanged, skipping resolution (cached)".to_string(),
+                    ));
+                }
+            } else {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(
+                        "[FontLoading] Starting font resolution for DOM".to_string(),
+                    ));
+                }
 
-            // Step 2: Get required font IDs from chains
-            let required_fonts = collect_font_ids_from_chains(&chains);
-            if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[FontLoading] Required fonts: {} unique fonts",
-                    required_fonts.len()
-                )));
-            }
+                // Step 0: Register embedded FontRefs (e.g. Material Icons)
+                // These fonts bypass fontconfig and are used directly
+                register_embedded_fonts_from_styled_dom(&styled_dom, &self.font_manager, &platform);
 
-            // Step 3: Compute which fonts need to be loaded (diff with already loaded)
-            let already_loaded = self.font_manager.get_loaded_font_ids();
-            let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-            if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[FontLoading] Already loaded: {}, need to load: {}",
-                    already_loaded.len(),
-                    fonts_to_load.len()
-                )));
-            }
-
-            // Step 4: Load missing fonts
-            if !fonts_to_load.is_empty() {
+                // Step 1: Resolve font chains (cached by FontChainKey)
+                let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache, &platform);
                 if let Some(msgs) = debug_messages.as_mut() {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "[FontLoading] Loading {} fonts from disk...",
+                        "[FontLoading] Resolved {} font chains",
+                        chains.len()
+                    )));
+                }
+
+                // Step 2: Get required font IDs from chains
+                let required_fonts = collect_font_ids_from_chains(&chains);
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[FontLoading] Required fonts: {} unique fonts",
+                        required_fonts.len()
+                    )));
+                }
+
+                // Step 3: Compute which fonts need to be loaded (diff with already loaded)
+                let already_loaded = self.font_manager.get_loaded_font_ids();
+                let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[FontLoading] Already loaded: {}, need to load: {}",
+                        already_loaded.len(),
                         fonts_to_load.len()
                     )));
                 }
-                let loader = PathLoader::new();
-                let load_result = load_fonts_from_disk(
-                    &fonts_to_load,
-                    &self.font_manager.fc_cache,
-                    |bytes, index| loader.load_font(bytes, index),
-                );
 
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[FontLoading] Loaded {} fonts, {} failed",
-                        load_result.loaded.len(),
-                        load_result.failed.len()
-                    )));
-                }
-
-                // Insert loaded fonts into the font manager
-                self.font_manager.insert_fonts(load_result.loaded);
-
-                // Log any failures
-                for (font_id, error) in &load_result.failed {
+                // Step 4: Load missing fonts
+                if !fonts_to_load.is_empty() {
                     if let Some(msgs) = debug_messages.as_mut() {
-                        msgs.push(LayoutDebugMessage::warning(format!(
-                            "[FontLoading] Failed to load font {:?}: {}",
-                            font_id, error
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "[FontLoading] Loading {} fonts from disk...",
+                            fonts_to_load.len()
                         )));
                     }
-                }
-            }
+                    let loader = PathLoader::new();
+                    let load_result = load_fonts_from_disk(
+                        &fonts_to_load,
+                        &self.font_manager.fc_cache,
+                        |bytes, index| loader.load_font(bytes, index),
+                    );
 
-            // Step 5: Update font chain cache
-            self.font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
+                    if let Some(msgs) = debug_messages.as_mut() {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "[FontLoading] Loaded {} fonts, {} failed",
+                            load_result.loaded.len(),
+                            load_result.failed.len()
+                        )));
+                    }
+
+                    // Insert loaded fonts into the font manager
+                    self.font_manager.insert_fonts(load_result.loaded);
+
+                    // Log any failures
+                    for (font_id, error) in &load_result.failed {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[FontLoading] Failed to load font {:?}: {}",
+                                font_id, error
+                            )));
+                        }
+                    }
+                }
+
+                // Step 5: Update font chain cache and store the hash for next frame
+                self.font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
+                self.font_stacks_hash = current_font_hash;
+            }
         }
 
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);

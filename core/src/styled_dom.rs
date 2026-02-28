@@ -911,6 +911,11 @@ impl StyledDom {
         );
         let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
 
+        // Build the deduplicated inline style table BEFORE resolving the property cache.
+        // This allows build_resolved_cache() to use O(log n) binary search instead of
+        // O(n) linear scan for inline style lookups.
+        css_property_cache.build_inline_style_table(compact_dom.node_data.as_ref().internal);
+
         // Build pre-resolved property cache (temporary, consumed by compact cache builder).
         let t_resolved = std::time::Instant::now();
         let resolved_props = css_property_cache.build_resolved_cache(
