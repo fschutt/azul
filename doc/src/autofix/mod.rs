@@ -1310,6 +1310,16 @@ pub enum FfiSafetyWarningKind {
         /// The merged repr value
         merged_repr: String,
     },
+    /// Struct field order is not optimal for minimizing padding in repr(C) layout.
+    /// Fields should be sorted by decreasing alignment (largest-aligned first).
+    SuboptimalFieldOrder {
+        /// Current field order: Vec<(field_name, estimated_alignment)>
+        current_order: Vec<(String, usize)>,
+        /// Suggested reorder: Vec<(field_name, estimated_alignment)>
+        optimal_order: Vec<(String, usize)>,
+        /// Estimated bytes wasted by current ordering
+        estimated_padding_waste: usize,
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -1358,6 +1368,8 @@ impl FfiSafetyWarningKind {
             }
             // Critical - multiple #[repr(...)] attributes are ambiguous
             FfiSafetyWarningKind::DuplicateReprAttribute { .. } => true,
+            // Critical - suboptimal field ordering wastes memory in repr(C) layout
+            FfiSafetyWarningKind::SuboptimalFieldOrder { .. } => true,
         }
     }
 }
@@ -1396,6 +1408,185 @@ fn contains_unit_type(type_str: &str) -> bool {
     }
     
     false
+}
+
+/// Recursively estimate the (size, alignment) of every type reachable from
+/// api.json.  Results are cached in `cache` so each type is resolved at most
+/// once (and cycles via recursive types are broken by the sentinel).
+///
+/// For `repr(C)` structs the compiler lays out fields in declaration order
+/// with padding inserted to satisfy each field's alignment.  Sorting fields
+/// by decreasing alignment minimises wasted padding bytes.
+///
+/// Returns `(estimated_size, alignment)` in bytes (64-bit assumptions).
+fn estimate_type_size_align(
+    type_name: &str,
+    ref_kind: &crate::api::RefKind,
+    api_data: &crate::api::ApiData,
+    cache: &mut std::collections::HashMap<String, (usize, usize)>,
+) -> (usize, usize) {
+    use crate::api::RefKind;
+
+    // Pointer / reference types are always 8 bytes on 64-bit
+    match ref_kind {
+        RefKind::ConstPtr | RefKind::MutPtr | RefKind::Ref
+        | RefKind::RefMut | RefKind::Boxed | RefKind::OptionBoxed => return (8, 8),
+        RefKind::Value => {}
+    }
+
+    estimate_type_size_align_by_name(type_name, api_data, cache)
+}
+
+/// Inner helper: resolve size/align for a type *by name* (assumes by-value).
+fn estimate_type_size_align_by_name(
+    type_name: &str,
+    api_data: &crate::api::ApiData,
+    cache: &mut std::collections::HashMap<String, (usize, usize)>,
+) -> (usize, usize) {
+    // Primitive types — exact sizes
+    match type_name {
+        "bool" | "u8" | "i8" => return (1, 1),
+        "u16" | "i16" => return (2, 2),
+        "u32" | "i32" | "f32" => return (4, 4),
+        "u64" | "i64" | "f64" | "usize" | "isize" => return (8, 8),
+        "c_void" => return (1, 1),
+        _ => {}
+    }
+
+    // Return cached result (also acts as recursion-breaker sentinel)
+    if let Some(&cached) = cache.get(type_name) {
+        return cached;
+    }
+
+    // Insert sentinel to break infinite recursion on self-referential types
+    cache.insert(type_name.to_string(), (8, 8));
+
+    // Look up the type definition in api.json
+    let class_def = api_data.0.values()
+        .flat_map(|ver| ver.api.values())
+        .find_map(|module| module.classes.get(type_name));
+
+    let class_def = match class_def {
+        Some(cd) => cd,
+        None => return (8, 8), // Unknown type — conservative fallback
+    };
+
+    let repr_str = class_def.repr.as_deref().unwrap_or("");
+
+    // --- Enum ---
+    if let Some(enum_fields) = &class_def.enum_fields {
+        let has_data = enum_fields.iter().any(|m| {
+            m.values().any(|v| v.r#type.is_some())
+        });
+
+        // Discriminant: repr(C, u8) → u8 (1 byte), repr(C) → i32 (4 bytes)
+        let (disc_size, disc_align): (usize, usize) = if repr_str.contains("u8") {
+            (1, 1)
+        } else {
+            (4, 4) // repr(C) default discriminant is c_int ≈ i32
+        };
+
+        if !has_data {
+            // Unit-only enum: just the discriminant
+            let result = (disc_size, disc_align);
+            cache.insert(type_name.to_string(), result);
+            return result;
+        }
+
+        // Tagged enum with data: find the largest variant payload
+        let mut max_payload_size: usize = 0;
+        let mut max_payload_align: usize = disc_align;
+        for m in enum_fields {
+            for (_vname, vdata) in m {
+                if let Some(ref vtype) = vdata.r#type {
+                    let (vs, va) = estimate_type_size_align(
+                        vtype, &vdata.ref_kind, api_data, cache,
+                    );
+                    max_payload_align = max_payload_align.max(va);
+                    max_payload_size = max_payload_size.max(vs);
+                }
+            }
+        }
+
+        // Layout: [discriminant] [padding to payload alignment] [payload] [trailing]
+        let align = max_payload_align;
+        let mut offset = disc_size;
+        let m = offset % align;
+        if m != 0 { offset += align - m; }
+        offset += max_payload_size;
+        let m = offset % align;
+        if m != 0 { offset += align - m; }
+
+        let result = (offset, align);
+        cache.insert(type_name.to_string(), result);
+        return result;
+    }
+
+    // --- Struct ---
+    if let Some(struct_fields) = &class_def.struct_fields {
+        let mut offset: usize = 0;
+        let mut max_align: usize = 1;
+
+        for fm in struct_fields {
+            for (_fname, fd) in fm {
+                let (fs, fa) = if let Some(array_n) = fd.arraysize {
+                    // Fixed-size array [T; N]: size = N * sizeof(T), align = align(T)
+                    let (elem_s, elem_a) = estimate_type_size_align(
+                        &fd.r#type, &fd.ref_kind, api_data, cache,
+                    );
+                    (elem_s * array_n, elem_a)
+                } else {
+                    estimate_type_size_align(
+                        &fd.r#type, &fd.ref_kind, api_data, cache,
+                    )
+                };
+                max_align = max_align.max(fa);
+                let misalign = offset % fa;
+                if misalign != 0 { offset += fa - misalign; }
+                offset += fs;
+            }
+        }
+
+        // Trailing padding
+        let misalign = offset % max_align;
+        if misalign != 0 { offset += max_align - misalign; }
+
+        let result = (offset, max_align);
+        cache.insert(type_name.to_string(), result);
+        return result;
+    }
+
+    // Fallback (e.g. callback typedefs, opaque types)
+    (8, 8)
+}
+
+/// Estimate how many bytes of alignment padding a given repr(C) field order wastes.
+/// Fields are `(name, size, alignment)`.
+fn estimate_padding_waste(fields: &[(String, usize, usize)]) -> usize {
+    let mut offset: usize = 0;
+    let mut padding: usize = 0;
+
+    for (_name, size, align) in fields {
+        let align = *align;
+        let size = *size;
+        let misalign = offset % align;
+        if misalign != 0 {
+            let pad = align - misalign;
+            padding += pad;
+            offset += pad;
+        }
+        offset += size;
+    }
+
+    // Trailing padding to reach struct alignment (max field alignment)
+    if let Some(max_align) = fields.iter().map(|(_, _, a)| *a).max() {
+        let misalign = offset % max_align;
+        if misalign != 0 {
+            padding += max_align - misalign;
+        }
+    }
+
+    padding
 }
 
 /// Check FFI safety of types that exist in api.json or are about to be added.
@@ -1737,6 +1928,9 @@ pub fn check_ffi_safety(
         }
     }
 
+    // Cache for recursive type size estimation (shared across all checks)
+    let mut type_size_cache: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+
     // Check api.json types for repr mismatches AND struct issues
     for (_version_name, version) in &api_data.0 {
         for (module_name, module) in &version.api {
@@ -1811,7 +2005,50 @@ pub fn check_ffi_safety(
                         });
                     }
 
-                    // Check 3: Fields using BTreeMap/HashMap, Result<>, or tuple types
+                    // Check 3: Struct field ordering for repr(C) padding optimization
+                    if !struct_fields.is_empty() && !all_empty {
+                        let is_repr_c = match &class_def.repr {
+                            Some(r) => r.to_lowercase().contains("c"),
+                            None => false,
+                        };
+                        if is_repr_c {
+                            let fields_with_size_align: Vec<(String, usize, usize)> = struct_fields
+                                .iter()
+                                .flat_map(|m| m.iter())
+                                .map(|(name, fd)| {
+                                    let (size, align) = estimate_type_size_align(
+                                        &fd.r#type, &fd.ref_kind, api_data, &mut type_size_cache,
+                                    );
+                                    (name.clone(), size, align)
+                                })
+                                .collect();
+
+                            // Optimal ordering: sort by decreasing alignment,
+                            // then by decreasing size as tiebreaker to further reduce gaps
+                            let mut optimal = fields_with_size_align.clone();
+                            optimal.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.1.cmp(&a.1)));
+
+                            if fields_with_size_align != optimal {
+                                let waste = estimate_padding_waste(&fields_with_size_align)
+                                    .saturating_sub(estimate_padding_waste(&optimal));
+                                if waste > 0 {
+                                    let current_display: Vec<(String, usize)> = fields_with_size_align.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
+                                    let optimal_display: Vec<(String, usize)> = optimal.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
+                                    warnings.push(FfiSafetyWarning {
+                                        type_name: class_name.clone(),
+                                        file_path: file_path.clone(),
+                                        kind: FfiSafetyWarningKind::SuboptimalFieldOrder {
+                                            current_order: current_display,
+                                            optimal_order: optimal_display,
+                                            estimated_padding_waste: waste,
+                                        },
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // Check 4: Fields using BTreeMap/HashMap, Result<>, or tuple types
                     for field_map in struct_fields {
                         for (field_name, field_data) in field_map {
                             let ty = &field_data.r#type;
@@ -2392,6 +2629,23 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 "    {} Remove duplicate #[repr(...)] attributes. Only one is allowed per type.",
                 "FIX:".cyan()
             );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::SuboptimalFieldOrder { current_order, optimal_order, estimated_padding_waste } => {
+            println!("  {} {}", "⚠".yellow(), warning.type_name.white());
+            println!(
+                "    {} Struct field order wastes ~{} bytes of padding per instance",
+                "→".dimmed(),
+                estimated_padding_waste.to_string().yellow()
+            );
+            println!("    {} Current order:", "NOW:".dimmed());
+            for (name, align) in current_order {
+                println!("       {} (align {})", name.cyan(), align);
+            }
+            println!("    {} Suggested order (sort by decreasing alignment):", "FIX:".cyan());
+            for (name, align) in optimal_order {
+                println!("       {} (align {})", name.cyan(), align);
+            }
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
     }
