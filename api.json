@@ -1110,23 +1110,26 @@
                         ],
                         "struct_fields": [
                             {
-                                "x11_visual": {
-                                    "type": "OptionX11Visual"
+                                "wayland_theme": {
+                                    "type": "OptionWaylandTheme"
                                 },
-                                "x11_screen": {
-                                    "type": "OptionI32"
+                                "window_icon": {
+                                    "type": "OptionWindowIcon"
+                                },
+                                "x11_gtk_theme_variant": {
+                                    "type": "OptionString"
+                                },
+                                "wayland_app_id": {
+                                    "type": "OptionString"
                                 },
                                 "x11_wm_classes": {
                                     "type": "StringPairVec"
                                 },
-                                "x11_override_redirect": {
-                                    "type": "bool"
-                                },
                                 "x11_window_types": {
                                     "type": "XWindowTypeVec"
                                 },
-                                "x11_gtk_theme_variant": {
-                                    "type": "OptionString"
+                                "x11_visual": {
+                                    "type": "OptionX11Visual"
                                 },
                                 "x11_resize_increments": {
                                     "type": "OptionLogicalSize"
@@ -1134,20 +1137,17 @@
                                 "x11_base_size": {
                                     "type": "OptionLogicalSize"
                                 },
-                                "wayland_app_id": {
-                                    "type": "OptionString"
-                                },
-                                "wayland_theme": {
-                                    "type": "OptionWaylandTheme"
+                                "x11_screen": {
+                                    "type": "OptionI32"
                                 },
                                 "request_user_attention": {
                                     "type": "UserAttentionType"
                                 },
-                                "window_icon": {
-                                    "type": "OptionWindowIcon"
-                                },
                                 "x11_decorations_state": {
                                     "type": "OptionLinuxDecorationsState"
+                                },
+                                "x11_override_redirect": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -1367,11 +1367,17 @@
                                 "frame": {
                                     "type": "WindowFrame"
                                 },
-                                "close_requested": {
-                                    "type": "bool"
-                                },
                                 "decorations": {
                                     "type": "WindowDecorations"
+                                },
+                                "background_material": {
+                                    "type": "WindowBackgroundMaterial"
+                                },
+                                "window_type": {
+                                    "type": "WindowType"
+                                },
+                                "close_requested": {
+                                    "type": "bool"
                                 },
                                 "is_visible": {
                                     "type": "bool"
@@ -1385,17 +1391,11 @@
                                 "has_focus": {
                                     "type": "bool"
                                 },
-                                "background_material": {
-                                    "type": "WindowBackgroundMaterial"
-                                },
                                 "smooth_scroll_enabled": {
                                     "type": "bool"
                                 },
                                 "autotab_enabled": {
                                     "type": "bool"
-                                },
-                                "window_type": {
-                                    "type": "WindowType"
                                 },
                                 "has_decorations": {
                                     "type": "bool"
@@ -1858,8 +1858,8 @@
                                 "window_state": {
                                     "type": "FullWindowState"
                                 },
-                                "size_to_content": {
-                                    "type": "bool"
+                                "create_callback": {
+                                    "type": "OptionCallback"
                                 },
                                 "renderer": {
                                     "type": "OptionRendererOptions"
@@ -1867,8 +1867,8 @@
                                 "theme": {
                                     "type": "OptionWindowTheme"
                                 },
-                                "create_callback": {
-                                    "type": "OptionCallback"
+                                "size_to_content": {
+                                    "type": "bool"
                                 },
                                 "hot_reload": {
                                     "type": "bool"
@@ -1902,62 +1902,62 @@
                         ],
                         "struct_fields": [
                             {
+                                "platform_specific_options": {
+                                    "type": "PlatformSpecificOptions"
+                                },
+                                "keyboard_state": {
+                                    "type": "KeyboardState"
+                                },
                                 "window_id": {
                                     "type": "String",
                                     "doc": [
                                         "Semantic window identifier for multi-window debugging. Can be set to identify specific windows (e.g., 'main', 'settings', 'popup-1')"
                                     ]
                                 },
-                                "theme": {
-                                    "type": "WindowTheme"
-                                },
                                 "title": {
                                     "type": "String"
                                 },
-                                "size": {
-                                    "type": "WindowSize"
+                                "close_callback": {
+                                    "type": "OptionCallback"
+                                },
+                                "layout_callback": {
+                                    "type": "LayoutCallback"
                                 },
                                 "position": {
                                     "type": "WindowPosition"
                                 },
+                                "touch_state": {
+                                    "type": "TouchState"
+                                },
+                                "size": {
+                                    "type": "WindowSize"
+                                },
                                 "flags": {
                                     "type": "WindowFlags"
-                                },
-                                "debug_state": {
-                                    "type": "DebugState"
-                                },
-                                "keyboard_state": {
-                                    "type": "KeyboardState"
                                 },
                                 "mouse_state": {
                                     "type": "MouseState"
                                 },
-                                "touch_state": {
-                                    "type": "TouchState"
-                                },
                                 "ime_position": {
                                     "type": "ImePosition"
                                 },
-                                "platform_specific_options": {
-                                    "type": "PlatformSpecificOptions"
-                                },
                                 "renderer_options": {
                                     "type": "RendererOptions"
+                                },
+                                "monitor_id": {
+                                    "type": "OptionU32"
+                                },
+                                "theme": {
+                                    "type": "WindowTheme"
+                                },
+                                "debug_state": {
+                                    "type": "DebugState"
                                 },
                                 "background_color": {
                                     "type": "OptionColorU",
                                     "doc": [
                                         "Window background color. If None, uses system window background color."
                                     ]
-                                },
-                                "layout_callback": {
-                                    "type": "LayoutCallback"
-                                },
-                                "close_callback": {
-                                    "type": "OptionCallback"
-                                },
-                                "monitor_id": {
-                                    "type": "OptionU32"
                                 },
                                 "window_focused": {
                                     "type": "bool"
@@ -11820,29 +11820,29 @@
                                 "accessibility_value": {
                                     "type": "OptionString"
                                 },
-                                "role": {
-                                    "type": "AccessibilityRole"
-                                },
-                                "states": {
-                                    "type": "AccessibilityStateVec"
-                                },
                                 "accelerator": {
                                     "type": "OptionVirtualKeyCodeCombo"
                                 },
                                 "default_action": {
                                     "type": "OptionString"
                                 },
+                                "states": {
+                                    "type": "AccessibilityStateVec"
+                                },
                                 "supported_actions": {
                                     "type": "AccessibilityActionVec"
-                                },
-                                "is_live_region": {
-                                    "type": "bool"
                                 },
                                 "labelled_by": {
                                     "type": "OptionDomNodeId"
                                 },
                                 "described_by": {
                                     "type": "OptionDomNodeId"
+                                },
+                                "role": {
+                                    "type": "AccessibilityRole"
+                                },
+                                "is_live_region": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -15139,14 +15139,14 @@
                         ],
                         "struct_fields": [
                             {
+                                "text_scale_factor": {
+                                    "type": "f32"
+                                },
                                 "prefers_bold_text": {
                                     "type": "bool"
                                 },
                                 "prefers_larger_text": {
                                     "type": "bool"
-                                },
-                                "text_scale_factor": {
-                                    "type": "f32"
                                 },
                                 "prefers_high_contrast": {
                                     "type": "bool"
@@ -19926,9 +19926,6 @@
                                 "offset_y": {
                                     "type": "PixelValueNoPercent"
                                 },
-                                "color": {
-                                    "type": "ColorU"
-                                },
                                 "blur_radius": {
                                     "type": "PixelValueNoPercent"
                                 },
@@ -19937,6 +19934,9 @@
                                 },
                                 "clip_mode": {
                                     "type": "BoxShadowClipMode"
+                                },
+                                "color": {
+                                    "type": "ColorU"
                                 }
                             }
                         ],
@@ -28818,11 +28818,11 @@
                         ],
                         "struct_fields": [
                             {
-                                "position": {
-                                    "type": "CursorPosition"
-                                },
                                 "text": {
                                     "type": "String"
+                                },
+                                "position": {
+                                    "type": "CursorPosition"
                                 },
                                 "new_cursor": {
                                     "type": "CursorPosition"
@@ -28839,11 +28839,11 @@
                         ],
                         "struct_fields": [
                             {
-                                "position": {
-                                    "type": "CursorPosition"
-                                },
                                 "content": {
                                     "type": "ClipboardContent"
+                                },
+                                "position": {
+                                    "type": "CursorPosition"
                                 },
                                 "new_cursor": {
                                     "type": "CursorPosition"
@@ -29350,61 +29350,43 @@
                         ],
                         "struct_fields": [
                             {
-                                "theme": {
-                                    "type": "Theme"
-                                },
-                                "platform": {
-                                    "type": "Platform"
-                                },
-                                "os_version": {
-                                    "type": "OsVersion"
-                                },
-                                "colors": {
-                                    "type": "SystemColors"
-                                },
                                 "fonts": {
                                     "type": "SystemFonts"
                                 },
                                 "metrics": {
                                     "type": "SystemMetrics"
                                 },
+                                "linux": {
+                                    "type": "LinuxCustomization"
+                                },
+                                "platform": {
+                                    "type": "Platform"
+                                },
+                                "focus_visuals": {
+                                    "type": "FocusVisuals"
+                                },
                                 "language": {
                                     "type": "String"
-                                },
-                                "prefers_reduced_motion": {
-                                    "type": "BoolCondition"
-                                },
-                                "prefers_high_contrast": {
-                                    "type": "BoolCondition"
                                 },
                                 "app_specific_stylesheet": {
                                     "type": "c_void",
                                     "ref_kind": "mutptr"
                                 },
-                                "icon_style": {
-                                    "type": "IconStyleOptions"
-                                },
                                 "scrollbar": {
                                     "type": "c_void",
                                     "ref_kind": "mutptr"
                                 },
-                                "accessibility": {
-                                    "type": "AccessibilitySettings"
+                                "scroll_physics": {
+                                    "type": "ScrollPhysics"
                                 },
                                 "input": {
                                     "type": "InputMetrics"
                                 },
+                                "accessibility": {
+                                    "type": "AccessibilitySettings"
+                                },
                                 "text_rendering": {
                                     "type": "TextRenderingHints"
-                                },
-                                "focus_visuals": {
-                                    "type": "FocusVisuals"
-                                },
-                                "scrollbar_preferences": {
-                                    "type": "ScrollbarPreferences"
-                                },
-                                "linux": {
-                                    "type": "LinuxCustomization"
                                 },
                                 "visual_hints": {
                                     "type": "VisualHints"
@@ -29412,11 +29394,29 @@
                                 "animation": {
                                     "type": "AnimationMetrics"
                                 },
+                                "os_version": {
+                                    "type": "OsVersion"
+                                },
+                                "scrollbar_preferences": {
+                                    "type": "ScrollbarPreferences"
+                                },
+                                "theme": {
+                                    "type": "Theme"
+                                },
+                                "prefers_reduced_motion": {
+                                    "type": "BoolCondition"
+                                },
+                                "prefers_high_contrast": {
+                                    "type": "BoolCondition"
+                                },
+                                "colors": {
+                                    "type": "SystemColors"
+                                },
+                                "icon_style": {
+                                    "type": "IconStyleOptions"
+                                },
                                 "audio": {
                                     "type": "AudioMetrics"
-                                },
-                                "scroll_physics": {
-                                    "type": "ScrollPhysics"
                                 }
                             }
                         ],
@@ -30237,32 +30237,32 @@
                         ],
                         "struct_fields": [
                             {
-                                "os": {
-                                    "type": "OptionOsCondition"
-                                },
-                                "os_version": {
-                                    "type": "OptionOsVersion"
-                                },
-                                "desktop_env": {
-                                    "type": "OptionLinuxDesktopEnv"
-                                },
                                 "theme": {
                                     "type": "OptionThemeCondition"
                                 },
                                 "language": {
                                     "type": "OptionString"
                                 },
-                                "prefers_reduced_motion": {
-                                    "type": "OptionBool"
+                                "os_version": {
+                                    "type": "OptionOsVersion"
                                 },
-                                "prefers_high_contrast": {
-                                    "type": "OptionBool"
+                                "os": {
+                                    "type": "OptionOsCondition"
+                                },
+                                "desktop_env": {
+                                    "type": "OptionLinuxDesktopEnv"
                                 },
                                 "viewport_width": {
                                     "type": "OptionF32"
                                 },
                                 "viewport_height": {
                                     "type": "OptionF32"
+                                },
+                                "prefers_reduced_motion": {
+                                    "type": "OptionBool"
+                                },
+                                "prefers_high_contrast": {
+                                    "type": "OptionBool"
                                 }
                             }
                         ],
@@ -30491,14 +30491,14 @@
                         ],
                         "struct_fields": [
                             {
-                                "font_smoothing_enabled": {
-                                    "type": "bool"
-                                },
                                 "subpixel_type": {
                                     "type": "SubpixelType"
                                 },
                                 "font_smoothing_gamma": {
                                     "type": "u32"
+                                },
+                                "font_smoothing_enabled": {
+                                    "type": "bool"
                                 },
                                 "increased_contrast": {
                                     "type": "bool"
@@ -35221,27 +35221,27 @@
                         ],
                         "struct_fields": [
                             {
-                                "texture_id": {
-                                    "type": "GLuint"
-                                },
-                                "flags": {
-                                    "type": "TextureFlags"
-                                },
-                                "size": {
-                                    "type": "PhysicalSizeU32"
-                                },
-                                "background_color": {
-                                    "type": "ColorU"
-                                },
                                 "gl_context": {
                                     "type": "GlContextPtr"
                                 },
-                                "format": {
-                                    "type": "RawImageFormat"
+                                "texture_id": {
+                                    "type": "GLuint"
                                 },
                                 "refcount": {
                                     "type": "c_void",
                                     "ref_kind": "constptr"
+                                },
+                                "size": {
+                                    "type": "PhysicalSizeU32"
+                                },
+                                "format": {
+                                    "type": "RawImageFormat"
+                                },
+                                "background_color": {
+                                    "type": "ColorU"
+                                },
+                                "flags": {
+                                    "type": "TextureFlags"
                                 },
                                 "run_destructor": {
                                     "type": "bool"
@@ -48270,14 +48270,14 @@
                         ],
                         "struct_fields": [
                             {
+                                "vao": {
+                                    "type": "VertexArrayObject"
+                                },
                                 "vertex_buffer_id": {
                                     "type": "GLuint"
                                 },
                                 "vertex_buffer_len": {
                                     "type": "usize"
-                                },
-                                "vao": {
-                                    "type": "VertexArrayObject"
                                 },
                                 "index_buffer_id": {
                                     "type": "GLuint"
@@ -48285,12 +48285,12 @@
                                 "index_buffer_len": {
                                     "type": "usize"
                                 },
-                                "index_buffer_format": {
-                                    "type": "IndexBufferFormat"
-                                },
                                 "refcount": {
                                     "type": "c_void",
                                     "ref_kind": "constptr"
+                                },
+                                "index_buffer_format": {
+                                    "type": "IndexBufferFormat"
                                 },
                                 "run_destructor": {
                                     "type": "bool"
@@ -49174,6 +49174,63 @@
                         ],
                         "struct_fields": [
                             {
+                                "ul_code_page_range1": {
+                                    "type": "OptionU32"
+                                },
+                                "ul_code_page_range2": {
+                                    "type": "OptionU32"
+                                },
+                                "ul_unicode_range1": {
+                                    "type": "u32"
+                                },
+                                "ul_unicode_range2": {
+                                    "type": "u32"
+                                },
+                                "ul_unicode_range3": {
+                                    "type": "u32"
+                                },
+                                "ul_unicode_range4": {
+                                    "type": "u32"
+                                },
+                                "ach_vend_id": {
+                                    "type": "u32"
+                                },
+                                "s_typo_ascender": {
+                                    "type": "OptionI16"
+                                },
+                                "s_typo_descender": {
+                                    "type": "OptionI16"
+                                },
+                                "s_typo_line_gap": {
+                                    "type": "OptionI16"
+                                },
+                                "us_win_ascent": {
+                                    "type": "OptionU16"
+                                },
+                                "us_win_descent": {
+                                    "type": "OptionU16"
+                                },
+                                "sx_height": {
+                                    "type": "OptionI16"
+                                },
+                                "s_cap_height": {
+                                    "type": "OptionI16"
+                                },
+                                "us_default_char": {
+                                    "type": "OptionU16"
+                                },
+                                "us_break_char": {
+                                    "type": "OptionU16"
+                                },
+                                "us_max_context": {
+                                    "type": "OptionU16"
+                                },
+                                "us_lower_optical_point_size": {
+                                    "type": "OptionU16"
+                                },
+                                "us_upper_optical_point_size": {
+                                    "type": "OptionU16"
+                                },
                                 "units_per_em": {
                                     "type": "u16"
                                 },
@@ -49270,24 +49327,6 @@
                                 "s_family_class": {
                                     "type": "i16"
                                 },
-                                "panose": {
-                                    "type": "Panose"
-                                },
-                                "ul_unicode_range1": {
-                                    "type": "u32"
-                                },
-                                "ul_unicode_range2": {
-                                    "type": "u32"
-                                },
-                                "ul_unicode_range3": {
-                                    "type": "u32"
-                                },
-                                "ul_unicode_range4": {
-                                    "type": "u32"
-                                },
-                                "ach_vend_id": {
-                                    "type": "u32"
-                                },
                                 "fs_selection": {
                                     "type": "u16"
                                 },
@@ -49297,47 +49336,8 @@
                                 "us_last_char_index": {
                                     "type": "u16"
                                 },
-                                "s_typo_ascender": {
-                                    "type": "OptionI16"
-                                },
-                                "s_typo_descender": {
-                                    "type": "OptionI16"
-                                },
-                                "s_typo_line_gap": {
-                                    "type": "OptionI16"
-                                },
-                                "us_win_ascent": {
-                                    "type": "OptionU16"
-                                },
-                                "us_win_descent": {
-                                    "type": "OptionU16"
-                                },
-                                "ul_code_page_range1": {
-                                    "type": "OptionU32"
-                                },
-                                "ul_code_page_range2": {
-                                    "type": "OptionU32"
-                                },
-                                "sx_height": {
-                                    "type": "OptionI16"
-                                },
-                                "s_cap_height": {
-                                    "type": "OptionI16"
-                                },
-                                "us_default_char": {
-                                    "type": "OptionU16"
-                                },
-                                "us_break_char": {
-                                    "type": "OptionU16"
-                                },
-                                "us_max_context": {
-                                    "type": "OptionU16"
-                                },
-                                "us_lower_optical_point_size": {
-                                    "type": "OptionU16"
-                                },
-                                "us_upper_optical_point_size": {
-                                    "type": "OptionU16"
+                                "panose": {
+                                    "type": "Panose"
                                 }
                             }
                         ],
@@ -51060,6 +51060,12 @@
                         ],
                         "struct_fields": [
                             {
+                                "dash_pattern": {
+                                    "type": "OptionSvgDashPattern"
+                                },
+                                "transform": {
+                                    "type": "SvgTransform"
+                                },
                                 "start_cap": {
                                     "type": "SvgLineCap"
                                 },
@@ -51068,9 +51074,6 @@
                                 },
                                 "line_join": {
                                     "type": "SvgLineJoin"
-                                },
-                                "dash_pattern": {
-                                    "type": "OptionSvgDashPattern"
                                 },
                                 "line_width": {
                                     "type": "f32"
@@ -51083,9 +51086,6 @@
                                 },
                                 "apply_line_width": {
                                     "type": "bool"
-                                },
-                                "transform": {
-                                    "type": "SvgTransform"
                                 },
                                 "anti_alias": {
                                     "type": "bool"
@@ -71252,17 +71252,17 @@
                                 "relative_image_path": {
                                     "type": "OptionString"
                                 },
-                                "dpi": {
-                                    "type": "f32"
-                                },
                                 "default_font_family": {
                                     "type": "String"
                                 },
-                                "font_size": {
-                                    "type": "f32"
-                                },
                                 "languages": {
                                     "type": "StringVec"
+                                },
+                                "dpi": {
+                                    "type": "f32"
+                                },
+                                "font_size": {
+                                    "type": "f32"
                                 },
                                 "shape_rendering": {
                                     "type": "ShapeRendering"
@@ -71273,11 +71273,11 @@
                                 "image_rendering": {
                                     "type": "ImageRendering"
                                 },
-                                "keep_named_groups": {
-                                    "type": "bool"
-                                },
                                 "fontdb": {
                                     "type": "FontDatabase"
+                                },
+                                "keep_named_groups": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -79182,14 +79182,14 @@
                         ],
                         "struct_fields": [
                             {
+                                "toolbar_style": {
+                                    "type": "ToolbarStyle"
+                                },
                                 "show_button_images": {
                                     "type": "bool"
                                 },
                                 "show_menu_images": {
                                     "type": "bool"
-                                },
-                                "toolbar_style": {
-                                    "type": "ToolbarStyle"
                                 },
                                 "show_tooltips": {
                                     "type": "bool"
