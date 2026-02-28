@@ -453,10 +453,10 @@ fn delete_from_middle() {
 #[test]
 fn contenteditable_change_detected() {
     let mut old_div = NodeData::create_div();
-    old_div.contenteditable = false;
+    old_div.set_contenteditable(false);
     
     let mut new_div = NodeData::create_div();
-    new_div.contenteditable = true;
+    new_div.set_contenteditable(true);
     
     let old = vec![old_div];
     let new = vec![new_div];

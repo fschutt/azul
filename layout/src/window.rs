@@ -3622,7 +3622,7 @@ impl LayoutWindow {
                         // Check BOTH: the contenteditable boolean field AND the attribute
                         // NodeData has a direct `contenteditable: bool` field that should be
                         // checked in addition to the attribute for robustness
-                        let is_contenteditable = styled_node.contenteditable
+                        let is_contenteditable = styled_node.is_contenteditable()
                             || styled_node.attributes.as_ref().iter().any(|attr| {
                                 matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                             });
@@ -4199,7 +4199,7 @@ impl LayoutWindow {
         // Check BOTH: the contenteditable boolean field AND the attribute
         // NodeData has a direct `contenteditable: bool` field that should be
         // checked in addition to the attribute for robustness
-        let is_contenteditable = styled_node.contenteditable
+        let is_contenteditable = styled_node.is_contenteditable()
             || styled_node.attributes.as_ref().iter().any(|attr| {
                 matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
             });
@@ -5457,7 +5457,7 @@ impl LayoutWindow {
                         // Check BOTH: the contenteditable boolean field AND the attribute
                         // NodeData has a direct `contenteditable: bool` field that should be
                         // checked in addition to the attribute for robustness
-                        if styled_node.contenteditable {
+                        if styled_node.is_contenteditable() {
                             return true;
                         }
 

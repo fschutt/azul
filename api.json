@@ -10489,11 +10489,8 @@
                                 "css_props": {
                                     "type": "CssPropertyWithConditionsVec"
                                 },
-                                "tab_index": {
-                                    "type": "OptionTabIndex"
-                                },
-                                "contenteditable": {
-                                    "type": "bool"
+                                "flags": {
+                                    "type": "NodeFlags"
                                 },
                                 "extra": {
                                     "type": "c_void",
@@ -12489,6 +12486,33 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "NodeFlags": {
+                        "doc": [
+                            "Packed representation of tab index + contenteditable flag as a u32."
+                        ],
+                        "external": "azul_core::dom::NodeFlags",
+                        "derive": [
+                            "Copy",
+                            "PartialOrd",
+                            "PartialEq",
+                            "Debug",
+                            "Clone",
+                            "Hash",
+                            "Eq",
+                            "Ord"
+                        ],
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     },
                     "DomId": {
                         "doc": [

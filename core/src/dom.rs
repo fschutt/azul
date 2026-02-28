@@ -1320,11 +1320,8 @@ pub struct NodeData {
     /// These are evaluated at runtime based on OS, viewport, container, theme, and pseudo-state.
     /// Uses "last wins" semantics - properties are evaluated in order, last match wins.
     pub css_props: CssPropertyWithConditionsVec,
-    /// Tab index (commonly used property).
-    pub tab_index: OptionTabIndex,
-    /// Whether this node is contenteditable (accepts text input).
-    /// Equivalent to HTML `contenteditable="true"` attribute.
-    pub contenteditable: bool,
+    /// Packed flags: tab_index + contenteditable.
+    pub flags: NodeFlags,
     /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
     /// etc.
     ///
@@ -1346,7 +1343,7 @@ impl Hash for NodeData {
         self.dataset.hash(state);
         self.ids_and_classes.as_ref().hash(state);
         self.attributes.as_ref().hash(state);
-        self.contenteditable.hash(state);
+        self.flags.hash(state);
 
         // NOTE: callbacks are NOT hashed regularly, otherwise
         // they'd cause inconsistencies because of the scroll callback
@@ -2287,8 +2284,7 @@ impl Clone for NodeData {
             attributes: self.attributes.clone(),
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
-            tab_index: self.tab_index,
-            contenteditable: self.contenteditable,
+            flags: self.flags,
             extra: self.extra.clone(),
         }
     }
@@ -2368,6 +2364,94 @@ impl Default for TabIndex {
     }
 }
 
+/// Packed representation of tab index + contenteditable flag.
+///
+/// Bit layout (32 bits):
+///   [31]     contenteditable flag (1 = true)
+///   [30:29]  tab_index variant:
+///              00 = None (no tab index set)
+///              01 = Auto
+///              10 = OverrideInParent (value in bits [28:0])
+///              11 = NoKeyboardFocus
+///   [28:0]   OverrideInParent value (max ~536 million)
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeFlags {
+    pub inner: u32,
+}
+
+impl Default for NodeFlags {
+    fn default() -> Self {
+        NodeFlags { inner: 0 }
+    }
+}
+
+impl NodeFlags {
+    const CONTENTEDITABLE_BIT: u32 = 1 << 31;
+    const TAB_INDEX_MASK: u32      = 0b11 << 29;
+    const TAB_VALUE_MASK: u32      = (1 << 29) - 1;
+
+    const TAB_NONE: u32            = 0b00 << 29;
+    const TAB_AUTO: u32            = 0b01 << 29;
+    const TAB_OVERRIDE: u32        = 0b10 << 29;
+    const TAB_NO_KEYBOARD: u32     = 0b11 << 29;
+
+    pub const fn new() -> Self {
+        NodeFlags { inner: 0 }
+    }
+
+    pub const fn is_contenteditable(&self) -> bool {
+        (self.inner & Self::CONTENTEDITABLE_BIT) != 0
+    }
+
+    pub const fn set_contenteditable(mut self, v: bool) -> Self {
+        if v {
+            self.inner |= Self::CONTENTEDITABLE_BIT;
+        } else {
+            self.inner &= !Self::CONTENTEDITABLE_BIT;
+        }
+        self
+    }
+
+    pub fn set_contenteditable_mut(&mut self, v: bool) {
+        if v {
+            self.inner |= Self::CONTENTEDITABLE_BIT;
+        } else {
+            self.inner &= !Self::CONTENTEDITABLE_BIT;
+        }
+    }
+
+    pub fn get_tab_index(&self) -> Option<TabIndex> {
+        match self.inner & Self::TAB_INDEX_MASK {
+            x if x == Self::TAB_NONE => None,
+            x if x == Self::TAB_AUTO => Some(TabIndex::Auto),
+            x if x == Self::TAB_OVERRIDE => {
+                let val = self.inner & Self::TAB_VALUE_MASK;
+                Some(TabIndex::OverrideInParent(val))
+            }
+            x if x == Self::TAB_NO_KEYBOARD => Some(TabIndex::NoKeyboardFocus),
+            _ => None,
+        }
+    }
+
+    pub fn set_tab_index(&mut self, tab_index: Option<TabIndex>) {
+        // Clear tab index bits (bits 29-30) and value bits (bits 0-28)
+        self.inner &= Self::CONTENTEDITABLE_BIT; // keep only contenteditable bit
+        match tab_index {
+            None => { /* TAB_NONE = 0, already cleared */ }
+            Some(TabIndex::Auto) => {
+                self.inner |= Self::TAB_AUTO;
+            }
+            Some(TabIndex::OverrideInParent(val)) => {
+                self.inner |= Self::TAB_OVERRIDE | (val & Self::TAB_VALUE_MASK);
+            }
+            Some(TabIndex::NoKeyboardFocus) => {
+                self.inner |= Self::TAB_NO_KEYBOARD;
+            }
+        }
+    }
+}
+
 impl Default for NodeData {
     fn default() -> Self {
         NodeData::create_node(NodeType::Div)
@@ -2436,8 +2520,7 @@ impl NodeData {
             attributes: AttributeTypeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
-            tab_index: OptionTabIndex::None,
-            contenteditable: false,
+            flags: NodeFlags::new(),
             extra: None,
         }
     }
@@ -2554,8 +2637,8 @@ impl NodeData {
         self.extra.as_ref().and_then(|e| e.clip_mask.as_ref())
     }
     #[inline]
-    pub fn get_tab_index(&self) -> Option<&TabIndex> {
-        self.tab_index.as_ref()
+    pub fn get_tab_index(&self) -> Option<TabIndex> {
+        self.flags.get_tab_index()
     }
     #[inline]
     pub fn get_accessibility_info(&self) -> Option<&Box<AccessibilityInfo>> {
@@ -2604,15 +2687,15 @@ impl NodeData {
     }
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: TabIndex) {
-        self.tab_index = Some(tab_index).into();
+        self.flags.set_tab_index(Some(tab_index));
     }
     #[inline]
     pub fn set_contenteditable(&mut self, contenteditable: bool) {
-        self.contenteditable = contenteditable;
+        self.flags.set_contenteditable_mut(contenteditable);
     }
     #[inline]
     pub fn is_contenteditable(&self) -> bool {
-        self.contenteditable
+        self.flags.is_contenteditable()
     }
     #[inline]
     pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo) {
@@ -3101,8 +3184,7 @@ impl NodeData {
             attributes: self.attributes.clone(),
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
-            tab_index: self.tab_index,
-            contenteditable: self.contenteditable,
+            flags: self.flags,
             extra: self.extra.clone(),
         }
     }
@@ -3202,8 +3284,8 @@ impl NodeData {
     /// - `Some(0)`: In natural tab order
     /// - `Some(n > 0)`: In tab order with priority n (higher = later)
     pub fn get_effective_tabindex(&self) -> Option<i32> {
-        match self.tab_index {
-            OptionTabIndex::None => {
+        match self.flags.get_tab_index() {
+            None => {
                 // Check if naturally focusable (has focus callback)
                 if self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback()) {
                     Some(0)
@@ -3211,7 +3293,7 @@ impl NodeData {
                     None
                 }
             }
-            OptionTabIndex::Some(tab_idx) => {
+            Some(tab_idx) => {
                 match tab_idx {
                     TabIndex::Auto => Some(0),
                     TabIndex::OverrideInParent(n) => Some(n as i32),

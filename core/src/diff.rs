@@ -289,12 +289,12 @@ pub fn compute_node_changes(
     }
 
     // 7. Contenteditable
-    if old_node.contenteditable != new_node.contenteditable {
+    if old_node.is_contenteditable() != new_node.is_contenteditable() {
         changes.insert(NodeChangeSet::CONTENTEDITABLE);
     }
 
     // 8. Tab index
-    if old_node.tab_index != new_node.tab_index {
+    if old_node.get_tab_index() != new_node.get_tab_index() {
         changes.insert(NodeChangeSet::TAB_INDEX);
     }
 
@@ -1486,8 +1486,8 @@ impl NodeDataFingerprint {
         // Attributes hash
         let attrs_hash = {
             let mut h = HighwayHasher::new(Key([6; 4]));
-            node.contenteditable.hash(&mut h);
-            node.tab_index.hash(&mut h);
+            node.is_contenteditable().hash(&mut h);
+            node.flags.hash(&mut h);
             node.dataset.hash(&mut h);
             h.finalize64()
         };

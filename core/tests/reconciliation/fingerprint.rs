@@ -210,7 +210,7 @@ fn callbacks_hash_changes_when_callbacks_differ() {
 fn contenteditable_change_detected_by_attrs_hash() {
     let a = NodeData::create_div();
     let mut b = NodeData::create_div();
-    b.contenteditable = true;
+    b.set_contenteditable(true);
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert_ne!(fa.attrs_hash, fb.attrs_hash);
@@ -225,7 +225,7 @@ fn tab_index_change_detected_by_attrs_hash() {
     use azul_core::dom::TabIndex;
     let a = NodeData::create_div();
     let mut b = NodeData::create_div();
-    b.tab_index = Some(TabIndex::Auto).into();
+    b.set_tab_index(TabIndex::Auto);
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert_ne!(fa.attrs_hash, fb.attrs_hash);
@@ -367,7 +367,7 @@ fn fingerprint_deterministic() {
     let a = NodeData::create_text("test");
     let mut b = NodeData::create_div();
     b.add_class(AzString::from("my-class"));
-    b.contenteditable = true;
+    b.set_contenteditable(true);
 
     let fa1 = NodeDataFingerprint::compute(&a, None);
     let fa2 = NodeDataFingerprint::compute(&a, None);

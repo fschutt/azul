@@ -6405,13 +6405,13 @@ fn process_debug_event(
                     });
 
                     // Tab index
-                    let tab_index = match data.tab_index {
-                        azul_core::dom::OptionTabIndex::Some(ti) => match ti {
+                    let tab_index = match data.get_tab_index() {
+                        Some(ti) => match ti {
                             azul_core::dom::TabIndex::Auto => Some(0),
                             azul_core::dom::TabIndex::OverrideInParent(v) => Some(v as i32),
                             azul_core::dom::TabIndex::NoKeyboardFocus => Some(-1),
                         },
-                        azul_core::dom::OptionTabIndex::None => None,
+                        None => None,
                     };
 
                     // Extract component origin (if this node was rendered by a component)
@@ -6442,7 +6442,7 @@ fn process_debug_event(
                         events,
                         rect,
                         tab_index,
-                        contenteditable: data.contenteditable,
+                        contenteditable: data.is_contenteditable(),
                         component,
                         has_dataset,
                     });

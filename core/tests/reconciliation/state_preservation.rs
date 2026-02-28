@@ -223,11 +223,11 @@ fn text_node_edit_preserves_match() {
 fn contenteditable_text_edit_match() {
     // contenteditable div with different text should still match
     let mut old_div = NodeData::create_div();
-    old_div.contenteditable = true;
+    old_div.set_contenteditable(true);
     old_div.add_id(AzString::from("editor"));
     
     let mut new_div = NodeData::create_div();
-    new_div.contenteditable = true;
+    new_div.set_contenteditable(true);
     new_div.add_id(AzString::from("editor"));
     
     let old = vec![old_div];

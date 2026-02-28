@@ -641,7 +641,7 @@ impl CssPropertyCache {
                     .any(|cb| cb.event.is_focus_callback());
 
                 let tab_index = match node_data.get_tab_index() {
-                    Some(s) => Some(*s),
+                    Some(s) => Some(s),
                     None => {
                         if should_auto_insert_tabindex {
                             Some(TabIndex::Auto)

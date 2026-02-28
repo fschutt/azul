@@ -246,7 +246,7 @@ fn styled_state_is_paint_only() {
 fn contenteditable_change_sets_flag() {
     let a = NodeData::create_div();
     let mut b = NodeData::create_div();
-    b.contenteditable = true;
+    b.set_contenteditable(true);
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::CONTENTEDITABLE),
         "contenteditable change should set CONTENTEDITABLE flag");
@@ -257,7 +257,7 @@ fn tab_index_change_sets_flag() {
     use azul_core::dom::TabIndex;
     let a = NodeData::create_div();
     let mut b = NodeData::create_div();
-    b.tab_index = Some(TabIndex::Auto).into();
+    b.set_tab_index(TabIndex::Auto);
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TAB_INDEX));
 }
