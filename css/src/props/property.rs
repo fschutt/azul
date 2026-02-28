@@ -267,7 +267,7 @@ pub type CaretWidthValue = CssPropertyValue<CaretWidth>;
 pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
 pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
 pub type SelectionRadiusValue = CssPropertyValue<SelectionRadius>;
-pub type StyleBackgroundContentVecValue = CssPropertyValue<BoxOrStatic<StyleBackgroundContentVec>>;
+pub type StyleBackgroundContentVecValue = CssPropertyValue<StyleBackgroundContentVec>;
 pub type StyleBackgroundPositionVecValue = CssPropertyValue<StyleBackgroundPositionVec>;
 pub type StyleBackgroundSizeVecValue = CssPropertyValue<StyleBackgroundSizeVec>;
 pub type StyleBackgroundRepeatVecValue = CssPropertyValue<StyleBackgroundRepeatVec>;
@@ -3282,17 +3282,17 @@ pub fn parse_combined_css_property<'a>(
         BackgroundColor => {
             let color = parse_css_color(value)?;
             let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(vec)))])
+            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(vec))])
         }
         BackgroundImage => {
             let background_content = parse_style_background_content(value)?;
             let vec: StyleBackgroundContentVec = vec![background_content].into();
-            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(vec)))])
+            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(vec))])
         }
         Background => {
             let background_content = parse_style_background_content_multiple(value)?;
             Ok(vec![CssProperty::BackgroundContent(
-                CssPropertyValue::Exact(BoxOrStatic::heap(background_content)),
+                CssPropertyValue::Exact(background_content),
             )])
         }
         Flex => {
@@ -3544,12 +3544,8 @@ impl_from_css_prop!(LayoutAlignSelf, CssProperty::AlignSelf);
 impl_from_css_prop!(LayoutWritingMode, CssProperty::WritingMode);
 impl_from_css_prop!(LayoutClear, CssProperty::Clear);
 
-// Manual impl needed because BackgroundContent uses BoxOrStatic wrapper
-impl From<StyleBackgroundContentVec> for CssProperty {
-    fn from(e: StyleBackgroundContentVec) -> Self {
-        CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(e)))
-    }
-}
+// BackgroundContent uses the standard From pattern
+impl_from_css_prop!(StyleBackgroundContentVec, CssProperty::BackgroundContent);
 
 impl_from_css_prop!(StyleBackgroundPositionVec, CssProperty::BackgroundPosition);
 impl_from_css_prop!(StyleBackgroundSizeVec, CssProperty::BackgroundSize);
@@ -4419,7 +4415,7 @@ impl CssProperty {
         CssProperty::AlignContent(CssPropertyValue::Exact(input))
     }
     pub fn background_content(input: StyleBackgroundContentVec) -> Self {
-        CssProperty::BackgroundContent(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
+        CssProperty::BackgroundContent(CssPropertyValue::Exact(input))
     }
     pub const fn background_position(input: StyleBackgroundPositionVec) -> Self {
         CssProperty::BackgroundPosition(CssPropertyValue::Exact(input))
@@ -5881,8 +5877,8 @@ impl CssProperty {
     pub const fn const_align_content(input: LayoutAlignContent) -> Self {
         CssProperty::AlignContent(LayoutAlignContentValue::Exact(input))
     }
-    pub fn const_background_content(input: StyleBackgroundContentVec) -> Self {
-        CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(BoxOrStatic::heap(input)))
+    pub const fn const_background_content(input: StyleBackgroundContentVec) -> Self {
+        CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(input))
     }
     pub const fn const_background_position(input: StyleBackgroundPositionVec) -> Self {
         CssProperty::BackgroundPosition(StyleBackgroundPositionVecValue::Exact(input))

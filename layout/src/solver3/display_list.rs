@@ -2592,7 +2592,7 @@ where
                     if let Some(shadow) = shadow_value.get_property() {
                         builder.push_item(DisplayListItem::BoxShadow {
                             bounds: paint_rect.into(),
-                            shadow: shadow.clone(),
+                            shadow: (**shadow).clone(),
                             border_radius: simple_border_radius,
                         });
                     }
@@ -2886,7 +2886,7 @@ where
                 {
                     if let Some(shadow) = shadow_val.get_property() {
                         builder.push_item(DisplayListItem::PushTextShadow {
-                            shadow: shadow.clone(),
+                            shadow: (**shadow).clone(),
                         });
                         pushed_text_shadow = true;
                     }

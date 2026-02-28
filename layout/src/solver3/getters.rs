@@ -3912,7 +3912,7 @@ pub fn get_box_shadow_left(
     styled_dom.css_property_cache.ptr
         .get_box_shadow_left(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .map(|v| (**v).clone())
 }
 
 /// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
@@ -3925,7 +3925,7 @@ pub fn get_box_shadow_right(
     styled_dom.css_property_cache.ptr
         .get_box_shadow_right(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .map(|v| (**v).clone())
 }
 
 /// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
@@ -3938,7 +3938,7 @@ pub fn get_box_shadow_top(
     styled_dom.css_property_cache.ptr
         .get_box_shadow_top(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .map(|v| (**v).clone())
 }
 
 /// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
@@ -3951,7 +3951,7 @@ pub fn get_box_shadow_bottom(
     styled_dom.css_property_cache.ptr
         .get_box_shadow_bottom(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .map(|v| (**v).clone())
 }
 
 /// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
@@ -3964,7 +3964,7 @@ pub fn get_text_shadow(
     styled_dom.css_property_cache.ptr
         .get_text_shadow(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .map(|v| (**v).clone())
 }
 
 /// Get transform property. Returns Option (non-empty transform list, cloned).

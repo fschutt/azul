@@ -18,6 +18,7 @@ use azul_css::{
     },
     *,
 };
+use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -245,7 +246,7 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
         )),
     )),
     // .__azul_native-list-header-item:active
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
@@ -267,8 +268,8 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
@@ -290,8 +291,8 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
@@ -313,8 +314,8 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
@@ -336,7 +337,7 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
+    )))),
     CssPropertyWithConditions::on_active(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
@@ -583,7 +584,7 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(12)),
     ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
@@ -605,8 +606,8 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+    )))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
@@ -628,8 +629,8 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+    )))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
@@ -651,8 +652,8 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+    )))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
         StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
@@ -674,7 +675,7 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
             },
             clip_mode: BoxShadowClipMode::Inset,
         },
-    ))),
+    )))),
 ];
 const CSS_MATCH_1574792189506859253: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1574792189506859253_PROPERTIES);

@@ -22,6 +22,7 @@ use azul_css::{
     },
     *,
 };
+use azul_css::css::BoxOrStatic;
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
@@ -1730,7 +1731,7 @@ fn render_node(
                 inner: PixelValue::const_px(1),
             }),
         )),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
             StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
@@ -1752,8 +1753,8 @@ fn render_node(
                 },
                 clip_mode: BoxShadowClipMode::Outset,
             },
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
             StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
@@ -1775,8 +1776,8 @@ fn render_node(
                 },
                 clip_mode: BoxShadowClipMode::Outset,
             },
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
             StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
@@ -1798,9 +1799,9 @@ fn render_node(
                 },
                 clip_mode: BoxShadowClipMode::Outset,
             },
-        ))),
+        )))),
         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-            StyleBoxShadowValue::Exact(StyleBoxShadow {
+            StyleBoxShadowValue::Exact(BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1820,7 +1821,7 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Outset,
-            }),
+            })),
         )),
         CssPropertyWithConditions::simple(CssProperty::Cursor(StyleCursorValue::Exact(
             StyleCursor::Pointer,
@@ -1854,7 +1855,7 @@ fn render_node(
                 STYLE_BACKGROUND_CONTENT_15813232491335471489_ITEMS,
             )),
         )),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
             StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
@@ -1876,8 +1877,8 @@ fn render_node(
                 },
                 clip_mode: BoxShadowClipMode::Inset,
             },
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
             StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
@@ -1899,8 +1900,8 @@ fn render_node(
                 },
                 clip_mode: BoxShadowClipMode::Inset,
             },
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
             StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
@@ -1922,9 +1923,9 @@ fn render_node(
                 },
                 clip_mode: BoxShadowClipMode::Inset,
             },
-        ))),
+        )))),
         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-            StyleBoxShadowValue::Exact(StyleBoxShadow {
+            StyleBoxShadowValue::Exact(BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1944,7 +1945,7 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Inset,
-            }),
+            })),
         )),
         CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
             LayoutFlexGrow {
@@ -2131,7 +2132,7 @@ fn render_node(
                    inner: PixelValue::const_px(1),
                }),
            )),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+           CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
                StyleBoxShadow {
                    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
@@ -2148,8 +2149,8 @@ fn render_node(
                    },
                    clip_mode: BoxShadowClipMode::Outset,
                },
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+           )))),
+           CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
                StyleBoxShadow {
                    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
@@ -2166,8 +2167,8 @@ fn render_node(
                    },
                    clip_mode: BoxShadowClipMode::Outset,
                },
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+           )))),
+           CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
                StyleBoxShadow {
                    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
@@ -2184,9 +2185,9 @@ fn render_node(
                    },
                    clip_mode: BoxShadowClipMode::Outset,
                },
-           ))),
+           )))),
            CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-               StyleBoxShadowValue::Exact(StyleBoxShadow {
+               StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
                        r: 0,
@@ -2201,7 +2202,7 @@ fn render_node(
                        inner: PixelValue::const_px(0),
                    },
                    clip_mode: BoxShadowClipMode::Outset,
-               }),
+               })),
            )),
            CssPropertyWithConditions::simple(CssProperty::TextColor(StyleTextColorValue::Exact(
                StyleTextColor {

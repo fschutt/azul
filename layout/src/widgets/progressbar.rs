@@ -12,6 +12,7 @@ use azul_css::{
     },
     *,
 };
+use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::Callback;
 
@@ -261,7 +262,7 @@ impl ProgressBar {
                     LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
                 )),
                 CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-                    StyleBoxShadowValue::Exact(StyleBoxShadow {
+                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
                         },
@@ -281,10 +282,10 @@ impl ProgressBar {
                             inner: PixelValue::const_px(2),
                         },
                         clip_mode: BoxShadowClipMode::Inset,
-                    }),
+                    })),
                 )),
                 CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
-                    StyleBoxShadowValue::Exact(StyleBoxShadow {
+                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
                         },
@@ -304,10 +305,10 @@ impl ProgressBar {
                             inner: PixelValue::const_px(2),
                         },
                         clip_mode: BoxShadowClipMode::Inset,
-                    }),
+                    })),
                 )),
                 CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
-                    StyleBoxShadowValue::Exact(StyleBoxShadow {
+                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
                         },
@@ -327,10 +328,10 @@ impl ProgressBar {
                             inner: PixelValue::const_px(2),
                         },
                         clip_mode: BoxShadowClipMode::Inset,
-                    }),
+                    })),
                 )),
                 CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
-                    StyleBoxShadowValue::Exact(StyleBoxShadow {
+                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
                         },
@@ -350,7 +351,7 @@ impl ProgressBar {
                             inner: PixelValue::const_px(2),
                         },
                         clip_mode: BoxShadowClipMode::Inset,
-                    }),
+                    })),
                 )),
                 CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
                     StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
@@ -473,7 +474,7 @@ impl ProgressBar {
                             )),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-                            StyleBoxShadowValue::Exact(StyleBoxShadow {
+                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
                                 },
@@ -493,10 +494,10 @@ impl ProgressBar {
                                     inner: PixelValue::const_px(12),
                                 },
                                 clip_mode: BoxShadowClipMode::Inset,
-                            }),
+                            })),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
-                            StyleBoxShadowValue::Exact(StyleBoxShadow {
+                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
                                 },
@@ -516,10 +517,10 @@ impl ProgressBar {
                                     inner: PixelValue::const_px(12),
                                 },
                                 clip_mode: BoxShadowClipMode::Inset,
-                            }),
+                            })),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
-                            StyleBoxShadowValue::Exact(StyleBoxShadow {
+                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
                                 },
@@ -539,10 +540,10 @@ impl ProgressBar {
                                     inner: PixelValue::const_px(12),
                                 },
                                 clip_mode: BoxShadowClipMode::Inset,
-                            }),
+                            })),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
-                            StyleBoxShadowValue::Exact(StyleBoxShadow {
+                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
                                 },
@@ -562,7 +563,7 @@ impl ProgressBar {
                                     inner: PixelValue::const_px(12),
                                 },
                                 clip_mode: BoxShadowClipMode::Inset,
-                            }),
+                            })),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
                             StyleBorderBottomRightRadiusValue::Exact(

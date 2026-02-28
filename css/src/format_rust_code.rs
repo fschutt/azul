@@ -225,8 +225,7 @@ impl VecContents {
                 self.style_background_positions
                     .insert(v.get_hash(), v.clone());
             }
-            CssProperty::BackgroundContent(CssPropertyValue::Exact(ref bos)) => {
-                let v = bos.as_ref();
+            CssProperty::BackgroundContent(CssPropertyValue::Exact(ref v)) => {
                 for background in v.iter() {
                     match background {
                         StyleBackgroundContent::Image(id) => {

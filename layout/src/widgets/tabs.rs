@@ -13,6 +13,7 @@ use azul_css::{
     },
     *,
 };
+use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
