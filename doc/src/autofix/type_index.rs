@@ -3648,14 +3648,14 @@ pub struct VirtualizedViewCallbackInfo {
 // Callback typedefs - these are the critical types we need to parse correctly
 
 /// Layout callback - takes &mut RefAny and &mut LayoutCallbackInfo
-pub type LayoutCallbackType = extern "C" fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(&mut RefAny, &mut LayoutCallbackInfo) -> Dom;
 
 /// Marshaled layout callback with extra marshal_data parameter
 pub type MarshaledLayoutCallbackType = extern "C" fn(
     /* marshal_data */ &mut RefAny,
     /* app_data */ &mut RefAny,
     &mut LayoutCallbackInfo,
-) -> StyledDom;
+) -> Dom;
 
 /// VirtualizedView callback
 pub type VirtualizedViewCallbackType =

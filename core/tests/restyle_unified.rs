@@ -70,7 +70,7 @@ fn create_test_dom_with_pseudo_states() -> StyledDom {
         dom.add_child(child);
     }
     
-    dom.style(empty_css())
+    StyledDom::create(&mut dom, empty_css())
 }
 
 /// Creates a DOM with layout-affecting :focus CSS (width changes on focus)
@@ -86,7 +86,7 @@ fn create_test_dom_with_layout_pseudo_states() -> StyledDom {
     child.root.add_css_property(CssPropertyWithConditions::on_focus(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::const_px(200)))));
     
     dom.add_child(child);
-    dom.style(empty_css())
+    StyledDom::create(&mut dom, empty_css())
 }
 
 /// Creates a DOM with GPU-only :focus CSS (opacity changes on focus)
@@ -102,7 +102,7 @@ fn create_test_dom_with_gpu_only_pseudo_states() -> StyledDom {
     child.root.add_css_property(CssPropertyWithConditions::on_focus(CssProperty::Opacity(CssPropertyValue::Exact(StyleOpacity::const_new(50)))));
     
     dom.add_child(child);
-    dom.style(empty_css())
+    StyledDom::create(&mut dom, empty_css())
 }
 
 // ==================== Focus Change Tests ====================

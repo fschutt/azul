@@ -6841,7 +6841,7 @@
                                 }
                             ],
                             "returns": {
-                                "type": "StyledDom"
+                                "type": "Dom"
                             }
                         },
                         "repr": "C"
@@ -8173,6 +8173,16 @@
                                     "type": "DomVec",
                                     "doc": [
                                         "The children of this DOM node."
+                                    ]
+                                }
+                            },
+                            {
+                                "css": {
+                                    "type": "CssVec",
+                                    "doc": [
+                                        "Ordered list of CSS stylesheets to apply to this DOM subtree.",
+                                        "Stylesheets are applied in push order during the single deferred cascade pass.",
+                                        "Later entries override earlier ones (higher cascade priority)."
                                     ]
                                 }
                             },
@@ -10202,6 +10212,11 @@
                                 "fn_body": "object.node_count()"
                             },
                             "style": {
+                                "doc": [
+                                    "Push a CSS stylesheet onto this DOM node's stylesheet list.",
+                                    "The CSS will be applied during the deferred cascade pass in `regenerate_layout()`.",
+                                    "Later `.style()` calls have higher cascade priority (override earlier ones)."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -10210,9 +10225,6 @@
                                         "css": "Css"
                                     }
                                 ],
-                                "returns": {
-                                    "type": "StyledDom"
-                                },
                                 "fn_body": "object.style(css)"
                             },
                             "swap_with_default": {
@@ -30164,6 +30176,32 @@
                             {
                                 "ptr": {
                                     "type": "Stylesheet",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CssVecSlice": {
+                        "external": "azul_css::css::CssVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Css",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -57079,6 +57117,207 @@
                         },
                         "repr": "C"
                     },
+                    "CssVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<Css>"
+                        ],
+                        "external": "azul_css::css::CssVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Css",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "CssVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `CssVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "CssVec"
+                                },
+                                "fn_body": "CssVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `CssVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssVec"
+                                },
+                                "fn_body": "CssVec::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "css_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "css_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "css_vec.is_empty()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "Returns a reference to the element at the given index, or None if out of bounds"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionCss"
+                                },
+                                "fn_body": "css_vec.get(index).cloned().into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `CssVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "Css"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssVec"
+                                },
+                                "fn_body": "CssVec::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `CssVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const Css"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssVec"
+                                },
+                                "fn_body": "unsafe { CssVec::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionCss"
+                                },
+                                "fn_body": "css_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `CssVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssVecSlice"
+                                },
+                                "fn_body": "css_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssVecSlice"
+                                },
+                                "fn_body": "css_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "CssRuleBlockVec": {
                         "doc": [
                             "Wrapper over a Rust-allocated `Vec<CssRuleBlock>"
@@ -61616,6 +61855,23 @@
                         ],
                         "repr": "C, u8"
                     },
+                    "CssVecDestructor": {
+                        "external": "azul_css::css::CssVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "CssVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
                     "U32VecDestructor": {
                         "external": "azul_css::corety::U32VecDestructor",
                         "derive": [
@@ -62340,6 +62596,18 @@
                             "fn_args": [
                                 {
                                     "type": "StylesheetVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "CssVecDestructorType": {
+                        "external": "azul_css::css::CssVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "CssVec",
                                     "ref_kind": "mutptr"
                                 }
                             ],
@@ -72772,6 +73040,24 @@
                                 "None": {},
                                 "Some": {
                                     "type": "Stylesheet"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionCss": {
+                        "external": "azul_css::css::OptionCss",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "Css"
                                 }
                             }
                         ],

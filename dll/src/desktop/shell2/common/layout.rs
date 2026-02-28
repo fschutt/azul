@@ -137,10 +137,16 @@ pub fn regenerate_layout(
 
     let app_data_borrowed = app_data.borrow_mut();
 
-    let mut user_styled_dom =
+    let user_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
 
     drop(app_data_borrowed); // Release borrow
+
+    // 1.5. PHASE 7.2: Flatten recursive Dom → StyledDom (single deferred cascade pass)
+    //
+    // The user callback now returns a recursive `Dom` with CSS attached via `.style()`.
+    // We collect all CSS objects, flatten the tree, and run a single cascade pass.
+    let mut user_styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(user_dom);
 
     // 2. Resolve icon nodes to their actual content (text glyphs, images, etc.)
     // This must happen after the user's layout callback and before CSD injection
@@ -881,14 +887,14 @@ fn inject_software_titlebar(
     let mut titlebar_dom = titlebar.dom();
 
     // Style the titlebar DOM (all properties are inline — no external CSS needed)
-    let titlebar_styled = titlebar_dom.style(azul_css::css::Css::empty());
+    let titlebar_styled = azul_core::styled_dom::StyledDom::create(&mut titlebar_dom, azul_css::css::Css::empty());
 
     // Use an Html root (not Body!) so we don't get double <body> nesting.
     // StyledDom::default() creates a Body root, and the user's DOM also starts
     // with Body — nesting body>body causes double 8px UA margin.
     // Html has display:block but no margin in the UA stylesheet.
-    let mut container = azul_core::dom::Dom::create_html()
-        .style(azul_css::css::Css::empty());
+    let mut container_dom = azul_core::dom::Dom::create_html();
+    let mut container = azul_core::styled_dom::StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
     container.append_child(titlebar_styled);
     container.append_child(user_dom);
     container

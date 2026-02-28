@@ -90,10 +90,10 @@ impl Update {
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> crate::dom::Dom;
 
-extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    StyledDom::default()
+extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> crate::dom::Dom {
+    crate::dom::Dom::create_body()
 }
 
 /// Wrapper around the layout callback

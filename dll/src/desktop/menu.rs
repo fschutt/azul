@@ -408,8 +408,8 @@ pub fn create_menu_window(
 
 /// Layout callback for menu windows
 ///
-/// Renders the menu as a StyledDom and updates window position based on measured size
-extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -> StyledDom {
+/// Renders the menu as a Dom with deferred CSS and updates window position based on measured size
+extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
     // Clone data BEFORE downcasting to avoid borrow conflicts
     let data_clone = data.clone();
 
@@ -420,15 +420,15 @@ extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -
                 LogCategory::Callbacks,
                 "[menu_layout_callback] Failed to downcast MenuWindowData"
             );
-            return StyledDom::default();
+            return azul_core::dom::Dom::create_body();
         }
     };
 
     // Get SystemStyle from LayoutCallbackInfo (Arc-based, safe)
     let system_style = &*info.get_system_style();
 
-    // Use menu_renderer to create the StyledDom with callbacks attached
-    crate::desktop::menu_renderer::create_menu_styled_dom(
+    // Use menu_renderer to create the Dom with deferred CSS
+    crate::desktop::menu_renderer::create_menu_dom_with_css(
         &menu_data.menu,
         system_style,
         data_clone, // Pass cloned MenuWindowData to item callbacks

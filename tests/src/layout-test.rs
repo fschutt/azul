@@ -121,7 +121,7 @@ fn test_full_dom_2() {
 
     // tag_ids_to_node_ids gets generated?
 
-    let styled_dom = Dom::create_virtualized_view(RefAny::new(A {}), render_virtualized_view)
+    let mut dom = Dom::create_virtualized_view(RefAny::new(A {}), render_virtualized_view)
         .with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::display(LayoutDisplay::Flex)),
@@ -139,8 +139,8 @@ fn test_full_dom_2() {
                 )),
             ]
             .into(),
-        )
-        .style(Css::empty());
+        );
+    let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
     let layout_result = azul_layout::solver2::do_the_layout_internal(
         DomId::ROOT_ID,

@@ -107,9 +107,11 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
         Ok(parsed) => parsed,
         Err(e) => {
             return DomXml {
-                parsed_dom: Dom::create_body()
-                    .with_children(vec![Dom::create_text(format!("{}", e))].into())
-                    .style(error_css.clone()),
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
             };
         }
     };
@@ -118,9 +120,11 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
         Ok(o) => o,
         Err(e) => {
             return DomXml {
-                parsed_dom: Dom::create_body()
-                    .with_children(vec![Dom::create_text(format!("{}", e))].into())
-                    .style(error_css.clone()),
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
             };
         }
     };
@@ -146,16 +150,18 @@ pub fn domxml_from_file<I: AsRef<Path>>(
         Ok(xml) => xml,
         Err(e) => {
             return DomXml {
-                parsed_dom: Dom::create_body()
-                    .with_children(
-                        vec![Dom::create_text(format!(
-                            "Error reading: \"{}\": {}",
-                            file_path.as_ref().to_string_lossy(),
-                            e
-                        ))]
-                        .into(),
-                    )
-                    .style(error_css.clone()),
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(
+                            vec![Dom::create_text(format!(
+                                "Error reading: \"{}\": {}",
+                                file_path.as_ref().to_string_lossy(),
+                                e
+                            ))]
+                            .into(),
+                        );
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
             };
         }
     };

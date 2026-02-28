@@ -13,14 +13,14 @@ pub fn styled_dom_from_file(_: &str) -> StyledDom {
     use azul_core::dom::Dom;
     use azul_css::css::Css;
 
-    Dom::create_body()
+    let mut dom = Dom::create_body()
         .with_children(
             vec![Dom::create_text(format!(
                 "library was not compiled with --feature=\"xml\""
             ))]
             .into(),
-        )
-        .style(Css::empty())
+        );
+    StyledDom::create(&mut dom, Css::empty())
 }
 
 #[cfg(feature = "xml")]
@@ -34,14 +34,14 @@ pub fn styled_dom_from_str(_: &str) -> StyledDom {
     use azul_core::dom::Dom;
     use azul_css::css::Css;
 
-    Dom::create_body()
+    let mut dom = Dom::create_body()
         .with_children(
             vec![Dom::create_text(format!(
                 "library was not compiled with --feature=\"xml\""
             ))]
             .into(),
-        )
-        .style(Css::empty())
+        );
+    StyledDom::create(&mut dom, Css::empty())
 }
 
 #[cfg(feature = "xml")]
@@ -57,14 +57,14 @@ pub fn styled_dom_from_parsed_xml(_xml: azul_core::xml::Xml) -> StyledDom {
     use azul_core::dom::Dom;
     use azul_css::css::Css;
 
-    Dom::create_body()
+    let mut dom = Dom::create_body()
         .with_children(
             vec![Dom::create_text(format!(
                 "library was not compiled with --feature=\"xml\""
             ))]
             .into(),
-        )
-        .style(Css::empty())
+        );
+    StyledDom::create(&mut dom, Css::empty())
 }
 
 /// Create a StyledDom from an already-parsed Xml structure.
@@ -79,9 +79,9 @@ pub fn styled_dom_from_parsed_xml(xml: azul_core::xml::Xml) -> StyledDom {
     match str_to_dom(xml.root.as_ref(), &component_map, None) {
         Ok(styled_dom) => styled_dom,
         Err(e) => {
-            Dom::create_body()
-                .with_children(vec![Dom::create_text(format!("{}", e))].into())
-                .style(Css::empty())
+            let mut dom = Dom::create_body()
+                .with_children(vec![Dom::create_text(format!("{}", e))].into());
+            StyledDom::create(&mut dom, Css::empty())
         }
     }
 }

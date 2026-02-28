@@ -634,10 +634,10 @@ fn test_body_as_root_inline_block_positioning() {
     let mut button = Dom::create_text("Increase counter");
     button.set_inline_style("display: inline-block; padding: 5px 10px; background: #efefef;");
 
-    let styled_dom = Dom::create_body()
+    let mut body_dom = Dom::create_body()
         .with_child(label)
-        .with_child(button)
-        .style(azul_css::css::Css::empty());
+        .with_child(button);
+    let styled_dom = StyledDom::create(&mut body_dom, azul_css::css::Css::empty());
 
     // Create font cache and font manager
     let fc_cache = build_font_cache();

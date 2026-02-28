@@ -215,7 +215,26 @@ pub fn create_menu_styled_dom(
     let css = Css::new(vec![stylesheet]);
 
     // Apply stylesheet to DOM
-    dom.style(css)
+    StyledDom::create(&mut dom, css)
+}
+
+/// Create a menu DOM with deferred CSS for use in layout callbacks.
+///
+/// Same as `create_menu_styled_dom` but returns a `Dom` with CSS pushed
+/// via `.style()` (deferred cascade). Use this in `LayoutCallbackType` callbacks
+/// which now return `Dom` instead of `StyledDom`.
+pub fn create_menu_dom_with_css(
+    menu: &Menu,
+    system_style: &SystemStyle,
+    menu_window_data: RefAny,
+) -> Dom {
+    let mut dom = create_menu_dom(menu, &menu_window_data);
+
+    let stylesheet = system_style.create_menu_stylesheet();
+    let css = Css::new(vec![stylesheet]);
+
+    dom.style(css);
+    dom
 }
 
 /// Create menu DOM structure with callbacks attached (internal helper)

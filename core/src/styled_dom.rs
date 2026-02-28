@@ -1011,6 +1011,44 @@ impl StyledDom {
         styled_dom
     }
 
+    /// Creates a StyledDom from a recursive Dom tree with deferred CSS.
+    ///
+    /// This is the Phase 7.2 entry point: the layout callback returns a recursive
+    /// `Dom` with `css: Vec<Css>` on each node. This function:
+    ///
+    /// 1. Collects all CSS objects from the recursive tree
+    /// 2. Flattens the Dom into contiguous arrays (CompactDom)
+    /// 3. Merges all CSS objects and runs a single cascade pass
+    /// 4. Runs apply_ua_css → compute_inherited_values → build_compact_cache
+    /// 5. Generates anonymous table elements
+    pub fn create_from_dom(mut dom: Dom) -> Self {
+        use azul_css::css::Css;
+
+        // 1. Collect all CSS objects from the recursive Dom tree
+        let mut all_css = Vec::new();
+        collect_css_from_dom(&dom, &mut all_css);
+
+        // 2. Merge all CSS objects into one combined Css
+        let mut combined_css = if all_css.is_empty() {
+            Css::empty()
+        } else {
+            let mut combined_stylesheets = Vec::new();
+            for css in all_css {
+                for stylesheet in css.stylesheets.into_library_owned_vec() {
+                    combined_stylesheets.push(stylesheet);
+                }
+            }
+            Css::new(combined_stylesheets)
+        };
+
+        // 3. Strip CSS from all Dom nodes before flattening
+        //    (CSS is already collected, don't need it in the flat tree)
+        strip_css_from_dom(&mut dom);
+
+        // 4. Use existing StyledDom::create to flatten + cascade
+        Self::create(&mut dom, combined_css)
+    }
+
     /// Appends another `StyledDom` as a child to the `self.root`
     /// without re-styling the DOM itself
     pub fn append_child(&mut self, mut other: Self) {
@@ -2351,6 +2389,29 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
             internal: node_data,
         },
         root: root_node_id,
+    }
+}
+
+/// Recursively collect all CSS objects from a Dom tree (depth-first).
+/// Inner (deeper) CSS objects come first, outer (shallower) CSS objects come last.
+/// This means outer CSS has higher cascade priority when applied in order.
+fn collect_css_from_dom(dom: &Dom, out: &mut Vec<azul_css::css::Css>) {
+    // First, recurse into children (inner CSS = lower priority)
+    for child in dom.children.iter() {
+        collect_css_from_dom(child, out);
+    }
+    // Then, add this node's CSS objects (outer CSS = higher priority)
+    for css in dom.css.iter() {
+        out.push(css.clone());
+    }
+}
+
+/// Recursively strip CSS from all Dom nodes (sets css to empty vec).
+/// Called after collecting CSS so the CompactDom doesn't carry CSS data.
+fn strip_css_from_dom(dom: &mut Dom) {
+    dom.css = Vec::new().into();
+    for child in dom.children.as_mut().iter_mut() {
+        strip_css_from_dom(child);
     }
 }
 

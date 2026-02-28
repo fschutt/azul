@@ -38,7 +38,7 @@ struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) -> azul_core::dom::Dom {
     // Clone data early to avoid borrow issues
     let data_clone = data.clone();
 
@@ -50,12 +50,12 @@ extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) 
                 LogCategory::Layout,
                 "[Menu Layout] Failed to downcast menu data"
             );
-            return StyledDom::default();
+            return azul_core::dom::Dom::create_body();
         }
     };
 
-    // Use menu_renderer to create styled DOM
-    crate::desktop::menu_renderer::create_menu_styled_dom(
+    // Use menu_renderer to create Dom with deferred CSS
+    crate::desktop::menu_renderer::create_menu_dom_with_css(
         &menu_data.menu,
         &menu_data.system_style,
         data_clone, // Pass cloned RefAny for menu window data

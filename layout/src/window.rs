@@ -1249,7 +1249,7 @@ impl LayoutWindow {
                     // For the very first render, create an empty div as a fallback.
                     let mut empty_dom = Dom::create_div();
                     let empty_css = Css::empty();
-                    empty_dom.style(empty_css)
+                    azul_core::styled_dom::StyledDom::create(&mut empty_dom, empty_css)
                 } else {
                     // For subsequent calls, returning None means "keep the old DOM".
                     // We just need to update the scroll info and return the existing child ID.

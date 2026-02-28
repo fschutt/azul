@@ -4,6 +4,7 @@
 //! inline formatting context, matching HTML/CSS behavior.
 
 use azul_core::dom::{Dom, NodeType};
+use azul_core::styled_dom::StyledDom;
 use azul_css::css::Css;
 
 #[test]
@@ -12,7 +13,7 @@ fn test_text_node_in_div_creates_ifc() {
     // Expected: The DIV creates a BFC, which contains an IFC for the text
 
     let mut dom = Dom::create_div().with_children(vec![Dom::create_text("Hello World")].into());
-    let styled_dom = dom.style(Css::empty());
+    let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
     eprintln!("Test: text_node_in_div_creates_ifc");
     eprintln!("DOM structure:");
@@ -48,7 +49,7 @@ fn test_nested_text_nodes() {
 
     let mut dom = Dom::create_div()
         .with_children(vec![Dom::create_text("Hello "), Dom::create_text("World")].into());
-    let styled_dom = dom.style(Css::empty());
+    let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
     eprintln!("\nTest: nested_text_nodes");
     eprintln!(
@@ -73,7 +74,7 @@ fn test_div_with_explicit_font_size() {
         .with_inline_style("font-size: 24px; width: 400px; height: 30px;")
         .with_children(vec![Dom::create_text("Test Text")].into());
 
-    let styled_dom = dom.style(Css::empty());
+    let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
     eprintln!("\nTest: div_with_explicit_font_size");
     eprintln!("This matches our failing test_display_list example");

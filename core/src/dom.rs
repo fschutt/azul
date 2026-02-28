@@ -3462,15 +3462,39 @@ impl DomNodeId {
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read
 /// anything back from it. It's designed for ease of construction.
 #[repr(C)]
-#[derive(PartialEq, Clone, Eq, Hash, PartialOrd, Ord)]
+#[derive(PartialEq, Clone, PartialOrd)]
 pub struct Dom {
     /// The data for the root node of this DOM (or sub-DOM).
     pub root: NodeData,
     /// The children of this DOM node.
     pub children: DomVec,
+    /// Ordered list of CSS stylesheets to apply to this DOM subtree.
+    /// Stylesheets are applied in push order during the single deferred cascade pass.
+    /// Later entries override earlier ones (higher cascade priority).
+    pub css: azul_css::css::CssVec,
     // Tracks the number of sub-children of the current children, so that
     // the `Dom` can be converted into a `CompactDom`.
     pub estimated_total_children: usize,
+}
+
+// Manual Eq/Hash/Ord impls that skip the transient `css` field,
+// since CssVec does not implement Eq/Hash/Ord.
+impl Eq for Dom {}
+
+impl core::hash::Hash for Dom {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.root.hash(state);
+        self.children.hash(state);
+        self.estimated_total_children.hash(state);
+    }
+}
+
+impl Ord for Dom {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.root.cmp(&other.root)
+            .then_with(|| self.children.cmp(&other.children))
+            .then_with(|| self.estimated_total_children.cmp(&other.estimated_total_children))
+    }
 }
 
 impl_option!(
@@ -3500,6 +3524,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(node_type),
             children: Vec::new().into(),
+            css: Vec::new().into(),
             estimated_total_children: 0,
         }
     }
@@ -3508,6 +3533,7 @@ impl Dom {
         Self {
             root: node_data,
             children: Vec::new().into(),
+            css: Vec::new().into(),
             estimated_total_children: 0,
         }
     }
@@ -3523,6 +3549,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Html),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3535,6 +3562,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Head),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3544,6 +3572,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Body),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3557,6 +3586,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Div),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3573,6 +3603,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Article),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3586,6 +3617,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Section),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3600,6 +3632,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Nav),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3613,6 +3646,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Aside),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3626,6 +3660,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Header),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3639,6 +3674,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Footer),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3653,6 +3689,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Main),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3666,6 +3703,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Figure),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3679,6 +3717,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::FigCaption),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3694,6 +3733,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Details),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3707,6 +3747,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Summary),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3722,6 +3763,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Dialog),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3733,6 +3775,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Br),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3775,6 +3818,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::P),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -3791,6 +3835,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::H1),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3807,6 +3852,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::H2),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3823,6 +3869,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::H3),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3837,6 +3884,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::H4),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3851,6 +3899,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::H5),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3865,6 +3914,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::H6),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3882,6 +3932,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Span),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3899,6 +3950,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Strong),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -3916,6 +3968,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Em),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
         .with_child(Self::create_text(text))
@@ -4364,6 +4417,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Address),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4376,6 +4430,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Dl),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4388,6 +4443,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Dt),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4400,6 +4456,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Dd),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4410,6 +4467,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::ColGroup),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4437,6 +4495,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Q),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4449,6 +4508,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Acronym),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4462,6 +4522,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Menu),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4475,6 +4536,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::MenuItem),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4488,6 +4550,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Output),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4540,6 +4603,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::DataList),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4556,6 +4620,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Canvas),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4568,6 +4633,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Object),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4593,6 +4659,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Embed),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4606,6 +4673,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Audio),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4619,6 +4687,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Video),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4664,6 +4733,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Map),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4677,6 +4747,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Area),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4700,6 +4771,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Meta),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4713,6 +4785,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Link),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4726,6 +4799,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Script),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4739,6 +4813,7 @@ impl Dom {
         Self {
             root: NodeData::create_node(NodeType::Style),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
@@ -4949,6 +5024,7 @@ impl Dom {
         let mut s = Self {
             root: NodeData::create_div(),
             children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         };
         mem::swap(&mut s, self);
@@ -4980,6 +5056,7 @@ impl Dom {
         Self {
             root: self.root.copy_special(),
             children: self.children.clone(),
+            css: self.css.clone(),
             estimated_total_children: self.estimated_total_children,
         }
     }
@@ -4987,8 +5064,15 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    pub fn style(&mut self, css: azul_css::css::Css) -> StyledDom {
-        StyledDom::create(self, css)
+    /// Push a CSS stylesheet onto this DOM node's stylesheet list.
+    /// The CSS will be applied during the deferred cascade pass in `regenerate_layout()`.
+    /// Later `.style()` calls have higher cascade priority (override earlier ones).
+    pub fn style(&mut self, css: azul_css::css::Css) {
+        let mut v = Vec::new().into();
+        core::mem::swap(&mut v, &mut self.css);
+        let mut v: Vec<azul_css::css::Css> = v.into_library_owned_vec();
+        v.push(css);
+        self.css = v.into();
     }
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self {
@@ -5288,6 +5372,7 @@ impl core::iter::FromIterator<Dom> for Dom {
         Dom {
             root: NodeData::create_div(),
             children: children.into(),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children,
         }
     }

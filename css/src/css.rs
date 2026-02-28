@@ -26,6 +26,20 @@ impl_vec_partialord!(Stylesheet, StylesheetVec);
 impl_vec_clone!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
 impl_vec_partialeq!(Stylesheet, StylesheetVec);
 
+impl_option!(
+    Css,
+    OptionCss,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
+impl_vec!(Css, CssVec, CssVecDestructor, CssVecDestructorType, CssVecSlice, OptionCss);
+impl_vec_mut!(Css, CssVec);
+impl_vec_debug!(Css, CssVec);
+impl_vec_partialord!(Css, CssVec);
+impl_vec_clone!(Css, CssVec, CssVecDestructor);
+impl_vec_partialeq!(Css, CssVec);
+
 impl Css {
     pub fn is_empty(&self) -> bool {
         self.stylesheets.iter().all(|s| s.rules.as_ref().is_empty())

@@ -107,7 +107,7 @@ pub fn create_titlebar_styled_dom(
     let stylesheet = system_style.create_csd_stylesheet();
     let css = azul_css::css::Css::new(vec![stylesheet]);
 
-    dom.style(css)
+    StyledDom::create(&mut dom, css)
 }
 
 /// Create a CSD menu bar `StyledDom` with menu items and callbacks.
@@ -148,7 +148,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
     let stylesheet = system_style.create_menu_stylesheet();
     let css = azul_css::css::Css::new(vec![stylesheet]);
 
-    dom.style(css)
+    StyledDom::create(&mut dom, css)
 }
 
 // ── Public helpers ───────────────────────────────────────────────────────
@@ -189,8 +189,8 @@ pub fn wrap_user_dom_with_decorations(
     }
 
     // Use an Html root so we don't get double <body> nesting.
-    let mut container_styled = Dom::create_html()
-        .style(azul_css::css::Css::empty());
+    let mut container_dom = Dom::create_html();
+    let mut container_styled = StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
 
     // Inject titlebar if needed
     if should_inject_titlebar {

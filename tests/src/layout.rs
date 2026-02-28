@@ -1708,7 +1708,7 @@ mod context {
     #[test]
     fn test_node_default_formatting_contexts() {
         // Create a DOM with different types of nodes
-        let styled_dom = Dom::create_node(NodeType::Body)
+        let mut dom = Dom::create_node(NodeType::Body)
             .with_children(
                 vec![
                     // Text node - should be inline by default
@@ -1726,8 +1726,8 @@ mod context {
                     Dom::from_data(NodeData::br()),
                 ]
                 .into(),
-            )
-            .style(Css::empty());
+            );
+        let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
         // Determine formatting contexts
         let formatting_contexts = determine_formatting_contexts(&styled_dom);
@@ -1763,7 +1763,7 @@ mod context {
     #[test]
     fn test_css_overrides_default_formatting() {
         // Create a DOM with CSS overrides
-        let styled_dom = Dom::create_node(NodeType::Body)
+        let mut dom = Dom::create_node(NodeType::Body)
             .with_children(
                 vec![
                     // Make text display as block
@@ -1781,8 +1781,8 @@ mod context {
                     ),
                 ]
                 .into(),
-            )
-            .style(Css::empty());
+            );
+        let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
         // Determine formatting contexts
         let formatting_contexts = determine_formatting_contexts(&styled_dom);
@@ -1845,7 +1845,7 @@ mod caching {
 
     // Helper function to create test DOM
     fn create_test_dom() -> StyledDom {
-        Dom::create_node(NodeType::Body)
+        let mut dom = Dom::create_node(NodeType::Body)
             .with_children(
                 vec![
                     Dom::from_data(NodeData::text("Hello")),
@@ -1853,8 +1853,8 @@ mod caching {
                         .with_children(vec![Dom::from_data(NodeData::text("World"))].into()),
                 ]
                 .into(),
-            )
-            .style(Css::empty())
+            );
+        StyledDom::create(&mut dom, Css::empty())
     }
 
     #[test]

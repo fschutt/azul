@@ -2476,7 +2476,7 @@ fn builtin_render_fn(
             dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
         }
     }
-    let r: Result<StyledDom, RenderDomError> = Ok(dom.style(Css::empty()));
+    let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
     r.into()
 }
 
@@ -2667,7 +2667,7 @@ pub fn user_defined_render_fn(
         Css::empty()
     };
 
-    let r: Result<StyledDom, RenderDomError> = Ok(wrapper.style(css));
+    let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut wrapper, css));
     r.into()
 }
 
@@ -3559,7 +3559,8 @@ impl DomXml {
     /// ```
     #[cfg(test)]
     pub fn assert_eq(self, other: StyledDom) {
-        let mut fixed = Dom::create_body().style(Css::empty());
+        let mut body = Dom::create_body();
+        let mut fixed = StyledDom::create(&mut body, Css::empty());
         fixed.append_child(other);
         if self.parsed_dom != fixed {
             panic!(
@@ -4248,16 +4249,17 @@ pub fn str_to_rust_code<'a>(
 use azul::{
     app::{App, AppConfig, LayoutSolver},
     css::Css,
-    style::StyledDom,
+    dom::Dom,
     callbacks::{RefAny, LayoutCallbackInfo},
     window::{WindowCreateOptions, WindowFrame},
 };
 
 struct Data { }
 
-extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    crate::ui::render()
-    .style(Css::empty()) // styles are applied inline
+extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> Dom {
+    let mut dom = crate::ui::render();
+    dom.style(Css::empty()); // styles are applied inline
+    dom
 }
 
 fn main() {
@@ -4543,7 +4545,7 @@ pub fn render_dom_from_body_node<'a>(
     };
     
     // Apply combined CSS once to the COMPLETE DOM tree (including html wrapper)
-    let styled = full_dom.style(combined_css);
+    let styled = StyledDom::create(&mut full_dom, combined_css);
 
     Ok(styled)
 }
