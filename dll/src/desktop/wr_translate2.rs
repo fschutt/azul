@@ -384,7 +384,7 @@ pub fn translate_world_point(
 /// NOTE: This is a partial implementation that handles basic hit testing.
 /// Full implementation would need to:
 /// - Convert WebRender item tags to (DomId, NodeId) pairs
-/// - Handle VirtualizedView hits
+/// - Handle VirtualView hits
 /// - Extract scrollable nodes from hit results
 /// - Properly calculate point_relative_to_item coordinates
 pub fn translate_hit_test_result(
@@ -427,7 +427,7 @@ pub fn translate_hit_test_result(
             point_in_viewport,
             point_relative_to_item,
             is_focusable: false, // TODO: Determine from node data
-            is_virtualized_view_hit: None, // VirtualizedViews handled via DisplayListItem::IFrame
+            is_virtual_view_hit: None, // VirtualViews handled via DisplayListItem (WR iframe)
             hit_depth: depth as u32,
         };
 
@@ -580,11 +580,11 @@ pub fn fullhittest_new_webrender(
             const TAG_TYPE_CURSOR: u16 = 0x0400;
             const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
-            // Detect items from foreign pipelines (VirtualizedView child DOMs).
+            // Detect items from foreign pipelines (VirtualView child DOMs).
             // WebRender returns ALL pipeline items together but when cursor
-            // is over a VirtualizedView, the VirtualizedView content (child pipeline) occludes
+            // is over a VirtualView, the VirtualView content (child pipeline) occludes
             // the parent pipeline's hit-test areas. We must detect this and
-            // synthetically add the parent VirtualizedView scroll node.
+            // synthetically add the parent VirtualView scroll node.
             let mut foreign_child_dom_ids: Vec<DomId> = Vec::new();
             {
                 let mut seen_foreign = std::collections::BTreeSet::new();
@@ -597,8 +597,8 @@ pub fn fullhittest_new_webrender(
                 }
             }
 
-            // If we detected foreign pipeline hits, the cursor is over a VirtualizedView.
-            // Add the VirtualizedView parent scroll node(s) for this DOM so the scroll
+            // If we detected foreign pipeline hits, the cursor is over a VirtualView.
+            // Add the VirtualView parent scroll node(s) for this DOM so the scroll
             // manager can find them during trackpad/wheel events.
             if !foreign_child_dom_ids.is_empty() {
                 use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
@@ -608,22 +608,22 @@ pub fn fullhittest_new_webrender(
                     new_dom_ids.push((*child_dom_id, *cursor_relative_to_dom));
                 }
 
-                // Find VirtualizedView scroll nodes in the current DOM and add them to
+                // Find VirtualView scroll nodes in the current DOM and add them to
                 // scroll_hit_test_nodes. These nodes have overflow:scroll/auto
-                // and are VirtualizedView containers — their Pipeline 0 hit-test area
+                // and are VirtualView containers — their Pipeline 0 hit-test area
                 // was occluded by the child pipeline content.
                 for (&scroll_id, &node_id) in &layout_result.scroll_id_to_node_id {
-                    // Check if this scrollable node is a VirtualizedView type
-                    let is_virtualized_view = layout_result
+                    // Check if this scrollable node is a VirtualView type
+                    let is_virtual_view = layout_result
                         .styled_dom
                         .node_data
                         .as_container()
                         .get(node_id)
                         .map_or(false, |nd| {
-                            matches!(nd.get_node_type(), azul_core::dom::NodeType::VirtualizedView)
+                            matches!(nd.get_node_type(), azul_core::dom::NodeType::VirtualView)
                         });
 
-                    if !is_virtualized_view {
+                    if !is_virtual_view {
                         continue;
                     }
 
@@ -834,7 +834,7 @@ pub fn fullhittest_new_webrender(
                         HitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
                             point_relative_to_item,
-                            is_virtualized_view_hit: None,
+                            is_virtual_view_hit: None,
                             is_focusable: layout_result
                                 .styled_dom
                                 .node_data
@@ -1760,8 +1760,8 @@ pub fn generate_frame(
     // Process image callback updates (invoke callbacks and register textures)
     process_image_callback_updates(layout_window, gl_context, txn);
 
-    // Process VirtualizedView updates (if any callbacks requested re-rendering)
-    process_virtualized_view_updates(layout_window, txn);
+    // Process VirtualView updates (if any callbacks requested re-rendering)
+    process_virtual_view_updates(layout_window, txn);
 
     // Scroll all nodes to their current positions
     scroll_all_nodes(layout_window, txn);
@@ -3031,38 +3031,38 @@ fn process_image_callback_updates(
     }
 }
 
-/// Process VirtualizedView updates requested by callbacks
+/// Process VirtualView updates requested by callbacks
 ///
-/// This function handles manual VirtualizedView re-rendering triggered by `trigger_virtualized_view_rerender()`.
-/// It rebuilds display lists for VirtualizedViews that were already re-rendered during layout,
+/// This function handles manual VirtualView re-rendering triggered by `trigger_virtual_view_rerender()`.
+/// It rebuilds display lists for VirtualViews that were already re-rendered during layout,
 /// then submits only those pipelines to WebRender without rebuilding the entire scene.
 ///
 /// # Architecture
 ///
-/// Each VirtualizedView gets its own WebRender pipeline with a stable PipelineId based on
-/// (dom_id, node_id). When a VirtualizedView needs updating:
+/// Each VirtualView gets its own WebRender pipeline with a stable PipelineId based on
+/// (dom_id, node_id). When a VirtualView needs updating:
 ///
-/// 1. The VirtualizedView callback was already re-invoked during the layout phase
-/// 2. The layout result for that VirtualizedView's DOM exists in layout_results
-/// 3. We just need to rebuild and submit that specific VirtualizedView's display list
+/// 1. The VirtualView callback was already re-invoked during the layout phase
+/// 2. The layout result for that VirtualView's DOM exists in layout_results
+/// 3. We just need to rebuild and submit that specific VirtualView's display list
 /// 4. Other pipelines remain untouched
 ///
 /// This allows efficient updates without full scene rebuilds.
 ///
 /// # Arguments
 ///
-/// * `layout_window` - The layout window with VirtualizedView state
+/// * `layout_window` - The layout window with VirtualView state
 /// * `txn` - The WebRender transaction to add updates to
-fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
-    // Check if there are any pending VirtualizedView updates
-    if layout_window.pending_virtualized_view_updates.is_empty() {
+fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+    // Check if there are any pending VirtualView updates
+    if layout_window.pending_virtual_view_updates.is_empty() {
         return;
     }
 
     log_debug!(
         LogCategory::Rendering,
-        "[process_virtualized_view_updates] Processing {} pending VirtualizedView updates",
-        layout_window.pending_virtualized_view_updates.len()
+        "[process_virtual_view_updates] Processing {} pending VirtualView updates",
+        layout_window.pending_virtual_view_updates.len()
     );
 
     use webrender::api::Epoch as WrEpoch;
@@ -3074,10 +3074,10 @@ fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut 
     // Collect all child DOM IDs that need their display lists rebuilt
     let mut child_dom_ids = Vec::new();
 
-    for (parent_dom_id, node_ids) in &layout_window.pending_virtualized_view_updates {
+    for (parent_dom_id, node_ids) in &layout_window.pending_virtual_view_updates {
         for node_id in node_ids {
             if let Some(child_dom_id) = layout_window
-                .virtualized_view_manager
+                .virtual_view_manager
                 .get_nested_dom_id(*parent_dom_id, *node_id)
             {
                 child_dom_ids.push((child_dom_id, *parent_dom_id, *node_id));
@@ -3086,17 +3086,17 @@ fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut 
     }
 
     // Clear pending updates
-    layout_window.pending_virtualized_view_updates.clear();
+    layout_window.pending_virtual_view_updates.clear();
 
-    // For each VirtualizedView, rebuild and submit its display list
+    // For each VirtualView, rebuild and submit its display list
     for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
-        // Get the layout result for the VirtualizedView's content
+        // Get the layout result for the VirtualView's content
         let layout_result =
             match layout_window.layout_results.get(&child_dom_id) {
                 Some(lr) => lr,
                 None => {
                     log_debug!(LogCategory::Rendering,
-                    "[process_virtualized_view_updates] No layout result for child DOM {:?} (parent {:?}, \
+                    "[process_virtual_view_updates] No layout result for child DOM {:?} (parent {:?}, \
                      node {:?})",
                     child_dom_id, parent_dom_id, node_id
                 );
@@ -3104,7 +3104,7 @@ fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut 
                 }
             };
 
-        // Build the pipeline ID for this VirtualizedView
+        // Build the pipeline ID for this VirtualView
         let pipeline_id = wr_translate_pipeline_id(PipelineId(
             child_dom_id.inner as u32,
             layout_window.document_id.id,
@@ -3124,7 +3124,7 @@ fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut 
             Ok((_, built_display_list, nested_pipelines)) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_virtualized_view_updates] Submitting display list for VirtualizedView DOM {} (pipeline \
+                    "[process_virtual_view_updates] Submitting display list for VirtualView DOM {} (pipeline \
                      {:?})",
                     child_dom_id.inner,
                     pipeline_id
@@ -3136,11 +3136,11 @@ fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut 
                     (pipeline_id, built_display_list),
                 );
 
-                // Submit any nested pipelines (VirtualizedViews within VirtualizedViews)
+                // Submit any nested pipelines (VirtualViews within VirtualViews)
                 for (nested_pipeline_id, nested_display_list) in nested_pipelines {
                     log_debug!(
                         LogCategory::Rendering,
-                        "[process_virtualized_view_updates] Submitting nested pipeline {:?}",
+                        "[process_virtual_view_updates] Submitting nested pipeline {:?}",
                         nested_pipeline_id
                     );
                     txn.set_display_list(
@@ -3152,7 +3152,7 @@ fn process_virtualized_view_updates(layout_window: &mut LayoutWindow, txn: &mut 
             Err(e) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_virtualized_view_updates] Error building display list for VirtualizedView DOM {}: {}",
+                    "[process_virtual_view_updates] Error building display list for VirtualView DOM {}: {}",
                     child_dom_id.inner,
                     e
                 );

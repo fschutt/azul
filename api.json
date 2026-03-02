@@ -644,7 +644,7 @@
                     "Infinite",
                     "Scrolling"
                 ],
-                "alt": "Loading and displaying infinite content using VirtualizedViewCallbacks",
+                "alt": "Loading and displaying infinite content using VirtualViewCallbacks",
                 "show_on_index": true,
                 "code": {
                     "c": "c/infinity.c",
@@ -663,7 +663,7 @@
                     "mac": "infinity.mac.png"
                 },
                 "description": [
-                    "Display 10 million rows at 60 FPS. VirtualizedViewCallbacks render only what's visible on screen.",
+                    "Display 10 million rows at 60 FPS. VirtualViewCallbacks render only what's visible on screen.",
                     "Lazy-load images, SVGs, and complex content as users scroll - zero upfront memory cost.",
                     "Perfect for IDE file trees, database viewers, and infinite feeds, ..."
                 ]
@@ -3060,171 +3060,24 @@
                             }
                         }
                     },
-                    "VirtualizedViewCallback": {
+                    "VirtualViewCallbackType": {
                         "doc": [
-                            "C-ABI wrapper over an `VirtualizedViewCallbackType`"
+                            "Type alias for extern \"C\" fn (&mut RefAny , &mut VirtualViewCallbackInfo) -> VirtualViewReturn"
                         ],
-                        "external": "azul_core::callbacks::VirtualizedViewCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "VirtualizedViewCallbackType"
-                                },
-                                "ctx": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "VirtualizedViewCallbackType": {
-                        "doc": [
-                            "Type alias for extern \"C\" fn (&mut RefAny , &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn"
-                        ],
-                        "external": "azul_core::callbacks::VirtualizedViewCallbackType",
+                        "external": "azul_core::callbacks::VirtualViewCallbackType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
                                     "type": "RefAny"
                                 },
                                 {
-                                    "type": "VirtualizedViewCallbackInfo"
+                                    "type": "VirtualViewCallbackInfo"
                                 }
                             ],
                             "returns": {
-                                "type": "VirtualizedViewCallbackReturn"
+                                "type": "VirtualViewReturn"
                             }
                         }
-                    },
-                    "VirtualizedViewCallbackReturn": {
-                        "doc": [
-                            "Return value for a VirtualizedView rendering callback. # Dual Size Model VirtualizedView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualizedView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualizedView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualizedView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualizedView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualizedView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualizedView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtualized_view_callback(data: &mut MyData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualizedViewCallbackReturn { dom: OptionDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualizedViewCallbackReturn { dom: OptionDom::Some(new_dom), ... } } ``` # Example: Basic VirtualizedView ```rust,ignore fn my_virtualized_view_callback(data: &mut MyData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualizedView!\")); let styled_dom = dom; VirtualizedViewCallbackReturn { // The rendered content dom: OptionDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtualized_view_callback(data: &mut TableData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualizedViewCallbackReturn { dom: OptionDom::Some(dom), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualizedView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
-                        ],
-                        "external": "azul_core::callbacks::VirtualizedViewCallbackReturn",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "PartialEq",
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "dom": {
-                                    "type": "OptionDom",
-                                    "doc": [
-                                        "The DOM with actual rendered content, or None to keep current DOM. - `OptionDom::Some(dom)` - Replace current content with this new DOM - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds Returning `None` is an optimization when the callback determines that the current content is sufficient (e.g., already rendered ahead of scroll position)."
-                                    ]
-                                }
-                            },
-                            {
-                                "scroll_size": {
-                                    "type": "LogicalSize",
-                                    "doc": [
-                                        "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows x 30px each)."
-                                    ]
-                                }
-                            },
-                            {
-                                "scroll_offset": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Offset of the actual rendered content within the virtual coordinate space. This positions the rendered content within the larger virtual space. For virtualized content, this will be non-zero to indicate where the rendered \"window\" starts. **Example**: For a table showing rows 10-30, this might be y=300 (row 10 starts 300px from the top)."
-                                    ]
-                                }
-                            },
-                            {
-                                "virtual_scroll_size": {
-                                    "type": "LogicalSize",
-                                    "doc": [
-                                        "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows x 30px each), even though only 20 rows are actually rendered."
-                                    ]
-                                }
-                            },
-                            {
-                                "virtual_scroll_offset": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Offset of the virtual content (usually zero). This is typically `(0, 0)` since the virtual space usually starts at the origin. Advanced use cases might use this for complex virtualization scenarios."
-                                    ]
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "with_dom": {
-                                "doc": [
-                                    "Creates a new VirtualizedViewCallbackReturn with updated DOM content.",
-                                    "",
-                                    "Use this when the callback has rendered new content to display.",
-                                    "",
-                                    "# Arguments",
-                                    "- `dom` - The new DOM to render",
-                                    "- `scroll_size` - Size of the actual rendered content",
-                                    "- `scroll_offset` - Position of rendered content in virtual space",
-                                    "- `virtual_scroll_size` - Size for scrollbar representation",
-                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "dom": "Dom"
-                                    },
-                                    {
-                                        "scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "scroll_offset": "LogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "LogicalPosition"
-                                    }
-                                ],
-                                "fn_body": "azul_core::callbacks::VirtualizedViewCallbackReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
-                            },
-                            "keep_current": {
-                                "doc": [
-                                    "Creates a return value that keeps the current DOM unchanged.",
-                                    "",
-                                    "Use this when the callback determines that the existing content",
-                                    "is sufficient (e.g., already rendered ahead of scroll position).",
-                                    "This is an optimization to avoid rebuilding the DOM unnecessarily.",
-                                    "",
-                                    "# Arguments",
-                                    "- `scroll_size` - Size of the current rendered content",
-                                    "- `scroll_offset` - Position of current content in virtual space",
-                                    "- `virtual_scroll_size` - Size for scrollbar representation",
-                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "scroll_offset": "LogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "LogicalPosition"
-                                    }
-                                ],
-                                "fn_body": "azul_core::callbacks::VirtualizedViewCallbackReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
-                            }
-                        },
-                        "repr": "C"
                     },
                     "CoreCallbackType": {
                         "doc": [
@@ -3496,8 +3349,8 @@
                             }
                         }
                     },
-                    "VirtualizedViewCallbackInfo": {
-                        "external": "azul_core::callbacks::VirtualizedViewCallbackInfo",
+                    "VirtualViewCallbackInfo": {
+                        "external": "azul_core::callbacks::VirtualViewCallbackInfo",
                         "custom_impls": [
                             "Clone"
                         ],
@@ -3507,7 +3360,7 @@
                         "struct_fields": [
                             {
                                 "reason": {
-                                    "type": "VirtualizedViewCallbackReason"
+                                    "type": "VirtualViewCallbackReason"
                                 },
                                 "system_fonts": {
                                     "type": "c_void",
@@ -4475,12 +4328,12 @@
                                 ],
                                 "fn_body": "object.update_all_image_callbacks()"
                             },
-                            "trigger_virtualized_view_rerender": {
+                            "trigger_virtual_view_rerender": {
                                 "doc": [
-                                    "Trigger re-rendering of a VirtualizedView (applied after callback returns)",
+                                    "Trigger re-rendering of a VirtualView (applied after callback returns)",
                                     "",
-                                    "This forces the VirtualizedView to call its layout callback with reason `DomRecreated`",
-                                    "and submit a new display list to WebRender. The VirtualizedView's pipeline will be updated",
+                                    "This forces the VirtualView to call its layout callback with reason `DomRecreated`",
+                                    "and submit a new display list to WebRender. The VirtualView's pipeline will be updated",
                                     "without affecting other parts of the window.",
                                     "",
                                     "Useful for:",
@@ -4490,8 +4343,8 @@
                                     "",
                                     "# Example",
                                     "```ignore",
-                                    "// After text input changes, update the preview VirtualizedView",
-                                    "info.trigger_virtualized_view_rerender(preview_dom_id, virtualized_view_node_id);",
+                                    "// After text input changes, update the preview VirtualView",
+                                    "info.trigger_virtual_view_rerender(preview_dom_id, virtual_view_node_id);",
                                     "```"
                                 ],
                                 "fn_args": [
@@ -4505,7 +4358,7 @@
                                         "node_id": "NodeId"
                                     }
                                 ],
-                                "fn_body": "object.trigger_virtualized_view_rerender(dom_id, node_id)"
+                                "fn_body": "object.trigger_virtual_view_rerender(dom_id, node_id)"
                             },
                             "get_node_id_by_id_attribute": {
                                 "doc": [
@@ -4516,7 +4369,7 @@
                                     "# Example",
                                     "```ignore",
                                     "if let Some(node_id) = info.get_node_id_by_id_attribute(DomId::ROOT_ID, \"preview-virtualized-view\") {",
-                                    "    info.trigger_virtualized_view_rerender(DomId::ROOT_ID, node_id);",
+                                    "    info.trigger_virtual_view_rerender(DomId::ROOT_ID, node_id);",
                                     "}",
                                     "```"
                                 ],
@@ -6783,28 +6636,6 @@
                         },
                         "repr": "C"
                     },
-                    "VirtualizedViewCallbackReason": {
-                        "external": "azul_core::callbacks::VirtualizedViewCallbackReason",
-                        "derive": [
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "InitialRender": {},
-                                "DomRecreated": {},
-                                "BoundsExpanded": {},
-                                "EdgeScrolled": {
-                                    "type": "EdgeType"
-                                },
-                                "ScrollBeyondContent": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "InstantPtrCloneCallbackType": {
                         "external": "azul_core::task::InstantPtrCloneCallbackType",
                         "callback_typedef": {
@@ -7241,11 +7072,11 @@
                                 ],
                                 "fn_body": "object.update_all_image_callbacks()"
                             },
-                            "trigger_virtualized_view_rerender": {
+                            "trigger_virtual_view_rerender": {
                                 "doc": [
-                                    "Trigger re-rendering of a VirtualizedView (applied after callback returns)",
+                                    "Trigger re-rendering of a VirtualView (applied after callback returns)",
                                     "",
-                                    "This forces the VirtualizedView to call its layout callback with reason `DomRecreated`",
+                                    "This forces the VirtualView to call its layout callback with reason `DomRecreated`",
                                     "and submit a new display list to WebRender."
                                 ],
                                 "fn_args": [
@@ -7259,7 +7090,7 @@
                                         "node_id": "NodeId"
                                     }
                                 ],
-                                "fn_body": "object.trigger_virtualized_view_rerender(dom_id, node_id)"
+                                "fn_body": "object.trigger_virtual_view_rerender(dom_id, node_id)"
                             }
                         },
                         "repr": "C"
@@ -8244,16 +8075,16 @@
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_icon(icon_name)"
                             },
-                            "create_virtualized_view": {
+                            "create_virtual_view": {
                                 "fn_args": [
                                     {
                                         "data": "RefAny"
                                     },
                                     {
-                                        "callback": "VirtualizedViewCallback"
+                                        "callback": "VirtualViewCallback"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_virtualized_view(data, callback)"
+                                "fn_body": "azul_core::dom::Dom::create_virtual_view(data, callback)"
                             },
                             "create_node": {
                                 "doc": [
@@ -10566,16 +10397,16 @@
                                 ],
                                 "fn_body": "azul_core::dom::NodeData::create_image(image)"
                             },
-                            "create_virtualized_view": {
+                            "create_virtual_view": {
                                 "fn_args": [
                                     {
                                         "data": "RefAny"
                                     },
                                     {
-                                        "callback": "VirtualizedViewCallback"
+                                        "callback": "VirtualViewCallback"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::NodeData::create_virtualized_view(data, callback)"
+                                "fn_body": "azul_core::dom::NodeData::create_virtual_view(data, callback)"
                             },
                             "create_node": {
                                 "doc": [
@@ -10762,7 +10593,7 @@
                                 },
                                 "fn_body": "object.is_text_node()"
                             },
-                            "is_virtualized_view_node": {
+                            "is_virtual_view_node": {
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -10771,7 +10602,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "object.is_virtualized_view_node()"
+                                "fn_body": "object.is_virtual_view_node()"
                             },
                             "is_anonymous": {
                                 "doc": [
@@ -11844,9 +11675,9 @@
                                 }
                             },
                             {
-                                "VirtualizedView": {
+                                "VirtualView": {
                                     "doc": [
-                                        "VirtualizedView (embedded content) - payload stored in NodeDataExt.virtualized_view"
+                                        "VirtualView (embedded content) - payload stored in NodeDataExt.virtual_view"
                                     ]
                                 }
                             },
@@ -13539,7 +13370,7 @@
                                 "Base": {},
                                 "Text": {},
                                 "Img": {},
-                                "VirtualizedView": {},
+                                "VirtualView": {},
                                 "Icon": {},
                                 "Before": {},
                                 "After": {},
@@ -15410,6 +15241,54 @@
                                 },
                                 "input": {
                                     "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VirtualViewCallbackReason": {
+                        "external": "azul_core::callbacks::VirtualViewCallbackReason",
+                        "derive": [
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InitialRender": {},
+                                "DomRecreated": {},
+                                "BoundsExpanded": {},
+                                "EdgeScrolled": {
+                                    "type": "EdgeType"
+                                },
+                                "ScrollBeyondContent": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "VirtualViewCallback": {
+                        "doc": [
+                            "C-ABI wrapper over an `VirtualViewCallbackType`"
+                        ],
+                        "external": "azul_core::callbacks::VirtualViewCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "VirtualViewCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
@@ -79499,6 +79378,127 @@
                         "generic_params": [
                             "T"
                         ]
+                    },
+                    "VirtualViewReturn": {
+                        "doc": [
+                            "Return value for a VirtualView rendering callback. # Dual Size Model VirtualView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualViewReturn { dom: OptionDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualViewReturn { dom: OptionDom::Some(new_dom), ... } } ``` # Example: Basic VirtualView ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualView!\")); let styled_dom = dom; VirtualViewReturn { // The rendered content dom: OptionDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtual_view_callback(data: &mut TableData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualViewReturn { dom: OptionDom::Some(dom), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
+                        ],
+                        "external": "azul_core::callbacks::VirtualViewReturn",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "PartialEq",
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "dom": {
+                                    "type": "OptionDom",
+                                    "doc": [
+                                        "The DOM with actual rendered content, or None to keep current DOM. - `OptionDom::Some(dom)` - Replace current content with this new DOM - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds Returning `None` is an optimization when the callback determines that the current content is sufficient (e.g., already rendered ahead of scroll position)."
+                                    ]
+                                }
+                            },
+                            {
+                                "scroll_size": {
+                                    "type": "LogicalSize",
+                                    "doc": [
+                                        "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows x 30px each)."
+                                    ]
+                                }
+                            },
+                            {
+                                "scroll_offset": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Offset of the actual rendered content within the virtual coordinate space. This positions the rendered content within the larger virtual space. For virtualized content, this will be non-zero to indicate where the rendered \"window\" starts. **Example**: For a table showing rows 10-30, this might be y=300 (row 10 starts 300px from the top)."
+                                    ]
+                                }
+                            },
+                            {
+                                "virtual_scroll_size": {
+                                    "type": "LogicalSize",
+                                    "doc": [
+                                        "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows x 30px each), even though only 20 rows are actually rendered."
+                                    ]
+                                }
+                            },
+                            {
+                                "virtual_scroll_offset": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Offset of the virtual content (usually zero). This is typically `(0, 0)` since the virtual space usually starts at the origin. Advanced use cases might use this for complex virtualization scenarios."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "with_dom": {
+                                "doc": [
+                                    "Creates a new VirtualViewReturn with updated DOM content.",
+                                    "",
+                                    "Use this when the callback has rendered new content to display.",
+                                    "",
+                                    "# Arguments",
+                                    "- `dom` - The new DOM to render",
+                                    "- `scroll_size` - Size of the actual rendered content",
+                                    "- `scroll_offset` - Position of rendered content in virtual space",
+                                    "- `virtual_scroll_size` - Size for scrollbar representation",
+                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "dom": "Dom"
+                                    },
+                                    {
+                                        "scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "scroll_offset": "LogicalPosition"
+                                    },
+                                    {
+                                        "virtual_scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "virtual_scroll_offset": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "azul_core::callbacks::VirtualViewReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                            },
+                            "keep_current": {
+                                "doc": [
+                                    "Creates a return value that keeps the current DOM unchanged.",
+                                    "",
+                                    "Use this when the callback determines that the existing content",
+                                    "is sufficient (e.g., already rendered ahead of scroll position).",
+                                    "This is an optimization to avoid rebuilding the DOM unnecessarily.",
+                                    "",
+                                    "# Arguments",
+                                    "- `scroll_size` - Size of the current rendered content",
+                                    "- `scroll_offset` - Position of current content in virtual space",
+                                    "- `virtual_scroll_size` - Size for scrollbar representation",
+                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "scroll_offset": "LogicalPosition"
+                                    },
+                                    {
+                                        "virtual_scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "virtual_scroll_offset": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "azul_core::callbacks::VirtualViewReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },

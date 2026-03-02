@@ -189,11 +189,11 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
-        // VirtualizedViews are replaced elements with a default intrinsic size of 300x150px
+        // VirtualViews are replaced elements with a default intrinsic size of 300x150px
         // (same as virtualized view elements)
         if let Some(dom_id) = node.dom_node_id {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            if node_data.is_virtualized_view_node() {
+            if node_data.is_virtual_view_node() {
                 return Ok(IntrinsicSizes {
                     min_content_width: 300.0,
                     max_content_width: 300.0,

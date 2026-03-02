@@ -1,6 +1,6 @@
 use azul_core::{
     app_resources::{IdNamespace, RendererResources},
-    callbacks::{DocumentId, VirtualizedViewCallbackInfo, VirtualizedViewCallbackReturn, PipelineId, RefAny},
+    callbacks::{DocumentId, VirtualViewCallbackInfo, VirtualViewReturn, PipelineId, RefAny},
     dom::{Dom, NodeData, OptionDom},
     id_tree::{Node, NodeDataContainer, NodeHierarchy, NodeId},
     styled_dom::{
@@ -80,8 +80,8 @@ fn test_hash() {
 
 struct A {}
 
-extern "C" fn render_virtualized_view(_: &mut RefAny, _: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn {
-    VirtualizedViewCallbackReturn {
+extern "C" fn render_virtual_view(_: &mut RefAny, _: &mut VirtualViewCallbackInfo) -> VirtualViewReturn {
+    VirtualViewReturn {
         dom: OptionDom::None,
         scroll_size: LogicalSize::zero(),
         scroll_offset: LogicalPosition::zero(),
@@ -121,7 +121,7 @@ fn test_full_dom_2() {
 
     // tag_ids_to_node_ids gets generated?
 
-    let mut dom = Dom::create_virtualized_view(RefAny::new(A {}), render_virtualized_view)
+    let mut dom = Dom::create_virtual_view(RefAny::new(A {}), render_virtual_view)
         .with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::display(LayoutDisplay::Flex)),

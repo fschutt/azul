@@ -17,7 +17,7 @@ def layout(data, info):
     title = Dom.text(f"Infinite Gallery - {len(data.file_paths)} images")
     title.set_inline_style("font-size: 20px; margin-bottom: 10px;")
     
-    vview = Dom.virtualized_view(data, render_virtual_view)
+    vview = Dom.virtual_view(data, render_virtual_view)
     vview.set_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
     vview.set_callback(On.Scroll, data, on_scroll)
     

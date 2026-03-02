@@ -1,6 +1,6 @@
-// Infinite Scrolling (VirtualizedView) - C
+// Infinite Scrolling (VirtualView) - C
 //
-// Tests VirtualizedViewCallback with 4 million virtual rows, rendering only ~100 at a time.
+// Tests VirtualViewCallback with 4 million virtual rows, rendering only ~100 at a time.
 // Scroll the yellow container and watch the virtualized view re-render the visible chunk.
 //
 // Build: cc -o infinity infinity.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
@@ -22,13 +22,13 @@ void InfinityData_destructor(void* d) { }
 AZ_REFLECT(InfinityData, InfinityData_destructor);
 
 // ---------------------------------------------------------------------------
-// VirtualizedView callback: renders only the visible chunk of rows
+// VirtualView callback: renders only the visible chunk of rows
 // ---------------------------------------------------------------------------
-AzVirtualizedViewCallbackReturn render_rows(AzRefAny data, AzVirtualizedViewCallbackInfo info) {
+AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
 
     InfinityDataRef d = InfinityDataRef_create(&data);
     if (!InfinityData_downcastRef(&data, &d)) {
-        return AzVirtualizedViewCallbackReturn_withDom(
+        return AzVirtualViewReturn_withDom(
             AzDom_createBody(),
             AzLogicalSize_zero(), AzLogicalPosition_zero(),
             AzLogicalSize_zero(), AzLogicalPosition_zero()
@@ -97,7 +97,7 @@ AzVirtualizedViewCallbackReturn render_rows(AzRefAny data, AzVirtualizedViewCall
     );
     AzLogicalPosition virtual_offset = AzLogicalPosition_zero();
 
-    return AzVirtualizedViewCallbackReturn_withDom(
+    return AzVirtualViewReturn_withDom(
         container, scroll_size, scroll_offset, virtual_size, virtual_offset
     );
 }
@@ -109,7 +109,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Title
     char title_buf[64];
-    int tlen = snprintf(title_buf, sizeof(title_buf), "VirtualizedView Test - %d virtual rows", TOTAL_ROWS);
+    int tlen = snprintf(title_buf, sizeof(title_buf), "VirtualView Test - %d virtual rows", TOTAL_ROWS);
     AzString title_text = AzString_copyFromBytes((const uint8_t*)title_buf, 0, (size_t)tlen);
     AzDom title = AzDom_createDiv();
     AzDom_addChild(&title, AzDom_createText(title_text));
@@ -118,8 +118,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 85);
     AzDom_setInlineStyle(&title, title_style);
 
-    // VirtualizedView (the scrollable virtual list)
-    AzDom vview = AzDom_createVirtualizedView(AzRefAny_clone(&data), render_rows);
+    // VirtualView (the scrollable virtual list)
+    AzDom vview = AzDom_createVirtualView(AzRefAny_clone(&data), render_rows);
     AzString vview_style = AzString_copyFromBytes(
         (const uint8_t*)"display: flex; flex-grow: 1; overflow: auto; background: #ffff00; border: 3px solid #ff00ff; margin: 8px;",
         0, 104);
@@ -127,7 +127,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Footer
     AzString footer_text = AzString_copyFromBytes(
-        (const uint8_t*)"Scroll inside the yellow box. Only ~100 rows are rendered at a time via VirtualizedViewCallback.",
+        (const uint8_t*)"Scroll inside the yellow box. Only ~100 rows are rendered at a time via VirtualViewCallback.",
         0, 87);
     AzDom footer = AzDom_createDiv();
     AzDom_addChild(&footer, AzDom_createText(footer_text));
@@ -151,7 +151,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 // ---------------------------------------------------------------------------
 int main(void) {
-    printf("Infinity VirtualizedView Test\n");
+    printf("Infinity VirtualView Test\n");
     printf("====================\n");
     printf("Virtual rows: %d\n", TOTAL_ROWS);
     printf("Row height:   %.0f px\n", ROW_HEIGHT);

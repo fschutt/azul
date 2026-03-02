@@ -34,7 +34,7 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    callbacks::{HidpiAdjustedBounds, VirtualizedViewCallbackInfo, VirtualizedViewCallbackReturn},
+    callbacks::{HidpiAdjustedBounds, VirtualViewCallbackInfo, VirtualViewReturn},
     dom::{DomId, DomNodeHash},
     geom::{LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize},
     gl::OptionGlContextPtr,

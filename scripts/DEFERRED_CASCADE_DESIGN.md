@@ -41,13 +41,13 @@ asymmetric scoping).
 
 Components are tracked via `ComponentOrigin` on `NodeDataExt` for the debug
 server's component tree visualization and code generation system. They are
-NOT the same as VirtualizedViews.
+NOT the same as VirtualViews.
 
-A **VirtualizedView** is a lazy-loading mechanism for
-DOM subtrees. VirtualizedView callbacks are invoked during layout when the viewport needs
-content (scroll, resize). Each VirtualizedView gets its own `DomId` and its own
+A **VirtualView** is a lazy-loading mechanism for
+DOM subtrees. VirtualView callbacks are invoked during layout when the viewport needs
+content (scroll, resize). Each VirtualView gets its own `DomId` and its own
 `StyledDom` instance — it participates in layout as a separate document, not
-as a merged subtree. VirtualizedViews are orthogonal to the cascade discussion here.
+as a merged subtree. VirtualViews are orthogonal to the cascade discussion here.
 
 ---
 
@@ -87,7 +87,7 @@ regenerate_layout()
       └── layout_dom_recursive()
           ├── font chain resolution      ← NO caching (Fix 5 addresses this)
           ├── solver3::layout_document()  ← fingerprint diff + incremental layout
-          └── scan_for_virtualized_views() + recurse  ← separate DomIds
+          └── scan_for_virtual_views() + recurse  ← separate DomIds
 ```
 
 ### 2.2 Per-Node Memory (Current)
@@ -499,7 +499,7 @@ AzDom layout_callback(AzRefAny data, AzLayoutCallbackInfo info) {
 - `Css` parsing API — unchanged
 - Inline style API (`set_inline_style`) — unchanged
 - `.style()` call sites — same name, just deferred semantics
-- VirtualizedView callbacks — these already return `StyledDom` and are invoked by the
+- VirtualView callbacks — these already return `StyledDom` and are invoked by the
   framework, not by user layout callbacks. They would continue to return
   `StyledDom` (or switch to `Dom` too — see Section 7.2)
 
@@ -593,7 +593,7 @@ refactoring.
 6. Remove `Dom::style() -> StyledDom` signature (the new `.style()` returns `Dom`)
 7. Remove `.restyle()` — multiple `.style()` calls replace it
 8. Update all examples (C, Rust, Python)
-9. Update VirtualizedView callbacks: switch the callback to `Dom`
+9. Update VirtualView callbacks: switch the callback to `Dom`
 
 ### 7.3 Phase 3: Cherry-pick from perf-fixes
 
@@ -637,7 +637,7 @@ Define clear scoping rules for CSS on the recursive `Dom` tree:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| VirtualizedView callbacks need updating | Medium | Medium | VirtualizedViews are framework-internal; update is mechanical |
+| VirtualView callbacks need updating | Medium | Medium | VirtualViews are framework-internal; update is mechanical |
 | Debug server component system breaks | Low | Low | ComponentOrigin is metadata-only, not affected |
 | Reconciliation (diff) changes needed | Medium | High | NodeDataFingerprint needs to include css[] hash |
 | Performance regression from single large cascade | Low | Medium | Same total work; benchmark before/after |

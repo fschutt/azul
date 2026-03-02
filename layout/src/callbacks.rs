@@ -60,7 +60,7 @@ use crate::{
         gesture::{GestureAndDragManager, InputSample, PenState},
         gpu_state::GpuStateManager,
         hover::{HoverManager, InputPointId},
-        virtualized_view::VirtualizedViewManager,
+        virtual_view::VirtualViewManager,
         scroll_state::{AnimatedScrollState, ScrollManager},
         selection::{ClipboardContent, SelectionManager},
         text_input::{PendingTextEdit, TextInputManager},
@@ -224,9 +224,9 @@ pub enum CallbackChange {
     /// display list resubmission. Used by timer callbacks that need
     /// to update OpenGL textures every frame.
     UpdateAllImageCallbacks,
-    /// Trigger re-rendering of a VirtualizedView with a new DOM
-    /// This forces the VirtualizedView to call its callback and update the display list
-    UpdateVirtualizedView { dom_id: DomId, node_id: NodeId },
+    /// Trigger re-rendering of a VirtualView with a new DOM
+    /// This forces the VirtualView to call its callback and update the display list
+    UpdateVirtualView { dom_id: DomId, node_id: NodeId },
     /// Change the image mask of a node
     ChangeNodeImageMask {
         dom_id: DomId,
@@ -931,18 +931,18 @@ impl CallbackInfo {
         self.push_change(CallbackChange::UpdateAllImageCallbacks);
     }
 
-    /// Trigger re-rendering of a VirtualizedView (applied after callback returns)
+    /// Trigger re-rendering of a VirtualView (applied after callback returns)
     ///
-    /// This forces the VirtualizedView to call its layout callback with reason `DomRecreated`
-    /// and submit a new display list to WebRender. The VirtualizedView's pipeline will be updated
+    /// This forces the VirtualView to call its layout callback with reason `DomRecreated`
+    /// and submit a new display list to WebRender. The VirtualView's pipeline will be updated
     /// without affecting other parts of the window.
     ///
     /// Useful for:
     /// - Live preview panes (update when source code changes)
     /// - Dynamic content that needs manual refresh
     /// - Editor previews (re-parse and display new DOM)
-    pub fn trigger_virtualized_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
-        self.push_change(CallbackChange::UpdateVirtualizedView { dom_id, node_id });
+    pub fn trigger_virtual_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::UpdateVirtualView { dom_id, node_id });
     }
 
     // Dom Tree Navigation
@@ -3228,11 +3228,11 @@ impl CallbackInfo {
         &self.get_layout_window().gpu_state_manager
     }
 
-    // VirtualizedView Manager Access
+    // VirtualView Manager Access
 
-    /// Get immutable reference to the VirtualizedView manager
-    pub fn get_virtualized_view_manager(&self) -> &VirtualizedViewManager {
-        &self.get_layout_window().virtualized_view_manager
+    /// Get immutable reference to the VirtualView manager
+    pub fn get_virtual_view_manager(&self) -> &VirtualViewManager {
+        &self.get_layout_window().virtual_view_manager
     }
 
     // Changeset Inspection/Modification Methods

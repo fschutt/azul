@@ -131,21 +131,21 @@ impl Default for LayoutCallback {
 
 // -- virtualized view callback
 
-pub type VirtualizedViewCallbackType = extern "C" fn(RefAny, VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn;
+pub type VirtualViewCallbackType = extern "C" fn(RefAny, VirtualViewCallbackInfo) -> VirtualViewReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
 #[repr(C)]
-pub struct VirtualizedViewCallback {
-    pub cb: VirtualizedViewCallbackType,
+pub struct VirtualViewCallback {
+    pub cb: VirtualViewCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
-impl_callback!(VirtualizedViewCallback, VirtualizedViewCallbackType);
+impl_callback!(VirtualViewCallback, VirtualViewCallbackType);
 
-impl VirtualizedViewCallback {
-    pub fn create(cb: VirtualizedViewCallbackType) -> Self {
+impl VirtualViewCallback {
+    pub fn create(cb: VirtualViewCallbackType) -> Self {
         Self {
             cb,
             ctx: OptionRefAny::None,
@@ -153,17 +153,17 @@ impl VirtualizedViewCallback {
     }
 }
 
-/// Reason why a VirtualizedView callback is being invoked.
+/// Reason why a VirtualView callback is being invoked.
 ///
 /// This helps the callback optimize its behavior based on why it's being called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, u8)]
-pub enum VirtualizedViewCallbackReason {
-    /// Initial render - first time the VirtualizedView appears
+pub enum VirtualViewCallbackReason {
+    /// Initial render - first time the VirtualView appears
     InitialRender,
     /// Parent DOM was recreated (cache invalidated)
     DomRecreated,
-    /// Window/VirtualizedView bounds expanded beyond current scroll_size
+    /// Window/VirtualView bounds expanded beyond current scroll_size
     BoundsExpanded,
     /// Scroll position is near an edge (within 200px threshold)
     EdgeScrolled(EdgeType),
@@ -183,8 +183,8 @@ pub enum EdgeType {
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct VirtualizedViewCallbackInfo {
-    pub reason: VirtualizedViewCallbackReason,
+pub struct VirtualViewCallbackInfo {
+    pub reason: VirtualViewCallbackReason,
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_theme: WindowTheme,
@@ -200,7 +200,7 @@ pub struct VirtualizedViewCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
-impl Clone for VirtualizedViewCallbackInfo {
+impl Clone for VirtualViewCallbackInfo {
     fn clone(&self) -> Self {
         Self {
             reason: self.reason,
@@ -218,9 +218,9 @@ impl Clone for VirtualizedViewCallbackInfo {
     }
 }
 
-impl VirtualizedViewCallbackInfo {
+impl VirtualViewCallbackInfo {
     pub fn new<'a>(
-        reason: VirtualizedViewCallbackReason,
+        reason: VirtualViewCallbackReason,
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
         window_theme: WindowTheme,
@@ -271,7 +271,7 @@ impl VirtualizedViewCallbackInfo {
     }
 }
 
-/// Return value for a VirtualizedView rendering callback.
+/// Return value for a VirtualView rendering callback.
 ///
 /// Contains two size/offset pairs for lazy loading and virtualization:
 ///
@@ -284,7 +284,7 @@ impl VirtualizedViewCallbackInfo {
 /// Return `OptionDom::None` to keep the current DOM and only update scroll bounds.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
-pub struct VirtualizedViewCallbackReturn {
+pub struct VirtualViewReturn {
     /// The DOM with actual rendered content, or None to keep current DOM.
     ///
     /// - `OptionDom::Some(dom)` - Replace current content with this new DOM
@@ -329,9 +329,9 @@ pub struct VirtualizedViewCallbackReturn {
     pub virtual_scroll_offset: LogicalPosition,
 }
 
-impl Default for VirtualizedViewCallbackReturn {
-    fn default() -> VirtualizedViewCallbackReturn {
-        VirtualizedViewCallbackReturn {
+impl Default for VirtualViewReturn {
+    fn default() -> VirtualViewReturn {
+        VirtualViewReturn {
             dom: OptionDom::None,
             scroll_size: LogicalSize::zero(),
             scroll_offset: LogicalPosition::zero(),
@@ -341,8 +341,8 @@ impl Default for VirtualizedViewCallbackReturn {
     }
 }
 
-impl VirtualizedViewCallbackReturn {
-    /// Creates a new VirtualizedViewCallbackReturn with updated DOM content.
+impl VirtualViewReturn {
+    /// Creates a new VirtualViewReturn with updated DOM content.
     ///
     /// Use this when the callback has rendered new content to display.
     ///
@@ -668,7 +668,7 @@ impl LayoutCallbackInfo {
 
 /// Information about the bounds of a laid-out div rectangle.
 ///
-/// Necessary when invoking `VirtualizedViewCallbacks` and `RenderImageCallbacks`, so
+/// Necessary when invoking `VirtualViewCallbacks` and `RenderImageCallbacks`, so
 /// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]

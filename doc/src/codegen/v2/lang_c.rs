@@ -279,7 +279,7 @@ impl LanguageGenerator for CGenerator {
         builder.blank();
 
         // Build a map of callback wrapper types for quick lookup
-        // Maps: "VirtualizedViewCallback" -> "VirtualizedViewCallbackType"
+        // Maps: "VirtualViewCallback" -> "VirtualViewCallbackType"
         let callback_wrappers: std::collections::HashMap<&str, &str> = ir
             .structs
             .iter()

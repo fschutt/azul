@@ -100,10 +100,10 @@ pub enum ResponseData {
     ClickNode(ClickNodeResponse),
     /// Scrollbar info result
     ScrollbarInfo(ScrollbarInfoResponse),
-    /// VirtualizedView states (all tracked VirtualizedViews and their internal state)
-    VirtualizedViewStates(VirtualizedViewStatesResponse),
-    /// VirtualizedView layout (nodes inside a specific VirtualizedView DOM)
-    IframeLayout(IframeLayoutResponse),
+    /// VirtualView states (all tracked VirtualViews and their internal state)
+    VirtualViewStates(VirtualViewStatesResponse),
+    /// VirtualView layout (nodes inside a specific VirtualView DOM)
+    VirtualViewLayout(VirtualViewLayoutResponse),
     /// Selection state result
     SelectionState(SelectionStateResponse),
     /// Full selection manager dump
@@ -1222,18 +1222,18 @@ pub struct ScrollbarGeometry {
     pub thumb_size_ratio: f32,
 }
 
-/// Response for GetVirtualizedViewStates - lists all tracked VirtualizedViews and their internal state
+/// Response for GetVirtualViewStates - lists all tracked VirtualViews and their internal state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct VirtualizedViewStatesResponse {
-    pub virtualized_view_count: usize,
-    pub virtualized_views: Vec<VirtualizedViewStateInfo>,
+pub struct VirtualViewStatesResponse {
+    pub virtual_view_count: usize,
+    pub virtual_views: Vec<VirtualViewStateInfo>,
 }
 
-/// State info for a single VirtualizedView
+/// State info for a single VirtualView
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
-pub struct VirtualizedViewStateInfo {
+pub struct VirtualViewStateInfo {
     pub parent_dom_id: usize,
     pub parent_node_id: usize,
     pub nested_dom_id: usize,
@@ -1249,26 +1249,26 @@ pub struct VirtualizedViewStateInfo {
     pub last_bounds: LogicalRectJson,
 }
 
-/// Response for GetIframeLayout - layout of nodes inside a VirtualizedView's DOM
+/// Response for GetVirtualViewLayout - layout of nodes inside a VirtualView's DOM
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct IframeLayoutResponse {
+pub struct VirtualViewLayoutResponse {
     pub dom_id: usize,
     pub node_count: usize,
     pub nodes: Vec<NodeLayoutInfo>,
-    /// Scroll state for the VirtualizedView container (from the parent DOM)
+    /// Scroll state for the VirtualView container (from the parent DOM)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub scroll_state: Option<IframeScrollStateInfo>,
+    pub scroll_state: Option<VirtualViewScrollStateInfo>,
     /// All DOM IDs currently in layout_results (diagnostic)
     pub available_dom_ids: Vec<usize>,
-    /// Whether layout_results contains this VirtualizedView's DOM
+    /// Whether layout_results contains this VirtualView's DOM
     pub layout_result_found: bool,
 }
 
-/// Scroll state info specific to a VirtualizedView
+/// Scroll state info specific to a VirtualView
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
-pub struct IframeScrollStateInfo {
+pub struct VirtualViewScrollStateInfo {
     pub scroll_x: f32,
     pub scroll_y: f32,
     pub content_width: f32,
@@ -1717,15 +1717,15 @@ pub enum DebugEvent {
         orientation: Option<String>,
     },
 
-    // VirtualizedView inspection
-    /// Get all tracked VirtualizedView states (scroll sizes, virtual sizes, invocation status)
-    GetVirtualizedViewStates,
-    /// Get layout of nodes inside a specific VirtualizedView's DOM (by nested dom_id or parent node_id)
-    GetIframeLayout {
-        /// The nested DOM ID of the VirtualizedView (from get_virtualized_view_states result)
+    // VirtualView inspection
+    /// Get all tracked VirtualView states (scroll sizes, virtual sizes, invocation status)
+    GetVirtualViewStates,
+    /// Get layout of nodes inside a specific VirtualView's DOM (by nested dom_id or parent node_id)
+    GetVirtualViewLayout {
+        /// The nested DOM ID of the VirtualView (from get_virtual_view_states result)
         #[serde(default)]
         dom_id: Option<usize>,
-        /// The parent node_id of the VirtualizedView node (in the root DOM)
+        /// The parent node_id of the VirtualView node (in the root DOM)
         #[serde(default)]
         node_id: Option<usize>,
     },
@@ -4233,7 +4233,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
                 });
             },
             azul_core::dom::NodeType::Image(_) => "img".to_string(),
-            azul_core::dom::NodeType::VirtualizedView => "virtualized-view".to_string(),
+            azul_core::dom::NodeType::VirtualView => "virtualized-view".to_string(),
             azul_core::dom::NodeType::P => "p".to_string(),
             azul_core::dom::NodeType::Label => "label".to_string(),
             azul_core::dom::NodeType::Span => "span".to_string(),
@@ -5484,7 +5484,7 @@ fn get_tag_specific_attributes(tag: &str) -> Vec<(&'static str, &'static str)> {
         "source" => vec![("src", "String"), ("type", "String")],
         "video" | "audio" => vec![("src", "String"), ("controls", "bool"), ("autoplay", "bool"), ("loop", "bool")],
         "canvas" => vec![("width", "String"), ("height", "String")],
-        "iframe" => vec![("src", "String"), ("width", "String"), ("height", "String")],
+        "virtual-view" => vec![("src", "String"), ("width", "String"), ("height", "String")],
         "icon" => vec![("name", "String")],
         "meter" => vec![("value", "String"), ("min", "String"), ("max", "String"), ("low", "String"), ("high", "String")],
         "progress" => vec![("value", "String"), ("max", "String")],
@@ -7591,7 +7591,7 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::ScrollbarInfo(response)));
         }
 
-        DebugEvent::GetVirtualizedViewStates => {
+        DebugEvent::GetVirtualViewStates => {
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
@@ -7600,11 +7600,11 @@ fn process_debug_event(
             );
 
             let layout_window = callback_info.get_layout_window();
-            let infos = layout_window.virtualized_view_manager.get_all_virtualized_view_infos();
+            let infos = layout_window.virtual_view_manager.get_all_virtual_view_infos();
 
-            let virtualized_views: Vec<VirtualizedViewStateInfo> = infos
+            let virtual_views: Vec<VirtualViewStateInfo> = infos
                 .iter()
-                .map(|info| VirtualizedViewStateInfo {
+                .map(|info| VirtualViewStateInfo {
                     parent_dom_id: info.parent_dom_id,
                     parent_node_id: info.parent_node_id,
                     nested_dom_id: info.nested_dom_id,
@@ -7622,14 +7622,14 @@ fn process_debug_event(
                 })
                 .collect();
 
-            let response = VirtualizedViewStatesResponse {
-                virtualized_view_count: virtualized_views.len(),
-                virtualized_views,
+            let response = VirtualViewStatesResponse {
+                virtual_view_count: virtual_views.len(),
+                virtual_views,
             };
-            send_ok(request, None, Some(ResponseData::VirtualizedViewStates(response)));
+            send_ok(request, None, Some(ResponseData::VirtualViewStates(response)));
         }
 
-        DebugEvent::GetIframeLayout { dom_id, node_id } => {
+        DebugEvent::GetVirtualViewLayout { dom_id, node_id } => {
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
@@ -7646,14 +7646,14 @@ fn process_debug_event(
             } else if let Some(nid) = node_id {
                 let parent_dom = DomId { inner: 0 };
                 layout_window
-                    .virtualized_view_manager
+                    .virtual_view_manager
                     .get_nested_dom_id(parent_dom, NodeId::new(*nid))
             } else {
                 None
             };
 
             if let Some(nested_dom_id) = nested_dom_id {
-                // Get scroll state for the VirtualizedView container from parent DOM
+                // Get scroll state for the VirtualView container from parent DOM
                 let scroll_state = if let Some(nid) = node_id {
                     let parent_dom = DomId { inner: 0 };
                     let parent_node = NodeId::new(*nid);
@@ -7663,19 +7663,19 @@ fn process_debug_event(
                         .scroll_manager
                         .get_scroll_states_for_dom(parent_dom);
                     scroll_states.get(&parent_node).map(|sp| {
-                        let infos = layout_window.virtualized_view_manager.get_all_virtualized_view_infos();
-                        let virtualized_view_info = infos.iter().find(|i| i.parent_node_id == *nid);
+                        let infos = layout_window.virtual_view_manager.get_all_virtual_view_infos();
+                        let virtual_view_info = infos.iter().find(|i| i.parent_node_id == *nid);
 
-                        IframeScrollStateInfo {
+                        VirtualViewScrollStateInfo {
                             scroll_x: sp.children_rect.origin.x,
                             scroll_y: sp.children_rect.origin.y,
                             content_width: sp.children_rect.size.width,
                             content_height: sp.children_rect.size.height,
                             container_width: sp.parent_rect.size.width,
                             container_height: sp.parent_rect.size.height,
-                            virtual_scroll_width: virtualized_view_info
+                            virtual_scroll_width: virtual_view_info
                                 .and_then(|i| i.virtual_scroll_size_width),
-                            virtual_scroll_height: virtualized_view_info
+                            virtual_scroll_height: virtual_view_info
                                 .and_then(|i| i.virtual_scroll_size_height),
                             max_scroll_x: (sp.children_rect.size.width
                                 - sp.parent_rect.size.width)
@@ -7731,7 +7731,7 @@ fn process_debug_event(
                     }
                 }
 
-                let response = IframeLayoutResponse {
+                let response = VirtualViewLayoutResponse {
                     dom_id: nested_dom_id.inner,
                     node_count: nodes.len(),
                     nodes,
@@ -7739,11 +7739,11 @@ fn process_debug_event(
                     available_dom_ids,
                     layout_result_found,
                 };
-                send_ok(request, None, Some(ResponseData::IframeLayout(response)));
+                send_ok(request, None, Some(ResponseData::VirtualViewLayout(response)));
             } else {
                 send_err(
                     request,
-                    "No virtualized view found: specify dom_id or node_id. Use get_virtualized_view_states to list all virtualized views.",
+                    "No virtualized view found: specify dom_id or node_id. Use get_virtual_view_states to list all virtualized views.",
                 );
             }
         }

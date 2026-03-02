@@ -809,9 +809,9 @@ pub fn get_ua_property(
         (NT::Audio, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Canvas, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE),
-        // VirtualizedView is a block-level replaced element (like div) — must be block
+        // VirtualView is a block-level replaced element (like div) — must be block
         // so it participates in flex layout (flex-grow, etc.)
-        (NT::VirtualizedView, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::VirtualView, PT::Display) => Some(&DISPLAY_BLOCK),
 
         // Icon Elements - inline-block so they have width/height but flow inline
         (NT::Icon(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),

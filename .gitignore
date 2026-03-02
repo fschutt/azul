@@ -5,6 +5,7 @@ output/
 /api/
 vendor/
 *.h
+*.hpp
 **/*.rs.bk
 *.pdf
 *.bin

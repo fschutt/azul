@@ -18,7 +18,7 @@ use std::{
 
 use azul_core::{
     animation::UpdateImageType,
-    callbacks::{FocusTarget, HidpiAdjustedBounds, VirtualizedViewCallbackReason, Update},
+    callbacks::{FocusTarget, HidpiAdjustedBounds, VirtualViewCallbackReason, Update},
     dom::{
         AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On,
     },
@@ -65,7 +65,7 @@ use crate::{
     },
     managers::{
         gpu_state::GpuStateManager,
-        virtualized_view::VirtualizedViewManager,
+        virtual_view::VirtualViewManager,
         scroll_state::{ScrollManager, ScrollStates},
     },
     solver3::{
@@ -284,7 +284,7 @@ pub struct DirtyTextNode {
 /// - Incrementally update layout on DOM changes
 /// - Generate display lists for rendering
 /// - Handle window resizes efficiently
-/// - Manage multiple DOMs (for VirtualizedViews)
+/// - Manage multiple DOMs (for VirtualViews)
 pub struct LayoutWindow {
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
@@ -317,8 +317,8 @@ pub struct LayoutWindow {
     pub drag_drop_manager: crate::managers::drag_drop::DragDropManager,
     /// Hover manager for tracking hit test history over multiple frames
     pub hover_manager: crate::managers::hover::HoverManager,
-    /// VirtualizedView manager for all nodes across all DOMs
-    pub virtualized_view_manager: VirtualizedViewManager,
+    /// VirtualView manager for all nodes across all DOMs
+    pub virtual_view_manager: VirtualViewManager,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
     /// Accessibility manager for screen reader support
@@ -359,9 +359,9 @@ pub struct LayoutWindow {
     /// Key: (DomId, NodeId of IFC root)
     /// Value: The edited inline content that should be used for relayout
     pub dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
-    /// Pending VirtualizedView updates from callbacks (processed in next frame)
+    /// Pending VirtualView updates from callbacks (processed in next frame)
     /// Map of DomId -> Set of NodeIds that need re-rendering
-    pub pending_virtualized_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    pub pending_virtual_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -442,7 +442,7 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
-            virtualized_view_manager: VirtualizedViewManager::new(),
+            virtual_view_manager: VirtualViewManager::new(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
@@ -465,7 +465,7 @@ impl LayoutWindow {
                 constraints: BTreeMap::new(),
             },
             dirty_text_nodes: BTreeMap::new(),
-            pending_virtualized_view_updates: BTreeMap::new(),
+            pending_virtual_view_updates: BTreeMap::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
@@ -516,7 +516,7 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
-            virtualized_view_manager: VirtualizedViewManager::new(),
+            virtual_view_manager: VirtualViewManager::new(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
@@ -539,7 +539,7 @@ impl LayoutWindow {
                 constraints: BTreeMap::new(),
             },
             dirty_text_nodes: BTreeMap::new(),
-            pending_virtualized_view_updates: BTreeMap::new(),
+            pending_virtual_view_updates: BTreeMap::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
@@ -553,7 +553,7 @@ impl LayoutWindow {
     /// This is the main entry point for layout. It handles:
     /// - Incremental layout updates using the cached layout tree
     /// - Text shaping and line breaking
-    /// - VirtualizedView callback invocation and recursive layout
+    /// - VirtualView callback invocation and recursive layout
     /// - Display list generation for rendering
     /// - Accessibility tree synchronization
     ///
@@ -576,11 +576,11 @@ impl LayoutWindow {
         // Clear previous results for a full relayout
         self.layout_results.clear();
 
-        // CRITICAL: Reset VirtualizedView invocation flags so check_reinvoke() returns
-        // InitialRender for every tracked VirtualizedView. Without this, the VirtualizedViewManager
+        // CRITICAL: Reset VirtualView invocation flags so check_reinvoke() returns
+        // InitialRender for every tracked VirtualView. Without this, the VirtualViewManager
         // still has was_invoked=true from the previous frame, so it skips
         // re-invocation — but the child DOM was just destroyed by clear().
-        self.virtualized_view_manager.reset_all_invocation_flags();
+        self.virtual_view_manager.reset_all_invocation_flags();
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -904,12 +904,12 @@ impl LayoutWindow {
         self.gpu_state_manager
             .update_scrollbar_transforms(dom_id, &self.scroll_manager, &tree);
 
-        // Scan for VirtualizedViews *after* the initial layout pass
+        // Scan for VirtualViews *after* the initial layout pass
         // Pass styled_dom directly — layout_results isn't populated yet at this point
-        let vviews = self.scan_for_virtualized_views(&styled_dom_clone, &tree, &self.layout_cache.calculated_positions);
+        let vviews = self.scan_for_virtual_views(&styled_dom_clone, &tree, &self.layout_cache.calculated_positions);
 
         for (node_id, bounds) in vviews {
-            if let Some(child_dom_id) = self.invoke_virtualized_view_callback_with_dom(
+            if let Some(child_dom_id) = self.invoke_virtual_view_callback_with_dom(
                 dom_id,
                 node_id,
                 bounds,
@@ -919,12 +919,12 @@ impl LayoutWindow {
                 system_callbacks,
                 debug_messages,
             ) {
-                // Replace the VirtualizedViewPlaceholder with the real VirtualizedView item.
+                // Replace the VirtualViewPlaceholder with the real VirtualView item.
                 // The placeholder was emitted by generate_display_list() at the
                 // correct position (outside any scroll frame, inside the parent clip).
                 let mut replaced = false;
                 for item in display_list.items.iter_mut() {
-                    if let crate::solver3::display_list::DisplayListItem::VirtualizedViewPlaceholder {
+                    if let crate::solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
                         node_id: ref placeholder_nid,
                         bounds: ref placeholder_bounds,
                         clip_rect: ref placeholder_clip,
@@ -932,7 +932,7 @@ impl LayoutWindow {
                     } = item
                     {
                         if *placeholder_nid == node_id {
-                            *item = crate::solver3::display_list::DisplayListItem::VirtualizedView {
+                            *item = crate::solver3::display_list::DisplayListItem::VirtualView {
                                 child_dom_id,
                                 bounds: *placeholder_bounds,
                                 clip_rect: *placeholder_clip,
@@ -947,7 +947,7 @@ impl LayoutWindow {
                     // Fallback: if no placeholder found (shouldn't happen), append at end
                     display_list
                         .items
-                        .push(crate::solver3::display_list::DisplayListItem::VirtualizedView {
+                        .push(crate::solver3::display_list::DisplayListItem::VirtualView {
                             child_dom_id,
                             bounds: bounds.into(),
                             clip_rect: bounds.into(),
@@ -973,7 +973,7 @@ impl LayoutWindow {
         Ok(())
     }
 
-    fn scan_for_virtualized_views(
+    fn scan_for_virtual_views(
         &self,
         styled_dom: &StyledDom,
         layout_tree: &LayoutTree,
@@ -987,7 +987,7 @@ impl LayoutWindow {
             .filter_map(|(idx, node)| {
                 let node_dom_id = node.dom_node_id?;
                 let node_data = node_data_container.get(node_dom_id)?;
-                if matches!(node_data.get_node_type(), NodeType::VirtualizedView) {
+                if matches!(node_data.get_node_type(), NodeType::VirtualView) {
                     let pos = calculated_positions.get(idx).copied().unwrap_or_default();
                     let size = node.used_size.unwrap_or_default();
                     Some((node_dom_id, LogicalRect::new(pos, size)))
@@ -1089,16 +1089,16 @@ impl LayoutWindow {
         self.selection_manager.get_selection(&dom_id)
     }
 
-    /// Invoke a VirtualizedView callback and perform layout on the returned DOM.
+    /// Invoke a VirtualView callback and perform layout on the returned DOM.
     ///
-    /// This is the entry point that looks up the necessary `VirtualizedViewNode` data before
+    /// This is the entry point that looks up the necessary `VirtualViewNode` data before
     /// delegating to the core implementation logic.
-    /// Invoke a VirtualizedView callback for a node. Returns the child DomId if the
+    /// Invoke a VirtualView callback for a node. Returns the child DomId if the
     /// callback was invoked and the child DOM was laid out.
     ///
-    /// This calls the VirtualizedView's own RefAny callback (NOT the main layout() callback),
-    /// swaps the child StyledDom, and re-layouts only the VirtualizedView sub-tree.
-    pub fn invoke_virtualized_view_callback(
+    /// This calls the VirtualView's own RefAny callback (NOT the main layout() callback),
+    /// swaps the child StyledDom, and re-layouts only the VirtualView sub-tree.
+    pub fn invoke_virtual_view_callback(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,
@@ -1108,16 +1108,16 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<DomId> {
-        self.invoke_virtualized_view_callback_with_dom(
+        self.invoke_virtual_view_callback_with_dom(
             parent_dom_id, node_id, bounds, None,
             window_state, renderer_resources, system_callbacks, debug_messages,
         )
     }
 
-    /// Invoke a VirtualizedView callback. If `styled_dom_override` is provided, use it
+    /// Invoke a VirtualView callback. If `styled_dom_override` is provided, use it
     /// instead of reading from `self.layout_results` (needed during initial
     /// layout when layout_results isn't populated yet).
-    fn invoke_virtualized_view_callback_with_dom(
+    fn invoke_virtual_view_callback_with_dom(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,
@@ -1130,16 +1130,16 @@ impl LayoutWindow {
     ) -> Option<DomId> {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "invoke_virtualized_view_callback called for node {:?}",
+                "invoke_virtual_view_callback called for node {:?}",
                 node_id
             )));
         }
 
         // Use the override styled_dom if provided, otherwise read from layout_results
-        let virtualized_view_node = if let Some(styled_dom) = styled_dom_override {
+        let virtual_view_node = if let Some(styled_dom) = styled_dom_override {
             let node_data_container = styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            node_data.get_virtualized_view_node_ref()?.clone()
+            node_data.get_virtual_view_node_ref()?.clone()
         } else {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
             if let Some(msgs) = debug_messages {
@@ -1150,12 +1150,12 @@ impl LayoutWindow {
             }
             let node_data_container = layout_result.styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            match node_data.get_virtualized_view_node_ref() {
+            match node_data.get_virtual_view_node_ref() {
                 Some(vv) => vv.clone(),
                 None => {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::info(format!(
-                            "Node is NOT VirtualizedView, type = {:?}",
+                            "Node is NOT VirtualView, type = {:?}",
                             node_data.get_node_type()
                         )));
                     }
@@ -1165,14 +1165,14 @@ impl LayoutWindow {
         };
 
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("Node is VirtualizedView type".to_string()));
+            msgs.push(LayoutDebugMessage::info("Node is VirtualView type".to_string()));
         }
 
         // Call the actual implementation with all necessary data
-        self.invoke_virtualized_view_callback_impl(
+        self.invoke_virtual_view_callback_impl(
             parent_dom_id,
             node_id,
-            &virtualized_view_node,
+            &virtual_view_node,
             bounds,
             window_state,
             renderer_resources,
@@ -1181,21 +1181,21 @@ impl LayoutWindow {
         )
     }
 
-    /// Core implementation for invoking a VirtualizedView callback and managing the recursive layout.
+    /// Core implementation for invoking a VirtualView callback and managing the recursive layout.
     ///
     /// This method implements the 5 conditional re-invocation rules by coordinating
-    /// with the `VirtualizedViewManager` and `ScrollManager`.
+    /// with the `VirtualViewManager` and `ScrollManager`.
     ///
     /// # Returns
     ///
     /// `Some(child_dom_id)` if the callback was invoked and the child DOM was laid out.
     /// The parent's display list generator will then use this ID to reference the child's
     /// display list. Returns `None` if the callback was not invoked.
-    fn invoke_virtualized_view_callback_impl(
+    fn invoke_virtual_view_callback_impl(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,
-        virtualized_view_node: &azul_core::dom::VirtualizedViewNode,
+        virtual_view_node: &azul_core::dom::VirtualViewNode,
         bounds: LogicalRect,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
@@ -1205,7 +1205,7 @@ impl LayoutWindow {
         // Get current time from system callbacks for state updates
         let now = (system_callbacks.get_system_time_fn.cb)();
 
-        // Update node bounds in the scroll manager. This is necessary for the VirtualizedViewManager
+        // Update node bounds in the scroll manager. This is necessary for the VirtualViewManager
         // to correctly detect edge scroll conditions.
         self.scroll_manager.update_node_bounds(
             parent_dom_id,
@@ -1215,9 +1215,9 @@ impl LayoutWindow {
             now.clone(),
         );
 
-        // Check with the VirtualizedViewManager to see if re-invocation is necessary.
+        // Check with the VirtualViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let reason = match self.virtualized_view_manager.check_reinvoke(
+        let reason = match self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
@@ -1227,14 +1227,14 @@ impl LayoutWindow {
             None => {
                 // No re-invocation needed, but we still need the child_dom_id for the display list.
                 return self
-                    .virtualized_view_manager
+                    .virtual_view_manager
                     .get_nested_dom_id(parent_dom_id, node_id);
             }
         };
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "VirtualizedView ({:?}, {:?}) - Reason: {:?}",
+                "VirtualView ({:?}, {:?}) - Reason: {:?}",
                 parent_dom_id, node_id, reason
             )));
         }
@@ -1246,8 +1246,8 @@ impl LayoutWindow {
 
         let hidpi_factor = window_state.size.get_hidpi_factor();
 
-        // Create VirtualizedViewCallbackInfo with the most up-to-date state
-        let mut callback_info = azul_core::callbacks::VirtualizedViewCallbackInfo::new(
+        // Create VirtualViewCallbackInfo with the most up-to-date state
+        let mut callback_info = azul_core::callbacks::VirtualViewCallbackInfo::new(
             reason,
             &*self.font_manager.fc_cache,
             &self.image_cache,
@@ -1263,13 +1263,13 @@ impl LayoutWindow {
         );
 
         // Clone the user data for the callback
-        let callback_data = virtualized_view_node.refany.clone();
+        let callback_data = virtual_view_node.refany.clone();
 
-        // Invoke the user's VirtualizedView callback
-        let callback_return = (virtualized_view_node.callback.cb)(callback_data, callback_info);
+        // Invoke the user's VirtualView callback
+        let callback_return = (virtual_view_node.callback.cb)(callback_data, callback_info);
 
-        // Mark the VirtualizedView as invoked to prevent duplicate InitialRender calls
-        self.virtualized_view_manager
+        // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
+        self.virtual_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
 
         // Get the child Dom from the callback's return value, then convert to StyledDom
@@ -1280,7 +1280,7 @@ impl LayoutWindow {
             },
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
-                if reason == VirtualizedViewCallbackReason::InitialRender {
+                if reason == VirtualViewCallbackReason::InitialRender {
                     // For the very first render, create an empty div as a fallback.
                     let mut empty_dom = Dom::create_div();
                     let empty_css = Css::empty();
@@ -1288,7 +1288,7 @@ impl LayoutWindow {
                 } else {
                     // For subsequent calls, returning None means "keep the old DOM".
                     // We just need to update the scroll info and return the existing child ID.
-                    self.virtualized_view_manager.update_virtualized_view_info(
+                    self.virtual_view_manager.update_virtual_view_info(
                         parent_dom_id,
                         node_id,
                         callback_return.scroll_size,
@@ -1302,20 +1302,20 @@ impl LayoutWindow {
                         Some(callback_return.scroll_offset),
                     );
                     return self
-                        .virtualized_view_manager
+                        .virtual_view_manager
                         .get_nested_dom_id(parent_dom_id, node_id);
                 }
             }
         };
 
-        // Get or create a unique DomId for the VirtualizedView's content
+        // Get or create a unique DomId for the VirtualView's content
         let child_dom_id = self
-            .virtualized_view_manager
+            .virtual_view_manager
             .get_or_create_nested_dom_id(parent_dom_id, node_id);
         child_styled_dom.dom_id = child_dom_id;
 
-        // Update the VirtualizedViewManager with the new scroll sizes from the callback
-        self.virtualized_view_manager.update_virtualized_view_info(
+        // Update the VirtualViewManager with the new scroll sizes from the callback
+        self.virtual_view_manager.update_virtual_view_info(
             parent_dom_id,
             node_id,
             callback_return.scroll_size,
@@ -1331,7 +1331,7 @@ impl LayoutWindow {
 
         // **RECURSIVE LAYOUT STEP**
         // Perform a full layout pass on the child DOM. This will recursively handle
-        // any VirtualizedViews within this VirtualizedView.
+        // any VirtualViews within this VirtualView.
         self.layout_dom_recursive(
             child_styled_dom,
             window_state,
@@ -3346,7 +3346,7 @@ mod tests {
         assert_eq!(window.get_dom_ids().len(), 0);
     }
 
-    // ScrollManager and VirtualizedView Integration Tests
+    // ScrollManager and VirtualView Integration Tests
 
     #[test]
     fn test_scroll_manager_initialization() {
@@ -4469,7 +4469,7 @@ impl LayoutWindow {
                     source_node_id: Some(node_id),
                 })]
             }
-            NodeType::Div | NodeType::Body | NodeType::VirtualizedView => {
+            NodeType::Div | NodeType::Body | NodeType::VirtualView => {
                 // Container nodes - recursively collect text from children
                 self.collect_text_from_children(dom_id, node_id)
             }
@@ -6090,37 +6090,37 @@ impl LayoutWindow {
         updated_textures
     }
 
-    /// Check if a scrolled node is a VirtualizedView that needs re-invocation. If so,
-    /// queue it in `pending_virtualized_view_updates` for processing before the next frame.
+    /// Check if a scrolled node is a VirtualView that needs re-invocation. If so,
+    /// queue it in `pending_virtual_view_updates` for processing before the next frame.
     ///
-    /// This is the bridge between the scroll system and the VirtualizedView lifecycle:
-    ///   ScrollTo → scroll_manager.scroll_to() → check_and_queue_virtualized_view_reinvoke()
+    /// This is the bridge between the scroll system and the VirtualView lifecycle:
+    ///   ScrollTo → scroll_manager.scroll_to() → check_and_queue_virtual_view_reinvoke()
     ///
-    /// Returns `true` if a VirtualizedView update was queued (caller should trigger a
+    /// Returns `true` if a VirtualView update was queued (caller should trigger a
     /// display list rebuild instead of a lightweight repaint).
-    pub fn check_and_queue_virtualized_view_reinvoke(
+    pub fn check_and_queue_virtual_view_reinvoke(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> bool {
-        // Get the VirtualizedView's current layout bounds (needed for check_reinvoke)
-        let bounds = match Self::get_virtualized_view_bounds_from_layout(
+        // Get the VirtualView's current layout bounds (needed for check_reinvoke)
+        let bounds = match Self::get_virtual_view_bounds_from_layout(
             &self.layout_results,
             dom_id,
             node_id,
         ) {
             Some(b) => b,
-            None => return false, // Not a VirtualizedView or no layout info
+            None => return false, // Not a VirtualView or no layout info
         };
 
-        // Ask the VirtualizedViewManager whether this VirtualizedView needs re-invocation
-        let reason = self.virtualized_view_manager.check_reinvoke(
+        // Ask the VirtualViewManager whether this VirtualView needs re-invocation
+        let reason = self.virtual_view_manager.check_reinvoke(
             dom_id, node_id, &self.scroll_manager, bounds,
         );
 
         if reason.is_some() {
-            // Queue the VirtualizedView for re-invocation in the next render pass
-            self.pending_virtualized_view_updates
+            // Queue the VirtualView for re-invocation in the next render pass
+            self.pending_virtual_view_updates
                 .entry(dom_id)
                 .or_insert_with(FastBTreeSet::new)
                 .insert(node_id);
@@ -6130,10 +6130,10 @@ impl LayoutWindow {
         }
     }
 
-    /// Process VirtualizedView updates requested by callbacks
+    /// Process VirtualView updates requested by callbacks
     ///
-    /// This method handles manual VirtualizedView re-rendering triggered by `trigger_virtualized_view_rerender()`.
-    /// It invokes the VirtualizedView callback with `DomRecreated` reason and performs layout on the
+    /// This method handles manual VirtualView re-rendering triggered by `trigger_virtual_view_rerender()`.
+    /// It invokes the VirtualView callback with `DomRecreated` reason and performs layout on the
     /// returned DOM, then submits a new display list to WebRender for that pipeline.
     ///
     /// # Arguments
@@ -6145,8 +6145,8 @@ impl LayoutWindow {
     ///
     /// # Returns
     ///
-    /// Vector of (DomId, NodeId) tuples for VirtualizedViews that were successfully updated
-    pub fn process_virtualized_view_updates(
+    /// Vector of (DomId, NodeId) tuples for VirtualViews that were successfully updated
+    pub fn process_virtual_view_updates(
         &mut self,
         vviews_to_update: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
         window_state: &FullWindowState,
@@ -6158,7 +6158,7 @@ impl LayoutWindow {
         for (dom_id, node_ids) in vviews_to_update {
             for node_id in node_ids {
                 // Extract virtualized view bounds from layout result
-                let bounds = match Self::get_virtualized_view_bounds_from_layout(
+                let bounds = match Self::get_virtual_view_bounds_from_layout(
                     &self.layout_results,
                     *dom_id,
                     *node_id,
@@ -6168,10 +6168,10 @@ impl LayoutWindow {
                 };
 
                 // Force re-invocation by clearing the "was_invoked" flag
-                self.virtualized_view_manager.force_reinvoke(*dom_id, *node_id);
+                self.virtual_view_manager.force_reinvoke(*dom_id, *node_id);
 
-                // Invoke the VirtualizedView callback
-                if let Some(_child_dom_id) = self.invoke_virtualized_view_callback(
+                // Invoke the VirtualView callback
+                if let Some(_child_dom_id) = self.invoke_virtual_view_callback(
                     *dom_id,
                     *node_id,
                     bounds,
@@ -6188,39 +6188,39 @@ impl LayoutWindow {
         updated_vviews
     }
 
-    /// Queue VirtualizedView updates to be processed in the next frame
+    /// Queue VirtualView updates to be processed in the next frame
     ///
     /// This is called after callbacks to store the vviews_to_update from callback changes
-    pub fn queue_virtualized_view_updates(
+    pub fn queue_virtual_view_updates(
         &mut self,
         vviews_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     ) {
         for (dom_id, node_ids) in vviews_to_update {
-            self.pending_virtualized_view_updates
+            self.pending_virtual_view_updates
                 .entry(dom_id)
                 .or_insert_with(FastBTreeSet::new)
                 .extend(node_ids);
         }
     }
 
-    /// Process and clear pending VirtualizedView updates
+    /// Process and clear pending VirtualView updates
     ///
-    /// This is called during frame generation to re-render updated VirtualizedViews
-    pub fn process_pending_virtualized_view_updates(
+    /// This is called during frame generation to re-render updated VirtualViews
+    pub fn process_pending_virtual_view_updates(
         &mut self,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> Vec<(DomId, NodeId)> {
-        if self.pending_virtualized_view_updates.is_empty() {
+        if self.pending_virtual_view_updates.is_empty() {
             return Vec::new();
         }
 
         // Take ownership of pending updates
-        let vviews_to_update = core::mem::take(&mut self.pending_virtualized_view_updates);
+        let vviews_to_update = core::mem::take(&mut self.pending_virtual_view_updates);
 
         // Process them
-        self.process_virtualized_view_updates(
+        self.process_virtual_view_updates(
             &vviews_to_update,
             window_state,
             renderer_resources,
@@ -6228,21 +6228,21 @@ impl LayoutWindow {
         )
     }
 
-    /// Helper: Extract VirtualizedView bounds from layout results
+    /// Helper: Extract VirtualView bounds from layout results
     ///
-    /// Returns None if the node is not a VirtualizedView or doesn't have layout info
-    fn get_virtualized_view_bounds_from_layout(
+    /// Returns None if the node is not a VirtualView or doesn't have layout info
+    fn get_virtual_view_bounds_from_layout(
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<LogicalRect> {
         let layout_result = layout_results.get(&dom_id)?;
 
-        // Check if this is a VirtualizedView node
+        // Check if this is a VirtualView node
         let node_data_container = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_container.get(node_id)?;
 
-        if !matches!(node_data.get_node_type(), NodeType::VirtualizedView) {
+        if !matches!(node_data.get_node_type(), NodeType::VirtualView) {
             return None;
         }
 

@@ -1,7 +1,7 @@
-//! Infinite scrolling gallery example using VirtualizedView callbacks
+//! Infinite scrolling gallery example using VirtualView callbacks
 //!
 //! Demonstrates how to efficiently render thousands of items by only rendering
-//! the visible portion using VirtualizedView.
+//! the visible portion using VirtualView.
 
 use azul::prelude::*;
 
@@ -26,7 +26,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .with_inline_style("font-size: 20px; margin-bottom: 10px;");
 
     // Now we can pass the function pointer directly - the API builds the wrapper internally
-    let vview = Dom::create_virtualized_view(data.clone(), render_virtualized_view)
+    let vview = Dom::create_virtual_view(data.clone(), render_virtual_view)
         .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
@@ -40,10 +40,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .with_child(vview)
 }
 
-extern "C" fn render_virtualized_view(mut data: RefAny, info: VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn {
+extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let d = match data.downcast_ref::<InfinityState>() {
         Some(s) => s,
-        None => return VirtualizedViewCallbackReturn::default(),
+        None => return VirtualViewReturn::default(),
     };
 
     let mut container = Dom::create_div()
@@ -75,7 +75,7 @@ extern "C" fn render_virtualized_view(mut data: RefAny, info: VirtualizedViewCal
     let rows = (d.file_paths.len() + 3) / 4; // 4 items per row
     let virtual_height = rows as f32 * 160.0; // 150px + 10px gap
 
-    VirtualizedViewCallbackReturn {
+    VirtualViewReturn {
         dom: OptionDom::Some(container),
         scroll_size: LogicalSize::new(0.0, virtual_height),
         scroll_offset: LogicalPosition::new(0.0, 0.0),

@@ -780,7 +780,7 @@ pub struct StyledDom {
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
-    /// The ID of this DOM in the layout tree (for multi-DOM support with VirtualizedViews)
+    /// The ID of this DOM in the layout tree (for multi-DOM support with VirtualViews)
     pub dom_id: DomId,
 }
 impl_option!(
@@ -2031,14 +2031,14 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for virtualized view callbacks
-    pub fn scan_for_virtualized_view_callbacks(&self) -> Vec<NodeId> {
+    pub fn scan_for_virtual_view_callbacks(&self) -> Vec<NodeId> {
         use crate::dom::NodeType;
         self.node_data
             .as_ref()
             .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| match node_data.get_node_type() {
-                NodeType::VirtualizedView => Some(NodeId::new(node_id)),
+                NodeType::VirtualView => Some(NodeId::new(node_id)),
                 _ => None,
             })
             .collect()

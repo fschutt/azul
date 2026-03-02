@@ -266,7 +266,7 @@ fn test_refany_drop_order() {
 
 #[test]
 fn test_refany_callback_simulation() {
-    // Simulate the VirtualizedView callback pattern
+    // Simulate the VirtualView callback pattern
     #[derive(Clone)]
     struct CallbackData {
         counter: i32,

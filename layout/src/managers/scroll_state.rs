@@ -10,7 +10,7 @@
 //! - **Scroll physics timer** (scroll_timer.rs): Consumes inputs via `ScrollInputQueue`,
 //!   applies physics, and pushes `CallbackChange::ScrollTo` for each updated node.
 //! - **Event processing** (event_v2.rs): Processes `ScrollTo` changes, sets scroll
-//!   positions, and checks VirtualizedView re-invocation transparently.
+//!   positions, and checks VirtualView re-invocation transparently.
 //! - **Gesture manager** (gesture.rs): Tracks drag state and emits
 //!   `AutoScrollDirection` — does NOT modify scroll offsets directly.
 //! - **Render loop**: Calls `tick()` every frame to advance easing animations.
@@ -32,7 +32,7 @@
 //!
 //! ScrollTo processing (event_v2.rs):
 //!   → scroll_manager.set_scroll_position()
-//!   → virtualized_view_manager.check_reinvoke() (transparent VirtualizedView support)
+//!   → virtual_view_manager.check_reinvoke() (transparent VirtualView support)
 //!   → repaint
 //! ```
 //!
@@ -41,7 +41,7 @@
 //! - Event source classification for scroll events
 //! - Scrollbar geometry and hit-testing
 //! - ExternalScrollId mapping for WebRender integration
-//! - Virtual scroll bounds for VirtualizedView nodes
+//! - Virtual scroll bounds for VirtualView nodes
 
 use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
@@ -317,10 +317,10 @@ pub struct AnimatedScrollState {
     pub container_rect: LogicalRect,
     /// Bounds of the total content (for calculating scroll limits)
     pub content_rect: LogicalRect,
-    /// Virtual scroll size from VirtualizedView callback (if this node hosts a VirtualizedView).
+    /// Virtual scroll size from VirtualView callback (if this node hosts a VirtualView).
     /// When set, clamp logic uses this instead of content_rect for max scroll bounds.
     pub virtual_scroll_size: Option<LogicalSize>,
-    /// Virtual scroll offset from VirtualizedView callback
+    /// Virtual scroll offset from VirtualView callback
     pub virtual_scroll_offset: Option<LogicalPosition>,
     /// Per-node overscroll behavior for X axis (from CSS `overscroll-behavior-x`)
     pub overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior,
@@ -509,7 +509,7 @@ impl ScrollManager {
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
     ///
     /// Uses `virtual_scroll_size` (when set) instead of `content_rect` for the
-    /// overflow check, so VirtualizedView nodes with large virtual content are correctly
+    /// overflow check, so VirtualView nodes with large virtual content are correctly
     /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
         let result = self.states.get(&(dom_id, node_id)).map_or(false, |state| {
@@ -617,9 +617,9 @@ impl ScrollManager {
         state.current_offset = state.clamp(state.current_offset);
     }
 
-    /// Updates virtual scroll bounds for a VirtualizedView node.
+    /// Updates virtual scroll bounds for a VirtualView node.
     ///
-    /// Called after VirtualizedView callback returns to propagate the virtual content size
+    /// Called after VirtualView callback returns to propagate the virtual content size
     /// to the ScrollManager. Clamp logic then uses `virtual_scroll_size` (when set)
     /// instead of `content_rect` for max scroll bounds.
     ///
@@ -680,7 +680,7 @@ impl ScrollManager {
     /// This is the preferred way for timer callbacks to query scroll state,
     /// since they only have `&CallbackInfo` (read-only access).
     ///
-    /// When `virtual_scroll_size` is set (for VirtualizedView nodes), the max scroll
+    /// When `virtual_scroll_size` is set (for VirtualView nodes), the max scroll
     /// bounds are computed from the virtual size instead of `content_rect`.
     pub fn get_scroll_node_info(
         &self,
@@ -714,7 +714,7 @@ impl ScrollManager {
             .iter()
             .filter(|((d, _), _)| *d == dom_id)
             .map(|((_, node_id), state)| {
-                // Use virtual_scroll_size (from VirtualizedView callback) when available,
+                // Use virtual_scroll_size (from VirtualView callback) when available,
                 // otherwise fall back to content_rect.size from layout.
                 let effective_content_size = state.virtual_scroll_size
                     .unwrap_or(state.content_rect.size);
@@ -839,7 +839,7 @@ impl ScrollManager {
 
         // Collect vertical scrollbar states
         // Uses virtual_scroll_size (when set) for the overflow check and thumb ratio,
-        // so VirtualizedView nodes with large virtual content show correct scrollbar geometry.
+        // so VirtualView nodes with large virtual content show correct scrollbar geometry.
         let vertical_states: Vec<_> = self
             .states
             .iter()
@@ -1076,7 +1076,7 @@ impl AnimatedScrollState {
 
     /// Clamp a scroll position to valid bounds (0 to max_scroll).
     ///
-    /// When `virtual_scroll_size` is set (for VirtualizedView nodes), the max bounds
+    /// When `virtual_scroll_size` is set (for VirtualView nodes), the max bounds
     /// are computed from the virtual size instead of content_rect.
     pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
         let effective_width = self.virtual_scroll_size

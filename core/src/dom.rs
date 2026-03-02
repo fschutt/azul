@@ -36,8 +36,8 @@ pub use crate::events::{
 pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{
     callbacks::{
-        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, VirtualizedViewCallback,
-        VirtualizedViewCallbackType,
+        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, VirtualViewCallback,
+        VirtualViewCallbackType,
     },
     geom::LogicalPosition,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
@@ -484,8 +484,8 @@ pub enum NodeType {
     Text(AzString),
     /// Image element, ::image
     Image(ImageRef),
-    /// VirtualizedView (embedded content) - payload stored in NodeDataExt.virtualized_view
-    VirtualizedView,
+    /// VirtualView (embedded content) - payload stored in NodeDataExt.virtual_view
+    VirtualView,
     /// Icon element - resolved to actual content by IconProvider
     /// The string is the icon name (e.g., "home", "settings", "search")
     Icon(AzString),
@@ -615,7 +615,7 @@ impl NodeType {
 
             Text(s) => Text(s.clone_self()),
             Image(i) => Image(i.clone()), // note: shallow clone
-            VirtualizedView => VirtualizedView,
+            VirtualView => VirtualView,
             Icon(s) => Icon(s.clone_self()),
         }
     }
@@ -625,7 +625,7 @@ impl NodeType {
         match self {
             Text(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
-            VirtualizedView => Some("virtualized-view".to_string()),
+            VirtualView => Some("virtualized-view".to_string()),
             Icon(s) => Some(format!("icon({})", s)),
             _ => None,
         }
@@ -747,7 +747,7 @@ impl NodeType {
             Self::Base => NodeTypeTag::Base,
             Self::Text(_) => NodeTypeTag::Text,
             Self::Image(_) => NodeTypeTag::Img,
-            Self::VirtualizedView => NodeTypeTag::VirtualizedView,
+            Self::VirtualView => NodeTypeTag::VirtualView,
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
@@ -943,12 +943,12 @@ pub enum On {
 //
 // This consolidates all event-related logic in one place.
 
-/// Contains the necessary information to render an embedded `VirtualizedView` node.
+/// Contains the necessary information to render an embedded `VirtualView` node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct VirtualizedViewNode {
+pub struct VirtualViewNode {
     /// The callback function that returns the DOM for the virtualized view's content.
-    pub callback: VirtualizedViewCallback,
+    pub callback: VirtualViewCallback,
     /// The application data passed to the virtualized view's layout callback.
     pub refany: RefAny,
 }
@@ -1321,7 +1321,7 @@ impl Hash for NodeData {
             if let Some(c) = ext.context_menu.as_ref() {
                 c.hash(state);
             }
-            if let Some(vv) = ext.virtualized_view.as_ref() {
+            if let Some(vv) = ext.virtual_view.as_ref() {
                 vv.hash(state);
             }
         }
@@ -1389,8 +1389,8 @@ impl Default for ComponentOrigin {
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
-    /// VirtualizedView callback data, only set when node_type == NodeType::VirtualizedView.
-    pub virtualized_view: Option<VirtualizedViewNode>,
+    /// VirtualView callback data, only set when node_type == NodeType::VirtualView.
+    pub virtual_view: Option<VirtualViewNode>,
     /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
     pub dataset: Option<RefAny>,
     /// Optional clip mask for this DOM node.
@@ -1781,10 +1781,10 @@ impl NodeData {
     }
 
     #[inline(always)]
-    pub fn create_virtualized_view(data: RefAny, callback: impl Into<VirtualizedViewCallback>) -> Self {
-        let mut nd = Self::create_node(NodeType::VirtualizedView);
+    pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
+        let mut nd = Self::create_node(NodeType::VirtualView);
         let ext = nd.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()));
-        ext.virtualized_view = Some(VirtualizedViewNode {
+        ext.virtual_view = Some(VirtualViewNode {
             callback: callback.into(),
             refany: data,
         });
@@ -1825,8 +1825,8 @@ impl NodeData {
         }
     }
 
-    pub fn is_virtualized_view_node(&self) -> bool {
-        matches!(self.node_type, NodeType::VirtualizedView)
+    pub fn is_virtual_view_node(&self) -> bool {
+        matches!(self.node_type, NodeType::VirtualView)
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -2162,10 +2162,10 @@ impl NodeData {
         // This means Text("A") and Text("B") have the same structural hash
         core::mem::discriminant(&self.node_type).hash(&mut hasher);
         
-        // For VirtualizedView nodes, hash the callback to distinguish different virtualized views
-        if let NodeType::VirtualizedView = self.node_type {
+        // For VirtualView nodes, hash the callback to distinguish different virtualized views
+        if let NodeType::VirtualView = self.node_type {
             if let Some(ext) = self.extra.as_ref() {
-                if let Some(vv) = ext.virtualized_view.as_ref() {
+                if let Some(vv) = ext.virtual_view.as_ref() {
                     vv.hash(&mut hasher);
                 }
             }
@@ -2562,12 +2562,12 @@ impl NodeData {
         }
     }
 
-    pub fn get_virtualized_view_node(&mut self) -> Option<&mut VirtualizedViewNode> {
-        self.extra.as_mut()?.virtualized_view.as_mut()
+    pub fn get_virtual_view_node(&mut self) -> Option<&mut VirtualViewNode> {
+        self.extra.as_mut()?.virtual_view.as_mut()
     }
 
-    pub fn get_virtualized_view_node_ref(&self) -> Option<&VirtualizedViewNode> {
-        self.extra.as_ref()?.virtualized_view.as_ref()
+    pub fn get_virtual_view_node_ref(&self) -> Option<&VirtualViewNode> {
+        self.extra.as_ref()?.virtual_view.as_ref()
     }
 
     pub fn get_render_image_callback_node<'a>(
@@ -3013,8 +3013,8 @@ impl Dom {
     }
 
     #[inline(always)]
-    pub fn create_virtualized_view(data: RefAny, callback: impl Into<VirtualizedViewCallback>) -> Self {
-        Self::from_data(NodeData::create_virtualized_view(data, callback))
+    pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
+        Self::from_data(NodeData::create_virtual_view(data, callback))
     }
 
     // Semantic HTML Elements with Accessibility Guidance

@@ -3633,15 +3633,15 @@ pub struct StyledDom {
     pub root: u64,
 }
 
-/// VirtualizedView callback return value
+/// VirtualView callback return value
 #[repr(C)]
-pub struct VirtualizedViewCallbackReturn {
+pub struct VirtualViewReturn {
     pub dom: Dom,
 }
 
-/// Information passed to VirtualizedView callbacks
+/// Information passed to VirtualView callbacks
 #[repr(C)]
-pub struct VirtualizedViewCallbackInfo {
+pub struct VirtualViewCallbackInfo {
     pub bounds: (f32, f32, f32, f32),
 }
 
@@ -3657,9 +3657,9 @@ pub type MarshaledLayoutCallbackType = extern "C" fn(
     &mut LayoutCallbackInfo,
 ) -> Dom;
 
-/// VirtualizedView callback
-pub type VirtualizedViewCallbackType =
-    extern "C" fn(&mut RefAny, &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn;
+/// VirtualView callback
+pub type VirtualViewCallbackType =
+    extern "C" fn(&mut RefAny, &mut VirtualViewCallbackInfo) -> VirtualViewReturn;
 
 /// Simple callback with immutable reference
 pub type OnTextInputCallback = extern "C" fn(&RefAny, &TextInputState) -> OnTextInputReturn;
