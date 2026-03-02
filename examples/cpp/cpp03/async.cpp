@@ -30,7 +30,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.set_inline_style(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(label);
     
-    body.style(Css::empty()); return body.release();
+    return body.style(Css::empty()).release();
 }
 
 int main() {

@@ -213,8 +213,7 @@ def layout(data, info):
     body.add_child(display)
     body.add_child(buttons)
     
-    body.style(Css.empty())
-    return body
+    return body.style(Css.empty())
 
 def main():
     calc = Calculator()

@@ -121,10 +121,9 @@ extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom 
         .with_child(action_row)
         .with_child(note);
     
-    let mut body = Dom::create_body()
-        .with_child(container);
-    body.style(css);
-    body
+    Dom::create_body()
+        .with_child(container)
+        .style(css)
 }
 
 fn main() {

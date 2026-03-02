@@ -10219,12 +10219,15 @@
                                 ],
                                 "fn_args": [
                                     {
-                                        "self": "refmut"
+                                        "self": "value"
                                     },
                                     {
                                         "css": "Css"
                                     }
                                 ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
                                 "fn_body": "object.style(css)"
                             },
                             "swap_with_default": {

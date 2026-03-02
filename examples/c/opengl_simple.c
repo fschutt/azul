@@ -112,7 +112,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&body, image);
     
-    AzDom_style(&body, AzCss_empty()); return body;
+    return AzDom_style(body, AzCss_empty());
 }
 
 AzImageRef render_texture(AzRefAny data, AzRenderImageCallbackInfo info) {

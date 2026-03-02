@@ -35,7 +35,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom body = AzDom_createBody();
     AzDom label = AzDom_createText(AZ_STR("Hello World - Timing Benchmark"));
     AzDom_addChild(&body, label);
-    AzDom_style(&body, AzCss_empty()); return body;
+    return AzDom_style(body, AzCss_empty());
 }
 
 int main() {

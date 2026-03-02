@@ -228,13 +228,12 @@ pub fn create_menu_dom_with_css(
     system_style: &SystemStyle,
     menu_window_data: RefAny,
 ) -> Dom {
-    let mut dom = create_menu_dom(menu, &menu_window_data);
+    let dom = create_menu_dom(menu, &menu_window_data);
 
     let stylesheet = system_style.create_menu_stylesheet();
     let css = Css::new(vec![stylesheet]);
 
-    dom.style(css);
-    dom
+    dom.style(css)
 }
 
 /// Create menu DOM structure with callbacks attached (internal helper)

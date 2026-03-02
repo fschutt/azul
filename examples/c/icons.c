@@ -77,7 +77,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Apply CSS and return DOM
     AzCss css = AzCss_empty();
-    AzDom_style(&root, css); return root;
+    return AzDom_style(root, css);
 }
 
 int main() {

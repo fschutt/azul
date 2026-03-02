@@ -114,7 +114,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(std::move(display));
     body.add_child(std::move(buttons));
     
-    body.style(Css::empty()); return body.release();
+    return body.style(Css::empty()).release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

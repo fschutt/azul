@@ -323,7 +323,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzDom_addChild(&body, image);
     
-    AzDom_style(&body, AzCss_empty()); return body;
+    return AzDom_style(body, AzCss_empty());
 }
 
 // Render texture callback - mirrors render_my_texture() in Rust

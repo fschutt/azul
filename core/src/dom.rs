@@ -4276,12 +4276,13 @@ impl Dom {
     /// Push a CSS stylesheet onto this DOM node's stylesheet list.
     /// The CSS will be applied during the deferred cascade pass in `regenerate_layout()`.
     /// Later `.style()` calls have higher cascade priority (override earlier ones).
-    pub fn style(&mut self, css: azul_css::css::Css) {
+    pub fn style(mut self, css: azul_css::css::Css) -> Self {
         let mut v = Vec::new().into();
         core::mem::swap(&mut v, &mut self.css);
         let mut v: Vec<azul_css::css::Css> = v.into_library_owned_vec();
         v.push(css);
         self.css = v.into();
+        self
     }
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self {

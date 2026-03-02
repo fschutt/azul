@@ -348,7 +348,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "blur + shadow"));
 
     add_child(&body, grid);
-    AzDom_style(&body, AzCss_empty()); return body;
+    return AzDom_style(body, AzCss_empty());
 }
 
 int main() {

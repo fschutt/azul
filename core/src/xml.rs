@@ -4257,9 +4257,8 @@ use azul::{
 struct Data { }
 
 extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> Dom {
-    let mut dom = crate::ui::render();
-    dom.style(Css::empty()); // styles are applied inline
-    dom
+    let dom = crate::ui::render();
+    dom.style(Css::empty()) // styles are applied inline
 }
 
 fn main() {

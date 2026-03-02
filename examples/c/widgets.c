@@ -77,7 +77,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, number_input);
 
     WidgetShowcaseRef_delete(&d);
-    AzDom_style(&body, AzCss_empty()); return body;
+    return AzDom_style(body, AzCss_empty());
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

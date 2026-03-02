@@ -77,7 +77,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, label_wrapper);
     AzDom_addChild(&body, button_dom);
 
-    AzDom_style(&body, AzCss_empty()); return body;
+    return AzDom_style(body, AzCss_empty());
 }
 
 // ── Main ────────────────────────────────────────────────────────────────

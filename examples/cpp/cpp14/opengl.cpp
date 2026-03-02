@@ -30,7 +30,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(std::move(title));
     body.add_child(std::move(placeholder));
     
-    body.style(Css::empty()); return body.release();
+    return body.style(Css::empty()).release();
 }
 
 int main() {

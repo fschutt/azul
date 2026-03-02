@@ -45,7 +45,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(title);
     body.add_child(container);
     
-    body.style(Css::empty()); return body.release();
+    return body.style(Css::empty()).release();
 }
 
 int main() {

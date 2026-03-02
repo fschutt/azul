@@ -530,7 +530,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} "
     ));
 
-    AzDom_style(&body, css); return body;
+    return AzDom_style(body, css);
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
