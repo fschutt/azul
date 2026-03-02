@@ -1,5 +1,5 @@
 // g++ -std=c++03 -o infinity infinity.cpp -lazul
-// Note: This example is simplified - full IFrame scrolling requires more complex setup
+// Note: This example is simplified - full VirtualView scrolling requires more complex setup
 
 #include "azul03.hpp"
 #include <cstdio>
@@ -13,10 +13,10 @@ struct InfinityState {
 };
 AZ_REFLECT(InfinityState);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const InfinityState* d = InfinityState_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     char title_buf[64];
     std::snprintf(title_buf, 64, "Infinite Gallery - %d images", d->file_count);
@@ -45,7 +45,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(title);
     body.add_child(container);
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 int main() {

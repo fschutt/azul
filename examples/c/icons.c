@@ -19,7 +19,7 @@ AzString az_str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Simple vertical layout using just block elements
     AzDom root = AzDom_createDiv();
     AzDom_setInlineStyle(&root, az_str("padding: 20px; background-color: #fff;"));
@@ -75,9 +75,9 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzDom_addChild(&root, icons_container);
     
-    // Convert to StyledDom
+    // Apply CSS and return DOM
     AzCss css = AzCss_empty();
-    return AzDom_style(&root, css);
+    AzDom_style(&root, css); return root;
 }
 
 int main() {

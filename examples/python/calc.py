@@ -165,7 +165,7 @@ def create_button(calc_ref, label, event_type, event_data, style):
 def layout(data, info):
     calc = data.downcast_ref()
     if calc is None:
-        return StyledDom.default()
+        return Dom.create_body()
     
     display_text = calc.display
     
@@ -213,7 +213,8 @@ def layout(data, info):
     body.add_child(display)
     body.add_child(buttons)
     
-    return StyledDom.new(body, Css.empty())
+    body.style(Css.empty())
+    return body
 
 def main():
     calc = Calculator()

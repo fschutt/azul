@@ -52,7 +52,7 @@ impl Default for ConnectionStatus {
 }
 
 // Main function that renders the UI
-extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     use self::ConnectionStatus::*;
 
     let mut body = Dom::create_body().with_inline_style(
@@ -65,7 +65,7 @@ extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let data_clone = data.clone();
     let downcasted = match data.downcast_ref::<MyDataModel>() {
         Some(f) => f,
-        None => return body.style(Css::empty()), // error
+        None => return body, // error
     };
 
     body.add_child(
@@ -83,7 +83,7 @@ extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
             ),
     );
 
-    body.style(Css::empty())
+    body
 }
 
 impl ConnectionStatus {

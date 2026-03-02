@@ -10,10 +10,10 @@ struct XhtmlState {
 };
 AZ_REFLECT(XhtmlState);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const XhtmlState* d = XhtmlState_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     Dom title = Dom::create_text(String("XHTML Spreadsheet Demo"));
     title.set_inline_style(String("font-size: 24px; font-weight: bold; margin-bottom: 20px;"));
@@ -38,7 +38,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(title);
     body.add_child(table);
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 int main() {

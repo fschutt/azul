@@ -3636,7 +3636,7 @@ pub struct StyledDom {
 /// VirtualizedView callback return value
 #[repr(C)]
 pub struct VirtualizedViewCallbackReturn {
-    pub dom: StyledDom,
+    pub dom: Dom,
 }
 
 /// Information passed to VirtualizedView callbacks

@@ -4,6 +4,7 @@ reftest_output/
 output/
 /api/
 vendor/
+*.h
 **/*.rs.bk
 *.pdf
 *.bin

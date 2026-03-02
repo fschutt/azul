@@ -26,10 +26,10 @@ AZ_REFLECT(AsyncState);
 AzUpdate start_connection(AzRefAny data, AzCallbackInfo info);
 AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const AsyncState* d = AsyncState_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     Dom title = Dom::create_text(String("Async Database Connection"))
         .with_inline_style(String("font-size: 24px; margin-bottom: 20px;"));
@@ -74,7 +74,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_child(std::move(title))
         .with_child(std::move(content));
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {

@@ -1860,7 +1860,7 @@ extern "C" fn invoke_py_layout_callback(
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",          // wraps Box<CssPropertyCache>
             "VirtualizedViewCallbackInfo",           // wraps &VirtualizedViewCallbackInfoInternal
-            "VirtualizedViewCallbackReturn", // contains OptionStyledDom which contains CssPropertyCachePtr
+            "VirtualizedViewCallbackReturn", // contains OptionDom which may have callbacks with raw pointers
             "StyledDom",            // contains CssPropertyCachePtr
             "LayoutCallbackInfo",   // wraps & to internal data
             "CallbackInfo",         // wraps & to internal data

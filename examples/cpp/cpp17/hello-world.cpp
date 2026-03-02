@@ -11,10 +11,10 @@ AZ_REFLECT(MyDataModel);
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 // Callback must use C types for FFI compatibility
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     auto d = MyDataModel_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     Dom label = Dom::create_text(String(std::to_string(d->counter).c_str()))
         .with_inline_style(String("font-size: 50px;"));
@@ -29,7 +29,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_child(std::move(label))
         .with_child(std::move(button));
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

@@ -1,9 +1,8 @@
-use azul::css::StyledDom;
 use azul::prelude::*;
 
 struct DataModel;
 
-extern "C" fn my_layout_func(mut _data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn my_layout_func(mut _data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // Create a container with overflow: auto and many block items
     let mut container = Dom::create_div();
     container.set_inline_style(
@@ -28,7 +27,7 @@ extern "C" fn my_layout_func(mut _data: RefAny, _: LayoutCallbackInfo) -> Styled
 
     body.add_child(container);
 
-    body.style(Css::empty())
+    body
 }
 
 fn main() {

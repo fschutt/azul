@@ -23,7 +23,7 @@ static double ms_since_start() {
            (now.tv_nsec - g_t0.tv_nsec) / 1000000.0;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     TimingDataRef ref = TimingDataRef_create(&data);
     if (TimingData_downcastRef(&data, &ref)) {
         if (!ref.ptr->first_layout_done) {
@@ -35,7 +35,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom body = AzDom_createBody();
     AzDom label = AzDom_createText(AZ_STR("Hello World - Timing Benchmark"));
     AzDom_addChild(&body, label);
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 int main() {

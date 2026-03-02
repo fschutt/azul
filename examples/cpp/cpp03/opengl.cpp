@@ -10,10 +10,10 @@ struct OpenGlState {
 };
 AZ_REFLECT(OpenGlState);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const OpenGlState* d = OpenGlState_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     Dom title = Dom::create_text(String("OpenGL Integration Demo"));
     title.set_inline_style(String("color: white; font-size: 24px; margin-bottom: 20px;"));
@@ -26,7 +26,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(title);
     body.add_child(placeholder);
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 int main() {

@@ -1,8 +1,8 @@
 // Regular Scroll Container test - C
 //
 // Tests a normal overflow:auto scroll container with many child elements.
-// This uses NO IFrame — all rows are real DOM children.
-// Used to compare scroll behavior against the IFrame-based infinity.c
+// This uses NO VirtualView — all rows are real DOM children.
+// Used to compare scroll behavior against the VirtualView-based infinity.c
 //
 // Build: cc -o scrolling scrolling.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
 // Run:   DYLD_LIBRARY_PATH=../../target/release ./scrolling
@@ -32,7 +32,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Title
     AzString title_text = AzString_copyFromBytes(
-        (const uint8_t*)"Regular Scroll Test (no IFrame)", 0, 31);
+        (const uint8_t*)"Regular Scroll Test (no VirtualView)", 0, 36);
     AzDom title = AzDom_createDiv();
     AzDom_addChild(&title, AzDom_createText(title_text));
     AzString title_style = AzString_copyFromBytes(
@@ -54,7 +54,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         char style[192];
         const char* bg = (i % 2 == 0) ? "#e8e8e8" : "#ffffff";
         int slen = snprintf(style, sizeof(style),
-            "height: %.0fpx; min-height: %.0fpx; flex-shrink: 0; line-height: %.0fpx; padding-left: 8px; color: #000000; background: %s;",
+            "height: %.0fpx; min-height: %.0fpx; flex-shrink: 0; line-height: %.0fpx; padding-left: 8px; background: %s;",
             ROW_HEIGHT, ROW_HEIGHT, ROW_HEIGHT, bg);
         AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, (size_t)slen);
         AzDom_setInlineStyle(&row, style_str);
@@ -63,20 +63,20 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
 
     AzString container_style = AzString_copyFromBytes(
-        (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; overflow: auto; background: #ffff00; border: 10px solid #00ff00; margin: 8px; min-height: 0;",
-        0, 162);
+        (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; overflow: auto; background: #ffff00; border: 3px solid #00ff00; margin: 8px; height: 400px;",
+        0, 141);
     AzDom_setInlineStyle(&container, container_style);
 
     // Footer
     char footer_buf[128];
     int flen = snprintf(footer_buf, sizeof(footer_buf),
-        "Regular scroll container with %d real DOM rows (no IFrame).", total);
+        "Regular scroll container with %d real DOM rows (no VirtualView).", total);
     AzString footer_text = AzString_copyFromBytes((const uint8_t*)footer_buf, 0, (size_t)flen);
     AzDom footer = AzDom_createDiv();
     AzDom_addChild(&footer, AzDom_createText(footer_text));
     AzString footer_style = AzString_copyFromBytes(
-        (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center; flex-shrink: 0;",
-        0, 100);
+        (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center;",
+        0, 85);
     AzDom_setInlineStyle(&footer, footer_style);
 
     // Body
@@ -89,8 +89,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 75);
     AzDom_setInlineStyle(&body, body_style);
 
-    AzDom_style(&body, AzCss_empty());
-    return body;
+    return AzDom_style(&body, AzCss_empty());
 }
 
 int main(void) {

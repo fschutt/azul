@@ -28,7 +28,7 @@ void ThreadInitData_destructor(void* p) { }
 AZ_REFLECT(ThreadInitData, ThreadInitData_destructor);
 
 // Forward declarations
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info);
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info);
 AzUpdate on_start_clicked(AzRefAny data, AzCallbackInfo info);
 void background_thread_fn(AzRefAny initial_data, AzThreadSender sender, AzThreadReceiver recv);
 AzUpdate writeback_callback(AzRefAny app_data, AzRefAny incoming_data, AzCallbackInfo info);
@@ -38,11 +38,11 @@ static AzString str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AppStateRef state = AppStateRef_create(&data);
     if (!AppState_downcastRef(&data, &state)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     // Create main container
@@ -90,7 +90,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
     
     AppStateRef_delete(&state);
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 // Start Button Click Handler

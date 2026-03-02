@@ -9,7 +9,7 @@ struct Calculator {
     clear_on_next_input: bool,
 }
 
-extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let display_text = data
         .downcast_ref::<Calculator>()
         .map(|calc| calc.get_display())
@@ -51,7 +51,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
         .with_inline_style(CALCULATOR_STYLE)
         .with_child(display)
         .with_child(buttons)
-        .style(Css::empty())
 }
 
 const CALCULATOR_STYLE: &str = "

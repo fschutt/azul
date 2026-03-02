@@ -41,10 +41,10 @@ Dom make_button(RefAny& calc, const char* label, int evt, char digit, int op, co
     return btn;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const Calculator* c = Calculator_downcast_ref(data_wrapper);
-    if (!c) return AzStyledDom_default();
+    if (!c) return AzDom_createBody();
     
     Dom display_text = Dom::create_text(String(c->display));
     Dom display = Dom::create_div();
@@ -74,7 +74,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(display);
     body.add_child(buttons);
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

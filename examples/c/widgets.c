@@ -18,10 +18,10 @@ AZ_REFLECT(WidgetShowcase, WidgetShowcase_destructor);
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 AzUpdate on_checkbox_toggle(AzRefAny data, AzCallbackInfo info);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     WidgetShowcaseRef d = WidgetShowcaseRef_create(&data);
     if (!WidgetShowcase_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
 
     // Create button
@@ -77,7 +77,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, number_input);
 
     WidgetShowcaseRef_delete(&d);
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

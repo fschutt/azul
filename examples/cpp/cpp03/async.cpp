@@ -9,10 +9,10 @@ struct AsyncState {
 };
 AZ_REFLECT(AsyncState);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const AsyncState* d = AsyncState_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     const char* status_text;
     if (d->connection_status == 0) {
@@ -30,7 +30,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.set_inline_style(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(label);
     
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 int main() {

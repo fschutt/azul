@@ -9,8 +9,8 @@ AZ_REFLECT(AppData);
 // Embedded XHTML content
 static const char* XHTML_CONTENT = "<html><body><h1>Test XHTML</h1><p>This is a test spreadsheet.</p></body></html>";
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    return StyledDom::from_xml(String(XHTML_CONTENT)).release();
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    return Dom::from_xml(String(XHTML_CONTENT)).release();
 }
 
 int main() {

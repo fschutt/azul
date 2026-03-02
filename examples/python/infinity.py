@@ -17,18 +17,18 @@ def layout(data, info):
     title = Dom.text(f"Infinite Gallery - {len(data.file_paths)} images")
     title.set_inline_style("font-size: 20px; margin-bottom: 10px;")
     
-    iframe = Dom.iframe(data, render_iframe)
-    iframe.set_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
-    iframe.set_callback(On.Scroll, data, on_scroll)
+    vview = Dom.virtualized_view(data, render_virtual_view)
+    vview.set_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
+    vview.set_callback(On.Scroll, data, on_scroll)
     
     body = Dom.body()
     body.set_inline_style("padding: 20px; font-family: sans-serif;")
     body.add_child(title)
-    body.add_child(iframe)
+    body.add_child(vview)
     
-    return body.style(Css.empty())
+    return body
 
-def render_iframe(data, info):
+def render_virtual_view(data, info):
     container = Dom.div()
     container.set_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;")
     
@@ -39,7 +39,7 @@ def render_iframe(data, info):
         item.add_child(Dom.text(data.file_paths[i]))
         container.add_child(item)
     
-    return container.style(Css.empty())
+    return container
 
 def on_scroll(data, info):
     scroll_pos = info.get_scroll_position()

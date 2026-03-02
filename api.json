@@ -3107,7 +3107,7 @@
                     },
                     "VirtualizedViewCallbackReturn": {
                         "doc": [
-                            "Return value for a VirtualizedView rendering callback. # Dual Size Model VirtualizedView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualizedView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualizedView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualizedView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualizedView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualizedView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualizedView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionStyledDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtualized_view_callback(data: &mut MyData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualizedViewCallbackReturn { dom: OptionStyledDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualizedViewCallbackReturn { dom: OptionStyledDom::Some(new_dom), ... } } ``` # Example: Basic VirtualizedView ```rust,ignore fn my_virtualized_view_callback(data: &mut MyData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualizedView!\")); let styled_dom = dom.style(Css::empty()); VirtualizedViewCallbackReturn { // The rendered content dom: OptionStyledDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtualized_view_callback(data: &mut TableData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualizedViewCallbackReturn { dom: OptionStyledDom::Some(dom.style(Css::empty())), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualizedView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
+                            "Return value for a VirtualizedView rendering callback. # Dual Size Model VirtualizedView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualizedView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualizedView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualizedView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualizedView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualizedView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualizedView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtualized_view_callback(data: &mut MyData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualizedViewCallbackReturn { dom: OptionDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualizedViewCallbackReturn { dom: OptionDom::Some(new_dom), ... } } ``` # Example: Basic VirtualizedView ```rust,ignore fn my_virtualized_view_callback(data: &mut MyData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualizedView!\")); let styled_dom = dom; VirtualizedViewCallbackReturn { // The rendered content dom: OptionDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtualized_view_callback(data: &mut TableData, info: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualizedViewCallbackReturn { dom: OptionDom::Some(dom), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualizedView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
                         ],
                         "external": "azul_core::callbacks::VirtualizedViewCallbackReturn",
                         "custom_impls": [
@@ -3121,9 +3121,9 @@
                         "struct_fields": [
                             {
                                 "dom": {
-                                    "type": "OptionStyledDom",
+                                    "type": "OptionDom",
                                     "doc": [
-                                        "The styled DOM with actual rendered content, or None to keep current DOM. - `OptionStyledDom::Some(dom)` - Replace current content with this new DOM - `OptionStyledDom::None` - Keep using the previous DOM, only update scroll bounds Returning `None` is an optimization when the callback determines that the current content is sufficient (e.g., already rendered ahead of scroll position)."
+                                        "The DOM with actual rendered content, or None to keep current DOM. - `OptionDom::Some(dom)` - Replace current content with this new DOM - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds Returning `None` is an optimization when the callback determines that the current content is sufficient (e.g., already rendered ahead of scroll position)."
                                     ]
                                 }
                             },
@@ -3168,7 +3168,7 @@
                                     "Use this when the callback has rendered new content to display.",
                                     "",
                                     "# Arguments",
-                                    "- `dom` - The new styled DOM to render",
+                                    "- `dom` - The new DOM to render",
                                     "- `scroll_size` - Size of the actual rendered content",
                                     "- `scroll_offset` - Position of rendered content in virtual space",
                                     "- `virtual_scroll_size` - Size for scrollbar representation",
@@ -3176,7 +3176,7 @@
                                 ],
                                 "fn_args": [
                                     {
-                                        "dom": "StyledDom"
+                                        "dom": "Dom"
                                     },
                                     {
                                         "scroll_size": "LogicalSize"
@@ -8149,15 +8149,15 @@
                         ],
                         "external": "azul_core::dom::Dom",
                         "custom_impls": [
-                            "Debug"
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord"
                         ],
                         "derive": [
-                            "Hash",
                             "Clone",
                             "PartialOrd",
-                            "PartialEq",
-                            "Eq",
-                            "Ord"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
@@ -11862,7 +11862,7 @@
                         "doc": [
                             "Holds information about a UI element for accessibility purposes (e.g., screen readers). This is a wrapper for platform-specific accessibility APIs like MSAA."
                         ],
-                        "external": "azul_core::dom::AccessibilityInfo",
+                        "external": "azul_core::a11y::AccessibilityInfo",
                         "derive": [
                             "Debug",
                             "PartialEq",
@@ -11912,7 +11912,7 @@
                         "doc": [
                             "Defines the element's purpose for accessibility APIs, informing assistive technologies like screen readers about the function of a UI element. Each variant corresponds to a standard control type or UI structure. For more details, see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/winauto/object-roles)."
                         ],
-                        "external": "azul_core::dom::AccessibilityRole",
+                        "external": "azul_core::a11y::AccessibilityRole",
                         "derive": [
                             "Copy",
                             "PartialEq",
@@ -12386,7 +12386,7 @@
                         "doc": [
                             "Defines the current state of an element for accessibility APIs (e.g., focused, checked). These states provide dynamic information to assistive technologies about the element's condition. See the [MSDN State Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants) for more details."
                         ],
-                        "external": "azul_core::dom::AccessibilityState",
+                        "external": "azul_core::a11y::AccessibilityState",
                         "derive": [
                             "Ord",
                             "PartialEq",
@@ -12648,7 +12648,7 @@
                         "repr": "C"
                     },
                     "AccessibilityAction": {
-                        "external": "azul_core::dom::AccessibilityAction",
+                        "external": "azul_core::a11y::AccessibilityAction",
                         "derive": [
                             "Eq",
                             "Clone",
@@ -14107,7 +14107,7 @@
                         "repr": "C"
                     },
                     "TextSelectionStartEnd": {
-                        "external": "azul_core::dom::TextSelectionStartEnd",
+                        "external": "azul_core::a11y::TextSelectionStartEnd",
                         "derive": [
                             "Hash",
                             "PartialEq",
@@ -14678,7 +14678,7 @@
                         "repr": "C"
                     },
                     "SmallAriaInfo": {
-                        "external": "azul_core::dom::SmallAriaInfo",
+                        "external": "azul_core::a11y::SmallAriaInfo",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -14911,7 +14911,7 @@
                         "repr": "C"
                     },
                     "AccessibilityStateVecSlice": {
-                        "external": "azul_core::dom::AccessibilityStateVecSlice",
+                        "external": "azul_core::a11y::AccessibilityStateVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -15087,7 +15087,7 @@
                         "repr": "C"
                     },
                     "AccessibilityActionVecSlice": {
-                        "external": "azul_core::dom::AccessibilityActionVecSlice",
+                        "external": "azul_core::a11y::AccessibilityActionVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -15335,7 +15335,7 @@
                         "repr": "C"
                     },
                     "DragDelta": {
-                        "external": "azul_core::geom::DragDelta",
+                        "external": "azul_core::drag::DragDelta",
                         "derive": [
                             "Default",
                             "Copy",
@@ -50374,7 +50374,7 @@
                                         "self": "ref"
                                     },
                                     {
-                                        "texture": "&mut Texture"
+                                        "texture": "*mut Texture"
                                     },
                                     {
                                         "target_size": "PhysicalSizeU32"
@@ -50389,7 +50389,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "object.draw(texture, target_size, color, transforms)"
+                                "fn_body": "object.draw(unsafe { &mut *texture }, target_size, color, transforms)"
                             }
                         },
                         "repr": "C"
@@ -53258,7 +53258,7 @@
                         "doc": [
                             "Wrapper over a Rust-allocated `Vec<AccessibilityState>"
                         ],
-                        "external": "azul_core::dom::AccessibilityStateVec",
+                        "external": "azul_core::a11y::AccessibilityStateVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -60605,7 +60605,7 @@
                         "doc": [
                             "Wrapper over a Rust-allocated `Vec<AccessibilityAction>"
                         ],
-                        "external": "azul_core::dom::AccessibilityActionVec",
+                        "external": "azul_core::a11y::AccessibilityActionVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -61508,7 +61508,7 @@
                         }
                     },
                     "AccessibilityStateVecDestructorType": {
-                        "external": "azul_core::dom::AccessibilityStateVecDestructorType",
+                        "external": "azul_core::a11y::AccessibilityStateVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -61660,7 +61660,7 @@
                         }
                     },
                     "AccessibilityStateVecDestructor": {
-                        "external": "azul_core::dom::AccessibilityStateVecDestructor",
+                        "external": "azul_core::a11y::AccessibilityStateVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -62122,7 +62122,7 @@
                         "repr": "C, u8"
                     },
                     "AccessibilityActionVecDestructor": {
-                        "external": "azul_core::dom::AccessibilityActionVecDestructor",
+                        "external": "azul_core::a11y::AccessibilityActionVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -62383,7 +62383,7 @@
                         "repr": "C, u8"
                     },
                     "AccessibilityActionVecDestructorType": {
-                        "external": "azul_core::dom::AccessibilityActionVecDestructorType",
+                        "external": "azul_core::a11y::AccessibilityActionVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -71387,25 +71387,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionStyledDom": {
-                        "external": "azul_core::styled_dom::OptionStyledDom",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {}
-                            },
-                            {
-                                "Some": {
-                                    "type": "StyledDom"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "SvgParseOptions": {
                         "external": "azul_core::svg::SvgParseOptions",
                         "custom_impls": [
@@ -71539,7 +71520,7 @@
                         "repr": "C, u8"
                     },
                     "OptionDragDelta": {
-                        "external": "azul_core::geom::OptionDragDelta",
+                        "external": "azul_core::drag::OptionDragDelta",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -71984,7 +71965,7 @@
                         "repr": "C, u8"
                     },
                     "OptionAccessibilityRole": {
-                        "external": "azul_core::dom::OptionAccessibilityRole",
+                        "external": "azul_core::a11y::OptionAccessibilityRole",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -72612,7 +72593,7 @@
                         "repr": "C, u8"
                     },
                     "OptionAccessibilityAction": {
-                        "external": "azul_core::dom::OptionAccessibilityAction",
+                        "external": "azul_core::a11y::OptionAccessibilityAction",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -72676,7 +72657,7 @@
                         "repr": "C, u8"
                     },
                     "OptionAccessibilityState": {
-                        "external": "azul_core::dom::OptionAccessibilityState",
+                        "external": "azul_core::a11y::OptionAccessibilityState",
                         "derive": [
                             "Debug",
                             "Copy",

@@ -70,7 +70,7 @@ static AzDom make_full_width_container(const char* css) {
     return c;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzDom body = AzDom_createBody();
     AzDom_setInlineStyle(&body, AZ_STR(
@@ -348,7 +348,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "blur + shadow"));
 
     add_child(&body, grid);
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 int main() {

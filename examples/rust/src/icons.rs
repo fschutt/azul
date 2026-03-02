@@ -8,7 +8,6 @@
 //!
 //! Run with: cargo run -p azul-examples --bin icons
 
-use azul::css::StyledDom;
 use azul::prelude::*;
 
 const CSS: &str = r#"
@@ -70,7 +69,7 @@ icon {
 
 struct IconDemo;
 
-extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let css = Css::from_string(CSS).unwrap_or_else(|_| Css::empty());
     
     // Create icons using the Rust API
@@ -122,9 +121,10 @@ extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Styl
         .with_child(action_row)
         .with_child(note);
     
-    Dom::create_body()
-        .with_child(container)
-        .style(css)
+    let mut body = Dom::create_body()
+        .with_child(container);
+    body.style(css);
+    body
 }
 
 fn main() {

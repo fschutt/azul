@@ -19,10 +19,10 @@ AZ_REFLECT(WidgetShowcase);
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const WidgetShowcase* d = WidgetShowcase_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     // Create button
     Dom button_text = Dom::create_text("Click me!");
@@ -41,7 +41,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(std::move(title));
     body.add_child(std::move(button));
 
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

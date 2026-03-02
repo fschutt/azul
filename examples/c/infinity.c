@@ -29,7 +29,7 @@ AzVirtualizedViewCallbackReturn render_rows(AzRefAny data, AzVirtualizedViewCall
     InfinityDataRef d = InfinityDataRef_create(&data);
     if (!InfinityData_downcastRef(&data, &d)) {
         return AzVirtualizedViewCallbackReturn_withDom(
-            AzStyledDom_default(),
+            AzDom_createBody(),
             AzLogicalSize_zero(), AzLogicalPosition_zero(),
             AzLogicalSize_zero(), AzLogicalPosition_zero()
         );
@@ -78,7 +78,7 @@ AzVirtualizedViewCallbackReturn render_rows(AzRefAny data, AzVirtualizedViewCall
         AzDom_addChild(&container, row);
     }
 
-    AzStyledDom dom = AzDom_style(&container, AzCss_empty());
+    AzDom_style(&container, AzCss_empty());
 
     // --- sizes reported back to the layout engine ---
     // scroll_size: how large is the chunk we actually rendered?
@@ -98,14 +98,14 @@ AzVirtualizedViewCallbackReturn render_rows(AzRefAny data, AzVirtualizedViewCall
     AzLogicalPosition virtual_offset = AzLogicalPosition_zero();
 
     return AzVirtualizedViewCallbackReturn_withDom(
-        dom, scroll_size, scroll_offset, virtual_size, virtual_offset
+        container, scroll_size, scroll_offset, virtual_size, virtual_offset
     );
 }
 
 // ---------------------------------------------------------------------------
 // Root layout
 // ---------------------------------------------------------------------------
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Title
     char title_buf[64];
@@ -146,7 +146,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 75);
     AzDom_setInlineStyle(&body, body_style);
 
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 // ---------------------------------------------------------------------------

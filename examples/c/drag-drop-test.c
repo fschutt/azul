@@ -354,12 +354,12 @@ AzUpdate on_window_drag_end(AzRefAny data, AzCallbackInfo info) {
 
 // ── Layout ──────────────────────────────────────────────────────────────
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     (void)info;
 
     DragDropModelRef d = DragDropModelRef_create(&data);
     if (!DragDropModel_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
 
     char status_buf[600];
@@ -530,7 +530,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} "
     ));
 
-    return AzDom_style(&body, css);
+    AzDom_style(&body, css); return body;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────

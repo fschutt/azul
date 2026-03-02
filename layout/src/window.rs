@@ -1272,10 +1272,13 @@ impl LayoutWindow {
         self.virtualized_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
 
-        // Get the child StyledDom from the callback's return value
+        // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
-            azul_core::styled_dom::OptionStyledDom::Some(dom) => dom,
-            azul_core::styled_dom::OptionStyledDom::None => {
+            azul_core::dom::OptionDom::Some(dom) => {
+                // Convert Dom → StyledDom (single deferred cascade pass)
+                azul_core::styled_dom::StyledDom::create_from_dom(dom)
+            },
+            azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
                 if reason == VirtualizedViewCallbackReason::InitialRender {
                     // For the very first render, create an empty div as a fallback.

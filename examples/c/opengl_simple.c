@@ -31,7 +31,7 @@ void OpenGlState_destructor(void* s) {
 AZ_REFLECT(OpenGlState, OpenGlState_destructor);
 
 // Forward declarations
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info);
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info);
 AzImageRef render_texture(AzRefAny data, AzRenderImageCallbackInfo info);
 AzUpdate on_startup(AzRefAny data, AzCallbackInfo info);
 AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info);
@@ -76,7 +76,7 @@ bool create_triangle(OpenGlState* state) {
     return true;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create the OpenGL image with a callback
     AzCoreRenderImageCallback callback = { 
         .cb = (AzCoreRenderImageCallbackType)render_texture,
@@ -112,7 +112,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&body, image);
     
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 AzImageRef render_texture(AzRefAny data, AzRenderImageCallbackInfo info) {

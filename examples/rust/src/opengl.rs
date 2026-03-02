@@ -37,7 +37,7 @@ struct OpenGlAppState {
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body()
         .with_inline_style(
             "
@@ -69,7 +69,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                     ),
             ),
         )
-        .style(Css::empty())
 }
 
 extern "C" fn render_my_texture(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {

@@ -16,7 +16,7 @@ AzString az_str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom root = AzDom_createDiv();
     AzDom_setInlineStyle(&root, az_str("padding: 40px; background-color: #fff;"));
     
@@ -48,7 +48,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&root, para);
     
     AzCss css = AzCss_empty();
-    return AzDom_style(&root, css);
+    AzDom_style(&root, css); return root;
 }
 
 int main() {

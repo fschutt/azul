@@ -552,7 +552,7 @@ bool load_page(BrowserData* data) {
 // Layout Callback
 // ============================================================================
 
-AzStyledDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     BrowserData* data = (BrowserData*)AzRefAny_getDataPtr(&data_ref);
     
     // If still loading or error, show status
@@ -561,9 +561,7 @@ AzStyledDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
         AzDom error_dom = AzDom_createDiv();
         AzDom text = AzDom_createText(az_str(data->error_message));
         AzDom_addChild(&error_dom, text);
-        // Convert DOM to StyledDom using XML path
-        AzStyledDom styled = AzStyledDom_default();
-        return styled;
+        return AzDom_createBody();
     }
     
     if (!data->has_xml) {
@@ -571,16 +569,15 @@ AzStyledDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
         AzDom loading_dom = AzDom_createDiv();
         AzDom text = AzDom_createText(az_str(data->status_message ? data->status_message : "Loading..."));
         AzDom_addChild(&loading_dom, text);
-        AzStyledDom styled = AzStyledDom_default();
-        return styled;
+        return AzDom_createBody();
     }
     
-    // Render the parsed XML as styled DOM using the new fromParsedXml function
+    // Render the parsed XML as DOM using the new fromParsedXml function
     // This avoids re-parsing the XML string
     AzXml xml_clone = AzXml_clone(&data->parsed_xml);
-    AzStyledDom styled = AzStyledDom_fromParsedXml(xml_clone);
+    AzDom dom = AzDom_fromParsedXml(xml_clone);
     
-    return styled;
+    return dom;
 }
 
 // ============================================================================

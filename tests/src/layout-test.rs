@@ -1,7 +1,7 @@
 use azul_core::{
     app_resources::{IdNamespace, RendererResources},
     callbacks::{DocumentId, VirtualizedViewCallbackInfo, VirtualizedViewCallbackReturn, PipelineId, RefAny},
-    dom::{Dom, NodeData},
+    dom::{Dom, NodeData, OptionDom},
     id_tree::{Node, NodeDataContainer, NodeHierarchy, NodeId},
     styled_dom::{
         DomId, NodeHierarchyItem, OptionNodeId, ParentWithNodeDepth, StyledDom, StyledNode,
@@ -82,7 +82,7 @@ struct A {}
 
 extern "C" fn render_virtualized_view(_: &mut RefAny, _: &mut VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn {
     VirtualizedViewCallbackReturn {
-        dom: StyledDom::default(),
+        dom: OptionDom::None,
         scroll_size: LogicalSize::zero(),
         scroll_offset: LogicalPosition::zero(),
         virtual_scroll_size: LogicalSize::zero(),

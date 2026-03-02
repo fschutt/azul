@@ -46,10 +46,10 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 // ── Layout ──────────────────────────────────────────────────────────────
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef d = MyDataModelRef_create(&data);
     if (!MyDataModel_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
 
     char buffer[20];
@@ -77,7 +77,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, label_wrapper);
     AzDom_addChild(&body, button_dom);
 
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────

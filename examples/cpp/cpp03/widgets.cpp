@@ -11,10 +11,10 @@ AZ_REFLECT(WidgetShowcase);
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const WidgetShowcase* d = WidgetShowcase_downcast_ref(data_wrapper);
-    if (!d) return AzStyledDom_default();
+    if (!d) return AzDom_createBody();
     
     Dom button_text = Dom::create_text(String("Click me!"));
     Dom button = Dom::create_div();
@@ -30,7 +30,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(title);
     body.add_child(button);
 
-    return body.style(Css::empty()).release();
+    body.style(Css::empty()); return body.release();
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

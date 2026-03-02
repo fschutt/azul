@@ -29,7 +29,7 @@ def layout(data, info):
         info: LayoutCallbackInfo with window size, theme, etc.
     
     Returns:
-        StyledDom: The styled DOM tree to render
+        Dom: The styled DOM tree to render
     """
     # Create a simple label
     label = azul.Dom.text(f"Hello from Python! Counter: {data.counter}")
@@ -43,8 +43,8 @@ def layout(data, info):
     body.add_child(label)
     body.add_child(button_dom)
     
-    # Apply default styling
-    return azul.StyledDom.from_dom(body)
+    # Return the body directly (Dom is the return type)
+    return body
 
 def main():
     print("Starting Azul GUI application...")

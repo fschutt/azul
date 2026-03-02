@@ -25,7 +25,7 @@ use azul_css::{
 use rust_fontconfig::{FcFontCache, FontSource};
 
 use crate::{
-    dom::{DomId, DomNodeId, EventFilter},
+    dom::{Dom, DomId, DomNodeId, EventFilter, OptionDom},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, PhysicalSize},
     gl::OptionGlContextPtr,
     hit_test::OverflowingScrollNode,
@@ -37,7 +37,7 @@ use crate::{
         RendererResources,
     },
     styled_dom::{
-        NodeHierarchyItemId, NodeHierarchyItemVec, OptionStyledDom, StyledDom, StyledNode,
+        NodeHierarchyItemId, NodeHierarchyItemVec, StyledNode,
         StyledNodeVec,
     },
     task::{
@@ -281,18 +281,18 @@ impl VirtualizedViewCallbackInfo {
 /// The callback is re-invoked on: initial render, parent DOM recreation, window expansion
 /// beyond `scroll_size`, or scrolling near content edges (200px threshold).
 ///
-/// Return `OptionStyledDom::None` to keep the current DOM and only update scroll bounds.
+/// Return `OptionDom::None` to keep the current DOM and only update scroll bounds.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct VirtualizedViewCallbackReturn {
-    /// The styled DOM with actual rendered content, or None to keep current DOM.
+    /// The DOM with actual rendered content, or None to keep current DOM.
     ///
-    /// - `OptionStyledDom::Some(dom)` - Replace current content with this new DOM
-    /// - `OptionStyledDom::None` - Keep using the previous DOM, only update scroll bounds
+    /// - `OptionDom::Some(dom)` - Replace current content with this new DOM
+    /// - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds
     ///
     /// Returning `None` is an optimization when the callback determines that the
     /// current content is sufficient (e.g., already rendered ahead of scroll position).
-    pub dom: OptionStyledDom,
+    pub dom: OptionDom,
 
     /// Size of the actual rendered content rectangle.
     ///
@@ -332,7 +332,7 @@ pub struct VirtualizedViewCallbackReturn {
 impl Default for VirtualizedViewCallbackReturn {
     fn default() -> VirtualizedViewCallbackReturn {
         VirtualizedViewCallbackReturn {
-            dom: OptionStyledDom::None,
+            dom: OptionDom::None,
             scroll_size: LogicalSize::zero(),
             scroll_offset: LogicalPosition::zero(),
             virtual_scroll_size: LogicalSize::zero(),
@@ -347,20 +347,20 @@ impl VirtualizedViewCallbackReturn {
     /// Use this when the callback has rendered new content to display.
     ///
     /// # Arguments
-    /// - `dom` - The new styled DOM to render
+    /// - `dom` - The new DOM to render
     /// - `scroll_size` - Size of the actual rendered content
     /// - `scroll_offset` - Position of rendered content in virtual space
     /// - `virtual_scroll_size` - Size for scrollbar representation
     /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
     pub fn with_dom(
-        dom: StyledDom,
+        dom: Dom,
         scroll_size: LogicalSize,
         scroll_offset: LogicalPosition,
         virtual_scroll_size: LogicalSize,
         virtual_scroll_offset: LogicalPosition,
     ) -> Self {
         Self {
-            dom: OptionStyledDom::Some(dom),
+            dom: OptionDom::Some(dom),
             scroll_size,
             scroll_offset,
             virtual_scroll_size,
@@ -386,7 +386,7 @@ impl VirtualizedViewCallbackReturn {
         virtual_scroll_offset: LogicalPosition,
     ) -> Self {
         Self {
-            dom: OptionStyledDom::None,
+            dom: OptionDom::None,
             scroll_size,
             scroll_offset,
             virtual_scroll_size,
@@ -403,7 +403,7 @@ impl VirtualizedViewCallbackReturn {
         note = "Use `with_dom()` for new content or `keep_current()` for no update"
     )]
     pub fn new(
-        dom: StyledDom,
+        dom: Dom,
         scroll_size: LogicalSize,
         scroll_offset: LogicalPosition,
         virtual_scroll_size: LogicalSize,

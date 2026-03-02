@@ -158,10 +158,10 @@ static const char* ZERO_STYLE =
     "padding-left:28px;"
     "grid-column:span 2;";
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     CalculatorRef c = CalculatorRef_create(&data);
     if (!Calculator_downcastRef(&data, &c)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     char display_text[64];
@@ -215,7 +215,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, display);
     AzDom_addChild(&body, buttons);
 
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

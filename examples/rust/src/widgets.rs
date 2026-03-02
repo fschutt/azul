@@ -1,4 +1,3 @@
-use azul::css::ColorU;
 use azul::prelude::*;
 use azul::widgets::*;
 
@@ -8,10 +7,10 @@ struct WidgetShowcase {
     progress: f32,
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let showcase = match data.downcast_ref::<WidgetShowcase>() {
         Some(s) => (*s).clone(),
-        None => return StyledDom::default(),
+        None => return Dom::create_body(),
     };
 
     let enable_padding = showcase.enable_padding;
@@ -76,7 +75,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .with_child(text_input)
         .with_child(number_input)
         .with_child(color_input)
-        .style(Css::empty())
 }
 
 extern "C" fn toggle_padding(mut data: RefAny, _: CallbackInfo) -> Update {

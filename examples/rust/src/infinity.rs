@@ -12,12 +12,12 @@ struct InfinityState {
     visible_count: usize,
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // Extract value and drop the guard before using data.clone()
     let file_count = {
         let d = match data.downcast_ref::<InfinityState>() {
             Some(s) => s,
-            None => return StyledDom::default(),
+            None => return Dom::create_body(),
         };
         d.file_paths.len()
     };
@@ -38,7 +38,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .with_inline_style("padding: 20px; font-family: sans-serif;")
         .with_child(title)
         .with_child(vview)
-        .style(Css::empty())
 }
 
 extern "C" fn render_virtualized_view(mut data: RefAny, info: VirtualizedViewCallbackInfo) -> VirtualizedViewCallbackReturn {
@@ -77,7 +76,7 @@ extern "C" fn render_virtualized_view(mut data: RefAny, info: VirtualizedViewCal
     let virtual_height = rows as f32 * 160.0; // 150px + 10px gap
 
     VirtualizedViewCallbackReturn {
-        dom: OptionStyledDom::Some(container.style(Css::empty())),
+        dom: OptionDom::Some(container),
         scroll_size: LogicalSize::new(0.0, virtual_height),
         scroll_offset: LogicalPosition::new(0.0, 0.0),
         virtual_scroll_size: LogicalSize::new(0.0, virtual_height),

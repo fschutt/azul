@@ -32,7 +32,7 @@ void OpenGlState_destructor(void* s) {
 AZ_REFLECT(OpenGlState, OpenGlState_destructor);
 
 // Forward declarations
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info);
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info);
 AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info);
 AzUpdate startup_window(AzRefAny data, AzCallbackInfo info);
 AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info);
@@ -282,7 +282,7 @@ bool parse_and_tessellate(OpenGlState* state) {
 }
 
 // Layout function - mirrors layout() in Rust
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create body with gradient background (like Rust example)
     AzDom body = AzDom_createBody();
     AzDom_setInlineStyle(&body, az_str(
@@ -323,7 +323,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzDom_addChild(&body, image);
     
-    return AzDom_style(&body, AzCss_empty());
+    AzDom_style(&body, AzCss_empty()); return body;
 }
 
 // Render texture callback - mirrors render_my_texture() in Rust
