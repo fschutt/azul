@@ -479,7 +479,6 @@ impl MacOSWindow {
         };
 
         if affected_nodes.is_empty() {
-            println!("[handle_text_input] No affected nodes returned from record_text_input");
             return;
         }
 
@@ -522,16 +521,16 @@ impl MacOSWindow {
         if let Some(layout_window) = self.get_layout_window_mut() {
             let dirty_nodes = layout_window.apply_text_changeset();
             if !dirty_nodes.is_empty() {
-                println!("[handle_text_input] Applied text changeset, {} dirty nodes", dirty_nodes.len());
-                overall_result = overall_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                overall_result = overall_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
             }
         }
 
-        // Request redraw if needed
-        if overall_result > ProcessEventResult::ShouldReRenderCurrentWindow {
+        // Convert result to actual frame/redraw action
+        let event_result = Self::convert_process_result(overall_result);
+        if matches!(event_result, EventProcessResult::RegenerateDisplayList) {
             self.common.frame_needs_regeneration = true;
-            self.request_redraw();
-        } else if overall_result == ProcessEventResult::ShouldReRenderCurrentWindow {
+        }
+        if matches!(event_result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
             self.request_redraw();
         }
     }
