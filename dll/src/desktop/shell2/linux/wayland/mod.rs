@@ -867,6 +867,7 @@ impl WaylandWindow {
                 last_hovered_node: None,
                 frame_needs_regeneration: false,
                 display_list_initialized: false,
+                display_list_dirty: false,
             },
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             keyboard_state: events::WaylandKeyboardState::new(),

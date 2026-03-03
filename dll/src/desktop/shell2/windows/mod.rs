@@ -480,6 +480,7 @@ impl Win32Window {
                 id_namespace: Some(id_namespace),
                 frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
                 display_list_initialized: false,
+                display_list_dirty: false,
                 previous_window_state: None,
                 current_window_state,
                 image_cache: ImageCache::default(),

@@ -2738,6 +2738,7 @@ impl MacOSWindow {
                 system_style,
                 frame_needs_regeneration: false,
                 display_list_initialized: false,
+                display_list_dirty: false,
                 scrollbar_drag_state: None,
             },
             font_registry,
@@ -4603,6 +4604,11 @@ impl MacOSWindow {
             // Layout was regenerated — rebuild display list unless layout result is identical
             let needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
             needs_rebuild
+        } else if self.common.display_list_dirty {
+            // Display list was updated internally (e.g. text editing) without
+            // a full DOM rebuild — send it to WebRender.
+            self.common.display_list_dirty = false;
+            true
         } else {
             // No layout regeneration needed (e.g. scroll-only update) —
             // use lightweight transaction (scroll offsets + GPU values only)

@@ -562,6 +562,9 @@ pub struct CommonWindowState {
     /// regenerate_layout() returns LayoutUnchanged (because create_window already
     /// ran regenerate_layout for accessibility/font init).
     pub display_list_initialized: bool,
+    /// Whether the display list was updated internally (e.g. by text editing)
+    /// and needs to be sent to WebRender without a full DOM rebuild.
+    pub display_list_dirty: bool,
 }
 
 /// Generates all 28 PlatformWindow getter/setter implementations
@@ -658,6 +661,14 @@ macro_rules! impl_platform_window_getters {
         }
         fn clear_frame_regeneration_flag(&mut self) {
             self.$field.frame_needs_regeneration = false;
+        }
+        fn mark_display_list_dirty(&mut self) {
+            self.$field.display_list_dirty = true;
+        }
+        fn take_display_list_dirty(&mut self) -> bool {
+            let v = self.$field.display_list_dirty;
+            self.$field.display_list_dirty = false;
+            v
         }
     };
 }
@@ -803,6 +814,12 @@ pub trait PlatformWindow {
 
     /// Clear frame regeneration flag
     fn clear_frame_regeneration_flag(&mut self);
+
+    /// Mark that the display list was updated internally and needs sending to WebRender
+    fn mark_display_list_dirty(&mut self);
+
+    /// Check and clear the display_list_dirty flag
+    fn take_display_list_dirty(&mut self) -> bool;
 
     // Callback Invocation Preparation
 
@@ -1436,9 +1453,11 @@ pub trait PlatformWindow {
                         let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
                         lw.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
+                    } else {
                     }
+                } else {
                 }
-                ProcessEventResult::ShouldReRenderCurrentWindow
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
             CallbackChange::DeleteForward { dom_id, node_id } => {
@@ -1723,7 +1742,7 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let dirty_nodes = lw.apply_text_changeset();
                     if !dirty_nodes.is_empty() {
-                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                        result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                         lw.scroll_selection_into_view(
                             azul_layout::window::SelectionScrollType::Cursor,
                             azul_layout::window::ScrollMode::Instant,
@@ -2148,9 +2167,6 @@ pub trait PlatformWindow {
             // === Text Input ===
 
             SystemChange::ApplyPendingTextInput => {
-                // Text input was already applied during pre-callback processing.
-                // This variant exists for the post-callback filter to signal
-                // that text changeset should be applied if not prevented.
                 ProcessEventResult::DoNothing
             }
 
@@ -2158,7 +2174,7 @@ pub trait PlatformWindow {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     let dirty_nodes = layout_window.apply_text_changeset();
                     if !dirty_nodes.is_empty() {
-                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -3809,6 +3825,7 @@ pub trait PlatformWindow {
         use azul_core::callbacks::Update;
 
         let (timer_changes_result, timer_results) = self.invoke_expired_timers();
+        let mut max_changes_result = timer_changes_result;
         let mut needs_redraw = timer_changes_result != ProcessEventResult::DoNothing;
         let mut needs_layout_regeneration = false;
 
@@ -3826,6 +3843,7 @@ pub trait PlatformWindow {
 
         if let Some((thread_changes_result, thread_update)) = self.invoke_thread_callbacks() {
             // apply_user_change was already called inside invoke_thread_callbacks
+            max_changes_result = max_changes_result.max(thread_changes_result);
             if thread_changes_result != ProcessEventResult::DoNothing {
                 needs_redraw = true;
             }
@@ -3841,12 +3859,20 @@ pub trait PlatformWindow {
         // Also sync window state after all changes
         self.sync_window_state();
 
-        // IMPORTANT: Only regenerate layout when DOM actually changed
-        // (RefreshDom / RefreshDomAllWindows). A mere ShouldReRenderCurrentWindow
-        // from image-callback updates does NOT require a full layout pass —
-        // it only needs to re-invoke image callbacks and repaint.
+        // Mark frame for regeneration ONLY when a callback returned RefreshDom
+        // (full DOM rebuild). ShouldUpdateDisplayListCurrentWindow means the
+        // display list was already regenerated internally (e.g. by CreateTextInput)
+        // — we just need a repaint, NOT a full layout() call which would rebuild
+        // the DOM from stale application data.
         if needs_layout_regeneration {
             self.mark_frame_needs_regeneration();
+        }
+
+        // If changes produced a new display list (e.g. text edit), mark it dirty
+        // so build_atomic_txn sends it to WebRender without a full DOM rebuild.
+        if max_changes_result >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow {
+            self.mark_display_list_dirty();
+            needs_redraw = true;
         }
 
         needs_redraw

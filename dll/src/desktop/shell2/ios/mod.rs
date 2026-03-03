@@ -254,6 +254,7 @@ impl IOSWindow {
                 renderer: None,
                 frame_needs_regeneration: true,
                 display_list_initialized: false,
+                display_list_dirty: false,
             },
         })
     }
