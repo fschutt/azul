@@ -4648,6 +4648,9 @@ impl MacOSWindow {
                     LogCategory::Rendering,
                     "[build_atomic_txn] Scroll animation active, repaint needed"
                 );
+                // Keep CPU-side scrollbar geometry in sync with animated scroll offsets
+                // so that perform_scrollbar_hit_test returns correct thumb positions.
+                layout_window.scroll_manager.calculate_scrollbar_states();
             }
         }
 
@@ -4809,10 +4812,10 @@ impl MacOSWindow {
             );
         }
 
-        // If any scrollbar is actively fading (0 < opacity < 1), schedule
+        // If any scrollbar has non-zero opacity (visible or fading), schedule
         // another frame so the fade-out animation runs to completion.
-        // This does NOT fire when scrollbars are fully visible (opacity == 1.0)
-        // because the scroll physics timer already drives rendering then.
+        // This fires for opacity == 1.0 too (during the fade_delay period)
+        // because the scroll physics timer may have already terminated.
         let needs_fade_frame = self.common.layout_window.as_ref()
             .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
             .unwrap_or(false);

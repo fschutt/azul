@@ -2575,7 +2575,10 @@ impl WaylandWindow {
                     let now = azul_core::task::Instant::System(std::time::Instant::now().into());
                     #[cfg(not(feature = "std"))]
                     let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
-                    let _tick_result = layout_window.scroll_manager.tick(now);
+                    let tick_result = layout_window.scroll_manager.tick(now);
+                    if tick_result.needs_repaint {
+                        layout_window.scroll_manager.calculate_scrollbar_states();
+                    }
                 }
 
                 // Process pending VirtualView updates (queued by ScrollTo → check_and_queue_virtual_view_reinvoke).

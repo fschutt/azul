@@ -1352,6 +1352,10 @@ pub trait PlatformWindow {
                             );
                         }
 
+                        // Recalculate scrollbar geometry so CPU-side hit testing
+                        // (perform_scrollbar_hit_test) has up-to-date thumb positions.
+                        lw.scroll_manager.calculate_scrollbar_states();
+
                         // Check if this scroll node is a VirtualView that needs
                         // re-invocation (e.g. user scrolled near edge for lazy loading).
                         // If so, queue it for processing in the next render pass.
@@ -3882,34 +3886,38 @@ pub trait PlatformWindow {
     ///
     /// Returns `Some(ScrollbarHitId)` if a scrollbar was hit, `None` otherwise.
     ///
-    /// This uses WebRender's hit-tester to check for scrollbar tags.
+    /// Uses CPU-side ScrollManager geometry instead of WebRender's hit-tester.
+    /// WebRender's hit-tester uses the spatial tree from the last display list build,
+    /// which is NOT updated during lightweight transactions (skip_scene_builder).
+    /// Since scrollbar thumb positions are GPU-animated via reference frame transforms,
+    /// the WebRender hit areas become stale after scrolling. The CPU-side geometry
+    /// (ScrollbarState) is always up-to-date because calculate_scrollbar_states()
+    /// runs on every scroll update.
     fn perform_scrollbar_hit_test(
         &self,
         position: azul_core::geom::LogicalPosition,
     ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-        use webrender::api::units::WorldPoint;
+        use azul_core::dom::ScrollbarOrientation;
+        use azul_layout::managers::scroll_state::ScrollbarComponent;
 
-        let hit_tester = match self.get_hit_tester() {
-            AsyncHitTester::Resolved(ht) => ht,
-            _ => return None,
-        };
+        let layout_window = self.get_layout_window()?;
+        let hit = layout_window.scroll_manager.hit_test_scrollbars(position)?;
 
-        // Convert logical position to physical (device) pixels for WebRender hit-test.
-        // Same as fullhittest_new_webrender which multiplies by hidpi_factor.
-        let hidpi = self.get_current_window_state().size.get_hidpi_factor().inner.get();
-        let world_point = WorldPoint::new(position.x * hidpi, position.y * hidpi);
-        let hit_result = hit_tester.hit_test(world_point);
-
-        // Check each hit item for scrollbar tag
-        for item in hit_result.items.iter() {
-            if let Some(scrollbar_id) =
-                wr_translate2::translate_item_tag_to_scrollbar_hit_id(item.tag)
-            {
-                return Some(scrollbar_id);
+        // Convert ScrollbarHit → ScrollbarHitId
+        match (hit.orientation, hit.component) {
+            (ScrollbarOrientation::Vertical, ScrollbarComponent::Thumb) => {
+                Some(azul_core::hit_test::ScrollbarHitId::VerticalThumb(hit.dom_id, hit.node_id))
+            }
+            (ScrollbarOrientation::Vertical, _) => {
+                Some(azul_core::hit_test::ScrollbarHitId::VerticalTrack(hit.dom_id, hit.node_id))
+            }
+            (ScrollbarOrientation::Horizontal, ScrollbarComponent::Thumb) => {
+                Some(azul_core::hit_test::ScrollbarHitId::HorizontalThumb(hit.dom_id, hit.node_id))
+            }
+            (ScrollbarOrientation::Horizontal, _) => {
+                Some(azul_core::hit_test::ScrollbarHitId::HorizontalTrack(hit.dom_id, hit.node_id))
             }
         }
-
-        None
     }
 
     /// Handle scrollbar click (thumb or track).
