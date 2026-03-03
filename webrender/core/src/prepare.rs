@@ -125,7 +125,8 @@ fn can_use_clip_chain_for_quad_path(
                 return false;
             }
             ClipItemKind::Image { .. } => {
-                panic!("bug: image-masks not expected on rect/quads");
+                // Image masks are handled via build_sub_pass, not the quad tile classifier.
+                // They are compatible with the quad path (not the legacy brush path).
             }
         }
     }

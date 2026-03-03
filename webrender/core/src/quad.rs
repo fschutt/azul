@@ -379,7 +379,7 @@ pub fn prepare_quad(
                         panic!("bug: old box-shadow clips unexpected in this path");
                     }
                     ClipItemKind::Image { .. } => {
-                        panic!("bug: image clips unexpected in this path");
+                        // Image masks are handled via build_sub_pass, skip here
                     }
                 }
             }

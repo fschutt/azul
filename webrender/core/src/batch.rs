@@ -3910,7 +3910,9 @@ impl ClipBatcher {
 
             let added_clip = match clip_node.item.kind {
                 ClipItemKind::Image { .. } => {
-                    unreachable!();
+                    // Image masks are handled via build_sub_pass / build_mask_tasks,
+                    // not the legacy clip batcher. Skip here.
+                    false
                 }
                 ClipItemKind::BoxShadow { ref source } => {
                     let task_id = source
