@@ -87,6 +87,7 @@ fn render_display_list(
     // The display list is already sorted in paint order, so we just render sequentially
     let mut transform_stack = vec![Transform::identity()];
     let mut clip_stack: Vec<Option<Rect>> = vec![None];
+    let mut mask_stack: Vec<Option<tiny_skia::Mask>> = Vec::new();
 
     for item in &display_list.items {
         match item {
@@ -596,6 +597,20 @@ fn render_display_list(
                 // TODO: Text shadow not yet implemented in CPU renderer
             }
             DisplayListItem::PopTextShadow => {}
+
+            DisplayListItem::PushImageMaskClip {
+                bounds,
+                mask_image,
+                mask_rect,
+            } => {
+                // For CPU rendering, we extract the mask image data and create a tiny_skia::Mask.
+                // The mask is pushed onto a mask stack and applied to all subsequent drawing ops.
+                let mask = create_mask_from_image(mask_image, mask_rect.inner(), pixmap.width(), pixmap.height(), dpi_factor);
+                mask_stack.push(mask);
+            }
+            DisplayListItem::PopImageMaskClip => {
+                mask_stack.pop();
+            }
         }
     }
 
@@ -930,39 +945,150 @@ fn render_image(
     _clip: Option<Rect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
-    // Get the decoded image data directly from the ImageRef
-    let image_data = image.get_data();
-    
-    // For now, render a placeholder rectangle to show where the image would be
     let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
     let rect = match rect {
         Some(r) => r,
         None => return Ok(()),
     };
 
-    let mut paint = Paint::default();
-    // Light gray placeholder for images
-    paint.set_color(Color::from_rgba8(200, 200, 200, 255));
-    paint.anti_alias = true;
+    let image_data = image.get_data();
+    let decoded = match &*image_data {
+        DecodedImage::Raw((descriptor, data)) => {
+            let w = descriptor.width as u32;
+            let h = descriptor.height as u32;
+            if w == 0 || h == 0 { return Ok(()); }
+            let bytes = match data {
+                azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
+                _ => return Ok(()),
+            };
 
-    let path = build_rect_path(rect, &BorderRadius::default(), dpi_factor);
-    if let Some(path) = path {
-        pixmap.fill_path(
-            &path,
-            &paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-    }
+            // Convert to RGBA premultiplied for tiny_skia
+            let rgba_premul = match descriptor.format {
+                azul_core::resources::RawImageFormat::BGRA8 => {
+                    // BGRA → RGBA premultiplied
+                    let mut out = Vec::with_capacity(bytes.len());
+                    for chunk in bytes.chunks_exact(4) {
+                        let b = chunk[0]; let g = chunk[1]; let r = chunk[2]; let a = chunk[3];
+                        let af = a as f32 / 255.0;
+                        out.push((r as f32 * af) as u8);
+                        out.push((g as f32 * af) as u8);
+                        out.push((b as f32 * af) as u8);
+                        out.push(a);
+                    }
+                    out
+                }
+                azul_core::resources::RawImageFormat::R8 => {
+                    // Grayscale → RGBA premultiplied (white with alpha = pixel value)
+                    let mut out = Vec::with_capacity(bytes.len() * 4);
+                    for &v in bytes {
+                        out.push(v); out.push(v); out.push(v); out.push(v);
+                    }
+                    out
+                }
+                _ => {
+                    // Unsupported format — render gray placeholder
+                    let mut paint = Paint::default();
+                    paint.set_color(Color::from_rgba8(200, 200, 200, 255));
+                    if let Some(path) = build_rect_path(rect, &BorderRadius::default(), dpi_factor) {
+                        pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                    }
+                    return Ok(());
+                }
+            };
 
-    // TODO: Implement actual image blitting using image_data
-    // This would require:
-    // 1. Checking if image_data is DecodedImage::Raw
-    // 2. Converting it to a tiny-skia Pixmap
-    // 3. Blitting it to the target pixmap with proper scaling
+            match Pixmap::from_vec(rgba_premul, tiny_skia::IntSize::from_wh(w, h).ok_or("invalid image size")?) {
+                Some(pm) => pm,
+                None => return Ok(()),
+            }
+        }
+        DecodedImage::NullImage { .. } | DecodedImage::Callback(_) => {
+            // Null or unresolved callback — render gray placeholder
+            let mut paint = Paint::default();
+            paint.set_color(Color::from_rgba8(200, 200, 200, 255));
+            if let Some(path) = build_rect_path(rect, &BorderRadius::default(), dpi_factor) {
+                pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+            }
+            return Ok(());
+        }
+        _ => return Ok(()),
+    };
+
+    // Scale the source image to fit the target rect
+    let sx = rect.width() / decoded.width() as f32;
+    let sy = rect.height() / decoded.height() as f32;
+    let blit_transform = Transform::from_scale(sx, sy).post_translate(rect.x(), rect.y());
+
+    let paint = tiny_skia::PixmapPaint {
+        opacity: 1.0,
+        blend_mode: tiny_skia::BlendMode::SourceOver,
+        quality: tiny_skia::FilterQuality::Bilinear,
+    };
+
+    pixmap.draw_pixmap(0, 0, decoded.as_ref(), &paint, blit_transform, None);
 
     Ok(())
+}
+
+/// Creates a tiny_skia::Mask from an R8 image for CPU clip masking.
+fn create_mask_from_image(
+    image: &ImageRef,
+    mask_rect: &LogicalRect,
+    target_width: u32,
+    target_height: u32,
+    dpi_factor: f32,
+) -> Option<tiny_skia::Mask> {
+    let image_data = image.get_data();
+    let (descriptor, data) = match &*image_data {
+        DecodedImage::Raw((desc, data)) => (desc, data),
+        _ => return None,
+    };
+
+    let mask_w = descriptor.width as u32;
+    let mask_h = descriptor.height as u32;
+    if mask_w == 0 || mask_h == 0 { return None; }
+
+    let mut mask = tiny_skia::Mask::new(target_width, target_height)?;
+    let mask_data = mask.data_mut();
+
+    let bytes = match data {
+        azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
+        _ => return None,
+    };
+
+    // Map mask image pixels into the target pixmap coordinate space
+    let dst_x = (mask_rect.origin.x * dpi_factor) as i32;
+    let dst_y = (mask_rect.origin.y * dpi_factor) as i32;
+    let dst_w = (mask_rect.size.width * dpi_factor) as u32;
+    let dst_h = (mask_rect.size.height * dpi_factor) as u32;
+
+    let sx = mask_w as f32 / dst_w.max(1) as f32;
+    let sy = mask_h as f32 / dst_h.max(1) as f32;
+
+    for py in 0..dst_h {
+        for px in 0..dst_w {
+            let tx = (dst_x + px as i32) as u32;
+            let ty = (dst_y + py as i32) as u32;
+            if tx >= target_width || ty >= target_height { continue; }
+
+            let src_x = ((px as f32 * sx) as u32).min(mask_w - 1);
+            let src_y = ((py as f32 * sy) as u32).min(mask_h - 1);
+
+            let alpha = match descriptor.format {
+                azul_core::resources::RawImageFormat::R8 => {
+                    bytes[(src_y * mask_w + src_x) as usize]
+                }
+                azul_core::resources::RawImageFormat::BGRA8 => {
+                    // Use the alpha channel
+                    bytes[((src_y * mask_w + src_x) * 4 + 3) as usize]
+                }
+                _ => 255,
+            };
+
+            mask_data[(ty * target_width + tx) as usize] = alpha;
+        }
+    }
+
+    Some(mask)
 }
 
 fn build_rect_path(rect: Rect, _border_radius: &BorderRadius, _dpi_factor: f32) -> Option<Path> {

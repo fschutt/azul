@@ -2169,6 +2169,91 @@ pub fn translate_displaylist_to_wr(
                 log_debug!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
                 builder.pop_all_shadows();
             }
+
+            DisplayListItem::PushImageMaskClip {
+                bounds,
+                mask_image,
+                mask_rect,
+            } => {
+                let current_spatial = current_spatial!();
+                let current_clip = current_clip!();
+                let current_offset = current_offset!();
+
+                // Resolve the mask image to a WebRender ImageKey
+                let image_ref_hash = mask_image.get_hash();
+                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
+                    let wr_image_key = translate_image_key(resolved_image.key);
+
+                    // The mask rect in physical pixels
+                    let wr_mask_rect = LayoutRect::from_origin_and_size(
+                        LayoutPoint::new(
+                            scale_px(mask_rect.0.origin.x, dpi_scale) - current_offset.0,
+                            scale_px(mask_rect.0.origin.y, dpi_scale) - current_offset.1,
+                        ),
+                        LayoutSize::new(
+                            scale_px(mask_rect.0.size.width, dpi_scale),
+                            scale_px(mask_rect.0.size.height, dpi_scale),
+                        ),
+                    );
+
+                    let wr_image_mask = webrender::api::ImageMask {
+                        image: wr_image_key,
+                        rect: wr_mask_rect,
+                    };
+
+                    // Define the image mask clip
+                    let clip_id = builder.define_clip_image_mask(
+                        current_spatial,
+                        wr_image_mask,
+                        &[], // no polygon points
+                        webrender::api::FillRule::Nonzero,
+                    );
+
+                    // Create a clip chain from the clip id
+                    let parent = if current_clip == WrClipChainId::INVALID {
+                        None
+                    } else {
+                        Some(current_clip)
+                    };
+                    let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
+
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PushImageMaskClip: mask_rect={:?}, clip_id={:?}, new_clip_chain={:?}",
+                        wr_mask_rect, clip_id, new_clip_chain_id
+                    );
+
+                    clip_stack.push(new_clip_chain_id);
+                } else {
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PushImageMaskClip: mask image {:?} not found, pushing current clip",
+                        image_ref_hash
+                    );
+                    // If mask image not found, push current clip to keep stack balanced
+                    clip_stack.push(current_clip);
+                }
+            }
+
+            DisplayListItem::PopImageMaskClip => {
+                let before_len = clip_stack.len();
+                if clip_stack.len() > 1 {
+                    let popped = clip_stack.pop();
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PopImageMaskClip: popped {:?}, clip_stack.len {} -> {}",
+                        popped,
+                        before_len,
+                        clip_stack.len()
+                    );
+                } else {
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PopImageMaskClip: SKIPPED (clip_stack.len={}, would underflow)",
+                        before_len
+                    );
+                }
+            }
         }
     }
 

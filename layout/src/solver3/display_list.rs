@@ -630,6 +630,20 @@ pub enum DisplayListItem {
     /// Pops the current clip from the renderer's clip stack.
     PopClip,
 
+    /// Pushes an image-based clip mask onto the renderer's clip stack.
+    /// The mask image should be R8 format: white (255) = visible, black (0) = clipped.
+    /// All subsequent primitives will be masked until PopImageMaskClip.
+    PushImageMaskClip {
+        /// The bounds of the element being clipped
+        bounds: WindowLogicalRect,
+        /// The mask image (R8 format)
+        mask_image: ImageRef,
+        /// The rect within which the mask is applied
+        mask_rect: WindowLogicalRect,
+    },
+    /// Pops the current image mask clip from the renderer's clip stack.
+    PopImageMaskClip,
+
     /// Defines a scrollable area. This is a specialized clip that also
     /// establishes a new coordinate system for its children, which can be offset.
     PushScrollFrame {
@@ -1115,6 +1129,16 @@ impl DisplayListBuilder {
     }
     pub fn pop_clip(&mut self) {
         self.push_item(DisplayListItem::PopClip);
+    }
+    pub fn push_image_mask_clip(&mut self, bounds: LogicalRect, mask_image: ImageRef, mask_rect: LogicalRect) {
+        self.push_item(DisplayListItem::PushImageMaskClip {
+            bounds: bounds.into(),
+            mask_image,
+            mask_rect: mask_rect.into(),
+        });
+    }
+    pub fn pop_image_mask_clip(&mut self) {
+        self.push_item(DisplayListItem::PopImageMaskClip);
     }
     pub fn push_scroll_frame(
         &mut self,
@@ -1872,6 +1896,10 @@ where
             }
         }
 
+        // 0b. Push image mask clip if this node has one.
+        // This wraps background, border, and all children so the SVG mask clips everything.
+        let did_push_image_mask = self.push_image_mask_clip(builder, context.node_index);
+
         // 1. Paint background and borders for the context's root element.
         // This must be BEFORE push_node_clips so the container background
         // is rendered in parent space (stationary), not scroll space.
@@ -1925,6 +1953,11 @@ where
 
         for child in positive_z_children {
             self.generate_for_stacking_context(builder, child)?;
+        }
+
+        // Pop image mask clip (before filter/opacity since it was pushed after them)
+        if did_push_image_mask {
+            builder.pop_image_mask_clip();
         }
 
         // Pop filter/opacity effects (in reverse order of push)
@@ -2077,6 +2110,9 @@ where
                 builder.push_reference_frame(transform_key, initial_transform, child_bounds);
             }
 
+            // Push image mask clip if this child has one (wraps background + children)
+            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
+
             // IMPORTANT: Paint background and border BEFORE pushing clips!
             // This ensures the container's background is in parent space (stationary),
             // not in scroll space. Same logic as generate_for_stacking_context.
@@ -2099,6 +2135,11 @@ where
             // Pop the child's clips.
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
+            }
+
+            // Pop image mask clip
+            if did_push_child_image_mask {
+                builder.pop_image_mask_clip();
             }
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
@@ -2147,7 +2188,8 @@ where
                 builder.push_reference_frame(transform_key, initial_transform, child_bounds);
             }
 
-            // Same as above: paint background BEFORE clips
+            // Same as above: push image mask, paint background, then clips
+            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
             self.paint_node_background_and_border(builder, child_index)?;
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
@@ -2162,6 +2204,9 @@ where
 
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
+            }
+            if did_push_child_image_mask {
+                builder.pop_image_mask_clip();
             }
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
@@ -2210,7 +2255,8 @@ where
                 builder.push_reference_frame(transform_key, initial_transform, child_bounds);
             }
 
-            // Same as above: paint background BEFORE clips
+            // Same as above: push image mask, paint background, then clips
+            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
             self.paint_node_background_and_border(builder, child_index)?;
             let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
@@ -2225,6 +2271,9 @@ where
 
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
+            }
+            if did_push_child_image_mask {
+                builder.pop_image_mask_clip();
             }
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
@@ -2246,6 +2295,47 @@ where
             .get(dom_id)
             .map(|nd| matches!(nd.get_node_type(), NodeType::VirtualView))
             .unwrap_or(false)
+    }
+
+    /// Checks if a node has an image mask clip and pushes PushImageMaskClip if so.
+    /// Returns true if a clip was pushed (caller must pop it).
+    fn push_image_mask_clip(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> bool {
+        let node = match self.positioned_tree.tree.get(node_index) {
+            Some(n) => n,
+            None => return false,
+        };
+        let dom_id = match node.dom_node_id {
+            Some(id) => id,
+            None => return false,
+        };
+        let node_data_container = self.ctx.styled_dom.node_data.as_container();
+        let node_data = match node_data_container.get(dom_id) {
+            Some(nd) => nd,
+            None => return false,
+        };
+        if let Some(clip_mask) = node_data.get_clip_mask() {
+            let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+            // Convert mask rect from element-local to window-logical coordinates
+            let mask_rect = LogicalRect {
+                origin: LogicalPosition {
+                    x: paint_rect.origin.x + clip_mask.rect.origin.x,
+                    y: paint_rect.origin.y + clip_mask.rect.origin.y,
+                },
+                size: clip_mask.rect.size,
+            };
+            builder.push_image_mask_clip(
+                paint_rect,
+                clip_mask.image.clone(),
+                mask_rect,
+            );
+            true
+        } else {
+            false
+        }
     }
 
     /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
@@ -4057,7 +4147,9 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PushReferenceFrame { .. }
         | DisplayListItem::PopReferenceFrame
         | DisplayListItem::PushTextShadow { .. }
-        | DisplayListItem::PopTextShadow => None,
+        | DisplayListItem::PopTextShadow
+        | DisplayListItem::PushImageMaskClip { .. }
+        | DisplayListItem::PopImageMaskClip => None,
     }
 }
 
@@ -5117,6 +5209,16 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             shadow: shadow.clone(),
         },
         DisplayListItem::PopTextShadow => DisplayListItem::PopTextShadow,
+        DisplayListItem::PushImageMaskClip {
+            bounds,
+            mask_image,
+            mask_rect,
+        } => DisplayListItem::PushImageMaskClip {
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
+            mask_image: mask_image.clone(),
+            mask_rect: offset_rect_y(mask_rect.into_inner(), y_offset).into(),
+        },
+        DisplayListItem::PopImageMaskClip => DisplayListItem::PopImageMaskClip,
     }
 }
 

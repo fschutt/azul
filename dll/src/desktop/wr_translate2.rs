@@ -1026,10 +1026,16 @@ pub fn collect_image_resource_updates(
     let mut images_in_display_list = FastBTreeSet::new();
 
     for (_dom_id, layout_result) in &layout_window.layout_results {
-        // Scan display list for Image items - now contains ImageRef directly
+        // Scan display list for Image and PushImageMaskClip items
         for item in &layout_result.display_list.items {
-            if let DisplayListItem::Image { image, .. } = item {
-                images_in_display_list.insert(image.clone());
+            match item {
+                DisplayListItem::Image { image, .. } => {
+                    images_in_display_list.insert(image.clone());
+                }
+                DisplayListItem::PushImageMaskClip { mask_image, .. } => {
+                    images_in_display_list.insert(mask_image.clone());
+                }
+                _ => {}
             }
         }
     }
