@@ -60,7 +60,7 @@ use azul_core::{
 use std::sync::{Arc, Mutex};
 
 use crate::managers::hover::InputPointId;
-use crate::solver3::scrollbar::compute_scrollbar_geometry;
+use crate::solver3::scrollbar::compute_scrollbar_geometry_with_button_size;
 
 // ============================================================================
 // Scroll Input Types (for timer-based physics architecture)
@@ -331,6 +331,9 @@ pub struct AnimatedScrollState {
     /// CSS-resolved scrollbar thickness (from `scrollbar-width` property).
     /// Used for rendering and hit-testing. Defaults to 16.0 if not set.
     pub scrollbar_thickness: f32,
+    /// Visual rendering width in CSS pixels (e.g. 8.0 for thin overlay).
+    /// Non-zero even for overlay scrollbars. Falls back to scrollbar_thickness if 0.
+    pub visual_width_px: f32,
     /// Whether this node also needs a horizontal scrollbar (affects vertical geometry)
     pub has_horizontal_scrollbar: bool,
     /// Whether this node also needs a vertical scrollbar (affects horizontal geometry)
@@ -526,7 +529,7 @@ impl ScrollManager {
         result
     }
 
-    /// Sets scroll position immediately (no animation)
+    /// Sets scroll position immediately (no animation), clamped to valid bounds.
     pub fn set_scroll_position(
         &mut self,
         dom_id: DomId,
@@ -539,6 +542,26 @@ impl ScrollManager {
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
         state.current_offset = state.clamp(position);
+        state.animation = None;
+        state.last_activity = now;
+    }
+
+    /// Sets scroll position immediately without clamping.
+    ///
+    /// Used by the scroll physics timer which does its own rubber-band clamping.
+    /// Allows the offset to go outside [0, max_scroll] for overscroll/rubber-banding.
+    pub fn set_scroll_position_unclamped(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        position: LogicalPosition,
+        now: Instant,
+    ) {
+        let state = self
+            .states
+            .entry((dom_id, node_id))
+            .or_insert_with(|| AnimatedScrollState::new(now.clone()));
+        state.current_offset = position;
         state.animation = None;
         state.last_activity = now;
     }
@@ -646,6 +669,7 @@ impl ScrollManager {
                 overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                 overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
                 scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+                visual_width_px: 0.0,
                 has_horizontal_scrollbar: false,
                 has_vertical_scrollbar: false,
             }
@@ -746,6 +770,7 @@ impl ScrollManager {
         content_size: LogicalSize,
         now: Instant,
         scrollbar_thickness: f32,
+        visual_width_px: f32,
         has_horizontal_scrollbar: bool,
         has_vertical_scrollbar: bool,
     ) {
@@ -761,6 +786,7 @@ impl ScrollManager {
             existing.container_rect = container_rect;
             existing.content_rect = content_rect;
             existing.scrollbar_thickness = scrollbar_thickness;
+            existing.visual_width_px = visual_width_px;
             existing.has_horizontal_scrollbar = has_horizontal_scrollbar;
             existing.has_vertical_scrollbar = has_vertical_scrollbar;
             // Re-clamp current offset to new bounds
@@ -781,6 +807,7 @@ impl ScrollManager {
                     overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                     overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
                     scrollbar_thickness,
+                    visual_width_px,
                     has_horizontal_scrollbar,
                     has_vertical_scrollbar,
                 },
@@ -890,7 +917,9 @@ impl ScrollManager {
         scroll_state: &AnimatedScrollState,
         orientation: ScrollbarOrientation,
     ) -> ScrollbarState {
-        let scrollbar_thickness = if scroll_state.scrollbar_thickness > 0.0 {
+        let scrollbar_thickness = if scroll_state.visual_width_px > 0.0 {
+            scroll_state.visual_width_px
+        } else if scroll_state.scrollbar_thickness > 0.0 {
             scroll_state.scrollbar_thickness
         } else {
             crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX
@@ -910,13 +939,17 @@ impl ScrollManager {
             ScrollbarOrientation::Horizontal => scroll_state.has_vertical_scrollbar,
         };
 
-        let geom = compute_scrollbar_geometry(
+        // Overlay scrollbars (thickness == 0 from layout) have no arrow buttons
+        let is_overlay = scroll_state.scrollbar_thickness == 0.0;
+        let button_size = if is_overlay { 0.0 } else { scrollbar_thickness };
+        let geom = compute_scrollbar_geometry_with_button_size(
             orientation,
             scroll_state.container_rect,
             content_size,
             scroll_offset,
             scrollbar_thickness,
             has_other_scrollbar,
+            button_size,
         );
 
         // Build ScrollbarState from the shared geometry
@@ -1069,6 +1102,7 @@ impl AnimatedScrollState {
             overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
             scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+            visual_width_px: 0.0,
             has_horizontal_scrollbar: false,
             has_vertical_scrollbar: false,
         }

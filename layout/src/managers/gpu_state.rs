@@ -22,7 +22,7 @@ use crate::{
     solver3::{
         fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         layout_tree::LayoutTree,
-        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry},
+        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry_with_button_size},
     },
     text3::cache::ParsedFontTrait,
 };
@@ -50,10 +50,9 @@ pub struct GpuStateManager {
     pub fade_duration: Duration,
     /// Per-scrollbar fade state: (DomId, NodeId) → last activity time
     pub fade_states: BTreeMap<(DomId, NodeId), ScrollbarFadeState>,
-    /// Whether any scrollbar is actively fading out (0 < opacity < 1) and
-    /// needs continued frame generation for the animation to complete.
-    /// NOT set when scrollbars are fully visible (opacity == 1.0) since the
-    /// scroll physics timer already drives rendering in that case.
+    /// Whether any scrollbar has non-zero opacity and needs continued frame
+    /// generation. Set during both the fade_delay period (opacity == 1.0)
+    /// and the active fade-out phase (0 < opacity < 1).
     /// Set by `synchronize_scrollbar_opacity`, read by the platform render loop.
     pub scrollbar_fade_active: bool,
 }
@@ -262,25 +261,29 @@ impl GpuStateManager {
             let content_size = node.get_content_size();
 
             if scrollbar_info.needs_vertical {
-                // Scrollbar thickness: use the layout-reserved width if available,
-                // otherwise fall back to a default. scrollbar_info.scrollbar_width
-                // represents the horizontal scrollbar's reserved height, and
-                // scrollbar_info.scrollbar_height represents the vertical scrollbar's
-                // reserved width — BUT for overlay scrollbars these are 0.
-                // Use a sensible rendering default when 0.
-                let scrollbar_width_px = if scrollbar_info.scrollbar_height > 0.0 {
+                // Use the visual width from the scrollbar style — same value used
+                // by display_list.rs to paint the scrollbar. For overlay scrollbars,
+                // visual_width_px is non-zero (e.g. 8.0) even though the layout-
+                // reserved width (scrollbar_height) is 0.0.
+                let is_overlay = scrollbar_info.scrollbar_height == 0.0;
+                let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
+                    scrollbar_info.visual_width_px
+                } else if !is_overlay {
                     scrollbar_info.scrollbar_height
                 } else {
                     DEFAULT_SCROLLBAR_WIDTH_PX
                 };
+                // Overlay scrollbars (macOS-style) have no arrow buttons
+                let button_size = if is_overlay { 0.0 } else { scrollbar_width_px };
 
-                let v_geom = compute_scrollbar_geometry(
+                let v_geom = compute_scrollbar_geometry_with_button_size(
                     ScrollbarOrientation::Vertical,
                     inner_rect,
                     content_size,
                     scroll_offset.y,
                     scrollbar_width_px,
                     scrollbar_info.needs_horizontal,
+                    button_size,
                 );
 
                 let transform =
@@ -289,19 +292,24 @@ impl GpuStateManager {
             }
 
             if scrollbar_info.needs_horizontal {
-                let scrollbar_width_px = if scrollbar_info.scrollbar_width > 0.0 {
+                let is_overlay = scrollbar_info.scrollbar_width == 0.0;
+                let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
+                    scrollbar_info.visual_width_px
+                } else if !is_overlay {
                     scrollbar_info.scrollbar_width
                 } else {
                     DEFAULT_SCROLLBAR_WIDTH_PX
                 };
+                let button_size = if is_overlay { 0.0 } else { scrollbar_width_px };
 
-                let h_geom = compute_scrollbar_geometry(
+                let h_geom = compute_scrollbar_geometry_with_button_size(
                     ScrollbarOrientation::Horizontal,
                     inner_rect,
                     content_size,
                     scroll_offset.x,
                     scrollbar_width_px,
                     scrollbar_info.needs_vertical,
+                    button_size,
                 );
 
                 let transform =

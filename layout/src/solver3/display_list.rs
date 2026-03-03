@@ -58,7 +58,7 @@ use crate::{
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
-        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry},
+        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry_with_button_size},
         LayoutContext, LayoutError, Result,
     },
 };
@@ -3041,13 +3041,19 @@ where
             });
 
             // Vertical scrollbar: use shared geometry computation
-            let v_geom = compute_scrollbar_geometry(
+            let button_size = if scrollbar_style.show_scroll_buttons {
+                scrollbar_style.scroll_button_size_px
+            } else {
+                0.0
+            };
+            let v_geom = compute_scrollbar_geometry_with_button_size(
                 ScrollbarOrientation::Vertical,
                 inner_rect,
                 content_size,
                 scroll_offset_y,
                 scrollbar_style.visual_width_px,
                 scrollbar_info.needs_horizontal,
+                button_size,
             );
 
             // Position thumb after the top button; GPU transform moves it within usable track
@@ -3077,18 +3083,24 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
 
-            // Buttons at top/bottom of track
-            let button_decrement_bounds = Some(LogicalRect {
-                origin: v_geom.track_rect.origin,
-                size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
-            });
-            let button_increment_bounds = Some(LogicalRect {
-                origin: LogicalPosition::new(
-                    v_geom.track_rect.origin.x,
-                    v_geom.track_rect.origin.y + v_geom.track_rect.size.height - v_geom.button_size,
-                ),
-                size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
-            });
+            // Buttons at top/bottom of track (only if enabled in style)
+            let (button_decrement_bounds, button_increment_bounds) = if scrollbar_style.show_scroll_buttons && v_geom.button_size > 0.0 {
+                (
+                    Some(LogicalRect {
+                        origin: v_geom.track_rect.origin,
+                        size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
+                    }),
+                    Some(LogicalRect {
+                        origin: LogicalPosition::new(
+                            v_geom.track_rect.origin.x,
+                            v_geom.track_rect.origin.y + v_geom.track_rect.size.height - v_geom.button_size,
+                        ),
+                        size: LogicalSize::new(v_geom.button_size, v_geom.button_size),
+                    }),
+                )
+            } else {
+                (None, None)
+            };
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
                 bounds: v_geom.track_rect.into(),
                 orientation: ScrollbarOrientation::Vertical,
@@ -3124,13 +3136,19 @@ where
             });
 
             // Horizontal scrollbar: use shared geometry computation
-            let h_geom = compute_scrollbar_geometry(
+            let h_button_size = if scrollbar_style.show_scroll_buttons {
+                scrollbar_style.scroll_button_size_px
+            } else {
+                0.0
+            };
+            let h_geom = compute_scrollbar_geometry_with_button_size(
                 ScrollbarOrientation::Horizontal,
                 inner_rect,
                 content_size,
                 scroll_offset_x,
                 scrollbar_style.visual_width_px,
                 scrollbar_info.needs_vertical,
+                h_button_size,
             );
 
             // Position thumb after the left button; GPU transform moves it within usable track
@@ -3155,18 +3173,24 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
 
-            // Buttons at left/right of track
-            let button_decrement_bounds = Some(LogicalRect {
-                origin: h_geom.track_rect.origin,
-                size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
-            });
-            let button_increment_bounds = Some(LogicalRect {
-                origin: LogicalPosition::new(
-                    h_geom.track_rect.origin.x + h_geom.track_rect.size.width - h_geom.button_size,
-                    h_geom.track_rect.origin.y,
-                ),
-                size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
-            });
+            // Buttons at left/right of track (only if enabled in style)
+            let (button_decrement_bounds, button_increment_bounds) = if scrollbar_style.show_scroll_buttons && h_geom.button_size > 0.0 {
+                (
+                    Some(LogicalRect {
+                        origin: h_geom.track_rect.origin,
+                        size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
+                    }),
+                    Some(LogicalRect {
+                        origin: LogicalPosition::new(
+                            h_geom.track_rect.origin.x + h_geom.track_rect.size.width - h_geom.button_size,
+                            h_geom.track_rect.origin.y,
+                        ),
+                        size: LogicalSize::new(h_geom.button_size, h_geom.button_size),
+                    }),
+                )
+            } else {
+                (None, None)
+            };
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
                 bounds: h_geom.track_rect.into(),
                 orientation: ScrollbarOrientation::Horizontal,

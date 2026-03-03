@@ -460,6 +460,7 @@ pub fn regenerate_layout(
                             content_size,
                             now.clone(),
                             scrollbar_thickness,
+                            scrollbar_info.visual_width_px,
                             scrollbar_info.needs_horizontal,
                             scrollbar_info.needs_vertical,
                         );
@@ -583,6 +584,7 @@ pub fn incremental_relayout(
                             content_size,
                             now.clone(),
                             scrollbar_thickness,
+                            scrollbar_info.visual_width_px,
                             scrollbar_info.needs_horizontal,
                             scrollbar_info.needs_vertical,
                         );

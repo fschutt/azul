@@ -7,8 +7,13 @@ use azul_core::dom::ScrollbarOrientation;
 pub struct ScrollbarRequirements {
     pub needs_horizontal: bool,
     pub needs_vertical: bool,
+    /// Layout-reserved width for a vertical scrollbar (0.0 for overlay)
     pub scrollbar_width: f32,
+    /// Layout-reserved height for a horizontal scrollbar (0.0 for overlay)
     pub scrollbar_height: f32,
+    /// Visual rendering width of the scrollbar in CSS pixels (e.g. 8.0 for thin).
+    /// Non-zero even for overlay scrollbars. Used by GPU state for thumb positioning.
+    pub visual_width_px: f32,
 }
 
 impl ScrollbarRequirements {
@@ -100,8 +105,30 @@ pub fn compute_scrollbar_geometry(
     scrollbar_width_px: f32,
     has_other_scrollbar: bool,
 ) -> ScrollbarGeometry {
-    let button_size = scrollbar_width_px;
+    // For macOS-style overlay scrollbars, callers should pass button_size=0.
+    // For legacy scrollbars with arrow buttons, button_size=scrollbar_width_px.
+    compute_scrollbar_geometry_with_button_size(
+        orientation,
+        inner_rect,
+        content_size,
+        scroll_offset,
+        scrollbar_width_px,
+        has_other_scrollbar,
+        scrollbar_width_px, // default: reserve button space
+    )
+}
 
+/// Like [`compute_scrollbar_geometry`] but allows overriding the button size.
+/// Pass `button_size = 0.0` for macOS-style overlay scrollbars (no arrow buttons).
+pub fn compute_scrollbar_geometry_with_button_size(
+    orientation: ScrollbarOrientation,
+    inner_rect: LogicalRect,
+    content_size: LogicalSize,
+    scroll_offset: f32,
+    scrollbar_width_px: f32,
+    has_other_scrollbar: bool,
+    button_size: f32,
+) -> ScrollbarGeometry {
     match orientation {
         ScrollbarOrientation::Vertical => {
             // Track runs along the right edge of inner_rect

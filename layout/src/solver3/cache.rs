@@ -1187,13 +1187,24 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     let scrollbar_width_px =
         crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, styled_node_state);
 
-    fc::check_scrollbar_necessity(
+    // Also resolve the visual (rendering) width — needed by GPU state for thumb positioning.
+    // For overlay scrollbars, reserve_width_px is 0 but visual_width_px is non-zero (e.g. 8.0).
+    let scrollbar_style = crate::solver3::getters::get_scrollbar_style(
+        ctx.styled_dom,
+        dom_id,
+        styled_node_state,
+        ctx.system_style.as_deref(),
+    );
+
+    let mut reqs = fc::check_scrollbar_necessity(
         content_size,
         container_size,
         to_overflow_behavior(overflow_x),
         to_overflow_behavior(overflow_y),
         scrollbar_width_px,
-    )
+    );
+    reqs.visual_width_px = scrollbar_style.visual_width_px;
+    reqs
 }
 
 /// Determines scrollbar requirements for a node based on content overflow.

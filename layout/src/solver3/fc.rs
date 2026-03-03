@@ -6182,6 +6182,9 @@ pub fn check_scrollbar_necessity(
         } else {
             0.0
         },
+        // visual_width_px is set by the caller (compute_scrollbar_info_core)
+        // since this function doesn't have access to the CSS style context.
+        visual_width_px: 0.0,
     }
 }
 
