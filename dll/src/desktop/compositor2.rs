@@ -407,8 +407,9 @@ pub fn translate_displaylist_to_wr(
                         ),
                         1.0,
                     );
+                    // Use zero origin: children use absolute coordinates.
                     builder.push_simple_stacking_context_with_filters(
-                        resolve_point(bounds, dpi_scale, current_off),
+                        LayoutPoint::zero(),
                         current_spatial_id,
                         WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                         &[opacity_filter],
@@ -483,8 +484,12 @@ pub fn translate_displaylist_to_wr(
                         ),
                         1.0,
                     );
+                    // Use zero origin: children use absolute coordinates already.
+                    // Using the scrollbar's position would double-offset children
+                    // since WebRender offsets stacking context children by origin
+                    // when the context has filters (opacity).
                     builder.push_simple_stacking_context_with_filters(
-                        resolve_point(&info.bounds, dpi_scale, current_offset),
+                        LayoutPoint::zero(),
                         spatial_id,
                         WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                         &[opacity_filter],
@@ -2018,9 +2023,9 @@ pub fn translate_displaylist_to_wr(
                 );
                 let wr_filters = translate_style_filters_to_wr(filters, dpi_scale);
                 let current_spatial_id = current_spatial!();
-                let current_offset = current_offset!();
+                // Use zero origin: children use absolute coordinates.
                 builder.push_simple_stacking_context_with_filters(
-                    resolve_point(bounds, dpi_scale, current_offset),
+                    LayoutPoint::zero(),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                     &wr_filters,
@@ -2063,13 +2068,13 @@ pub fn translate_displaylist_to_wr(
                     opacity
                 );
                 let current_spatial_id = current_spatial!();
-                let current_offset = current_offset!();
                 let opacity_filter = WrFilterOp::Opacity(
                     PropertyBinding::Value(*opacity),
                     *opacity,
                 );
+                // Use zero origin: children use absolute coordinates.
                 builder.push_simple_stacking_context_with_filters(
-                    resolve_point(bounds, dpi_scale, current_offset),
+                    LayoutPoint::zero(),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                     &[opacity_filter],
