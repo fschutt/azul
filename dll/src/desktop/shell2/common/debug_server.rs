@@ -8179,7 +8179,29 @@ fn process_debug_event(
             
             new_state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed_keys);
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NOTE: Do NOT set needs_update = true here!
+            // modify_window_state() pushes a CallbackChange::ModifyWindowState which
+            // triggers process_window_events() internally. Setting needs_update would
+            // cause Update::RefreshDom → full DOM rebuild, overwriting text edits.
+
+            // Special handling for text editing keys on contenteditable nodes.
+            // On native macOS, these go through NSTextInputClient → doCommandBySelector:.
+            // The debug server must simulate that by pushing the appropriate CallbackChange.
+            if let Some(keycode) = parse_virtual_keycode(key) {
+                let layout_window = callback_info.get_layout_window();
+                let focused = layout_window.focus_manager.get_focused_node().copied();
+                if let Some(focused) = focused {
+                    match keycode {
+                        VirtualKeyCode::Back => {
+                            callback_info.delete_backward(focused);
+                        }
+                        VirtualKeyCode::Delete => {
+                            callback_info.delete_forward(focused);
+                        }
+                        _ => {}
+                    }
+                }
+            }
 
             send_ok(request, None, None);
         }
@@ -8221,7 +8243,8 @@ fn process_debug_event(
             
             new_state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed_keys);
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NOTE: Do NOT set needs_update = true here!
+            // Same as KeyDown - modify_window_state handles event processing internally.
 
             send_ok(request, None, None);
         }
@@ -8230,17 +8253,14 @@ fn process_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("[DEBUG TextInput] Received text input via debug server: '{}'", text),
+                format!("Received text input via debug server: '{}'", text),
                 None,
             );
-            println!("[DEBUG TextInput] ============================================");
-            println!("[DEBUG TextInput] Step 1: Debug server received text: '{}'", text);
-            
+
             // Get the focused node - text input only works on focused contenteditable
             let layout_window = callback_info.get_layout_window();
             let focused_node = layout_window.focus_manager.get_focused_node();
-            println!("[DEBUG TextInput] Step 2: Focused node: {:?}", focused_node);
-            
+
             if focused_node.is_some() {
                 // Use the new create_text_input API which:
                 // 1. Records the changeset in TextInputManager
@@ -8248,17 +8268,15 @@ fn process_debug_event(
                 // 3. Applies the changeset if not rejected via preventDefault
                 // 4. Marks dirty nodes for re-render
                 callback_info.create_text_input(text.clone().into());
-                println!("[DEBUG TextInput] Step 3: Called callback_info.create_text_input()");
-                println!("[DEBUG TextInput] NOTE: Text input will be processed recursively");
-                println!("[DEBUG TextInput] NOTE: User callbacks can intercept via OnTextInput");
-                
-                needs_update = true;
+                // NOTE: Do NOT set needs_update = true here!
+                // create_text_input pushes a CallbackChange::CreateTextInput which
+                // handles display list regeneration internally. Setting needs_update
+                // would cause Update::RefreshDom → full DOM rebuild from C data model,
+                // overwriting the internal text edit.
                 send_ok(request, None, None);
             } else {
-                println!("[DEBUG TextInput] ERROR: No focused node - text input requires focus on contenteditable");
                 send_err(request, "No focused node - text input requires focus on contenteditable");
             }
-            println!("[DEBUG TextInput] ============================================");
         }
         DebugEvent::GetFocusState => {
             let layout_window = callback_info.get_layout_window();
