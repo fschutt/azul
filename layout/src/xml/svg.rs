@@ -2082,6 +2082,7 @@ pub fn render_tessellated_node_gpu(texture: &mut Texture, node: &TessellatedSvgN
 
     gl_context.use_program(svg_shader);
     gl_context.disable(gl::MULTISAMPLE);
+    gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
 
     let bbox_uniform_location = gl_context.get_uniform_location(svg_shader, "vBboxSize".into());
 
