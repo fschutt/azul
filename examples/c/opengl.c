@@ -400,7 +400,10 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     );
     
     OpenGlStateRef_delete(&d);
-    
+
+    // Apply FXAA anti-aliasing to smooth edges
+    AzTexture_applyFxaa(&texture);
+
     return AzImageRef_glTexture(texture);
 }
 

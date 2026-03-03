@@ -130,8 +130,8 @@ fn render_my_texture_inner(
         vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))],
     );
 
-    // TODO: segfault when inserting the following line:
-    // let tx = ImageRef::gl_texture(texture.clone());
+    // Apply FXAA anti-aliasing to smooth edges
+    texture.apply_fxaa();
 
     Some(ImageRef::gl_texture(texture))
 }
