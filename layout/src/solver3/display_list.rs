@@ -566,6 +566,7 @@ pub enum DisplayListItem {
     Image {
         bounds: WindowLogicalRect,
         image: ImageRef,
+        border_radius: BorderRadius,
     },
     /// A dedicated primitive for a scrollbar with optional GPU-animated opacity.
     /// This is a simple single-color scrollbar used for basic rendering.
@@ -1284,8 +1285,8 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_image(&mut self, bounds: LogicalRect, image: ImageRef) {
-        self.push_item(DisplayListItem::Image { bounds: bounds.into(), image });
+    pub fn push_image(&mut self, bounds: LogicalRect, image: ImageRef, border_radius: BorderRadius) {
+        self.push_item(DisplayListItem::Image { bounds: bounds.into(), image, border_radius });
     }
 }
 
@@ -2908,8 +2909,21 @@ where
                     node_index,
                     paint_rect
                 );
+                // Get border-radius so the compositor can clip the image to rounded corners
+                let styled_node_state = self.get_styled_node_state(dom_id);
+                let element_size = PhysicalSizeImport {
+                    width: paint_rect.size.width,
+                    height: paint_rect.size.height,
+                };
+                let border_radius = get_border_radius(
+                    self.ctx.styled_dom,
+                    dom_id,
+                    &styled_node_state,
+                    element_size,
+                    self.ctx.viewport_size,
+                );
                 // Store the ImageRef directly in the display list
-                builder.push_image(paint_rect, image_ref.clone());
+                builder.push_image(paint_rect, image_ref.clone(), border_radius);
             }
         }
 
@@ -3489,7 +3503,7 @@ where
         match content {
             InlineContent::Image(image) => {
                 if let Some(image_ref) = get_image_ref_for_image_source(&image.source) {
-                    builder.push_image(object_bounds, image_ref);
+                    builder.push_image(object_bounds, image_ref, BorderRadius::default());
                 }
             }
             InlineContent::Shape(shape) => {
@@ -3835,8 +3849,8 @@ fn clip_and_offset_display_item(
             clip_cursor_rect_item(bounds.into_inner(), *color, page_top, page_bottom)
         }
 
-        DisplayListItem::Image { bounds, image } => {
-            clip_image_item(bounds.into_inner(), image.clone(), page_top, page_bottom)
+        DisplayListItem::Image { bounds, image, border_radius } => {
+            clip_image_item(bounds.into_inner(), image.clone(), *border_radius, page_top, page_bottom)
         }
 
         DisplayListItem::TextLayout {
@@ -4157,6 +4171,7 @@ fn clip_cursor_rect_item(
 fn clip_image_item(
     bounds: LogicalRect,
     image: ImageRef,
+    border_radius: BorderRadius,
     page_top: f32,
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
@@ -4166,6 +4181,7 @@ fn clip_image_item(
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::Image {
         bounds: clipped.into(),
         image,
+        border_radius,
     })
 }
 
@@ -4904,9 +4920,10 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             font_size_px: *font_size_px,
             color: *color,
         },
-        DisplayListItem::Image { bounds, image } => DisplayListItem::Image {
+        DisplayListItem::Image { bounds, image, border_radius } => DisplayListItem::Image {
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             image: image.clone(),
+            border_radius: *border_radius,
         },
         // Pass through other items with their bounds offset
         DisplayListItem::SelectionRect {

@@ -280,7 +280,7 @@ fn render_display_list(
                 // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
                 // The actual glyphs are rendered via Text items
             }
-            DisplayListItem::Image { bounds, image } => {
+            DisplayListItem::Image { bounds, image, .. } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_image(

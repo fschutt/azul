@@ -1258,7 +1258,7 @@ pub fn translate_displaylist_to_wr(
                 );
             }
 
-            DisplayListItem::Image { bounds, image } => {
+            DisplayListItem::Image { bounds, image, border_radius } => {
                 // Get the ImageRefHash from the ImageRef
                 let image_ref_hash = image.get_hash();
 
@@ -1267,11 +1267,47 @@ pub fn translate_displaylist_to_wr(
 
                     let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
+                    // Handle border_radius by creating a clip region (same as Rect)
+                    let style_border_radius = convert_border_radius_to_style(border_radius);
+                    let wr_border_radius = wr_translate_border_radius(
+                        style_border_radius,
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(bounds.0.size.width, dpi_scale),
+                            scale_px(bounds.0.size.height, dpi_scale),
+                        ),
+                    );
+
+                    let info = if !wr_border_radius.is_zero() {
+                        let logical_rect = LogicalRect::new(
+                            azul_core::geom::LogicalPosition::new(
+                                scale_px(bounds.0.origin.x, dpi_scale),
+                                scale_px(bounds.0.origin.y, dpi_scale),
+                            ),
+                            azul_core::geom::LogicalSize::new(
+                                scale_px(bounds.0.size.width, dpi_scale),
+                                scale_px(bounds.0.size.height, dpi_scale),
+                            ),
+                        );
+                        let new_clip_id = define_border_radius_clip(
+                            &mut builder,
+                            logical_rect,
+                            wr_border_radius,
+                            current_spatial!(),
+                            current_clip!(),
+                        );
+                        CommonItemProperties {
+                            clip_rect: rect,
+                            clip_chain_id: new_clip_id,
+                            spatial_id: current_spatial!(),
+                            flags: Default::default(),
+                        }
+                    } else {
+                        CommonItemProperties {
+                            clip_rect: rect,
+                            clip_chain_id: current_clip!(),
+                            spatial_id: current_spatial!(),
+                            flags: Default::default(),
+                        }
                     };
 
                     log_debug!(
@@ -1995,8 +2031,28 @@ pub fn translate_displaylist_to_wr(
                     }
                 };
 
+                // For outset shadows, expand clip_rect to accommodate the shadow
+                // extending beyond element bounds (offset + blur + spread).
+                // Inset shadows are contained within the element, so no expansion needed.
+                let shadow_clip_rect = if clip_mode == WrBoxShadowClipMode::Outset {
+                    let extent = blur_radius + spread_radius.max(0.0)
+                        + offset.x.abs().max(offset.y.abs());
+                    LayoutRect::from_origin_and_size(
+                        LayoutPoint::new(
+                            rect.min.x - extent,
+                            rect.min.y - extent,
+                        ),
+                        LayoutSize::new(
+                            rect.width() + 2.0 * extent,
+                            rect.height() + 2.0 * extent,
+                        ),
+                    )
+                } else {
+                    rect
+                };
+
                 let info = CommonItemProperties {
-                    clip_rect: rect,
+                    clip_rect: shadow_clip_rect,
                     clip_chain_id: current_clip!(),
                     spatial_id: current_spatial!(),
                     flags: Default::default(),
