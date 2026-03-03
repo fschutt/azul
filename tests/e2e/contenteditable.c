@@ -74,7 +74,9 @@ AzUpdate on_key_down(AzRefAny data, AzCallbackInfo info) {
     
     ref.ptr->key_press_count++;
     ContentEditableDataRefMut_delete(&ref);
-    return AzUpdate_RefreshDom;
+    // Return DoNothing — the framework handles text updates internally.
+    // RefreshDom would regenerate the DOM from stale C data, overwriting the edit.
+    return AzUpdate_DoNothing;
 }
 
 // ============================================================================
@@ -153,10 +155,11 @@ const char* CSS_STYLE =
 // DOM Layout
 // ============================================================================
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ContentEditableDataRef ref = ContentEditableDataRef_create(&data);
     if (!ContentEditableData_downcastRef(&data, &ref)) {
-        return AzStyledDom_default();
+        AzDom empty = AzDom_createBody();
+        return empty;
     }
     
     // Build DOM
@@ -225,7 +228,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Parse and apply CSS
     AzCss css = AzCss_fromString(AZ_STR(CSS_STYLE));
-    return AzDom_style(&root, css);
+    return AzDom_style(root, css);
 }
 
 // ============================================================================
