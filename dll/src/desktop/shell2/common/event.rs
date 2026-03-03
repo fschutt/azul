@@ -1312,7 +1312,7 @@ pub trait PlatformWindow {
 
             // === Scroll ===
 
-            CallbackChange::ScrollTo { dom_id, node_id, position } => {
+            CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
                 let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
@@ -1320,12 +1320,20 @@ pub trait PlatformWindow {
 
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
-                        lw.scroll_manager.scroll_to(
-                            *dom_id, internal_node_id, *position,
-                            std::time::Duration::from_millis(0).into(),
-                            azul_core::events::EasingFunction::Linear,
-                            now.clone().into(),
-                        );
+                        if *unclamped {
+                            // Physics timer provides pre-clamped rubber-band positions
+                            lw.scroll_manager.set_scroll_position_unclamped(
+                                *dom_id, internal_node_id, *position,
+                                now.clone().into(),
+                            );
+                        } else {
+                            lw.scroll_manager.scroll_to(
+                                *dom_id, internal_node_id, *position,
+                                std::time::Duration::from_millis(0).into(),
+                                azul_core::events::EasingFunction::Linear,
+                                now.clone().into(),
+                            );
+                        }
 
                         // Check if this scroll node is a VirtualView that needs
                         // re-invocation (e.g. user scrolled near edge for lazy loading).
@@ -3860,7 +3868,10 @@ pub trait PlatformWindow {
             _ => return None,
         };
 
-        let world_point = WorldPoint::new(position.x, position.y);
+        // Convert logical position to physical (device) pixels for WebRender hit-test.
+        // Same as fullhittest_new_webrender which multiplies by hidpi_factor.
+        let hidpi = self.get_current_window_state().size.get_hidpi_factor().inner.get();
+        let world_point = WorldPoint::new(position.x * hidpi, position.y * hidpi);
         let hit_result = hit_tester.hit_test(world_point);
 
         // Check each hit item for scrollbar tag
