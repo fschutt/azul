@@ -1729,9 +1729,215 @@ pub fn allocate_clipmask_texture(
     )
 }
 
-/// Applies an FXAA filter to the texture
+/// Applies an FXAA filter to the texture using the pre-compiled FXAA shader.
+///
+/// Renders a fullscreen quad with the FXAA fragment shader, reading from
+/// the input texture and writing to a temporary texture, then swaps the
+/// texture IDs so the caller gets the post-FXAA result.
 pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
-    // TODO
+    apply_fxaa_with_config(texture, azul_core::gl_fxaa::FxaaConfig::enabled())
+}
+
+/// Applies FXAA with custom configuration parameters.
+pub fn apply_fxaa_with_config(
+    texture: &mut Texture,
+    config: azul_core::gl_fxaa::FxaaConfig,
+) -> Option<()> {
+    use std::mem;
+
+    use azul_core::gl::{GLuint, GlVoidPtrConst, VertexAttributeType};
+    use gl_context_loader::gl;
+
+    if !config.enabled || texture.size.width == 0 || texture.size.height == 0 {
+        return Some(());
+    }
+
+    // FXAA only works on RGBA8 textures
+    if texture.format != RawImageFormat::RGBA8 {
+        return Some(());
+    }
+
+    let texture_size = texture.size;
+    let gl_context = &texture.gl_context;
+    let fxaa_shader = gl_context.get_fxaa_shader();
+    let w = texture_size.width as f32;
+    let h = texture_size.height as f32;
+
+    // Save GL state
+    let mut current_program = [0_i32];
+    let mut current_framebuffers = [0_i32];
+    let mut current_texture_2d = [0_i32];
+    let mut current_vertex_array_object = [0_i32];
+    let mut current_vertex_buffer = [0_i32];
+    let mut current_index_buffer = [0_i32];
+    let mut current_active_texture = [0_i32];
+    let mut current_blend_enabled = [0_u8];
+    let mut current_viewport = [0_i32; 4];
+
+    gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+    gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
+    gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+    gl_context.get_integer_v(
+        gl::VERTEX_ARRAY_BINDING,
+        (&mut current_vertex_array_object[..]).into(),
+    );
+    gl_context.get_integer_v(
+        gl::ARRAY_BUFFER_BINDING,
+        (&mut current_vertex_buffer[..]).into(),
+    );
+    gl_context.get_integer_v(
+        gl::ELEMENT_ARRAY_BUFFER_BINDING,
+        (&mut current_index_buffer[..]).into(),
+    );
+    gl_context.get_integer_v(
+        gl::ACTIVE_TEXTURE,
+        (&mut current_active_texture[..]).into(),
+    );
+    gl_context.get_boolean_v(gl::BLEND, (&mut current_blend_enabled[..]).into());
+    gl_context.get_integer_v(gl::VIEWPORT, (&mut current_viewport[..]).into());
+
+    // 1. Create temporary output texture
+    let temp_textures = gl_context.gen_textures(1);
+    let temp_tex_id = *temp_textures.get(0)?;
+    gl_context.bind_texture(gl::TEXTURE_2D, temp_tex_id);
+    gl_context.tex_image_2d(
+        gl::TEXTURE_2D,
+        0,
+        gl::RGBA as i32,
+        texture_size.width as i32,
+        texture_size.height as i32,
+        0,
+        gl::RGBA,
+        gl::UNSIGNED_BYTE,
+        None.into(),
+    );
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+    // 2. Create FBO targeting the temp texture
+    let fbos = gl_context.gen_framebuffers(1);
+    let fbo_id = *fbos.get(0)?;
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, fbo_id);
+    gl_context.framebuffer_texture_2d(
+        gl::FRAMEBUFFER,
+        gl::COLOR_ATTACHMENT0,
+        gl::TEXTURE_2D,
+        temp_tex_id,
+        0,
+    );
+    gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
+
+    debug_assert!(
+        gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE
+    );
+
+    // 3. Create fullscreen quad VAO/VBO/IBO
+    // Vertices in [-1, 1] range; the FXAA vertex shader converts to [0, 1] UVs
+    let quad_vertices: [f32; 8] = [
+        -1.0, -1.0, // bottom-left
+         1.0, -1.0, // bottom-right
+         1.0,  1.0, // top-right
+        -1.0,  1.0, // top-left
+    ];
+    let quad_indices: [u32; 6] = [0, 1, 2, 0, 2, 3];
+
+    let vaos = gl_context.gen_vertex_arrays(1);
+    let vao_id = *vaos.get(0)?;
+    gl_context.bind_vertex_array(vao_id);
+
+    let vbos = gl_context.gen_buffers(1);
+    let vbo_id = *vbos.get(0)?;
+    gl_context.bind_buffer(gl::ARRAY_BUFFER, vbo_id);
+    gl_context.buffer_data_untyped(
+        gl::ARRAY_BUFFER,
+        (mem::size_of::<f32>() * quad_vertices.len()) as isize,
+        GlVoidPtrConst {
+            ptr: quad_vertices.as_ptr() as *const std::ffi::c_void,
+            run_destructor: true,
+        },
+        gl::STATIC_DRAW,
+    );
+
+    let ibos = gl_context.gen_buffers(1);
+    let ibo_id = *ibos.get(0)?;
+    gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, ibo_id);
+    gl_context.buffer_data_untyped(
+        gl::ELEMENT_ARRAY_BUFFER,
+        (mem::size_of::<u32>() * quad_indices.len()) as isize,
+        GlVoidPtrConst {
+            ptr: quad_indices.as_ptr() as *const std::ffi::c_void,
+            run_destructor: true,
+        },
+        gl::STATIC_DRAW,
+    );
+
+    // Set up vertex attribute for vAttrXY (location 0, bound at shader compilation)
+    let vertex_type = VertexAttributeType::Float;
+    let stride = vertex_type.get_mem_size() * 2; // 2 floats per vertex (x, y)
+    gl_context.vertex_attrib_pointer(0, 2, vertex_type.get_gl_id(), false, stride as i32, 0);
+    gl_context.enable_vertex_attrib_array(0);
+
+    // 4. Render FXAA pass
+    gl_context.use_program(fxaa_shader);
+    gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
+    gl_context.disable(gl::BLEND); // FXAA reads exact colors, blending would corrupt output
+
+    // Bind input texture to GL_TEXTURE0
+    gl_context.active_texture(gl::TEXTURE0);
+    gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
+
+    // Set uniforms
+    let u_texture = gl_context.get_uniform_location(fxaa_shader, "uTexture");
+    gl_context.uniform_1i(u_texture, 0);
+
+    let u_texel_size = gl_context.get_uniform_location(fxaa_shader, "uTexelSize");
+    gl_context.uniform_2f(u_texel_size, 1.0 / w, 1.0 / h);
+
+    let u_edge_threshold =
+        gl_context.get_uniform_location(fxaa_shader, "uEdgeThreshold");
+    gl_context.uniform_1f(u_edge_threshold, config.edge_threshold);
+
+    let u_edge_threshold_min =
+        gl_context.get_uniform_location(fxaa_shader, "uEdgeThresholdMin");
+    gl_context.uniform_1f(u_edge_threshold_min, config.edge_threshold_min);
+
+    // Draw the fullscreen quad
+    gl_context.draw_elements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, 0);
+
+    // 5. Swap texture IDs: the temp texture now has the FXAA result.
+    // We swap so the caller's texture_id points to the anti-aliased result,
+    // and the old texture_id gets cleaned up.
+    let old_texture_id = texture.texture_id;
+    texture.texture_id = temp_tex_id;
+    // Delete the old texture (which was the input)
+    gl_context.delete_textures((&[old_texture_id])[..].into());
+
+    // 6. Cleanup: delete FBO, quad buffers
+    gl_context.delete_framebuffers((&[fbo_id])[..].into());
+    gl_context.disable_vertex_attrib_array(0);
+    gl_context.delete_vertex_arrays((&[vao_id])[..].into());
+    gl_context.delete_buffers((&[vbo_id, ibo_id])[..].into());
+
+    // Restore GL state
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
+    gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
+    gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
+    gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
+    gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
+    gl_context.use_program(current_program[0] as u32);
+    gl_context.active_texture(current_active_texture[0] as u32);
+    gl_context.viewport(
+        current_viewport[0],
+        current_viewport[1],
+        current_viewport[2],
+        current_viewport[3],
+    );
+    if u32::from(current_blend_enabled[0]) == gl::TRUE {
+        gl_context.enable(gl::BLEND);
+    }
+
     Some(())
 }
 
