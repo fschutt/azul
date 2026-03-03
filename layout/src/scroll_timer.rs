@@ -226,9 +226,10 @@ pub extern "C" fn scroll_physics_timer_callback(
                             node_phys.is_rubber_banding = true;
                         }
 
-                        // Also set the current position for the spring-back start
+                        // Preserve the overshot position for the spring-back animation.
+                        // Must use unclamped so the overshot position is NOT clamped to bounds.
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(input.node_id));
-                        timer_info.scroll_to(input.dom_id, hierarchy_id, pos);
+                        timer_info.scroll_to_unclamped(input.dom_id, hierarchy_id, pos);
                     }
                 }
             }
@@ -256,17 +257,19 @@ pub extern "C" fn scroll_physics_timer_callback(
         let is_overshooting_x = overshoot_x.abs() > 0.01;
         let is_overshooting_y = overshoot_y.abs() > 0.01;
 
-        // If we're in a rubber-band overshoot, apply spring-back force
+        // If we're in a rubber-band overshoot, apply critically-damped spring force.
+        // F = -k*x - c*v  where c = 2*sqrt(k) for critical damping (no oscillation).
         if is_overshooting_x && rubber_band_x {
-            // Spring-back: accelerate towards the boundary
             let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
-            let spring_force_x = -spring_k * overshoot_x;
+            let damping = 2.0 * spring_k.sqrt(); // critical damping coefficient
+            let spring_force_x = -spring_k * overshoot_x - damping * node_physics.velocity.x;
             node_physics.velocity.x += spring_force_x * dt;
             node_physics.is_rubber_banding = true;
         }
         if is_overshooting_y && rubber_band_y {
             let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
-            let spring_force_y = -spring_k * overshoot_y;
+            let damping = 2.0 * spring_k.sqrt(); // critical damping coefficient
+            let spring_force_y = -spring_k * overshoot_y - damping * node_physics.velocity.y;
             node_physics.velocity.y += spring_force_y * dt;
             node_physics.is_rubber_banding = true;
         }
@@ -365,6 +368,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     }
 
     // Apply trackpad position changes (rubber-band clamped for elastic overshoot)
+    // Uses scroll_to_unclamped because the physics timer does its own rubber-band clamping.
     let trackpad_positions: Vec<_> = physics.pending_trackpad_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_trackpad_positions.clear();
     for ((dom_id, node_id), position) in trackpad_positions {
@@ -390,14 +394,14 @@ pub extern "C" fn scroll_physics_timer_callback(
             None => position,
         };
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-        timer_info.scroll_to(dom_id, hierarchy_id, clamped);
+        timer_info.scroll_to_unclamped(dom_id, hierarchy_id, clamped);
         any_changes = true;
     }
 
-    // Apply velocity-based position changes
+    // Apply velocity-based position changes (uses unclamped: physics already handles rubber-band clamping)
     for ((dom_id, node_id), position) in velocity_updates {
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-        timer_info.scroll_to(dom_id, hierarchy_id, position);
+        timer_info.scroll_to_unclamped(dom_id, hierarchy_id, position);
         any_changes = true;
     }
 
@@ -418,24 +422,29 @@ pub extern "C" fn scroll_physics_timer_callback(
 // ============================================================================
 
 /// Determines if a node allows rubber-banding on the X axis based on:
-/// 1. Per-node `overflow_scrolling` CSS property (-azul-overflow-scrolling)
-/// 2. Per-node `overscroll_behavior_x` CSS property (overscroll-behavior-x)
-/// 3. Global `overscroll_elasticity` from ScrollPhysics
+/// 1. Whether the axis actually has overflow (max_scroll_x > 0)
+/// 2. Per-node `overflow_scrolling` CSS property (-azul-overflow-scrolling)
+/// 3. Per-node `overscroll_behavior_x` CSS property (overscroll-behavior-x)
+/// 4. Global `overscroll_elasticity` from ScrollPhysics
 fn node_allows_rubber_band_x(info: &ScrollNodeInfo, global_elasticity: f32) -> bool {
-    // If overscroll-behavior-x is None, no rubber-band regardless
+    // No rubber-banding on an axis that doesn't scroll
+    if info.max_scroll_x <= 0.0 {
+        return false;
+    }
     if info.overscroll_behavior_x == OverscrollBehavior::None {
         return false;
     }
-    // If -azul-overflow-scrolling: touch, force rubber-banding on
     if info.overflow_scrolling == OverflowScrolling::Touch {
         return true;
     }
-    // Otherwise (Auto): use global config
     global_elasticity > 0.0
 }
 
 /// Determines if a node allows rubber-banding on the Y axis
 fn node_allows_rubber_band_y(info: &ScrollNodeInfo, global_elasticity: f32) -> bool {
+    if info.max_scroll_y <= 0.0 {
+        return false;
+    }
     if info.overscroll_behavior_y == OverscrollBehavior::None {
         return false;
     }

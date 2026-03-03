@@ -562,6 +562,16 @@ impl TimerCallbackInfo {
         self.callback_info.scroll_to(dom_id, node_id, position);
     }
 
+    /// Scroll to position without clamping (for rubber-banding/overscroll).
+    pub fn scroll_to_unclamped(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::styled_dom::NodeHierarchyItemId,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        self.callback_info.scroll_to_unclamped(dom_id, node_id, position);
+    }
+
     // Cursor blink timer methods
     
     /// Set cursor visibility state (for cursor blink timer)

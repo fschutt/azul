@@ -246,6 +246,9 @@ pub enum CallbackChange {
         dom_id: DomId,
         node_id: NodeHierarchyItemId,
         position: LogicalPosition,
+        /// When true, skip clamping to [0, max_scroll] bounds.
+        /// Used by the scroll physics timer for rubber-banding/overscroll.
+        unclamped: bool,
     },
     /// Scroll a node into view (W3C scrollIntoView API)
     /// The scroll adjustments are calculated and applied when the change is processed
@@ -1144,6 +1147,23 @@ impl CallbackInfo {
             dom_id,
             node_id,
             position,
+            unclamped: false,
+        });
+    }
+
+    /// Scroll a node to a specific position without clamping.
+    /// Used by the scroll physics timer for rubber-banding/overscroll.
+    pub fn scroll_to_unclamped(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeHierarchyItemId,
+        position: LogicalPosition,
+    ) {
+        self.push_change(CallbackChange::ScrollTo {
+            dom_id,
+            node_id,
+            position,
+            unclamped: true,
         });
     }
 
