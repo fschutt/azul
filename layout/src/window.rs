@@ -4191,7 +4191,9 @@ impl LayoutWindow {
     pub fn apply_text_changeset(&mut self) -> Vec<azul_core::dom::DomNodeId> {
         // Get the changeset from TextInputManager
         let changeset = match self.text_input_manager.get_pending_changeset() {
-            Some(cs) => cs.clone(),
+            Some(cs) => {
+                cs.clone()
+            }
             None => {
                 return Vec::new();
             }
@@ -4491,17 +4493,14 @@ impl LayoutWindow {
             None => return Arc::new(Default::default()),
         };
 
-        // Try to get font from styled DOM
-        let styled_nodes = layout_result.styled_dom.styled_nodes.as_ref();
-        let _styled_node = match styled_nodes.get(node_id.index()) {
-            Some(sn) => sn,
-            None => return Arc::new(Default::default()),
-        };
+        // Use the proper CSS property resolution from solver3::getters
+        let props = crate::solver3::getters::get_style_properties(
+            &layout_result.styled_dom,
+            node_id,
+            self.system_style.as_ref(),
+        );
 
-        // Extract font properties from computed style
-        // For now, use default - full implementation would query CSS property cache
-        // TODO: Query CSS property cache for font-family, font-size, font-weight, etc.
-        Arc::new(Default::default())
+        Arc::new(props)
     }
 
     /// Recursively collect text content from child nodes
@@ -4605,9 +4604,12 @@ impl LayoutWindow {
             },
         );
 
-        // 2. Get the cached constraints from the existing inline layout result
-        // We need to find the IFC root node and extract its constraints
-        let constraints = {
+        // 2. Get the cached constraints from the existing inline layout result.
+        // We need to find the IFC root node. The layout tree uses its own indices
+        // (different from DOM node IDs), so we must go through dom_to_layout.
+        // The IFC may be on this node OR a child — search all mapped layout nodes
+        // and their children for one with inline_layout_result.
+        let (constraints, ifc_layout_index) = {
             let layout_result = match self.layout_results.get(&dom_id) {
                 Some(r) => r,
                 None => {
@@ -4615,22 +4617,54 @@ impl LayoutWindow {
                 }
             };
 
-            let layout_node = match layout_result.layout_tree.get(node_id.index()) {
-                Some(n) => n,
-                None => {
-                    return;
-                }
-            };
+            // Find the layout node with inline_layout_result via dom_to_layout
+            let mut found: Option<(usize, &CachedInlineLayout)> = None;
 
-            let cached_layout = match &layout_node.inline_layout_result {
-                Some(c) => c,
+            // First check layout nodes mapped to this DOM node
+            if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                for &idx in layout_indices {
+                    if let Some(n) = layout_result.layout_tree.get(idx) {
+                        if let Some(ref cached) = n.inline_layout_result {
+                            found = Some((idx, cached));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // If not found on this node, check child DOM nodes (text children of contenteditable)
+            if found.is_none() {
+                let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+                if let Some(parent_item) = node_hierarchy.get(node_id.index()) {
+                    let mut child = parent_item.first_child_id(node_id);
+                    while let Some(child_id) = child {
+                        if let Some(child_indices) = layout_result.layout_tree.dom_to_layout.get(&child_id) {
+                            for &idx in child_indices {
+                                if let Some(n) = layout_result.layout_tree.get(idx) {
+                                    if let Some(ref cached) = n.inline_layout_result {
+                                        found = Some((idx, cached));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if found.is_some() { break; }
+                        child = node_hierarchy.get(child_id.index()).and_then(|h| h.next_sibling_id());
+                    }
+                }
+            }
+
+            let (ifc_idx, cached_layout) = match found {
+                Some(f) => {
+                    f
+                },
                 None => {
                     return;
                 }
             };
 
             match &cached_layout.constraints {
-                Some(c) => c.clone(),
+                Some(c) => (c.clone(), ifc_idx),
                 None => {
                     return;
                 }
@@ -4645,10 +4679,9 @@ impl LayoutWindow {
         };
 
         // 4. Update the layout cache with the new layout
-        // Find the IFC root node in the layout tree and update its inline_layout_result
+        // Use the ifc_layout_index we found earlier (correct layout tree index)
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-            // Find the node in the layout tree
-            if let Some(layout_node) = layout_result.layout_tree.get_mut(node_id.index()) {
+            if let Some(layout_node) = layout_result.layout_tree.get_mut(ifc_layout_index) {
                 // Check if size changed (needs repaint)
                 let old_size = layout_node.used_size;
                 let new_bounds = new_layout.bounds();
@@ -4769,7 +4802,8 @@ impl LayoutWindow {
                     layout_result.display_list = display_list;
                 }
             }
-            Err(_e) => { }
+            Err(e) => {
+            }
         }
     }
 
@@ -4788,7 +4822,6 @@ impl LayoutWindow {
         let logical_items = create_logical_items(content, &[], &mut None);
 
         if logical_items.is_empty() {
-            // Empty text - return empty layout
             return Some(UnifiedLayout {
                 items: Vec::new(),
                 overflow: crate::text3::cache::OverflowInfo::default(),
@@ -4797,23 +4830,34 @@ impl LayoutWindow {
 
         // Stage 2: Bidi reordering
         let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-        let visual_items = reorder_logical_items(&logical_items, base_direction, &mut None).ok()?;
+        let visual_items = match reorder_logical_items(&logical_items, base_direction, &mut None) {
+            Ok(v) => { v }
+            Err(e) => { return None; }
+        };
 
         // Stage 3: Shape text (resolve fonts, create glyphs)
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let shaped_items = shape_visual_items(
+        let shaped_items = match shape_visual_items(
             &visual_items,
             self.font_manager.get_font_chain_cache(),
             &self.font_manager.fc_cache,
             &loaded_fonts,
             &mut None,
-        )
-        .ok()?;
+        ) {
+            Ok(s) => { s }
+            Err(e) => { return None; }
+        };
 
         // Stage 4: Fragment layout (line breaking, positioning)
         let mut cursor = BreakCursor::new(&shaped_items);
-        perform_fragment_layout(&mut cursor, &logical_items, constraints, &mut None, &loaded_fonts)
-            .ok()
+        match perform_fragment_layout(&mut cursor, &logical_items, constraints, &mut None, &loaded_fonts) {
+            Ok(layout) => {
+                Some(layout)
+            }
+            Err(e) => {
+                None
+            }
+        }
     }
 
     /// Helper to get node used_size for accessibility actions
@@ -4824,7 +4868,9 @@ impl LayoutWindow {
         node_id: NodeId,
     ) -> Option<azul_core::geom::LogicalSize> {
         let layout_result = self.layout_results.get(&dom_id)?;
-        let node = layout_result.layout_tree.get(node_id.index())?;
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
+        let idx = *layout_indices.first()?;
+        let node = layout_result.layout_tree.get(idx)?;
         node.used_size
     }
 
@@ -4837,13 +4883,15 @@ impl LayoutWindow {
         use azul_css::props::basic::LayoutRect;
 
         let layout_result = self.layout_results.get(&dom_id)?;
-        let node = layout_result.layout_tree.get(node_id.index())?;
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
+        let idx = *layout_indices.first()?;
+        let node = layout_result.layout_tree.get(idx)?;
 
         // Get size from used_size
         let size = node.used_size?;
 
-        // Get position from calculated_positions map
-        let position = layout_result.calculated_positions.get(node_id.index())?;
+        // Get position from calculated_positions — uses layout tree index, not DOM node index
+        let position = layout_result.calculated_positions.get(idx)?;
 
         Some(LayoutRect {
             origin: azul_css::props::basic::LayoutPoint {
