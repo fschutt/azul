@@ -1,0 +1,9 @@
+- sudo apt install git
+- install rust
+- install vscode
+- git clone https://github.com/fschutt/azul
+- cd azul/doc
+- cargo run -p azul-doc -- codegen all
+- cd azul/dll
+- cargo build --release -p azul-dll --features build-dll
+- cp ./target/release/libazul.so

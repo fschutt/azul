@@ -10,6 +10,10 @@ vendor/
 *.pdf
 *.bin
 *.json.gz
+*.iso
+*.img
+*.zip
+*.tar.gz
 *.sublime-project
 .vscode/*
 .vs/*
