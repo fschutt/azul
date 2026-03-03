@@ -2113,7 +2113,7 @@ pub fn render_tessellated_node_gpu(texture: &mut Texture, node: &TessellatedSvgN
 
     // delete resources
     gl_context.delete_framebuffers(framebuffers.as_ref().into());
-    gl_context.delete_vertex_arrays(([current_vertex_array_object[0] as u32])[..].into());
+    gl_context.delete_vertex_arrays(([*vertex_array_object])[..].into());
     gl_context.delete_buffers(([*vertex_buffer_id, *index_buffer_id])[..].into());
 
     Some(())
