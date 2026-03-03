@@ -2055,9 +2055,6 @@ impl LayoutWindow {
         }
 
         // Phase 2: Fade out over fade_duration
-        // time_into_fade is (elapsed / fade_delay) - 1.0, a dimensionless ratio
-        // To convert to a ratio of fade_duration, multiply by (fade_delay / fade_duration)
-        // giving (elapsed - fade_delay) / fade_duration
         let time_into_fade = time_since_activity.div(&fade_delay) - 1.0;
         let fade_progress = (time_into_fade * fade_delay.div(&fade_duration)).min(1.0);
 
@@ -2121,13 +2118,14 @@ impl LayoutWindow {
                 0.0
             };
 
-            // Track whether any scrollbar is actively fading (0 < opacity < 1).
-            // We do NOT count fully-visible scrollbars (opacity == 1.0) because
-            // those are driven by the scroll physics timer already. We only need
-            // extra frames for the fade-out interpolation phase.
-            if (vertical_opacity > 0.0 && vertical_opacity < 1.0)
-                || (horizontal_opacity > 0.0 && horizontal_opacity < 1.0)
-            {
+            // Track whether any scrollbar has non-zero opacity and needs
+            // continued frame generation. This includes BOTH the fade_delay
+            // period (opacity == 1.0, waiting to start fading) and the active
+            // fade-out phase (0 < opacity < 1). Without this, the scroll
+            // physics timer terminates after scrolling stops, and no frames
+            // are generated during the 500ms delay — causing the scrollbar
+            // to jump from visible to invisible on the next user event.
+            if vertical_opacity > 0.0 || horizontal_opacity > 0.0 {
                 any_opacity_nonzero = true;
             }
 
