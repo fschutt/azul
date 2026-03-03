@@ -379,7 +379,10 @@ pub fn prepare_quad(
                         panic!("bug: old box-shadow clips unexpected in this path");
                     }
                     ClipItemKind::Image { .. } => {
-                        // Image masks are handled via build_sub_pass, skip here
+                        // Image masks need the indirect (mask) rendering path so that
+                        // build_sub_pass / build_mask_tasks can render the mask.
+                        // Mark the entire prim rect as needing a mask.
+                        scratch.quad_tile_classifier.add_mask_region(*local_rect);
                     }
                 }
             }

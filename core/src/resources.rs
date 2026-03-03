@@ -1548,24 +1548,17 @@ impl RawImage {
 
         let bytes: U8Vec = match data_format {
             RawImageFormat::R8 => {
-                // just return the vec
+                // Keep R8 data as-is — WebRender supports R8 natively.
+                // This is important for image mask clips which need the
+                // single-channel data (white=visible, black=clipped).
                 let pixels = pixels.get_u8_vec()?;
 
                 if pixels.len() != expected_len {
                     return None;
                 }
 
-                let pixels_ref = pixels.as_ref();
-                let mut px = vec![0; pixels_ref.len() * 4];
-                for (i, r) in pixels_ref.iter().enumerate() {
-                    px[i * 4 + 0] = *r;
-                    px[i * 4 + 1] = *r;
-                    px[i * 4 + 2] = *r;
-                    px[i * 4 + 3] = 0xff;
-                }
-
-                data_format = RawImageFormat::BGRA8;
-                px.into()
+                is_opaque = false;
+                pixels
             }
             RawImageFormat::RG8 => {
                 let pixels = pixels.get_u8_vec()?;

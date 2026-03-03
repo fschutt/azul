@@ -35297,7 +35297,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "azul_layout::xml::svg::apply_fxaa(object).is_some()"
+                                "fn_body": "azul_layout::xml::svg::apply_fxaa(texture).is_some()"
                             },
                             "draw_tesselated_svg_gpu_node": {
                                 "doc": [

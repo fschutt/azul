@@ -1074,7 +1074,6 @@ impl ClipNodeInfo {
             } else {
                 // If the supplied image key doesn't exist in the resource cache,
                 // skip the clip node since there is nothing to mask with.
-                warn!("Clip mask with missing image key {:?}", request.key);
                 return None;
             }
         }

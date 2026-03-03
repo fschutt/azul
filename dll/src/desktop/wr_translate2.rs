@@ -1040,12 +1040,6 @@ pub fn collect_image_resource_updates(
         }
     }
 
-    log_debug!(
-        LogCategory::Rendering,
-        "[collect_image_resource_updates] Found {} unique images in display lists",
-        images_in_display_list.len()
-    );
-
     // Build AddImage messages for new images using our gl_texture_integration
     let image_updates = build_add_image_resource_updates(
         renderer_resources,

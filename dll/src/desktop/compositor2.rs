@@ -217,13 +217,6 @@ pub fn translate_displaylist_to_wr(
                 color,
                 border_radius,
             } => {
-                log_debug!(
-                    LogCategory::DisplayList,
-                    "[compositor2] Rect item: bounds={:?}, color={:?}, dpi={}",
-                    bounds,
-                    color,
-                    dpi_scale
-                );
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 let color_f = ColorF::new(
@@ -235,7 +228,6 @@ pub fn translate_displaylist_to_wr(
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
-
                 log_debug!(LogCategory::DisplayList,
                     "[CLIP DEBUG] Rect: adjusted={:?}, clip_chain={:?}, spatial={:?}",
                     rect, current_clip_chain, current_spatial
@@ -2217,19 +2209,8 @@ pub fn translate_displaylist_to_wr(
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
 
-                    log_debug!(
-                        LogCategory::DisplayList,
-                        "[compositor2] PushImageMaskClip: mask_rect={:?}, clip_id={:?}, new_clip_chain={:?}",
-                        wr_mask_rect, clip_id, new_clip_chain_id
-                    );
-
                     clip_stack.push(new_clip_chain_id);
                 } else {
-                    log_debug!(
-                        LogCategory::DisplayList,
-                        "[compositor2] PushImageMaskClip: mask image {:?} not found, pushing current clip",
-                        image_ref_hash
-                    );
                     // If mask image not found, push current clip to keep stack balanced
                     clip_stack.push(current_clip);
                 }
