@@ -935,29 +935,21 @@ pub fn translate_displaylist_to_wr(
                 // Push the new spatial ID onto the stack
                 spatial_stack.push(scroll_spatial_id);
 
-                // Fix: Push the scroll frame's origin onto the offset stack.
-                // 
-                // The layout engine produces primitives with ABSOLUTE WINDOW coordinates.
-                // However, WebRender's scroll frame creates a NEW SPATIAL NODE with its own
-                // coordinate system, where (0,0) is the top-left of the scrollable content.
-                // 
-                // To correctly position primitives inside the scroll frame, we need to
-                // SUBTRACT the scroll frame's origin from all child coordinates.
-                // The apply_offset function does this by subtracting the stacked offsets.
+                // IMPORTANT: Do NOT push a new offset to offset_stack here.
                 //
-                // Previous approach (keeping same offset) caused content to appear at
-                // absolute window position inside the scroll frame, which means the first
-                // ~N pixels of content were "above" the scroll frame's viewport.
+                // WebRender scroll frames do NOT create a new coordinate origin.
+                // They are NOT reference frames — they share the same coordinate space
+                // as their parent. The scroll frame only applies a translation (scroll
+                // offset) to child content, and clips it to the viewport (frame_rect).
                 //
-                // CoordinateSpace transformation: Window -> ScrollFrame
-                // Formula: scroll_frame_pos = window_pos - scroll_frame_origin
-                let frame_origin_offset = (adjusted_frame_rect.min.x, adjusted_frame_rect.min.y);
-                offset_stack.push(frame_origin_offset);
-
-                log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: NEW offset={:?} (scroll frame origin) [CoordinateSpace::Window -> ScrollFrame]",
-                    frame_origin_offset
-                );
+                // Our display list uses ABSOLUTE WINDOW coordinates for all primitives.
+                // Inside a scroll frame, those absolute coordinates ARE the correct
+                // scroll-frame-local coordinates. A rect at window position (11, 53)
+                // should appear at scroll-frame-local (11, 53), which renders at
+                // world (11, 53) when scroll_y=0 — exactly at the top of the viewport.
+                //
+                // Subtracting frame_rect.origin would wrongly move Row 0 from (11, 53)
+                // to (0, 0), placing it ABOVE the viewport clip at y=53.
 
                 // Define clip for the scroll frame in PARENT SPACE (where the viewport is)
                 // CRITICAL: The clip must be in parent space so it stays stationary while content scrolls!
@@ -1027,29 +1019,20 @@ pub fn translate_displaylist_to_wr(
             DisplayListItem::PopScrollFrame => {
                 let spatial_before = spatial_stack.len();
                 let clip_before = clip_stack.len();
-                let offset_before = offset_stack.len();
 
-                // Pop spatial, clip, and offset stacks
+                // Pop spatial and clip stacks (no offset stack — scroll frames don't push one)
                 let popped_clip = clip_stack.pop();
                 let popped_spatial = spatial_stack.pop();
-                let popped_offset = offset_stack.pop();
-
-                log_debug!(
-                    LogCategory::DisplayList,
-                    "[CLIP DEBUG] PopScrollFrame: popped_offset={:?}",
-                    popped_offset
-                );
 
                 log_debug!(LogCategory::DisplayList,
-                    "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, popped_offset={:?}, \
-                     spatial_stack {} -> {}, clip_stack {} -> {}, offset_stack {} -> {}",
-                    popped_clip, popped_spatial, popped_offset,
+                    "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, \
+                     spatial_stack {} -> {}, clip_stack {} -> {}",
+                    popped_clip, popped_spatial,
                     spatial_before, spatial_stack.len(),
-                    clip_before, clip_stack.len(),
-                    offset_before, offset_stack.len()
+                    clip_before, clip_stack.len()
                 );
 
-                if spatial_stack.is_empty() || clip_stack.is_empty() || offset_stack.is_empty() {
+                if spatial_stack.is_empty() || clip_stack.is_empty() {
                     log_debug!(
                         LogCategory::DisplayList,
                         "[compositor2] ERROR: PopScrollFrame caused stack underflow"

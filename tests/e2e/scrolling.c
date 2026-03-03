@@ -106,7 +106,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setInlineStyle(&body, body_style);
     
     AzCss css = AzCss_empty();
-    AzDom_style(&body, css);
+    body = AzDom_style(body, css);
     return body;
 }
 
