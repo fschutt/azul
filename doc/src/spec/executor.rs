@@ -728,6 +728,18 @@ fn run_agent_in_slot(
             "--verbose",
             "--output-format",
             "stream-json",
+            "--disallowedTools",
+            "Bash(cargo *)",
+            "--disallowedTools",
+            "Bash(rustc *)",
+            "--disallowedTools",
+            "Bash(clang *)",
+            "--disallowedTools",
+            "Bash(gcc *)",
+            "--disallowedTools",
+            "Bash(make *)",
+            "--disallowedTools",
+            "Bash(cmake *)",
         ])
         .env_remove("CLAUDECODE")
         .current_dir(&slot.path)
