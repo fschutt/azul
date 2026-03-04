@@ -413,6 +413,16 @@ Common bugs to look for:
 - Do NOT refactor surrounding code or add unrelated improvements.
 - Add `// +spec:{spec_tag} - <what this implements>` at each implementation site.
 
+**Feature completeness is important.** If the spec paragraph references a CSS
+property that doesn't exist yet in the codebase:
+- Add the new CSS property variant to `css/src/css_properties.rs` (enum + parsing).
+- Add the getter function in `layout/src/solver3/getters.rs`.
+- Wire it into the layout algorithm where it's needed.
+- If the spec paragraph affects text/inline layout, you may add new fields or
+  logic in `layout/src/text3/cache.rs` or `layout/src/text3/knuth_plass.rs`.
+- Do NOT leave a TODO — implement a working first version, even if approximate.
+  We can refine the implementation later, but a stub that does nothing is useless.
+
 **If the code has a BUG relative to this paragraph's requirements:**
 - Fix the bug. Show the before/after logic clearly in the commit message.
 - Add `// +spec:{spec_tag} - <what this fixes>` at the fix site.
@@ -443,6 +453,10 @@ After committing, output a brief summary:
 
 ## CRITICAL RULES — VIOLATION = IMMEDIATE FAILURE
 
+- DO NOT `cd` TO ANY OTHER DIRECTORY. You are in a git worktree. Stay in
+  the current working directory for ALL commands (read, edit, grep, git).
+  Running `cd /some/other/path` will cause your commits to go to the wrong
+  branch and your work will be LOST. Use relative paths like `layout/src/...`.
 - DO NOT RUN `cargo build`, `cargo test`, `cargo check`, `rustc`, `clang`,
   OR ANY COMPILATION/BUILD COMMAND. Due to CPU limitations, compilation is
   not possible in this environment. It does not matter if your change is not
@@ -457,49 +471,31 @@ After committing, output a brief summary:
     )
 }
 
-/// Extract only the spec paragraph and source file list from the review
-/// prompt file, stripping the review framing (headers, instructions,
-/// response format) so we can wrap it with implementation instructions.
-fn extract_spec_context(prompt_content: &str) -> String {
+/// Extract the spec context from a review prompt .md file.
+///
+/// The .md files are written with review framing by `generate_paragraph_prompt()`.
+/// We extract only the structured sections (Feature Context, Source Files,
+/// Spec Paragraph) and discard review-specific framing (Instructions,
+/// Response Format, header).
+///
+/// This is the fallback path — it parses the markdown sections by header.
+/// If the prompt format changes, only this function needs updating.
+fn extract_spec_context_from_md(prompt_content: &str) -> String {
+    // Sections we want to keep (in order they appear)
+    const KEEP_SECTIONS: &[&str] = &[
+        "## Feature Context",
+        "## Source Files to Read",
+        "## Spec Paragraph",  // matches "## Spec Paragraph to Verify" too
+    ];
+
     let mut result = String::new();
-    let mut in_spec_paragraph = false;
-    let mut in_source_files = false;
-    let mut in_feature_context = false;
+    let mut keeping = false;
 
     for line in prompt_content.lines() {
-        // Keep: Feature Context, Source Files, Spec Paragraph sections
-        if line.starts_with("## Feature Context") {
-            in_feature_context = true;
-            in_source_files = false;
-            in_spec_paragraph = false;
-            result.push_str(line);
-            result.push('\n');
-            continue;
-        }
-        if line.starts_with("## Source Files to Read") {
-            in_source_files = true;
-            in_feature_context = false;
-            in_spec_paragraph = false;
-            result.push_str(line);
-            result.push('\n');
-            continue;
-        }
-        if line.starts_with("## Spec Paragraph") {
-            in_spec_paragraph = true;
-            in_source_files = false;
-            in_feature_context = false;
-            result.push_str(line);
-            result.push('\n');
-            continue;
-        }
-        // Stop at: Instructions, Response Format, or any other ## section
         if line.starts_with("## ") {
-            in_spec_paragraph = false;
-            in_source_files = false;
-            in_feature_context = false;
-            continue;
+            keeping = KEEP_SECTIONS.iter().any(|s| line.starts_with(s));
         }
-        if in_spec_paragraph || in_source_files || in_feature_context {
+        if keeping {
             result.push_str(line);
             result.push('\n');
         }
@@ -508,7 +504,7 @@ fn extract_spec_context(prompt_content: &str) -> String {
     result
 }
 
-fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
+fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, String> {
     let paragraph_content = fs::read_to_string(prompt_path)
         .map_err(|e| format!("Failed to read prompt {}: {}", prompt_path.display(), e))?;
 
@@ -525,14 +521,21 @@ fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
     };
     let spec_tag = format!("{}-p{}", feature_id, para_num);
 
-    // Strip the review framing — keep only the spec paragraph + source files
-    let spec_context = extract_spec_context(&paragraph_content);
+    // Extract just the spec context (feature, sources, paragraph) from the
+    // review-framed .md file, discarding review instructions/response format.
+    let spec_context = extract_spec_context_from_md(&paragraph_content);
 
     let mut full_prompt =
         String::with_capacity(CODEBASE_CONTEXT.len() + spec_context.len() + 4096);
 
     full_prompt.push_str(CODEBASE_CONTEXT);
     full_prompt.push('\n');
+    full_prompt.push_str(&format!(
+        "## Working Directory\n\nYour current working directory is: `{}`\n\
+         You are in a git worktree. ALL file paths are relative to this directory.\n\
+         Do NOT `cd` anywhere else — your commits will be lost if you do.\n\n",
+        working_dir.display()
+    ));
     full_prompt.push_str(&spec_context);
     full_prompt.push('\n');
     full_prompt.push_str(&build_agent_instructions(feature_id, &spec_tag));
@@ -742,7 +745,7 @@ fn run_agent_in_slot(
     }
 
     // Build prompt
-    let full_prompt = match build_full_prompt(prompt_path) {
+    let full_prompt = match build_full_prompt(prompt_path, &slot.path) {
         Ok(p) => p,
         Err(e) => {
             return AgentResult {
@@ -806,6 +809,10 @@ fn run_agent_in_slot(
             "rust-analyzer-lsp",
         ])
         .env_remove("CLAUDECODE")
+        // Pin git operations to the worktree so agents can't accidentally
+        // commit to the main repo branch by cd-ing to the main repo path.
+        .env("GIT_DIR", slot.path.join(".git"))
+        .env("GIT_WORK_TREE", &slot.path)
         .current_dir(&slot.path)
         .stdin(Stdio::piped())
         .stdout(result_file)
