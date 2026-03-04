@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{Read as _, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -485,6 +485,106 @@ fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
 
 // ── Agent execution ────────────────────────────────────────────────────
 
+/// Parse stream-json .result file for the most recent activity.
+/// Returns e.g. "Read fc.rs", "Edit mod.rs", "Bash", "thinking...", or "".
+fn read_stream_json_activity(result_path: &Path) -> String {
+    let content = match fs::read_to_string(result_path) {
+        Ok(c) if !c.is_empty() => c,
+        _ => return String::new(),
+    };
+
+    for line in content.lines().rev().take(10) {
+        let event: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        match event_type {
+            "tool_use" => {
+                let name = event
+                    .pointer("/tool/name")
+                    .or_else(|| event.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("tool");
+                let file = event
+                    .pointer("/tool/input/file_path")
+                    .or_else(|| event.pointer("/input/file_path"))
+                    .and_then(|f| f.as_str())
+                    .map(|f| f.rsplit('/').next().unwrap_or(f));
+                return match file {
+                    Some(f) => format!("{} {}", name, f),
+                    None => name.to_string(),
+                };
+            }
+            "tool_result" => continue, // skip, look further back for the tool_use
+            "assistant" => return "thinking...".to_string(),
+            _ => continue,
+        }
+    }
+
+    // Fallback: report file size
+    if let Ok(meta) = fs::metadata(result_path) {
+        let kb = meta.len() / 1024;
+        if kb > 0 {
+            return format!("{}KB output", kb);
+        }
+    }
+    String::new()
+}
+
+/// Extract the final plain-text result from a stream-json .result file.
+/// Looks for the `{"type":"result","result":"..."}` event.
+fn extract_result_text(result_path: &Path) -> String {
+    let content = match fs::read_to_string(result_path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    // The result event is usually the last line
+    for line in content.lines().rev() {
+        let event: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if event.get("type").and_then(|t| t.as_str()) == Some("result") {
+            if let Some(text) = event.get("result").and_then(|r| r.as_str()) {
+                return text.to_string();
+            }
+        }
+    }
+
+    // Fallback: return raw content (maybe not stream-json)
+    content
+}
+
+/// Check which files the agent has modified in its worktree.
+/// Returns e.g. "editing fc.rs (+2 files)" or empty string.
+fn check_worktree_activity(slot_path: &Path) -> String {
+    let output = Command::new("git")
+        .args(["diff", "--name-only"])
+        .current_dir(slot_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok();
+    let output = match output {
+        Some(o) if o.status.success() => o,
+        _ => return String::new(),
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+    if files.is_empty() {
+        return String::new();
+    }
+    let last = files.last().unwrap();
+    let fname = last.rsplit('/').next().unwrap_or(last);
+    if files.len() == 1 {
+        format!("editing {}", fname)
+    } else {
+        format!("editing {} (+{} files)", fname, files.len() - 1)
+    }
+}
+
 struct AgentResult {
     success: bool,
     patches: usize,
@@ -596,9 +696,8 @@ fn run_agent_in_slot(
         }
     };
 
-    // Spawn claude process with piped stdout for live progress reading.
-    // Stderr goes to the result file for error logging.
-    let result_file_err = match fs::File::create(&result_path) {
+    // Open result file for stdout/stderr capture
+    let result_file = match fs::File::create(&result_path) {
         Ok(f) => f,
         Err(e) => {
             return AgentResult {
@@ -608,14 +707,32 @@ fn run_agent_in_slot(
             };
         }
     };
+    let result_file_err = match result_file.try_clone() {
+        Ok(f) => f,
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to clone file handle: {}", e)),
+            };
+        }
+    };
 
-    // Remove CLAUDECODE env var so nested sessions are allowed
+    // Remove CLAUDECODE env var so nested sessions are allowed.
+    // --output-format stream-json --verbose: writes one JSON event per line,
+    // enabling real-time progress parsing from the .result file.
     let mut child = match Command::new("claude")
-        .args(["-p", "--dangerously-skip-permissions"])
+        .args([
+            "-p",
+            "--dangerously-skip-permissions",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+        ])
         .env_remove("CLAUDECODE")
         .current_dir(&slot.path)
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
+        .stdout(result_file)
         .stderr(result_file_err)
         .spawn()
     {
@@ -646,52 +763,18 @@ fn run_agent_in_slot(
         let _ = stdin.write_all(full_prompt.as_bytes());
     }
 
-    // Spawn reader thread for stdout — reads chunks as they arrive,
-    // accumulates full output and tracks last non-empty line for progress.
-    let stdout_output = Arc::new(Mutex::new(String::new()));
-    let stdout_activity = Arc::new(Mutex::new(String::new()));
-    {
-        let stdout_output = Arc::clone(&stdout_output);
-        let stdout_activity = Arc::clone(&stdout_activity);
-        let child_stdout = child.stdout.take().unwrap();
-        std::thread::spawn(move || {
-            let mut reader = child_stdout;
-            let mut buf = [0u8; 4096];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if let Ok(text) = std::str::from_utf8(&buf[..n]) {
-                            stdout_output.lock().unwrap().push_str(text);
-                            let last = text
-                                .lines()
-                                .rev()
-                                .find(|l| !l.trim().is_empty())
-                                .unwrap_or("")
-                                .trim();
-                            if !last.is_empty() {
-                                let truncated = if last.len() > 60 {
-                                    format!("{}...", &last[..60])
-                                } else {
-                                    last.to_string()
-                                };
-                                *stdout_activity.lock().unwrap() = truncated;
-                            }
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    let progress_path = prompt_path.with_extension("md.progress");
 
-    // Poll for completion with timeout
+    // Poll for completion with timeout.
+    // Every 2s: read tail of .result file (stream-json flushes per event),
+    // extract activity summary, write .progress file, update spinner.
     let start = Instant::now();
     let exit_status = loop {
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
             let _ = fs::remove_file(&taken_path);
+            let _ = fs::remove_file(&progress_path);
             return AgentResult {
                 success: false,
                 patches: 0,
@@ -706,7 +789,8 @@ fn run_agent_in_slot(
                     let _ = child.kill();
                     let _ = child.wait();
                     let _ = fs::remove_file(&taken_path);
-                    let partial = stdout_output.lock().unwrap().clone();
+                    let _ = fs::remove_file(&progress_path);
+                    let partial = fs::read_to_string(&result_path).unwrap_or_default();
                     let _ = fs::write(
                         &failed_path,
                         format!(
@@ -721,25 +805,24 @@ fn run_agent_in_slot(
                     };
                 }
                 let elapsed = start.elapsed().as_secs();
-                let activity = stdout_activity.lock().unwrap().clone();
+                // Try stream-json activity first, fall back to git diff
+                let mut activity = read_stream_json_activity(&result_path);
                 if activity.is_empty() {
-                    on_progress(&format!(
-                        "{}:{:02} | working...",
-                        elapsed / 60,
-                        elapsed % 60,
-                    ));
-                } else {
-                    on_progress(&format!(
-                        "{}:{:02} | {}",
-                        elapsed / 60,
-                        elapsed % 60,
-                        activity,
-                    ));
+                    activity = check_worktree_activity(&slot.path);
                 }
+                let status_line = format!(
+                    "{}:{:02} | {}",
+                    elapsed / 60,
+                    elapsed % 60,
+                    if activity.is_empty() { "working..." } else { &activity },
+                );
+                on_progress(&status_line);
+                let _ = fs::write(&progress_path, &status_line);
                 std::thread::sleep(Duration::from_secs(2));
             }
             Err(e) => {
                 let _ = fs::remove_file(&taken_path);
+                let _ = fs::remove_file(&progress_path);
                 let _ = fs::write(&failed_path, format!("Wait error: {}\n", e));
                 return AgentResult {
                     success: false,
@@ -750,20 +833,14 @@ fn run_agent_in_slot(
         }
     };
 
-    // Write accumulated stdout to result file (append after stderr content)
-    {
-        let stdout_content = stdout_output.lock().unwrap();
-        if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&result_path) {
-            let _ = f.write_all(stdout_content.as_bytes());
-        }
-    }
+    let _ = fs::remove_file(&progress_path);
 
     // Remove .taken
     let _ = fs::remove_file(&taken_path);
 
     if !exit_status.success() {
         let code = exit_status.code().unwrap_or(-1);
-        let result_content = fs::read_to_string(&result_path).unwrap_or_default();
+        let result_content = extract_result_text(&result_path);
         let elapsed = start.elapsed();
         let _ = fs::write(
             &failed_path,
@@ -788,8 +865,8 @@ fn run_agent_in_slot(
         }
     };
 
-    // Read agent output for the .done file
-    let result_content = fs::read_to_string(&result_path).unwrap_or_default();
+    // Read agent output for the .done file (extract text from stream-json)
+    let result_content = extract_result_text(&result_path);
     let elapsed = start.elapsed();
 
     // Determine action type from output
