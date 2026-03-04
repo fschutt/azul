@@ -167,6 +167,7 @@ fn print_spec_help() {
     println!("    --status            Show done/taken/failed/pending counts");
     println!("    --collect           Cherry-pick agent commits to current branch");
     println!("    --cleanup           Remove all agent worktrees");
+    println!("    --force-api         Allow running with ANTHROPIC_API_KEY set");
     println!("  status              Show verification status for all features");
     println!("  holistic            Generate holistic analysis from all results");
     println!("  next                Show the next feature to verify");
@@ -193,7 +194,7 @@ fn print_spec_help() {
 ///
 /// Each file is self-contained: feature context + single paragraph + instructions.
 /// Agents pick up individual files and read the source code themselves.
-fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(), String> {
+pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(), String> {
     let mut tree = config.load_skill_tree();
     let node_ids: Vec<String> = tree.nodes.keys().cloned().collect();
 

@@ -24,6 +24,7 @@ struct ExecArgs {
     status_only: bool,
     collect: bool,
     cleanup: bool,
+    force_api: bool,
 }
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
@@ -34,6 +35,7 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         status_only: false,
         collect: false,
         cleanup: false,
+        force_api: false,
     };
 
     for arg in args {
@@ -49,6 +51,8 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
             ea.collect = true;
         } else if arg == "--cleanup" {
             ea.cleanup = true;
+        } else if arg == "--force-api" {
+            ea.force_api = true;
         }
     }
 
@@ -725,6 +729,119 @@ fn collect_patches(workspace_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// ── Preflight checks ───────────────────────────────────────────────────
+
+fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), String> {
+    println!("Preflight checks");
+    println!("================\n");
+
+    // 1. Check that ANTHROPIC_API_KEY is NOT set (avoid accidental API billing)
+    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        return Err(
+            "ANTHROPIC_API_KEY is set in environment.\n\
+             This would route claude CLI through the paid API instead of your \
+             Pro/Max subscription.\n\
+             Unset it first:  unset ANTHROPIC_API_KEY\n\
+             Or pass --force-api to override this check."
+                .to_string(),
+        );
+    }
+    println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
+
+    // 2. Verify working directory looks like the azul repo
+    let solver_dir = workspace_root.join("layout/src/solver3");
+    if !solver_dir.is_dir() {
+        return Err(format!(
+            "Working directory does not look like the azul repo.\n\
+             Expected layout/src/solver3/ in: {}",
+            workspace_root.display()
+        ));
+    }
+    let git_dir = workspace_root.join(".git");
+    if !git_dir.exists() {
+        return Err(format!(
+            "Not a git repository: {}",
+            workspace_root.display()
+        ));
+    }
+    println!("  [OK] Working directory: {}", workspace_root.display());
+
+    // 3. Check that W3C spec files are downloaded
+    let spec_dir = &config.spec_dir;
+    if !spec_dir.is_dir() {
+        return Err(format!(
+            "W3C specs not downloaded.\n\
+             Run:  azul-doc spec download\n\
+             Expected directory: {}",
+            spec_dir.display()
+        ));
+    }
+    let spec_count = fs::read_dir(spec_dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "html")
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    if spec_count == 0 {
+        return Err(format!(
+            "No HTML spec files found in {}.\nRun:  azul-doc spec download",
+            spec_dir.display()
+        ));
+    }
+    println!("  [OK] {} W3C spec files downloaded", spec_count);
+
+    // 4. Check claude CLI is available
+    let claude_check = Command::new("claude")
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    match claude_check {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            println!("  [OK] claude CLI: {}", version);
+        }
+        _ => {
+            return Err(
+                "claude CLI not found or not working.\n\
+                 Install: https://docs.anthropic.com/en/docs/claude-code"
+                    .to_string(),
+            );
+        }
+    }
+
+    // 5. Rebuild prompts (ensures they're fresh, not stale)
+    println!("\n  Rebuilding prompts...\n");
+    super::cmd_build_all(config, workspace_root)?;
+    println!();
+
+    // 6. Verify prompt count
+    let prompts_dir = config.skill_tree_dir.join("prompts");
+    let prompt_count = fs::read_dir(&prompts_dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter(|e| {
+                    let p = e.path();
+                    p.extension().map(|ext| ext == "md").unwrap_or(false)
+                        && !p.to_string_lossy().contains(".md.")
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    if prompt_count == 0 {
+        return Err("No prompt files generated. Check spec download and extraction.".to_string());
+    }
+    println!("  [OK] {} prompt files ready\n", prompt_count);
+
+    Ok(())
+}
+
 // ── Main entry point ───────────────────────────────────────────────────
 
 pub fn run_executor(
@@ -735,30 +852,25 @@ pub fn run_executor(
     let ea = parse_exec_args(args);
     let prompts_dir = config.skill_tree_dir.join("prompts");
 
-    if !prompts_dir.exists() {
-        return Err(
-            "No prompts directory found. Run `azul-doc spec build-all` first.".to_string(),
-        );
-    }
-
-    // --cleanup mode
+    // --cleanup and --collect don't need preflight
     if ea.cleanup {
         return cleanup_worktrees(workspace_root);
     }
-
-    // --collect mode
     if ea.collect {
         return collect_patches(workspace_root);
     }
 
-    // Scan prompt status
-    let (pending, done_count, failed_count, taken_count) =
-        scan_prompts_dir(&prompts_dir, ea.retry_failed);
-
-    let total = done_count + failed_count + taken_count + pending.len();
-
-    // --status mode
+    // --status doesn't need preflight either
     if ea.status_only {
+        if !prompts_dir.exists() {
+            return Err(
+                "No prompts directory found. Run `azul-doc spec build-all` first.".to_string(),
+            );
+        }
+        let (pending, done_count, failed_count, taken_count) =
+            scan_prompts_dir(&prompts_dir, ea.retry_failed);
+        let total = done_count + failed_count + taken_count + pending.len();
+
         println!("Prompt execution status");
         println!("=======================\n");
         println!("  Done:    {:>4} / {}", done_count, total);
@@ -775,6 +887,21 @@ pub fn run_executor(
         );
         return Ok(());
     }
+
+    // Full execution — run all preflight checks (including prompt rebuild)
+    if !ea.force_api {
+        preflight_checks(config, workspace_root)?;
+    } else {
+        // --force-api: skip API key check but still rebuild prompts
+        println!("  [WARN] --force-api: skipping ANTHROPIC_API_KEY check\n");
+        super::cmd_build_all(config, workspace_root)?;
+    }
+
+    // Scan prompt status (after rebuild)
+    let (pending, done_count, failed_count, taken_count) =
+        scan_prompts_dir(&prompts_dir, ea.retry_failed);
+
+    let total = done_count + failed_count + taken_count + pending.len();
 
     if pending.is_empty() {
         println!(
