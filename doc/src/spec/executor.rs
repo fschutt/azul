@@ -441,10 +441,13 @@ After committing, output a brief summary:
 - **FILES**: list of files modified
 - **DESCRIPTION**: 1-2 sentences explaining what you did
 
-## CRITICAL RULES
+## CRITICAL RULES — VIOLATION = IMMEDIATE FAILURE
 
-- Do NOT run `cargo build`, `cargo test`, `cargo check`, or any compilation
-  command. Another process will handle compilation later.
+- DO NOT RUN `cargo build`, `cargo test`, `cargo check`, `rustc`, `clang`,
+  OR ANY COMPILATION/BUILD COMMAND. Due to CPU limitations, compilation is
+  not possible in this environment. It does not matter if your change is not
+  100% correct — we will fix compilation errors later.
+- DO NOT USE `rust-analyzer`, LSP tools, OR ANY MCP TOOLS.
 - Make ONLY the changes needed for this one spec paragraph.
 - You MUST commit at least once. Zero commits = failure.
 - If unsure whether a change is correct, make your best effort.
@@ -452,6 +455,57 @@ After committing, output a brief summary:
         feature_id = feature_id,
         spec_tag = spec_tag,
     )
+}
+
+/// Extract only the spec paragraph and source file list from the review
+/// prompt file, stripping the review framing (headers, instructions,
+/// response format) so we can wrap it with implementation instructions.
+fn extract_spec_context(prompt_content: &str) -> String {
+    let mut result = String::new();
+    let mut in_spec_paragraph = false;
+    let mut in_source_files = false;
+    let mut in_feature_context = false;
+
+    for line in prompt_content.lines() {
+        // Keep: Feature Context, Source Files, Spec Paragraph sections
+        if line.starts_with("## Feature Context") {
+            in_feature_context = true;
+            in_source_files = false;
+            in_spec_paragraph = false;
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        if line.starts_with("## Source Files to Read") {
+            in_source_files = true;
+            in_feature_context = false;
+            in_spec_paragraph = false;
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        if line.starts_with("## Spec Paragraph") {
+            in_spec_paragraph = true;
+            in_source_files = false;
+            in_feature_context = false;
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        // Stop at: Instructions, Response Format, or any other ## section
+        if line.starts_with("## ") {
+            in_spec_paragraph = false;
+            in_source_files = false;
+            in_feature_context = false;
+            continue;
+        }
+        if in_spec_paragraph || in_source_files || in_feature_context {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
 }
 
 fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
@@ -471,12 +525,15 @@ fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
     };
     let spec_tag = format!("{}-p{}", feature_id, para_num);
 
+    // Strip the review framing — keep only the spec paragraph + source files
+    let spec_context = extract_spec_context(&paragraph_content);
+
     let mut full_prompt =
-        String::with_capacity(CODEBASE_CONTEXT.len() + paragraph_content.len() + 4096);
+        String::with_capacity(CODEBASE_CONTEXT.len() + spec_context.len() + 4096);
 
     full_prompt.push_str(CODEBASE_CONTEXT);
     full_prompt.push('\n');
-    full_prompt.push_str(&paragraph_content);
+    full_prompt.push_str(&spec_context);
     full_prompt.push('\n');
     full_prompt.push_str(&build_agent_instructions(feature_id, &spec_tag));
 
@@ -728,6 +785,7 @@ fn run_agent_in_slot(
             "--verbose",
             "--output-format",
             "stream-json",
+            // Block compilation tools
             "--disallowedTools",
             "Bash(cargo *)",
             "--disallowedTools",
@@ -740,6 +798,12 @@ fn run_agent_in_slot(
             "Bash(make *)",
             "--disallowedTools",
             "Bash(cmake *)",
+            // Block MCP tools that leak from user config
+            "--disallowedTools",
+            "mcp__*",
+            // Block rust-analyzer LSP tool
+            "--disallowedTools",
+            "rust-analyzer-lsp",
         ])
         .env_remove("CLAUDECODE")
         .current_dir(&slot.path)
