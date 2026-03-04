@@ -341,23 +341,47 @@ The layout solver is in `layout/src/solver3/`.
 - Flex/Grid is handled by Taffy — do NOT modify taffy_bridge.rs
 "#;
 
-fn build_agent_instructions(feature_id: &str) -> String {
+fn build_agent_instructions(feature_id: &str, spec_tag: &str) -> String {
     format!(
-        r#"## Your Task
+        r#"## Spec Annotation Convention
+
+This codebase uses `+spec:` marker comments to track which spec paragraphs
+are implemented where. Your tag for this paragraph is: `{spec_tag}`
+
+**Search first**: Before making changes, grep for existing annotations:
+```
+grep -rn "+spec:{spec_tag}" layout/src/
+```
+If you find an existing annotation, the code near it is likely the
+implementation site for this paragraph.
+
+**Mark your work**: When you find or fix the implementation, add (or keep)
+a marker comment on the line above the relevant code:
+```rust
+// +spec:{spec_tag} - brief description of what this implements
+```
+
+If the implementation spans multiple locations, add the annotation at each site.
+
+## Your Task
 
 1. Read the source files listed above
-2. Find where this spec paragraph's requirements are (or should be) implemented
-3. If the code does NOT correctly implement what the paragraph requires, fix it:
+2. Grep for `+spec:{spec_tag}` to find any existing annotation
+3. Find where this spec paragraph's requirements are (or should be) implemented
+4. If the code does NOT correctly implement what the paragraph requires, fix it:
    - Use the Edit tool to modify the source files
    - Make minimal, focused changes — fix only what this paragraph requires
    - Do NOT refactor surrounding code or add unrelated improvements
    - You MAY add new CSS properties, new functions, or new files if the spec
      paragraph requires functionality that doesn't exist yet
-4. After making changes, commit:
+   - Add a `// +spec:{spec_tag}` comment at the implementation site
+5. After making changes, commit:
    - `git add -A`
-   - `git commit -m "spec({}): {{short description of fix}}"`
-5. If the code already correctly implements this paragraph, just respond with
-   PASS and explain why it's correct
+   - `git commit -m "spec({feature_id}): {{short description of fix}}"`
+6. If the code already correctly implements this paragraph:
+   - Add a `// +spec:{spec_tag}` comment if one doesn't exist yet
+   - Commit the annotation if you added one
+   - Respond with PASS and explain why it's correct
 
 ## CRITICAL RULES
 
@@ -367,7 +391,8 @@ fn build_agent_instructions(feature_id: &str) -> String {
 - If you are unsure whether a change is correct, make your best effort —
   a review agent will verify later
 "#,
-        feature_id
+        feature_id = feature_id,
+        spec_tag = spec_tag,
     )
 }
 
@@ -375,21 +400,27 @@ fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
     let paragraph_content = fs::read_to_string(prompt_path)
         .map_err(|e| format!("Failed to read prompt {}: {}", prompt_path.display(), e))?;
 
-    // Extract feature_id from filename: "box-model_001.md" → "box-model"
+    // Extract feature_id and paragraph number from filename:
+    //   "box-model_001.md" → feature_id="box-model", para_num="001"
+    //   spec_tag = "box-model-p001"
     let stem = prompt_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    let feature_id = stem.rfind('_').map(|i| &stem[..i]).unwrap_or(stem);
+    let (feature_id, para_num) = match stem.rfind('_') {
+        Some(i) => (&stem[..i], &stem[i + 1..]),
+        None => (stem, "000"),
+    };
+    let spec_tag = format!("{}-p{}", feature_id, para_num);
 
     let mut full_prompt =
-        String::with_capacity(CODEBASE_CONTEXT.len() + paragraph_content.len() + 2048);
+        String::with_capacity(CODEBASE_CONTEXT.len() + paragraph_content.len() + 4096);
 
     full_prompt.push_str(CODEBASE_CONTEXT);
     full_prompt.push('\n');
     full_prompt.push_str(&paragraph_content);
     full_prompt.push('\n');
-    full_prompt.push_str(&build_agent_instructions(feature_id));
+    full_prompt.push_str(&build_agent_instructions(feature_id, &spec_tag));
 
     Ok(full_prompt)
 }
