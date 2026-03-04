@@ -357,24 +357,19 @@ impl ParagraphRegistry {
     }
 }
 
-/// Scan source files for +spec: annotations
+/// Scan source files for +spec: annotations, grouped by file.
 pub fn scan_source_for_annotations(
     azul_root: &std::path::Path,
 ) -> std::collections::BTreeMap<String, Vec<(String, usize, String)>> {
     let mut results = std::collections::BTreeMap::new();
     let registry = ParagraphRegistry::new();
-    
-    let dirs_to_scan = [
-        "layout/src/solver3",
-        "layout/src/text3",
-    ];
-    
-    for dir in dirs_to_scan {
+
+    for dir in DIRS_TO_SCAN {
         let dir_path = azul_root.join(dir);
         if !dir_path.exists() {
             continue;
         }
-        
+
         if let Ok(entries) = std::fs::read_dir(&dir_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -384,7 +379,7 @@ pub fn scan_source_for_annotations(
                             .unwrap_or(&path)
                             .to_string_lossy()
                             .to_string();
-                        
+
                         let annotations = registry.find_annotations_in_file(&content, &rel_path);
                         if !annotations.is_empty() {
                             results.insert(rel_path, annotations);
@@ -394,6 +389,59 @@ pub fn scan_source_for_annotations(
             }
         }
     }
-    
+
     results
+}
+
+const DIRS_TO_SCAN: &[&str] = &[
+    "layout/src/solver3",
+    "layout/src/text3",
+];
+
+/// Scan source files and return the set of all `+spec:` tag strings found.
+///
+/// Tags look like `box-model-p001`, `margin-collapsing-p003`, etc.
+/// A tag may appear multiple times (multiple implementation sites);
+/// this returns the deduplicated set.
+pub fn scan_spec_tags(
+    azul_root: &std::path::Path,
+) -> std::collections::HashSet<String> {
+    let mut tags = std::collections::HashSet::new();
+
+    for dir in DIRS_TO_SCAN {
+        let dir_path = azul_root.join(dir);
+        if !dir_path.exists() {
+            continue;
+        }
+
+        let entries = match std::fs::read_dir(&dir_path) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        if let Some(start) = line.find("+spec:") {
+                            let rest = &line[start + 6..];
+                            // Tag ends at whitespace or " -" description separator
+                            let id_end = rest
+                                .find(" -")
+                                .unwrap_or_else(|| {
+                                    rest.find(char::is_whitespace).unwrap_or(rest.len())
+                                });
+                            let tag = rest[..id_end].trim();
+                            if !tag.is_empty() {
+                                tags.insert(tag.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    tags
 }
