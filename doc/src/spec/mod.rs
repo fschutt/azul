@@ -30,7 +30,7 @@ pub use reviewer::{
     save_review_result, load_review_results, update_node_status,
     generate_holistic_prompt, ReviewStage, ReviewResult, parse_verdict,
 };
-pub use paragraphs::{ParagraphRegistry, SpecParagraph, scan_source_for_annotations};
+pub use paragraphs::{ParagraphRegistry, SpecParagraph, scan_source_for_annotations, scan_spec_tags};
 
 /// Configuration for the spec verification system
 pub struct SpecConfig {
@@ -137,7 +137,7 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             let rest: Vec<String> = args[1..].to_vec();
             executor::run_executor(&config, workspace_root, &rest)
         }
-        "status" => cmd_status(&config),
+        "status" => cmd_status(&config, workspace_root),
         "holistic" => cmd_holistic(&config),
         "next" => cmd_next(&config),
         "paragraphs" => cmd_paragraphs(),
@@ -455,39 +455,114 @@ fn cmd_send(
     Ok(())
 }
 
-fn cmd_status(config: &SpecConfig) -> Result<(), String> {
+fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(), String> {
     let tree = config.load_skill_tree();
-    
-    println!("Verification Status");
-    println!("===================\n");
-    
-    let mut counts = std::collections::HashMap::new();
-    
-    for node in tree.nodes.values() {
-        let status_key = match &node.status {
-            VerificationStatus::NotStarted => "not_started",
-            VerificationStatus::PromptBuilt => "prompt_built",
-            VerificationStatus::PromptSent { needs_changes: false } => "sent_ok",
-            VerificationStatus::PromptSent { needs_changes: true } => "needs_changes",
-            VerificationStatus::Implemented => "implemented",
-            VerificationStatus::Verified => "verified",
-        };
-        *counts.entry(status_key).or_insert(0) += 1;
+    let prompts_dir = config.skill_tree_dir.join("prompts");
+
+    // Scan source code for +spec: marker comments — this is the source of truth
+    println!("Scanning source code for +spec: markers...\n");
+    let found_tags = scan_spec_tags(workspace_root);
+
+    // Count prompt files per feature and check which have markers
+    let mut features: std::collections::BTreeMap<String, (usize, usize)> =
+        std::collections::BTreeMap::new(); // feature_id → (total_paragraphs, marked_count)
+
+    if prompts_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&prompts_dir) {
+            let mut paths: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension().map(|e| e == "md").unwrap_or(false)
+                        && !p.to_string_lossy().contains(".md.")
+                })
+                .collect();
+            paths.sort();
+
+            for path in &paths {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let (feature_id, para_num) = match stem.rfind('_') {
+                    Some(i) => (&stem[..i], &stem[i + 1..]),
+                    None => continue,
+                };
+                let spec_tag = format!("{}-p{}", feature_id, para_num);
+
+                let entry = features
+                    .entry(feature_id.to_string())
+                    .or_insert((0, 0));
+                entry.0 += 1;
+                if found_tags.contains(&spec_tag) {
+                    entry.1 += 1;
+                }
+            }
+        }
     }
-    
-    let total = tree.nodes.len();
-    
-    println!("  [ ] Not Started:    {:>3} / {}", counts.get("not_started").unwrap_or(&0), total);
-    println!("  [P] Prompt Built:   {:>3} / {}", counts.get("prompt_built").unwrap_or(&0), total);
-    println!("  [S] Sent (OK):      {:>3} / {}", counts.get("sent_ok").unwrap_or(&0), total);
-    println!("  [!] Needs Changes:  {:>3} / {}", counts.get("needs_changes").unwrap_or(&0), total);
-    println!("  [I] Implemented:    {:>3} / {}", counts.get("implemented").unwrap_or(&0), total);
-    println!("  [✓] Verified:       {:>3} / {}", counts.get("verified").unwrap_or(&0), total);
-    
-    println!("\nProgress: {:.1}%", 
-        (*counts.get("verified").unwrap_or(&0) as f64 / total as f64) * 100.0
+
+    // Print per-feature status
+    println!("Verification Status (source: +spec: markers in code)");
+    println!("=====================================================\n");
+
+    let mut total_paragraphs = 0usize;
+    let mut total_marked = 0usize;
+
+    for (feature_id, (para_count, marked)) in &features {
+        total_paragraphs += para_count;
+        total_marked += marked;
+
+        let pct = if *para_count > 0 {
+            *marked as f64 / *para_count as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        let bar_width = 20;
+        let filled = if *para_count > 0 {
+            (bar_width * marked) / para_count
+        } else {
+            0
+        };
+        let bar: String = std::iter::repeat('#')
+            .take(filled)
+            .chain(std::iter::repeat('.').take(bar_width - filled))
+            .collect();
+
+        let status = if marked == para_count {
+            "DONE"
+        } else if *marked > 0 {
+            "    "
+        } else {
+            "    "
+        };
+
+        // Look up display name from tree
+        let name = tree
+            .nodes
+            .get(feature_id.as_str())
+            .map(|n| n.name.as_str())
+            .unwrap_or(feature_id.as_str());
+
+        println!(
+            "  {:30} [{bar}] {:>3}/{:<3} ({:>5.1}%) {status}",
+            name,
+            marked,
+            para_count,
+            pct,
+        );
+    }
+
+    let total_pct = if total_paragraphs > 0 {
+        total_marked as f64 / total_paragraphs as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    println!("\n{}", "=".repeat(72));
+    println!(
+        "Total: {}/{} paragraphs marked ({:.1}%)",
+        total_marked, total_paragraphs, total_pct
     );
-    
+    println!("Unique +spec: tags in source: {}", found_tags.len());
+
     Ok(())
 }
 

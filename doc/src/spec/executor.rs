@@ -958,14 +958,18 @@ pub fn run_executor(
             scan_prompts_dir(&prompts_dir, ea.retry_failed);
         let total = done_count + failed_count + taken_count + pending.len();
 
+        // Scan source for +spec: markers (the real source of truth)
+        let found_tags = super::scan_spec_tags(workspace_root);
+
         println!("Prompt execution status");
         println!("=======================\n");
-        println!("  Done:    {:>4} / {}", done_count, total);
-        println!("  Failed:  {:>4} / {}", failed_count, total);
-        println!("  Taken:   {:>4} / {}", taken_count, total);
-        println!("  Pending: {:>4} / {}", pending.len(), total);
+        println!("  .done files:   {:>4} / {}", done_count, total);
+        println!("  .failed files: {:>4} / {}", failed_count, total);
+        println!("  .taken files:  {:>4} / {}", taken_count, total);
+        println!("  Pending:       {:>4} / {}", pending.len(), total);
+        println!("\n  +spec: markers in source: {}", found_tags.len());
         println!(
-            "\n  Progress: {:.1}%",
+            "  Execution progress: {:.1}%",
             if total > 0 {
                 done_count as f64 / total as f64 * 100.0
             } else {
