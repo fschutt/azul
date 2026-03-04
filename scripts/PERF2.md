@@ -346,3 +346,74 @@ The **total memory** reduction is modest (23%) — you're not eliminating data, 
 - **RPi Zero 2W in-order A53**: each avoided DRAM miss saves ~100ns of complete pipeline stall. At 1000 nodes × ~10 property reads per node during layout = 10K reads. Before: ~50% miss rate × 100ns = 500µs wasted. After: ~0% miss rate = ~0µs. That's per layout pass at 60fps.
 
 The optimizations we *didn't* quantify yet (bump allocator, LayoutCacheMap consolidation, per-node font dirty tracking) would shave another ~100-200 B/node off total and eliminate thousands of heap allocations per frame. But the hot/cold split alone gets you the critical cache behavior improvement.
+
+---
+
+PERF2.md Analysis: What to Do Before the Agent Run
+
+Current State of LayoutNode (~550B, monolithic)
+The struct has hot/warm/cold tiers annotated but not split. It has 20+ fields accessed by every file in
+solver3/. The children arena optimization is already done (LayoutTree.children_arena + children_offsets).
+
+The Critical Question
+
+Which optimizations would cause structural conflicts if done AFTER 800 agents produce patches?
+
+┌────────────────────────┬────────────────────────────────────────────────────┬─────────────────────────┐
+│      Optimization      │             Would break agent patches?             │         Verdict         │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ LayoutNode hot/cold    │ Yes — every node.box_props.X becomes               │ Don't do before         │
+│ split                  │ hot[idx].box_props.X                               │                         │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ i16×10 BoxProps        │ Yes — changes f32 field types                      │ Don't do before         │
+│ packing                │                                                    │                         │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ CompactCache tier2     │ No — agents don't touch cache internals            │ Could do, but low       │
+│ split                  │                                                    │ priority                │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ Children arena         │ N/A — already done                                 │ Done                    │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ Hierarchy flatten      │ Moderate — changes parent/child traversal          │ Don't do before         │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ DFS preorder           │ N/A — already implicit in tree build               │ Done                    │
+├────────────────────────┼────────────────────────────────────────────────────┼─────────────────────────┤
+│ Bump allocator         │ No — NodeData, not solver3                         │ Irrelevant for agents   │
+└────────────────────────┴────────────────────────────────────────────────────┴─────────────────────────┘
+
+Recommendation: Do NOT do any structural refactoring before the agent run
+
+Reasoning:
+
+1. The hot/cold split is mechanical, not semantic. It changes WHERE data lives (node.box_props →
+hot_nodes[idx].box_props), not WHAT the data means. After agents fix spec compliance logic, the split can be
+applied as a mechanical find-and-replace across all files.
+1. Agents fix logic, not data layout. Spec paragraphs say things like "if both margin-left and margin-right
+are auto, center the element." Agents will modify control flow in fc.rs, sizing.rs, positioning.rs — the same
+logic applies regardless of whether box_props lives in a monolithic struct or a hot struct.
+1. Doing the split now would complicate agent prompts. Agents would need to understand the hot/warm/cold
+separation, know which struct to add new fields to, and handle indirect indexing. The current monolithic
+LayoutNode is much simpler to work with.
+1. Agent patches that add new LayoutNode fields go cold anyway. Any new CSS property an agent adds (e.g.,
+clear, page-break-before) would be cold tier. After the split, these just move to the cold struct — trivial.
+1. Risk of introducing bugs. A massive refactoring right before running 800 agents means any bug in the split
+would cascade into every agent's work.
+
+What SHOULD be done before the run
+
+Nothing structural. The codebase is in good shape for agents:
+- Children arena: done
+- DFS ordering: implicit
+- Field access patterns: straightforward node.field — easy for agents to understand
+- BoxProps/EdgeSizes API: clean, well-documented
+
+After the agent run, the optimization order should be:
+
+1. LayoutNode hot/cold split (biggest win: 550B → 64B hot, 5.6× cache improvement)
+2. i16×10 packing (secondary: −26B/node in hot struct)
+3. CompactCache tier2 split (−72B working set, low effort)
+4. Hierarchy flatten (−26B, more radical)
+
+All of these are mechanical refactorings that a single focused pass can do after agent patches are collected
+and cherry-picked.
+
+Bottom line: Run the agents now. Do the performance refactoring after.
