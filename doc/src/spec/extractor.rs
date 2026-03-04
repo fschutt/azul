@@ -224,15 +224,21 @@ pub fn extract_for_skill_node(
         }
     }
     
-    // Sort by relevance (number of matched keywords)
+    // Sort by relevance (number of matched keywords, then shorter text first
+    // since shorter paragraphs tend to be more focused)
     all_paragraphs.sort_by(|a, b| {
         b.matched_keywords.len().cmp(&a.matched_keywords.len())
+            .then(a.text.len().cmp(&b.text.len()))
     });
-    
+
+    // Deduplicate paragraphs with high text overlap (e.g., nested TOC entries
+    // that produce near-identical paragraphs with slightly different prefixes)
+    all_paragraphs = deduplicate_paragraphs(all_paragraphs, 0.75);
+
     // Take top N most relevant paragraphs to avoid overwhelming context
     let max_paragraphs = 50;
     all_paragraphs.truncate(max_paragraphs);
-    
+
     Ok(all_paragraphs)
 }
 
@@ -261,4 +267,57 @@ pub fn format_paragraphs_for_prompt(paragraphs: &[ExtractedParagraph]) -> String
     }
     
     output
+}
+
+/// Deduplicate paragraphs whose text overlaps significantly.
+///
+/// Uses word-level Jaccard similarity: |A intersect B| / |A union B|.
+/// Paragraphs are processed in input order (already sorted by relevance),
+/// so the most relevant paragraph of any similar group is kept.
+fn deduplicate_paragraphs(
+    paragraphs: Vec<ExtractedParagraph>,
+    threshold: f64,
+) -> Vec<ExtractedParagraph> {
+    use std::collections::HashSet;
+
+    if paragraphs.len() <= 1 {
+        return paragraphs;
+    }
+
+    // Pre-compute word sets (skip tiny words to reduce noise)
+    let word_sets: Vec<HashSet<&str>> = paragraphs
+        .iter()
+        .map(|p| {
+            p.text
+                .split_whitespace()
+                .filter(|w| w.len() >= 3)
+                .collect()
+        })
+        .collect();
+
+    let mut keep = vec![false; paragraphs.len()];
+
+    for i in 0..paragraphs.len() {
+        let dominated = keep.iter().enumerate().any(|(j, &kept)| {
+            kept && jaccard_similarity(&word_sets[i], &word_sets[j]) > threshold
+        });
+        if !dominated {
+            keep[i] = true;
+        }
+    }
+
+    paragraphs
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(p, k)| if k { Some(p) } else { None })
+        .collect()
+}
+
+fn jaccard_similarity(a: &std::collections::HashSet<&str>, b: &std::collections::HashSet<&str>) -> f64 {
+    let intersection = a.iter().filter(|w| b.contains(*w)).count();
+    let union = a.len() + b.len() - intersection;
+    if union == 0 {
+        return 0.0;
+    }
+    intersection as f64 / union as f64
 }
