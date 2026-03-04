@@ -142,6 +142,14 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
         "next" => cmd_next(&config),
         "paragraphs" => cmd_paragraphs(),
         "annotations" => cmd_annotations(workspace_root),
+        "review-md" => {
+            if args.len() < 2 {
+                return Err("Usage: spec review-md <commit-hash>\n\
+                    Generates a review prompt for Gemini covering all changes from <commit-hash>..HEAD.\n\
+                    Includes commit analysis, diffs for code-changing commits, and full solver3/text3 source.".to_string());
+            }
+            executor::cmd_review_md(&args[1], workspace_root)
+        }
         _ => {
             print_spec_help();
             Err(format!("Unknown spec command: {}", args[0]))
@@ -173,6 +181,7 @@ fn print_spec_help() {
     println!("  next                Show the next feature to verify");
     println!("  paragraphs          List all known spec paragraph IDs for annotations");
     println!("  annotations         Scan source for +spec: annotations");
+    println!("  review-md <hash>    Generate Gemini review prompt for changes since <hash>");
     println!();
     println!("Options:");
     println!("  --stage=arch        Architecture review (default)");

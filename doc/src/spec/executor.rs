@@ -17,6 +17,270 @@ use nanospinner::MultiSpinner;
 
 use super::SpecConfig;
 
+// ── review-md command ──────────────────────────────────────────────────
+
+/// Generate a Gemini review prompt covering all changes from `base_commit..HEAD`.
+///
+/// Categorizes each commit as CODE (has non-comment code changes) or ANNOT
+/// (annotation-only), includes full diffs for CODE commits, flags misleading
+/// commits, and appends the full solver3/text3 source for refactoring context.
+pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), String> {
+    use std::io::Write as _;
+
+    // Verify the base commit exists
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify", base_commit])
+        .current_dir(workspace_root)
+        .output()
+        .map_err(|e| format!("git rev-parse failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("Invalid commit: {}", base_commit));
+    }
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Get all commits in range
+    let output = Command::new("git")
+        .args(["log", "--oneline", "--reverse", &format!("{}..HEAD", base_sha)])
+        .current_dir(workspace_root)
+        .output()
+        .map_err(|e| format!("git log failed: {}", e))?;
+    let all_commits: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+
+    if all_commits.is_empty() {
+        return Err("No commits in range".to_string());
+    }
+
+    // Get overall diff stats
+    let output = Command::new("git")
+        .args(["diff", "--stat", &format!("{}..HEAD", base_sha)])
+        .current_dir(workspace_root)
+        .output()
+        .map_err(|e| format!("git diff --stat failed: {}", e))?;
+    let diff_stat = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Categorize each commit as CODE or ANNOT
+    let mut code_commits = Vec::new();
+    let mut annot_commits = Vec::new();
+    let mut misleading = Vec::new();
+
+    for line in &all_commits {
+        let hash = line.split_whitespace().next().unwrap_or("");
+        if hash.is_empty() {
+            continue;
+        }
+
+        // Get diff, count non-comment additions/deletions
+        let output = Command::new("git")
+            .args(["show", hash, "--", "*.rs"])
+            .current_dir(workspace_root)
+            .output()
+            .map_err(|e| format!("git show failed: {}", e))?;
+        let diff_text = String::from_utf8_lossy(&output.stdout).to_string();
+
+        let mut real_adds = 0usize;
+        let mut real_dels = 0usize;
+        let mut total_adds = 0usize;
+        let mut total_dels = 0usize;
+
+        for diff_line in diff_text.lines() {
+            if diff_line.starts_with("+++") || diff_line.starts_with("---") {
+                continue;
+            }
+            if diff_line.starts_with('+') {
+                total_adds += 1;
+                let trimmed = diff_line[1..].trim();
+                if !trimmed.is_empty() && !trimmed.starts_with("//") {
+                    real_adds += 1;
+                }
+            } else if diff_line.starts_with('-') {
+                total_dels += 1;
+                let trimmed = diff_line[1..].trim();
+                if !trimmed.is_empty() && !trimmed.starts_with("//") {
+                    real_dels += 1;
+                }
+            }
+        }
+
+        let is_code = real_adds > 0 || real_dels > 0;
+        let entry = format!(
+            "{} {}  [+{}/-{}, code:+{}/-{}]",
+            if is_code { "CODE " } else { "ANNOT" },
+            line,
+            total_adds,
+            total_dels,
+            real_adds,
+            real_dels,
+        );
+
+        if is_code {
+            code_commits.push((hash.to_string(), line.clone(), diff_text));
+        } else {
+            // Check for misleading message
+            let lower = line.to_lowercase();
+            if lower.contains("implement") || lower.contains("fix") {
+                misleading.push(entry.clone());
+            }
+            annot_commits.push(entry);
+        }
+    }
+
+    // Source files to include for context
+    let source_files = [
+        "layout/src/solver3/fc.rs",
+        "layout/src/solver3/layout_tree.rs",
+        "layout/src/solver3/positioning.rs",
+        "layout/src/solver3/sizing.rs",
+        "layout/src/solver3/geometry.rs",
+        "layout/src/solver3/cache.rs",
+        "layout/src/solver3/getters.rs",
+        "layout/src/solver3/taffy_bridge.rs",
+        "layout/src/solver3/mod.rs",
+        "layout/src/text3/cache.rs",
+        "layout/src/text3/knuth_plass.rs",
+    ];
+
+    // Build the output file
+    let out_path = PathBuf::from("/tmp/agent-run-review-prompt.md");
+    let mut f = fs::File::create(&out_path)
+        .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
+
+    writeln!(f, "# Agent Run Code Review — Refactoring & Lazy Commit Analysis\n").unwrap();
+    writeln!(f, "You are reviewing {} commits made by AI agents to a CSS layout engine (Rust).", all_commits.len()).unwrap();
+    writeln!(f, "The agents were tasked with reading W3C CSS spec paragraphs and either:").unwrap();
+    writeln!(f, "1. Annotating the source code with `// +spec:feature-pXXX` markers where behavior is already implemented").unwrap();
+    writeln!(f, "2. Implementing missing behavior described by the spec paragraph\n").unwrap();
+
+    writeln!(f, "## Your Tasks\n").unwrap();
+    writeln!(f, "### Task A: Identify commits that need refactoring").unwrap();
+    writeln!(f, "Look for:").unwrap();
+    writeln!(f, "- **Code duplication**: same logic repeated in multiple places (should be extracted to a helper)").unwrap();
+    writeln!(f, "- **Comment concatenation bugs**: two comments merged on one line").unwrap();
+    writeln!(f, "- **Spaghetti if/else**: unnecessary branching that makes code harder to follow").unwrap();
+    writeln!(f, "- **Wrong abstractions**: code added in the wrong place architecturally\n").unwrap();
+    writeln!(f, "For each issue, specify:").unwrap();
+    writeln!(f, "- Which commit(s) introduced it").unwrap();
+    writeln!(f, "- What the problem is").unwrap();
+    writeln!(f, "- What refactoring is needed (be specific)\n").unwrap();
+
+    writeln!(f, "### Task B: Identify lazy/misleading commits").unwrap();
+    writeln!(f, "Some commits claim to \"implement\" or \"fix\" behavior but only add annotation comments.").unwrap();
+    writeln!(f, "For each, specify: commit hash, what it claims, what it actually does,").unwrap();
+    writeln!(f, "and whether the claimed implementation is genuinely needed.\n").unwrap();
+
+    writeln!(f, "### Task C: Identify genuinely good implementation commits").unwrap();
+    writeln!(f, "List commits that made real, correct code changes. Note any conflicts.\n").unwrap();
+
+    // Stats
+    writeln!(f, "## Commit Summary\n").unwrap();
+    writeln!(f, "- Base: `{}`", base_sha).unwrap();
+    writeln!(f, "- Total commits: {}", all_commits.len()).unwrap();
+    writeln!(f, "- CODE commits (contain real code changes): {}", code_commits.len()).unwrap();
+    writeln!(f, "- ANNOT commits (annotation-only): {}", annot_commits.len()).unwrap();
+    writeln!(f, "\n### Diff stats\n```\n{}```\n", diff_stat).unwrap();
+
+    // All commits categorized
+    writeln!(f, "## All Commits (categorized)\n").unwrap();
+    writeln!(f, "```").unwrap();
+    for (hash, line, _) in &code_commits {
+        writeln!(f, "CODE  {}", line).unwrap();
+    }
+    for entry in &annot_commits {
+        writeln!(f, "{}", entry).unwrap();
+    }
+    writeln!(f, "```\n").unwrap();
+
+    // CODE commit diffs
+    writeln!(f, "## CODE Commits — Full Diffs\n").unwrap();
+    writeln!(f, "Focus your review on these {} commits:\n", code_commits.len()).unwrap();
+
+    for (hash, line, diff_text) in &code_commits {
+        writeln!(f, "---\n").unwrap();
+        writeln!(f, "### {}\n", line).unwrap();
+        writeln!(f, "```diff").unwrap();
+        // Skip the commit message header, start from diff lines
+        let mut in_diff = false;
+        for dl in diff_text.lines() {
+            if dl.starts_with("diff --git") {
+                in_diff = true;
+            }
+            if in_diff {
+                writeln!(f, "{}", dl).unwrap();
+            }
+        }
+        writeln!(f, "```\n").unwrap();
+    }
+
+    // Misleading commits
+    if !misleading.is_empty() {
+        writeln!(f, "## Misleading Commits (claim implement/fix but annotation-only)\n").unwrap();
+        writeln!(f, "```").unwrap();
+        for entry in &misleading {
+            writeln!(f, "{}", entry).unwrap();
+        }
+        writeln!(f, "```\n").unwrap();
+    }
+
+    // Response format
+    writeln!(f, "## Response Format\n").unwrap();
+    writeln!(f, "### A. Refactoring Needed").unwrap();
+    writeln!(f, "| Commit(s) | Issue | Refactoring Required |").unwrap();
+    writeln!(f, "|-----------|-------|---------------------|").unwrap();
+    writeln!(f, "| ... | ... | ... |\n").unwrap();
+    writeln!(f, "### B. Lazy/Misleading Commits to Redo").unwrap();
+    writeln!(f, "| Commit | Claims | Actually Does | Implementation Needed? |").unwrap();
+    writeln!(f, "|--------|--------|---------------|----------------------|").unwrap();
+    writeln!(f, "| ... | ... | ... | Yes/No (explain) |\n").unwrap();
+    writeln!(f, "### C. Good Implementation Commits").unwrap();
+    writeln!(f, "| Commit | What it does | Quality | Notes |").unwrap();
+    writeln!(f, "|--------|-------------|---------|-------|").unwrap();
+    writeln!(f, "| ... | ... | Good/OK/Needs review | ... |\n").unwrap();
+
+    // Append source files
+    writeln!(f, "---\n").unwrap();
+    writeln!(f, "## APPENDIX: Current Source Files (post all commits)\n").unwrap();
+    writeln!(f, "Full source for refactoring context.\n").unwrap();
+
+    for src in &source_files {
+        let full_path = workspace_root.join(src);
+        match fs::read_to_string(&full_path) {
+            Ok(content) => {
+                writeln!(f, "### `{}`\n", src).unwrap();
+                writeln!(f, "```rust").unwrap();
+                write!(f, "{}", content).unwrap();
+                if !content.ends_with('\n') {
+                    writeln!(f).unwrap();
+                }
+                writeln!(f, "```\n").unwrap();
+            }
+            Err(e) => {
+                writeln!(f, "### `{}` — MISSING: {}\n", src, e).unwrap();
+            }
+        }
+    }
+
+    drop(f);
+
+    let file_size = fs::metadata(&out_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let est_tokens = file_size / 4;
+
+    println!("Review prompt generated: {}", out_path.display());
+    println!("  {} commits analyzed ({} CODE, {} ANNOT)",
+        all_commits.len(), code_commits.len(), annot_commits.len());
+    if !misleading.is_empty() {
+        println!("  {} misleading commits flagged", misleading.len());
+    }
+    println!("  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0,
+        est_tokens as f64 / 1000.0);
+
+    Ok(())
+}
+
 // ── CLI argument parsing ───────────────────────────────────────────────
 
 struct ExecArgs {
