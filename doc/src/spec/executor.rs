@@ -530,8 +530,10 @@ fn run_agent_in_slot(
     };
 
     // Spawn claude process
+    // Remove CLAUDECODE env var so nested sessions are allowed
     let mut child = match Command::new("claude")
         .args(["-p", "--dangerously-skip-permissions"])
+        .env_remove("CLAUDECODE")
         .current_dir(&slot.path)
         .stdin(Stdio::piped())
         .stdout(result_file)
@@ -735,7 +737,20 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
     println!("Preflight checks");
     println!("================\n");
 
-    // 1. Check that ANTHROPIC_API_KEY is NOT set (avoid accidental API billing)
+    // 1. Refuse to run inside an existing Claude Code session
+    if std::env::var("CLAUDECODE").is_ok() {
+        return Err(
+            "Cannot run inside a Claude Code session.\n\
+             The executor spawns claude CLI subprocesses which would conflict.\n\
+             Run this command from a regular terminal:\n\
+             \n\
+             ./target/release/azul-doc spec claude-exec"
+                .to_string(),
+        );
+    }
+    println!("  [OK] Not running inside Claude Code");
+
+    // 2. Check that ANTHROPIC_API_KEY is NOT set (avoid accidental API billing)
     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
         return Err(
             "ANTHROPIC_API_KEY is set in environment.\n\
@@ -816,12 +831,53 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
         }
     }
 
-    // 5. Rebuild prompts (ensures they're fresh, not stale)
+    // 5. Smoke test: spawn a single claude process with a trivial prompt
+    println!("  Smoke test: spawning claude -p ...");
+    {
+        let mut child = Command::new("claude")
+            .args(["-p", "--dangerously-skip-permissions"])
+            .env_remove("CLAUDECODE")
+            .env_remove("ANTHROPIC_API_KEY")
+            .current_dir(workspace_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn claude for smoke test: {}", e))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(b"Respond with exactly: HELLO");
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("Smoke test wait failed: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(format!(
+                "Smoke test failed (exit code {}).\n\
+                 stdout: {}\n\
+                 stderr: {}\n\
+                 \n\
+                 Make sure `claude` CLI is logged in and working.",
+                output.status.code().unwrap_or(-1),
+                stdout.chars().take(200).collect::<String>(),
+                stderr.chars().take(200).collect::<String>(),
+            ));
+        }
+
+        let response = String::from_utf8_lossy(&output.stdout);
+        println!("  [OK] claude responded: {}", response.trim().chars().take(40).collect::<String>());
+    }
+
+    // 6. Rebuild prompts (ensures they're fresh, not stale)
     println!("\n  Rebuilding prompts...\n");
     super::cmd_build_all(config, workspace_root)?;
     println!();
 
-    // 6. Verify prompt count
+    // 7. Verify prompt count
     let prompts_dir = config.skill_tree_dir.join("prompts");
     let prompt_count = fs::read_dir(&prompts_dir)
         .map(|rd| {
