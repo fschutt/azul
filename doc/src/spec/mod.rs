@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 pub mod skill_tree;
 pub mod downloader;
+pub mod executor;
 pub mod extractor;
 pub mod reviewer;
 pub mod paragraphs;
@@ -132,6 +133,10 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             cmd_send(&config, &args[1], stage, workspace_root)
         }
         "build-all" => cmd_build_all(&config, workspace_root),
+        "claude-exec" => {
+            let rest: Vec<String> = args[1..].to_vec();
+            executor::run_executor(&config, workspace_root, &rest)
+        }
         "status" => cmd_status(&config),
         "holistic" => cmd_holistic(&config),
         "next" => cmd_next(&config),
@@ -155,6 +160,13 @@ fn print_spec_help() {
     println!("  review <feature>    Generate a review prompt (saves to file)");
     println!("  send <feature>      Send review prompt to Gemini API");
     println!("  build-all           Build all prompts for all features");
+    println!("  claude-exec         Run parallel Claude agents on prompts");
+    println!("    --agents=N          Number of parallel agents (default: 12)");
+    println!("    --timeout=S         Per-agent timeout in seconds (default: 480)");
+    println!("    --retry-failed      Re-queue previously failed prompts");
+    println!("    --status            Show done/taken/failed/pending counts");
+    println!("    --collect           Cherry-pick agent commits to current branch");
+    println!("    --cleanup           Remove all agent worktrees");
     println!("  status              Show verification status for all features");
     println!("  holistic            Generate holistic analysis from all results");
     println!("  next                Show the next feature to verify");

@@ -1939,6 +1939,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    spec send <feature> --stage=impl");
     println!("                                  - Send implementation review to Gemini API");
     println!("    spec build-all                - Build all prompts for all features");
+    println!("    spec claude-exec              - Run parallel Claude agents on prompts");
+    println!("    spec claude-exec --status     - Show agent execution progress");
+    println!("    spec claude-exec --collect    - Cherry-pick agent commits");
+    println!("    spec claude-exec --cleanup    - Remove all agent worktrees");
     println!("    spec status                   - Show verification status for all features");
     println!("    spec next                     - Show the next feature to verify");
     println!("    spec holistic                 - Generate holistic analysis from all results");
