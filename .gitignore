@@ -52,3 +52,4 @@ profraw/
 coverage.txt
 coverage.json
 *.profraw
+.claude-agents/
