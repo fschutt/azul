@@ -46,3 +46,4 @@ colored = "2.1"
 tiktoken-rs = "0.6"
 ureq = { version = "2.9", features = ["json"] }
 libc = "0.2"
+nanospinner = "0.3"

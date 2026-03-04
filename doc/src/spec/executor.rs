@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use nanospinner::MultiSpinner;
+
 use super::SpecConfig;
 
 // ── CLI argument parsing ───────────────────────────────────────────────
@@ -455,6 +457,25 @@ fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
 
 // ── Agent execution ────────────────────────────────────────────────────
 
+/// Read the last non-empty line from a .result file, truncated to `max_chars`.
+fn tail_result_file(result_path: &Path, max_chars: usize) -> String {
+    let content = match fs::read_to_string(result_path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+    let last_line = content
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    if last_line.len() > max_chars {
+        format!("{}...", &last_line[..max_chars])
+    } else {
+        last_line.to_string()
+    }
+}
+
 struct AgentResult {
     success: bool,
     patches: usize,
@@ -538,6 +559,7 @@ fn run_agent_in_slot(
     prompt_path: &Path,
     timeout: Duration,
     base_sha: &str,
+    on_progress: &dyn Fn(&str),
 ) -> AgentResult {
     let taken_path = prompt_path.with_extension("md.taken");
     let result_path = prompt_path.with_extension("md.result");
@@ -662,6 +684,14 @@ fn run_agent_in_slot(
                         error: Some("Timeout".to_string()),
                     };
                 }
+                let elapsed = start.elapsed().as_secs();
+                let tail = tail_result_file(&result_path, 60);
+                on_progress(&format!(
+                    "{}:{:02} | {}",
+                    elapsed / 60,
+                    elapsed % 60,
+                    tail
+                ));
                 std::thread::sleep(Duration::from_secs(2));
             }
             Err(e) => {
@@ -1107,16 +1137,26 @@ pub fn run_executor(
     // Install SIGINT handler
     install_sigint_handler();
 
-    // Spawn worker threads
+    // Create multi-spinner on main thread (MultiSpinnerHandle is !Send)
+    let ms = MultiSpinner::new().start();
+    let lines: Vec<_> = (0..agent_count)
+        .map(|i| ms.add(format!("[{}] waiting...", i)))
+        .collect();
+
+    // Spawn worker threads — each gets one SpinnerLineHandle (which is Send)
     let mut handles = Vec::with_capacity(agent_count);
 
-    for (i, slot) in slots.into_iter().enumerate() {
+    for (i, (slot, line)) in slots.into_iter().zip(lines).enumerate() {
         let queue = Arc::clone(&queue);
         let completed = Arc::clone(&completed);
         let failed = Arc::clone(&failed);
         let base_sha = base_sha.clone();
 
         let handle = std::thread::spawn(move || {
+            let mut done_count = 0usize;
+            let mut fail_count = 0usize;
+            let mut prev_summary = String::new();
+
             loop {
                 if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
                     break;
@@ -1138,29 +1178,42 @@ pub fn run_executor(
                     .unwrap_or("?")
                     .to_string();
 
-                eprintln!("  [SLOT {:03}] START  {}", i, prompt_name);
+                if prev_summary.is_empty() {
+                    line.update(format!("[{}] {} | starting...", i, prompt_name));
+                } else {
+                    line.update(format!(
+                        "[{}] {} | starting... ({})",
+                        i, prompt_name, prev_summary
+                    ));
+                }
 
-                let result =
-                    run_agent_in_slot(&slot, i, &prompt_path, timeout, &base_sha);
+                let result = run_agent_in_slot(
+                    &slot, i, &prompt_path, timeout, &base_sha,
+                    &|msg| {
+                        line.update(format!("[{}] {} | {}", i, prompt_name, msg));
+                    },
+                );
 
                 if result.success {
                     let mut c = completed.lock().unwrap();
                     *c += 1;
-                    eprintln!(
-                        "  [SLOT {:03}] DONE   {} ({} patches)",
-                        i, prompt_name, result.patches
+                    done_count += 1;
+                    prev_summary = format!(
+                        "prev: {} OK {}p",
+                        prompt_name, result.patches
                     );
                 } else {
                     let mut f = failed.lock().unwrap();
                     *f += 1;
-                    eprintln!(
-                        "  [SLOT {:03}] FAILED {} ({})",
-                        i,
-                        prompt_name,
-                        result.error.as_deref().unwrap_or("unknown")
-                    );
+                    fail_count += 1;
+                    prev_summary = format!("prev: {} FAIL", prompt_name);
                 }
             }
+
+            line.success_with(format!(
+                "[{}] finished — {} done, {} failed",
+                i, done_count, fail_count
+            ));
         });
 
         handles.push(handle);
@@ -1170,6 +1223,8 @@ pub fn run_executor(
     for handle in handles {
         let _ = handle.join();
     }
+
+    ms.stop();
 
     // Print summary
     let final_completed = *completed.lock().unwrap();
