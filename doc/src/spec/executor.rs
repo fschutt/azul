@@ -213,6 +213,34 @@ fn cleanup_worktrees(workspace_root: &Path) -> Result<(), String> {
     // Remove the directory itself if empty
     let _ = fs::remove_dir(&base);
 
+    // Delete spec-agent-* branches left behind by worktrees
+    let branch_output = Command::new("git")
+        .args(["branch", "--list", "spec-agent-*"])
+        .current_dir(workspace_root)
+        .output()
+        .ok();
+    if let Some(output) = branch_output {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let branch = line.trim();
+            if branch.is_empty() {
+                continue;
+            }
+            let result = Command::new("git")
+                .args(["branch", "-D", branch])
+                .current_dir(workspace_root)
+                .output();
+            match result {
+                Ok(o) if o.status.success() => {
+                    println!("  Deleted branch {}", branch);
+                }
+                _ => {
+                    eprintln!("  Warning: could not delete branch {}", branch);
+                }
+            }
+        }
+    }
+
     println!("Cleanup complete.");
     Ok(())
 }
@@ -1264,6 +1292,12 @@ pub fn run_executor(
         done_count + final_completed,
         total
     );
+
+    // Clean up worktrees and branches
+    println!("\nCleaning up worktrees...");
+    if let Err(e) = cleanup_worktrees(workspace_root) {
+        eprintln!("  Warning: cleanup failed: {}", e);
+    }
 
     Ok(())
 }
