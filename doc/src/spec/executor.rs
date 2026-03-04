@@ -29,7 +29,7 @@ struct ExecArgs {
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
     let mut ea = ExecArgs {
-        agents: 12,
+        agents: 8,
         timeout_secs: 480,
         retry_failed: false,
         status_only: false,
@@ -40,7 +40,7 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
 
     for arg in args {
         if let Some(val) = arg.strip_prefix("--agents=") {
-            ea.agents = val.parse().unwrap_or(12);
+            ea.agents = val.parse().unwrap_or(8);
         } else if let Some(val) = arg.strip_prefix("--timeout=") {
             ea.timeout_secs = val.parse().unwrap_or(480);
         } else if arg == "--retry-failed" {
