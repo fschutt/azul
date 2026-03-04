@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 use std::fs;
-use std::io::Write;
+use std::io::{Read as _, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -457,25 +457,6 @@ fn build_full_prompt(prompt_path: &Path) -> Result<String, String> {
 
 // ── Agent execution ────────────────────────────────────────────────────
 
-/// Read the last non-empty line from a .result file, truncated to `max_chars`.
-fn tail_result_file(result_path: &Path, max_chars: usize) -> String {
-    let content = match fs::read_to_string(result_path) {
-        Ok(c) => c,
-        Err(_) => return String::new(),
-    };
-    let last_line = content
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .trim();
-    if last_line.len() > max_chars {
-        format!("{}...", &last_line[..max_chars])
-    } else {
-        last_line.to_string()
-    }
-}
-
 struct AgentResult {
     success: bool,
     patches: usize,
@@ -587,8 +568,9 @@ fn run_agent_in_slot(
         }
     };
 
-    // Open result file for stdout/stderr capture
-    let result_file = match fs::File::create(&result_path) {
+    // Spawn claude process with piped stdout for live progress reading.
+    // Stderr goes to the result file for error logging.
+    let result_file_err = match fs::File::create(&result_path) {
         Ok(f) => f,
         Err(e) => {
             return AgentResult {
@@ -599,25 +581,13 @@ fn run_agent_in_slot(
         }
     };
 
-    let result_file_err = match result_file.try_clone() {
-        Ok(f) => f,
-        Err(e) => {
-            return AgentResult {
-                success: false,
-                patches: 0,
-                error: Some(format!("Failed to clone file handle: {}", e)),
-            };
-        }
-    };
-
-    // Spawn claude process
     // Remove CLAUDECODE env var so nested sessions are allowed
     let mut child = match Command::new("claude")
         .args(["-p", "--dangerously-skip-permissions"])
         .env_remove("CLAUDECODE")
         .current_dir(&slot.path)
         .stdin(Stdio::piped())
-        .stdout(result_file)
+        .stdout(Stdio::piped())
         .stderr(result_file_err)
         .spawn()
     {
@@ -648,6 +618,45 @@ fn run_agent_in_slot(
         let _ = stdin.write_all(full_prompt.as_bytes());
     }
 
+    // Spawn reader thread for stdout — reads chunks as they arrive,
+    // accumulates full output and tracks last non-empty line for progress.
+    let stdout_output = Arc::new(Mutex::new(String::new()));
+    let stdout_activity = Arc::new(Mutex::new(String::new()));
+    {
+        let stdout_output = Arc::clone(&stdout_output);
+        let stdout_activity = Arc::clone(&stdout_activity);
+        let child_stdout = child.stdout.take().unwrap();
+        std::thread::spawn(move || {
+            let mut reader = child_stdout;
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if let Ok(text) = std::str::from_utf8(&buf[..n]) {
+                            stdout_output.lock().unwrap().push_str(text);
+                            let last = text
+                                .lines()
+                                .rev()
+                                .find(|l| !l.trim().is_empty())
+                                .unwrap_or("")
+                                .trim();
+                            if !last.is_empty() {
+                                let truncated = if last.len() > 60 {
+                                    format!("{}...", &last[..60])
+                                } else {
+                                    last.to_string()
+                                };
+                                *stdout_activity.lock().unwrap() = truncated;
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     // Poll for completion with timeout
     let start = Instant::now();
     let exit_status = loop {
@@ -669,8 +678,7 @@ fn run_agent_in_slot(
                     let _ = child.kill();
                     let _ = child.wait();
                     let _ = fs::remove_file(&taken_path);
-                    // Save partial output for debugging
-                    let partial = fs::read_to_string(&result_path).unwrap_or_default();
+                    let partial = stdout_output.lock().unwrap().clone();
                     let _ = fs::write(
                         &failed_path,
                         format!(
@@ -685,13 +693,21 @@ fn run_agent_in_slot(
                     };
                 }
                 let elapsed = start.elapsed().as_secs();
-                let tail = tail_result_file(&result_path, 60);
-                on_progress(&format!(
-                    "{}:{:02} | {}",
-                    elapsed / 60,
-                    elapsed % 60,
-                    tail
-                ));
+                let activity = stdout_activity.lock().unwrap().clone();
+                if activity.is_empty() {
+                    on_progress(&format!(
+                        "{}:{:02} | working...",
+                        elapsed / 60,
+                        elapsed % 60,
+                    ));
+                } else {
+                    on_progress(&format!(
+                        "{}:{:02} | {}",
+                        elapsed / 60,
+                        elapsed % 60,
+                        activity,
+                    ));
+                }
                 std::thread::sleep(Duration::from_secs(2));
             }
             Err(e) => {
@@ -705,6 +721,14 @@ fn run_agent_in_slot(
             }
         }
     };
+
+    // Write accumulated stdout to result file (append after stderr content)
+    {
+        let stdout_content = stdout_output.lock().unwrap();
+        if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&result_path) {
+            let _ = f.write_all(stdout_content.as_bytes());
+        }
+    }
 
     // Remove .taken
     let _ = fs::remove_file(&taken_path);
