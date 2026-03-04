@@ -343,53 +343,81 @@ The layout solver is in `layout/src/solver3/`.
 
 fn build_agent_instructions(feature_id: &str, spec_tag: &str) -> String {
     format!(
-        r#"## Spec Annotation Convention
+        r#"## Your Task
 
-This codebase uses `+spec:` marker comments to track which spec paragraphs
-are implemented where. Your tag for this paragraph is: `{spec_tag}`
+You MUST leave at least one `// +spec:{spec_tag}` marker comment in the source
+code and MUST commit it. This is how we track progress.
 
-**Search first**: Before making changes, grep for existing annotations:
+### Step 1: Search for existing implementation
+
 ```
 grep -rn "+spec:{spec_tag}" layout/src/
 ```
-If you find an existing annotation, the code near it is likely the
-implementation site for this paragraph.
 
-**Mark your work**: When you find or fix the implementation, add (or keep)
-a marker comment on the line above the relevant code:
-```rust
-// +spec:{spec_tag} - brief description of what this implements
+### Step 2: Read the relevant source files
+
+Read the files listed in the codebase orientation above. Understand the
+current implementation before making changes.
+
+### Step 3: Scrutinize and implement
+
+Your job is to be a SKEPTICAL REVIEWER. Do not assume the code is correct.
+For each requirement in the spec paragraph:
+
+1. Find the EXACT code path that handles this requirement
+2. Read the actual logic — does it match what the spec says word-for-word?
+3. Check edge cases mentioned in the spec paragraph
+4. Look for missing conditions, wrong comparisons, or incomplete handling
+
+Common bugs to look for:
+- Spec says "X unless Y" but code only handles X, missing the Y exception
+- Spec says "computed value" but code uses "specified value"
+- Spec says "content edge" but code uses "border edge" or "margin edge"
+- Spec lists multiple conditions but code only checks some of them
+- Spec says "all" but code has incomplete match arms
+
+**If the code is MISSING functionality required by this paragraph:**
+- Implement it. Use the Edit tool to modify source files.
+- Make minimal, focused changes — only what this paragraph requires.
+- You MAY add new functions, new match arms, new fields, or new files.
+- Do NOT refactor surrounding code or add unrelated improvements.
+- Add `// +spec:{spec_tag} - <what this implements>` at each implementation site.
+
+**If the code has a BUG relative to this paragraph's requirements:**
+- Fix the bug. Show the before/after logic clearly in the commit message.
+- Add `// +spec:{spec_tag} - <what this fixes>` at the fix site.
+
+**If the code correctly implements this paragraph (after careful scrutiny):**
+- You MUST still add `// +spec:{spec_tag} - <brief description>` marker
+  comments at EVERY implementation site (there may be multiple).
+- Find each function/match-arm/code-block that handles this behavior
+  and add the marker on the line above.
+- This is NOT optional — markers are how we track spec coverage.
+
+### Step 4: ALWAYS commit
+
+You MUST always commit, even if you only added marker comments:
+```
+git add -A
+git commit -m "spec({feature_id}): <short description>"
 ```
 
-If the implementation spans multiple locations, add the annotation at each site.
+A run with zero commits is considered a FAILURE.
 
-## Your Task
+### Output format
 
-1. Read the source files listed above
-2. Grep for `+spec:{spec_tag}` to find any existing annotation
-3. Find where this spec paragraph's requirements are (or should be) implemented
-4. If the code does NOT correctly implement what the paragraph requires, fix it:
-   - Use the Edit tool to modify the source files
-   - Make minimal, focused changes — fix only what this paragraph requires
-   - Do NOT refactor surrounding code or add unrelated improvements
-   - You MAY add new CSS properties, new functions, or new files if the spec
-     paragraph requires functionality that doesn't exist yet
-   - Add a `// +spec:{spec_tag}` comment at the implementation site
-5. After making changes, commit:
-   - `git add -A`
-   - `git commit -m "spec({feature_id}): {{short description of fix}}"`
-6. If the code already correctly implements this paragraph:
-   - Add a `// +spec:{spec_tag}` comment if one doesn't exist yet
-   - Commit the annotation if you added one
-   - Respond with PASS and explain why it's correct
+After committing, output a brief summary:
+- **ACTION**: `IMPLEMENTED` / `FIXED` / `ANNOTATED` (chose one)
+- **FILES**: list of files modified
+- **DESCRIPTION**: 1-2 sentences explaining what you did
 
 ## CRITICAL RULES
 
 - Do NOT run `cargo build`, `cargo test`, `cargo check`, or any compilation
   command. Another process will handle compilation later.
-- Make ONLY the changes needed for this one spec paragraph
-- If you are unsure whether a change is correct, make your best effort —
-  a review agent will verify later
+- Make ONLY the changes needed for this one spec paragraph.
+- You MUST commit at least once. Zero commits = failure.
+- If unsure whether a change is correct, make your best effort.
 "#,
         feature_id = feature_id,
         spec_tag = spec_tag,
@@ -619,7 +647,15 @@ fn run_agent_in_slot(
                     let _ = child.kill();
                     let _ = child.wait();
                     let _ = fs::remove_file(&taken_path);
-                    let _ = fs::write(&failed_path, "Agent timed out\n");
+                    // Save partial output for debugging
+                    let partial = fs::read_to_string(&result_path).unwrap_or_default();
+                    let _ = fs::write(
+                        &failed_path,
+                        format!(
+                            "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
+                            timeout.as_secs(), slot_index, partial,
+                        ),
+                    );
                     return AgentResult {
                         success: false,
                         patches: 0,
@@ -645,7 +681,15 @@ fn run_agent_in_slot(
 
     if !exit_status.success() {
         let code = exit_status.code().unwrap_or(-1);
-        let _ = fs::write(&failed_path, format!("Agent exited with code {}\n", code));
+        let result_content = fs::read_to_string(&result_path).unwrap_or_default();
+        let elapsed = start.elapsed();
+        let _ = fs::write(
+            &failed_path,
+            format!(
+                "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
+                code, elapsed.as_secs(), slot_index, result_content
+            ),
+        );
         return AgentResult {
             success: false,
             patches: 0,
@@ -662,14 +706,43 @@ fn run_agent_in_slot(
         }
     };
 
-    // Write .done summary
+    // Read agent output for the .done file
     let result_content = fs::read_to_string(&result_path).unwrap_or_default();
-    let summary = if result_content.contains("PASS") {
-        "PASS"
+    let elapsed = start.elapsed();
+
+    // Determine action type from output
+    let action = if result_content.contains("IMPLEMENTED") {
+        "IMPLEMENTED"
+    } else if result_content.contains("FIXED") {
+        "FIXED"
+    } else if result_content.contains("ANNOTATED") {
+        "ANNOTATED"
     } else {
-        "Changes made"
+        "COMPLETED"
     };
-    let _ = fs::write(&done_path, format!("{}\npatches={}\n", summary, patches));
+
+    // Write .done with full details: summary header + full agent output
+    let done_content = format!(
+        "action={}\npatches={}\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
+        action, patches, slot_index, elapsed.as_secs(), result_content,
+    );
+    let _ = fs::write(&done_path, done_content);
+
+    // If 0 patches (agent didn't commit), mark as failed
+    if patches == 0 {
+        let _ = fs::rename(&done_path, &failed_path);
+        let fail_msg = format!(
+            "Agent completed but made 0 commits (expected at least 1 annotation commit).\n\
+             elapsed={}s\n\n--- AGENT OUTPUT ---\n{}",
+            elapsed.as_secs(), result_content,
+        );
+        let _ = fs::write(&failed_path, fail_msg);
+        return AgentResult {
+            success: false,
+            patches: 0,
+            error: Some("Zero commits".to_string()),
+        };
+    }
 
     AgentResult {
         success: true,
