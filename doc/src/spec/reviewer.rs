@@ -132,6 +132,87 @@ pub fn generate_review_prompt(
     prompt
 }
 
+/// Generate a self-contained agent prompt for a single spec paragraph.
+///
+/// Each prompt is independent: it contains the feature context, the single
+/// paragraph to verify, source file paths (agent reads them itself), and
+/// review instructions. Designed for massively parallel agent execution.
+pub fn generate_paragraph_prompt(
+    node: &SkillNode,
+    paragraph: &ExtractedParagraph,
+    para_index: usize,
+    total_paragraphs: usize,
+    workspace_root: &Path,
+) -> String {
+    let mut prompt = String::new();
+
+    // Header
+    prompt.push_str(&format!(
+        "# Spec Paragraph Review: {} — paragraph {}/{}\n\n",
+        node.name, para_index + 1, total_paragraphs
+    ));
+
+    prompt.push_str("You are reviewing a CSS layout engine against ONE specific W3C spec paragraph.\n");
+    prompt.push_str("Read the source files listed below, then check whether the code correctly\n");
+    prompt.push_str("implements what this paragraph requires.\n\n");
+
+    // Feature context
+    prompt.push_str("## Feature Context\n\n");
+    prompt.push_str(&format!("**{}** (id: `{}`): {}\n\n", node.name, node.id, node.description));
+
+    // Source files to read
+    prompt.push_str("## Source Files to Read\n\n");
+    for file_path in &node.source_files {
+        if !node.needs_text_engine && file_path.contains("text3") {
+            continue;
+        }
+        let full_path = workspace_root.join(file_path);
+        let line_count = std::fs::read_to_string(&full_path)
+            .map(|c| c.lines().count())
+            .unwrap_or(0);
+        prompt.push_str(&format!("- `{}` ({} lines)\n", file_path, line_count));
+    }
+    prompt.push_str("\n");
+
+    // The single paragraph
+    prompt.push_str("## Spec Paragraph to Verify\n\n");
+    prompt.push_str(&format!("**Source**: {} (from `{}`)\n",
+        paragraph.section, paragraph.source_file));
+    if let Some(ref id) = paragraph.section_id {
+        prompt.push_str(&format!("**Section ID**: `{}`\n", id));
+    }
+    prompt.push_str(&format!("**Matched keywords**: {}\n\n",
+        paragraph.matched_keywords.join(", ")));
+    prompt.push_str(&format!("> {}\n\n", paragraph.text));
+
+    // Spec URL for context
+    if !node.spec_urls.is_empty() {
+        prompt.push_str("**Full spec**: ");
+        prompt.push_str(&node.spec_urls.join(", "));
+        prompt.push_str("\n\n");
+    }
+
+    // Instructions
+    prompt.push_str("## Instructions\n\n");
+    prompt.push_str("1. Read the source files above\n");
+    prompt.push_str("2. Find the code that implements (or should implement) what this paragraph describes\n");
+    prompt.push_str("3. Check:\n");
+    prompt.push_str("   - Is the requirement from this paragraph implemented at all?\n");
+    prompt.push_str("   - If yes, does the implementation match the spec exactly?\n");
+    prompt.push_str("   - Are edge cases from the paragraph handled?\n");
+    prompt.push_str("   - Are there TODO/FIXME/HACK comments near the relevant code?\n\n");
+
+    // Response format
+    prompt.push_str("## Response Format\n\n");
+    prompt.push_str("**IMPLEMENTED**: yes | partially | no\n\n");
+    prompt.push_str("**LOCATION**: file:line where this is (or should be) implemented\n\n");
+    prompt.push_str("**VERDICT**: `PASS` | `MINOR_ISSUES` | `NEEDS_CHANGES` | `NOT_IMPLEMENTED`\n\n");
+    prompt.push_str("**DETAILS**: Explain what the code does vs what the paragraph requires.\n");
+    prompt.push_str("Quote specific lines. If there are issues, describe the fix.\n\n");
+
+    prompt
+}
+
 /// Read source files for a skill node
 pub fn read_source_files(
     node: &SkillNode,

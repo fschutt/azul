@@ -25,9 +25,9 @@ pub use skill_tree::{SkillTree, SkillNode, VerificationStatus};
 pub use downloader::{SpecRegistry, download_all_specs, download_specs_for_node};
 pub use extractor::{extract_paragraphs, extract_for_skill_node, format_paragraphs_for_prompt};
 pub use reviewer::{
-    generate_review_prompt, read_source_files, save_review_result,
-    load_review_results, update_node_status, generate_holistic_prompt,
-    ReviewStage, ReviewResult, parse_verdict,
+    generate_review_prompt, generate_paragraph_prompt, read_source_files,
+    save_review_result, load_review_results, update_node_status,
+    generate_holistic_prompt, ReviewStage, ReviewResult, parse_verdict,
 };
 pub use paragraphs::{ParagraphRegistry, SpecParagraph, scan_source_for_annotations};
 
@@ -177,22 +177,36 @@ fn print_spec_help() {
     println!("  6. azul-doc spec status");
 }
 
-/// Build all prompts for all features
+/// Build one prompt file per deduplicated spec paragraph, per feature.
+///
+/// Each file is self-contained: feature context + single paragraph + instructions.
+/// Agents pick up individual files and read the source code themselves.
 fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(), String> {
     let mut tree = config.load_skill_tree();
     let node_ids: Vec<String> = tree.nodes.keys().cloned().collect();
-    
-    println!("Building prompts for {} features...\n", node_ids.len());
-    
-    std::fs::create_dir_all(&config.skill_tree_dir)
+
+    let prompts_dir = config.skill_tree_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir)
         .map_err(|e| format!("Failed to create directory: {}", e))?;
-    
+
+    // Clean old prompts
+    if let Ok(entries) = std::fs::read_dir(&prompts_dir) {
+        for entry in entries.flatten() {
+            if entry.path().extension().map(|e| e == "md").unwrap_or(false) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    println!("Building per-paragraph agent prompts for {} features...\n", node_ids.len());
+
+    let mut total_files = 0usize;
     let mut total_tokens = 0usize;
-    
+
     for node_id in &node_ids {
         let node = tree.nodes.get(node_id).unwrap().clone();
-        
-        // Extract spec paragraphs
+
+        // Extract + deduplicate spec paragraphs
         let paragraphs = match extract_for_skill_node(&node, &config.spec_dir) {
             Ok(p) => p,
             Err(e) => {
@@ -200,34 +214,35 @@ fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Path) -> Resul
                 continue;
             }
         };
-        
-        // Read source files
-        let sources = read_source_files(&node, workspace_root);
-        
-        // Generate prompt
-        let prompt = generate_review_prompt(&node, ReviewStage::Architecture, &paragraphs, &sources);
-        
-        let tokens = prompt.len() / 4;
-        total_tokens += tokens;
-        
-        // Save prompt
-        let prompt_path = config.skill_tree_dir.join(format!("{}_architecture_prompt.md", node_id));
-        std::fs::write(&prompt_path, &prompt)
-            .map_err(|e| format!("Failed to write {}: {}", prompt_path.display(), e))?;
-        
-        // Show stats
-        let text_indicator = if node.needs_text_engine { "+text3" } else { "" };
-        let source_count = sources.len();
-        let source_lines: usize = sources.iter().map(|(_, c)| c.lines().count()).sum();
-        
-        println!("  [OK] {:30} {:>6} tokens  ({} files, {} lines) {}", 
-            node_id, 
-            tokens,
-            source_count,
-            source_lines,
+
+        let para_count = paragraphs.len();
+        let mut feature_tokens = 0usize;
+
+        for (i, para) in paragraphs.iter().enumerate() {
+            let prompt = reviewer::generate_paragraph_prompt(
+                &node, para, i, para_count, workspace_root,
+            );
+
+            let tokens = prompt.len() / 4;
+            feature_tokens += tokens;
+
+            let filename = format!("{}_{:03}.md", node_id, i + 1);
+            let prompt_path = prompts_dir.join(&filename);
+            std::fs::write(&prompt_path, &prompt)
+                .map_err(|e| format!("Failed to write {}: {}", prompt_path.display(), e))?;
+        }
+
+        total_files += para_count;
+        total_tokens += feature_tokens;
+
+        let text_indicator = if node.needs_text_engine { " +text3" } else { "" };
+        println!("  [OK] {:30} {:>3} files  (~{} tokens avg){}",
+            node_id,
+            para_count,
+            if para_count > 0 { feature_tokens / para_count } else { 0 },
             text_indicator
         );
-        
+
         // Update status
         if let Some(n) = tree.nodes.get_mut(node_id) {
             if n.status == VerificationStatus::NotStarted {
@@ -235,14 +250,14 @@ fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Path) -> Resul
             }
         }
     }
-    
+
     config.save_skill_tree(&tree)
         .map_err(|e| format!("Failed to save tree: {}", e))?;
-    
+
     println!("\n{}", "=".repeat(60));
-    println!("Total: {} prompts, ~{} tokens", node_ids.len(), total_tokens);
-    println!("Prompts saved to: {}", config.skill_tree_dir.display());
-    
+    println!("Total: {} prompt files, ~{} tokens combined", total_files, total_tokens);
+    println!("Prompts saved to: {}", prompts_dir.display());
+
     Ok(())
 }
 
