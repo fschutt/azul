@@ -24,7 +24,7 @@ use super::SpecConfig;
 /// Categorizes each commit as CODE (has non-comment code changes) or ANNOT
 /// (annotation-only), includes full diffs for CODE commits, flags misleading
 /// commits, and appends the full solver3/text3 source for refactoring context.
-pub fn cmd_review_md(target: &str, workspace_root: &Path, no_src: bool) -> Result<(), String> {
+pub fn cmd_review_md(target: &str, workspace_root: &Path, no_src: bool, no_spec: bool) -> Result<(), String> {
     use std::io::Write as _;
 
     // Resolve relative paths: try as-is first, then relative to workspace_root
@@ -38,7 +38,7 @@ pub fn cmd_review_md(target: &str, workspace_root: &Path, no_src: bool) -> Resul
         }
     };
     if target_path.is_dir() {
-        cmd_review_md_from_dir(&target_path, workspace_root, no_src)
+        cmd_review_md_from_dir(&target_path, workspace_root, no_src, no_spec)
     } else {
         cmd_review_md_from_commits(target, workspace_root, no_src)
     }
@@ -169,7 +169,30 @@ fn write_source_appendix(f: &mut fs::File, workspace_root: &Path) {
     }
 }
 
-fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool) -> Result<(), String> {
+/// Extract the "## Spec Paragraph to Verify" section from a prompt .md file.
+fn extract_spec_paragraph(prompt_content: &str) -> Option<String> {
+    let mut result = String::new();
+    let mut in_section = false;
+
+    for line in prompt_content.lines() {
+        if line.starts_with("## Spec Paragraph") {
+            in_section = true;
+            continue; // skip the heading itself
+        }
+        if in_section && line.starts_with("## ") {
+            break; // next section
+        }
+        if in_section {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    let trimmed = result.trim().to_string();
+    if trimmed.is_empty() { None } else { Some(trimmed) }
+}
+
+fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_spec: bool) -> Result<(), String> {
     use std::io::Write as _;
 
     let mut patches: Vec<PathBuf> = fs::read_dir(dir)
@@ -248,9 +271,54 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool) -> Re
     writeln!(f, "## CODE Patches — Full Diffs\n").unwrap();
     writeln!(f, "Focus your review on these {} patches:\n", code_patches.len()).unwrap();
 
+    // Find prompts directory containing the original .md prompt files.
+    // Patches are named <feature>_<num>.md.done.001.patch,
+    // prompts are <feature>_<num>.md. Search: same dir, parent/prompts,
+    // grandparent/prompts, or anywhere up with a "prompts" subdir.
+    let sample_prompt_name = patches.first()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(|n| n.split(".done.").next().unwrap_or(""))
+        .unwrap_or("");
+    let prompts_dir = {
+        let mut found = None;
+        // Check same dir
+        if !sample_prompt_name.is_empty() && dir.join(sample_prompt_name).exists() {
+            found = Some(dir.to_path_buf());
+        }
+        // Walk up parents looking for a "prompts" dir containing the file
+        if found.is_none() {
+            let mut cursor = Some(dir.as_ref() as &Path);
+            while let Some(d) = cursor {
+                let candidate = d.join("prompts");
+                if candidate.is_dir() && candidate.join(sample_prompt_name).exists() {
+                    found = Some(candidate);
+                    break;
+                }
+                cursor = d.parent();
+            }
+        }
+        found
+    };
+
     for (name, content) in &code_patches {
         writeln!(f, "---\n").unwrap();
         writeln!(f, "### {}\n", name).unwrap();
+
+        // Try to include the spec paragraph from the prompt file
+        if !no_spec {
+            let prompt_name = name.split(".done.").next().unwrap_or(name);
+            let spec_para = prompts_dir.as_ref().and_then(|pd| {
+                let prompt_path = pd.join(prompt_name);
+                fs::read_to_string(&prompt_path).ok()
+            }).and_then(|content| extract_spec_paragraph(&content));
+
+            if let Some(para) = spec_para {
+                writeln!(f, "**W3C Spec Paragraph:**\n").unwrap();
+                writeln!(f, "{}\n", para).unwrap();
+            }
+        }
+
         writeln!(f, "```diff").unwrap();
         let mut in_diff = false;
         for dl in content.lines() {

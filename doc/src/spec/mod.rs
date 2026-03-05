@@ -144,15 +144,17 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
         "annotations" => cmd_annotations(workspace_root),
         "review-md" => {
             if args.len() < 2 {
-                return Err("Usage: spec review-md [--no-src] <commit-hash|dir>\n\
+                return Err("Usage: spec review-md [--no-src] [--no-spec] <commit-hash|dir>\n\
                     If argument is a directory, concatenates all .patch files in it.\n\
                     If argument is a commit hash, generates review from <hash>..HEAD.\n\
-                    --no-src: omit source file appendix (only patches + review prompt).".to_string());
+                    --no-src: omit source file appendix.\n\
+                    --no-spec: omit W3C spec paragraphs (included by default for dir mode).".to_string());
             }
             let no_src = args[1..].iter().any(|a| a == "--no-src");
+            let no_spec = args[1..].iter().any(|a| a == "--no-spec");
             let target = args[1..].iter().find(|a| !a.starts_with("--"))
                 .ok_or("Missing <commit-hash|dir> argument".to_string())?;
-            executor::cmd_review_md(target, workspace_root, no_src)
+            executor::cmd_review_md(target, workspace_root, no_src, no_spec)
         }
         "review-arch" => {
             let no_src = args[1..].iter().any(|a| a == "--no-src");
