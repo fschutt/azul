@@ -650,16 +650,31 @@ pub fn cmd_review_arch(
     writeln!(f, "- **Action**: `APPLY` (apply as-is), `MERGE` (agent must merge conflicting patches),").unwrap();
     writeln!(f, "  `PICK_ONE` (choose best, skip others), `SKIP` (don't apply)").unwrap();
     writeln!(f, "- **Preferred patch** (for PICK_ONE groups)").unwrap();
-    writeln!(f, "- **Notes**: what the agent should watch for when applying\n").unwrap();
+    writeln!(f, "- **`agent_context`**: A DETAILED instruction block for the applying agent. THIS IS CRITICAL.\n").unwrap();
 
-    writeln!(f, "### Task 2: Order the groups").unwrap();
+    writeln!(f, "### Task 2: Write thorough `agent_context` for each group").unwrap();
+    writeln!(f, "The `agent_context` field is passed VERBATIM to the agent that will apply this group.").unwrap();
+    writeln!(f, "The agent will NOT see any other groups, the review, or the architecture plan —").unwrap();
+    writeln!(f, "it ONLY sees: the patch diff(s), the agent_context, and the current source code.").unwrap();
+    writeln!(f, "Therefore, `agent_context` MUST include everything the agent needs:\n").unwrap();
+    writeln!(f, "- **What the patch does**: 1-2 sentence summary of the semantic intent").unwrap();
+    writeln!(f, "- **Which W3C spec section** it implements (e.g., \"CSS 2.2 §10.3.7\")").unwrap();
+    writeln!(f, "- **Known bugs in the patch** from the review (e.g., \"uses width > 0.0 as auto proxy — fix this\")").unwrap();
+    writeln!(f, "- **Refactoring needed**: if the patch duplicates existing helpers, name the helper to reuse").unwrap();
+    writeln!(f, "- **Functions/types to reuse**: specific existing functions the agent should call instead of adding new ones").unwrap();
+    writeln!(f, "- **ABI concerns**: if the patch modifies `#[repr(C)]` structs, warn about FFI breakage").unwrap();
+    writeln!(f, "- **For MERGE groups**: which parts of each patch to take, where they conflict, how to combine them").unwrap();
+    writeln!(f, "- **For PICK_ONE groups**: why the preferred patch is better, what the others got wrong").unwrap();
+    writeln!(f, "- **Compilation notes**: if missing imports or signature changes are needed, mention them\n").unwrap();
+
+    writeln!(f, "### Task 3: Order the groups").unwrap();
     writeln!(f, "Order groups so that:").unwrap();
     writeln!(f, "- Independent patches come first (fewer conflicts, establish base)").unwrap();
     writeln!(f, "- ANNOT-only patches come last (they just add comments, easy to adapt)").unwrap();
     writeln!(f, "- Complex MERGE groups come after their dependencies are applied").unwrap();
     writeln!(f, "- Patches that add new types/enums come before patches that use them\n").unwrap();
 
-    writeln!(f, "### Task 3: Flag patches to skip").unwrap();
+    writeln!(f, "### Task 4: Flag patches to skip").unwrap();
     writeln!(f, "Based on the patch review below, flag patches that:").unwrap();
     writeln!(f, "- Are regressions (replace better code with worse code)").unwrap();
     writeln!(f, "- Are completely superseded by another patch in the same group").unwrap();
@@ -735,7 +750,8 @@ pub fn cmd_review_arch(
     // Response format
     writeln!(f, "---\n").unwrap();
     writeln!(f, "## Required Response Format\n").unwrap();
-    writeln!(f, "Respond with a JSON array of merge groups:\n").unwrap();
+    writeln!(f, "Respond with a JSON array of merge groups. The `agent_context` field is the most important —").unwrap();
+    writeln!(f, "it will be passed verbatim to the applying agent as its sole instruction context.\n").unwrap();
     writeln!(f, "```json").unwrap();
     writeln!(f, "[").unwrap();
     writeln!(f, "  {{").unwrap();
@@ -743,25 +759,30 @@ pub fn cmd_review_arch(
     writeln!(f, "    \"action\": \"APPLY\",").unwrap();
     writeln!(f, "    \"patches\": [\"floats_004.md.done.001.patch\"],").unwrap();
     writeln!(f, "    \"preferred\": null,").unwrap();
-    writeln!(f, "    \"notes\": \"Independent fix for float margin-box overlap. Apply first.\"").unwrap();
+    writeln!(f, "    \"agent_context\": \"## Intent\\nFix float overlap: use float MARGIN BOX instead of content box for overlap checks (CSS 2.2 §9.5).\\n\\n## Spec\\nCSS 2.2 §9.5: 'The border box of a table, a block-level replaced element, or an element in the normal flow that establishes a new BFC MUST NOT overlap the margin box of any floats in the same BFC.'\\n\\n## Known Issues\\n- `is_block_level_replaced()` only checks Image, not video/canvas/input. This is OK for now, just apply as-is.\\n- The margin-box math in `available_line_box_space` is correct: verified origin - margin_start + size + margin_start + margin_end = correct margin box end.\\n\\n## Apply Instructions\\nApply directly. No conflicts expected. Verify `cargo check -p azul-layout` passes.\"").unwrap();
     writeln!(f, "  }},").unwrap();
     writeln!(f, "  {{").unwrap();
     writeln!(f, "    \"group_id\": 2,").unwrap();
     writeln!(f, "    \"action\": \"PICK_ONE\",").unwrap();
     writeln!(f, "    \"patches\": [\"line-breaking_008.md.done.001.patch\", \"line-breaking_015.md.done.001.patch\", \"line-breaking_040.md.done.001.patch\"],").unwrap();
     writeln!(f, "    \"preferred\": \"line-breaking_008.md.done.001.patch\",").unwrap();
-    writeln!(f, "    \"notes\": \"All three add WordBreak enum. Pick _008: correctly suppresses hyphenation.\"").unwrap();
+    writeln!(f, "    \"agent_context\": \"## Intent\\nAdd `word-break` CSS property (CSS Text 3 §5.2): break-all, keep-all, normal.\\n\\n## Why _008 is preferred\\n- Correctly suppresses hyphenation for break-all (spec: 'Hyphenation is not applied')\\n- Has proper Hash/Eq derives needed for caching\\n- Clean 3-way match in peek_next_unit_with_word_break\\n- _015 misses hyphenation suppression; _040 also misses it and has less explicit CJK detection\\n\\n## Known Issues to Fix\\n- No CSS property wiring: `word_break` field in UnifiedConstraints defaults to Normal but is never read from CSS. You must add wiring in fc.rs where UnifiedConstraints is built — read word-break from the style and map to the WordBreak enum.\\n- The `break_one_line` signature changes — update ALL callers.\\n\\n## Existing Code to Reuse\\n- `is_word_separator()` already exists in cache.rs — the patch correctly uses it.\\n- `UnifiedConstraints` is built in `translate_to_text3_constraints()` in fc.rs — add word_break there.\"").unwrap();
     writeln!(f, "  }},").unwrap();
     writeln!(f, "  {{").unwrap();
     writeln!(f, "    \"group_id\": 3,").unwrap();
     writeln!(f, "    \"action\": \"SKIP\",").unwrap();
     writeln!(f, "    \"patches\": [\"display-property_001.md.done.001.patch\"],").unwrap();
     writeln!(f, "    \"preferred\": null,").unwrap();
-    writeln!(f, "    \"notes\": \"Regression: replaces comprehensive blockification with simpler version.\"").unwrap();
+    writeln!(f, "    \"agent_context\": \"SKIP — regression: replaces comprehensive get_display_type() blockification (handles TableRowGroup, RunIn, etc.) with a simpler version that loses these mappings.\"").unwrap();
     writeln!(f, "  }}").unwrap();
     writeln!(f, "]").unwrap();
     writeln!(f, "```\n").unwrap();
-    writeln!(f, "IMPORTANT: Every patch file must appear in exactly one group. Do not omit any patches.").unwrap();
+    writeln!(f, "IMPORTANT:").unwrap();
+    writeln!(f, "- Every patch file must appear in exactly one group. Do not omit any patches.").unwrap();
+    writeln!(f, "- The `agent_context` must be SELF-CONTAINED. The applying agent sees ONLY this field + the patch diffs.").unwrap();
+    writeln!(f, "  It does NOT see the review, the conflict map, or any other groups. Include everything it needs.").unwrap();
+    writeln!(f, "- Use markdown formatting in `agent_context` (## headings, bullet points) for clarity.").unwrap();
+    writeln!(f, "- For ANNOT-only groups, `agent_context` can be brief: just say what spec paragraph to annotate.").unwrap();
 
     drop(f);
 
@@ -931,11 +952,16 @@ pub fn cmd_agent_apply(
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct MergeGroup {
     group_id: usize,
     action: String,
     patches: Vec<String>,
     preferred: Option<String>,
+    /// Rich context passed verbatim to the applying agent.
+    /// Includes: spec reference, known bugs, refactoring notes, reusable functions.
+    agent_context: Option<String>,
+    /// Legacy field — kept for backward compat with older plans
     notes: Option<String>,
 }
 
@@ -1022,7 +1048,17 @@ fn build_apply_prompt(
         _ => {}
     }
 
-    if let Some(notes) = &group.notes {
+    // Include the rich agent context from the architecture review.
+    // This is the primary source of truth for what the agent should do.
+    if let Some(ctx) = &group.agent_context {
+        prompt.push_str("## Architecture Review Context\n\n");
+        prompt.push_str("The following context was produced by an architecture reviewer who analyzed\n");
+        prompt.push_str("all patches, identified conflicts, and planned the merge strategy.\n");
+        prompt.push_str("Follow these instructions carefully.\n\n");
+        prompt.push_str(ctx);
+        prompt.push_str("\n\n");
+    } else if let Some(notes) = &group.notes {
+        // Fallback to legacy notes field
         prompt.push_str(&format!("## Reviewer Notes\n\n{}\n\n", notes));
     }
 
@@ -2596,5 +2632,193 @@ extern "C" fn sigint_handler(_sig: libc::c_int) {
     let msg = b"\nShutdown requested, finishing current agents...\n";
     unsafe {
         libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_merge_groups_raw_json() {
+        let json = r###"[
+  {
+    "group_id": 1,
+    "action": "APPLY",
+    "patches": ["floats_004.md.done.001.patch"],
+    "preferred": null,
+    "agent_context": "## Intent\nFix float margin-box overlap per CSS 2.2 §9.5.\n\n## Known Issues\n- is_block_level_replaced() only checks Image."
+  },
+  {
+    "group_id": 2,
+    "action": "PICK_ONE",
+    "patches": ["line-breaking_008.md.done.001.patch", "line-breaking_015.md.done.001.patch"],
+    "preferred": "line-breaking_008.md.done.001.patch",
+    "agent_context": "## Intent\nAdd word-break property.\n\n## Why _008\nCorrectly suppresses hyphenation."
+  },
+  {
+    "group_id": 3,
+    "action": "SKIP",
+    "patches": ["display-property_001.md.done.001.patch"],
+    "preferred": null,
+    "agent_context": "SKIP — regression."
+  }
+]"###;
+
+        let extracted = extract_json_from_plan(json).unwrap();
+        let groups: Vec<MergeGroup> = serde_json::from_str(&extracted).unwrap();
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].action, "APPLY");
+        assert_eq!(groups[0].patches, vec!["floats_004.md.done.001.patch"]);
+        assert!(groups[0].agent_context.as_ref().unwrap().contains("margin-box"));
+        assert_eq!(groups[1].action, "PICK_ONE");
+        assert_eq!(groups[1].preferred.as_deref(), Some("line-breaking_008.md.done.001.patch"));
+        assert_eq!(groups[2].action, "SKIP");
+    }
+
+    #[test]
+    fn test_parse_merge_groups_markdown_fenced() {
+        let md = r###"Here is my analysis of the patches:
+
+Based on the review, I recommend the following merge groups:
+
+```json
+[
+  {
+    "group_id": 1,
+    "action": "MERGE",
+    "patches": ["box-model_024.md.done.001.patch", "box-model_039.md.done.001.patch"],
+    "preferred": null,
+    "agent_context": "## Intent\nBoth add is_first_fragment/is_last_fragment to InlineBorderInfo.\n\n## Merge Strategy\nTake _039's RTL awareness + _024's split detection logic.\n\n## Files\n- cache.rs: merge InlineBorderInfo field additions\n- display_list.rs: combine border suppression logic"
+  },
+  {
+    "group_id": 2,
+    "action": "APPLY",
+    "patches": ["intrinsic-sizing_019.md.done.001.patch"],
+    "preferred": null,
+    "agent_context": "Add fit-content() CSS keyword. Formula: min(max-content, max(min-content, arg))."
+  }
+]
+```
+
+Note: I've grouped the box-model patches because they conflict on InlineBorderInfo.
+"###;
+
+        let extracted = extract_json_from_plan(md).unwrap();
+        let groups: Vec<MergeGroup> = serde_json::from_str(&extracted).unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].action, "MERGE");
+        assert_eq!(groups[0].patches.len(), 2);
+        assert!(groups[0].agent_context.as_ref().unwrap().contains("RTL awareness"));
+        assert_eq!(groups[1].action, "APPLY");
+    }
+
+    #[test]
+    fn test_parse_merge_groups_with_legacy_notes() {
+        let json = r###"[
+  {
+    "group_id": 1,
+    "action": "APPLY",
+    "patches": ["test.patch"],
+    "preferred": null,
+    "notes": "Legacy notes field"
+  }
+]"###;
+
+        let extracted = extract_json_from_plan(json).unwrap();
+        let groups: Vec<MergeGroup> = serde_json::from_str(&extracted).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert!(groups[0].agent_context.is_none());
+        assert_eq!(groups[0].notes.as_deref(), Some("Legacy notes field"));
+    }
+
+    #[test]
+    fn test_parse_merge_groups_bare_code_fence() {
+        // Gemini sometimes uses ``` without json language tag
+        let md = r###"
+```
+[{"group_id":1,"action":"SKIP","patches":["bad.patch"],"preferred":null,"agent_context":"Regression."}]
+```
+"###;
+        let extracted = extract_json_from_plan(md).unwrap();
+        let groups: Vec<MergeGroup> = serde_json::from_str(&extracted).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].action, "SKIP");
+    }
+
+    #[test]
+    fn test_extract_json_no_json_found() {
+        let bad = "This is just text with no JSON at all.";
+        assert!(extract_json_from_plan(bad).is_err());
+    }
+
+    #[test]
+    fn test_categorize_diff_annot_only() {
+        let patch = r###"From abc123 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] annotate something
+
+---
+ layout/src/solver3/fc.rs | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/layout/src/solver3/fc.rs b/layout/src/solver3/fc.rs
+--- a/layout/src/solver3/fc.rs
++++ b/layout/src/solver3/fc.rs
+@@ -100,6 +100,8 @@ fn foo() {
+     let x = 1;
++    // +spec:block-formatting-context-p001: BFC establishment
++    // This is already correctly implemented
+     let y = 2;
+--
+2.43.0
+"###;
+        let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(patch);
+        assert_eq!(real_adds, 0, "annotation-only patch should have 0 real adds");
+        assert_eq!(real_dels, 0, "annotation-only patch should have 0 real dels");
+        assert!(total_adds > 0, "should have comment additions");
+    }
+
+    #[test]
+    fn test_categorize_diff_code_change() {
+        let patch = r###"diff --git a/layout/src/solver3/fc.rs b/layout/src/solver3/fc.rs
+--- a/layout/src/solver3/fc.rs
++++ b/layout/src/solver3/fc.rs
+@@ -100,6 +100,8 @@ fn foo() {
+-    let x = calculate_old();
++    let x = calculate_new();
++    // +spec:bfc-p005: updated calculation
+--
+2.43.0
+"###;
+        let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(patch);
+        assert_eq!(real_adds, 1, "should detect code addition");
+        assert_eq!(real_dels, 1, "should detect code deletion");
+    }
+
+    #[test]
+    fn test_extract_spec_paragraph() {
+        let prompt = r###"# Spec Paragraph Review
+
+## Feature Context
+
+**Block Formatting Context**
+
+## Spec Paragraph to Verify
+
+**Source**: CSS 2.2 Section 9.4
+**Section ID**: `block-formatting`
+
+> Floats, absolutely positioned elements, block containers that are not block boxes...
+
+**Full spec**: https://www.w3.org/TR/CSS22/visuren.html
+
+## Instructions
+
+1. Read the source files
+"###;
+        let para = extract_spec_paragraph(prompt).unwrap();
+        assert!(para.contains("CSS 2.2 Section 9.4"));
+        assert!(para.contains("Floats, absolutely positioned"));
+        assert!(!para.contains("Instructions"));
     }
 }
