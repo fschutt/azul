@@ -144,11 +144,40 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
         "annotations" => cmd_annotations(workspace_root),
         "review-md" => {
             if args.len() < 2 {
-                return Err("Usage: spec review-md <commit-hash>\n\
-                    Generates a review prompt for Gemini covering all changes from <commit-hash>..HEAD.\n\
-                    Includes commit analysis, diffs for code-changing commits, and full solver3/text3 source.".to_string());
+                return Err("Usage: spec review-md [--no-src] <commit-hash|dir>\n\
+                    If argument is a directory, concatenates all .patch files in it.\n\
+                    If argument is a commit hash, generates review from <hash>..HEAD.\n\
+                    --no-src: omit source file appendix (only patches + review prompt).".to_string());
             }
-            executor::cmd_review_md(&args[1], workspace_root)
+            let no_src = args[1..].iter().any(|a| a == "--no-src");
+            let target = args[1..].iter().find(|a| !a.starts_with("--"))
+                .ok_or("Missing <commit-hash|dir> argument".to_string())?;
+            executor::cmd_review_md(target, workspace_root, no_src)
+        }
+        "review-arch" => {
+            let no_src = args[1..].iter().any(|a| a == "--no-src");
+            let positional: Vec<&String> = args[1..].iter()
+                .filter(|a| !a.starts_with("--"))
+                .collect();
+            if positional.len() < 2 {
+                return Err("Usage: spec review-arch [--no-src] <patch-dir> <review-md-output>\n\
+                    Generates an architecture review prompt for Gemini.\n\
+                    <patch-dir>: directory containing .patch files\n\
+                    <review-md-output>: path to the review-md output file".to_string());
+            }
+            executor::cmd_review_arch(positional[0], positional[1], workspace_root, no_src)
+        }
+        "agent-apply" => {
+            let positional: Vec<&String> = args[1..].iter()
+                .filter(|a| !a.starts_with("--"))
+                .collect();
+            if positional.len() < 2 {
+                return Err("Usage: spec agent-apply <patch-dir> <arch-plan-json>\n\
+                    Applies patches sequentially using AI agents, guided by the arch plan.\n\
+                    <patch-dir>: directory containing .patch files\n\
+                    <arch-plan-json>: JSON file with merge groups from review-arch".to_string());
+            }
+            executor::cmd_agent_apply(positional[0], positional[1], workspace_root)
         }
         _ => {
             print_spec_help();
@@ -181,7 +210,9 @@ fn print_spec_help() {
     println!("  next                Show the next feature to verify");
     println!("  paragraphs          List all known spec paragraph IDs for annotations");
     println!("  annotations         Scan source for +spec: annotations");
-    println!("  review-md <hash>    Generate Gemini review prompt for changes since <hash>");
+    println!("  review-md [--no-src] <hash|dir>  Generate Gemini review prompt from commits or patch dir");
+    println!("  review-arch [--no-src] <dir> <review>  Generate architecture review prompt");
+    println!("  agent-apply <dir> <arch-plan>   Apply patches sequentially using AI agents");
     println!();
     println!("Options:");
     println!("  --stage=arch        Architecture review (default)");

@@ -24,7 +24,280 @@ use super::SpecConfig;
 /// Categorizes each commit as CODE (has non-comment code changes) or ANNOT
 /// (annotation-only), includes full diffs for CODE commits, flags misleading
 /// commits, and appends the full solver3/text3 source for refactoring context.
-pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), String> {
+pub fn cmd_review_md(target: &str, workspace_root: &Path, no_src: bool) -> Result<(), String> {
+    use std::io::Write as _;
+
+    // Resolve relative paths: try as-is first, then relative to workspace_root
+    let target_path = {
+        let p = PathBuf::from(target);
+        if p.is_dir() {
+            p
+        } else {
+            let resolved = workspace_root.join(target);
+            if resolved.is_dir() { resolved } else { p }
+        }
+    };
+    if target_path.is_dir() {
+        cmd_review_md_from_dir(&target_path, workspace_root, no_src)
+    } else {
+        cmd_review_md_from_commits(target, workspace_root, no_src)
+    }
+}
+
+fn categorize_diff_text(diff_text: &str) -> (usize, usize, usize, usize) {
+    let mut real_adds = 0usize;
+    let mut real_dels = 0usize;
+    let mut total_adds = 0usize;
+    let mut total_dels = 0usize;
+    let mut in_diff = false;
+
+    for diff_line in diff_text.lines() {
+        if diff_line.starts_with("diff --git") {
+            in_diff = true;
+            continue;
+        }
+        if !in_diff {
+            continue;
+        }
+        if diff_line.starts_with("+++") || diff_line.starts_with("---") {
+            continue;
+        }
+        if diff_line.starts_with('+') {
+            total_adds += 1;
+            let trimmed = diff_line[1..].trim();
+            if !trimmed.is_empty() && !trimmed.starts_with("//") {
+                real_adds += 1;
+            }
+        } else if diff_line.starts_with('-') && diff_line != "--" && diff_line != "-- " {
+            total_dels += 1;
+            let trimmed = diff_line[1..].trim();
+            if !trimmed.is_empty() && !trimmed.starts_with("//") {
+                real_dels += 1;
+            }
+        }
+    }
+
+    (total_adds, total_dels, real_adds, real_dels)
+}
+
+fn write_review_header(f: &mut fs::File, count: usize) {
+    use std::io::Write as _;
+
+    writeln!(f, "# Agent Run Code Review — Refactoring & Lazy Commit Analysis\n").unwrap();
+    writeln!(f, "You are reviewing {} patches made by AI agents to a CSS layout engine (Rust).", count).unwrap();
+    writeln!(f, "The agents were tasked with reading W3C CSS spec paragraphs and either:").unwrap();
+    writeln!(f, "1. Annotating the source code with `// +spec:feature-pXXX` markers where behavior is already implemented").unwrap();
+    writeln!(f, "2. Implementing missing behavior described by the spec paragraph\n").unwrap();
+
+    writeln!(f, "## Your Tasks\n").unwrap();
+    writeln!(f, "### Task A: Identify patches that need refactoring").unwrap();
+    writeln!(f, "Look for:").unwrap();
+    writeln!(f, "- **Code duplication**: same logic repeated in multiple places (should be extracted to a helper)").unwrap();
+    writeln!(f, "- **Comment concatenation bugs**: two comments merged on one line").unwrap();
+    writeln!(f, "- **Spaghetti if/else**: unnecessary branching that makes code harder to follow").unwrap();
+    writeln!(f, "- **Wrong abstractions**: code added in the wrong place architecturally").unwrap();
+    writeln!(f, "- **Conflicting patches**: multiple patches that modify the same code region independently\n").unwrap();
+    writeln!(f, "For each issue, specify:").unwrap();
+    writeln!(f, "- Which patch(es) introduced it").unwrap();
+    writeln!(f, "- What the problem is").unwrap();
+    writeln!(f, "- What refactoring is needed (be specific)\n").unwrap();
+
+    writeln!(f, "### Task B: Identify lazy/misleading patches").unwrap();
+    writeln!(f, "Some patches claim to \"implement\" or \"fix\" behavior but only add annotation comments.").unwrap();
+    writeln!(f, "For each, specify: patch name, what it claims, what it actually does,").unwrap();
+    writeln!(f, "and whether the claimed implementation is genuinely needed.\n").unwrap();
+
+    writeln!(f, "### Task C: Identify genuinely good implementation patches").unwrap();
+    writeln!(f, "List patches that made real, correct code changes. Note any conflicts.\n").unwrap();
+}
+
+fn write_review_response_format(f: &mut fs::File) {
+    use std::io::Write as _;
+
+    writeln!(f, "## Response Format\n").unwrap();
+    writeln!(f, "### A. Refactoring Needed").unwrap();
+    writeln!(f, "| Patch(es) | Issue | Refactoring Required |").unwrap();
+    writeln!(f, "|-----------|-------|---------------------|").unwrap();
+    writeln!(f, "| ... | ... | ... |\n").unwrap();
+    writeln!(f, "### B. Lazy/Misleading Patches to Redo").unwrap();
+    writeln!(f, "| Patch | Claims | Actually Does | Implementation Needed? |").unwrap();
+    writeln!(f, "|-------|--------|---------------|----------------------|").unwrap();
+    writeln!(f, "| ... | ... | ... | Yes/No (explain) |\n").unwrap();
+    writeln!(f, "### C. Good Implementation Patches").unwrap();
+    writeln!(f, "| Patch | What it does | Quality | Notes |").unwrap();
+    writeln!(f, "|-------|-------------|---------|-------|").unwrap();
+    writeln!(f, "| ... | ... | Good/OK/Needs review | ... |\n").unwrap();
+}
+
+fn write_source_appendix(f: &mut fs::File, workspace_root: &Path) {
+    use std::io::Write as _;
+
+    let source_files = [
+        "layout/src/solver3/fc.rs",
+        "layout/src/solver3/layout_tree.rs",
+        "layout/src/solver3/positioning.rs",
+        "layout/src/solver3/sizing.rs",
+        "layout/src/solver3/geometry.rs",
+        "layout/src/solver3/cache.rs",
+        "layout/src/solver3/getters.rs",
+        "layout/src/solver3/taffy_bridge.rs",
+        "layout/src/solver3/mod.rs",
+        "layout/src/text3/cache.rs",
+        "layout/src/text3/knuth_plass.rs",
+    ];
+
+    writeln!(f, "---\n").unwrap();
+    writeln!(f, "## APPENDIX: Current Source Files\n").unwrap();
+    writeln!(f, "Full source for refactoring context.\n").unwrap();
+
+    for src in &source_files {
+        let full_path = workspace_root.join(src);
+        match fs::read_to_string(&full_path) {
+            Ok(content) => {
+                writeln!(f, "### `{}`\n", src).unwrap();
+                writeln!(f, "```rust").unwrap();
+                write!(f, "{}", content).unwrap();
+                if !content.ends_with('\n') {
+                    writeln!(f).unwrap();
+                }
+                writeln!(f, "```\n").unwrap();
+            }
+            Err(e) => {
+                writeln!(f, "### `{}` — MISSING: {}\n", src, e).unwrap();
+            }
+        }
+    }
+}
+
+fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool) -> Result<(), String> {
+    use std::io::Write as _;
+
+    let mut patches: Vec<PathBuf> = fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read dir {}: {}", dir.display(), e))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "patch").unwrap_or(false))
+        .collect();
+    patches.sort();
+
+    if patches.is_empty() {
+        return Err(format!("No .patch files found in {}", dir.display()));
+    }
+
+    // Categorize patches
+    let mut code_patches = Vec::new();
+    let mut annot_patches = Vec::new();
+    let mut misleading = Vec::new();
+
+    for patch_path in &patches {
+        let content = fs::read_to_string(patch_path)
+            .map_err(|e| format!("Failed to read {}: {}", patch_path.display(), e))?;
+        let name = patch_path.file_name().unwrap().to_string_lossy().to_string();
+
+        let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(&content);
+        let is_code = real_adds > 0 || real_dels > 0;
+
+        let entry = format!(
+            "{} {}  [+{}/-{}, code:+{}/-{}]",
+            if is_code { "CODE " } else { "ANNOT" },
+            name, total_adds, total_dels, real_adds, real_dels,
+        );
+
+        if is_code {
+            code_patches.push((name, content));
+        } else {
+            let lower = name.to_lowercase();
+            // Extract subject from patch
+            let subject = content.lines()
+                .find(|l| l.starts_with("Subject:"))
+                .unwrap_or("")
+                .to_lowercase();
+            if subject.contains("implement") || subject.contains("fix") {
+                misleading.push(entry.clone());
+            }
+            annot_patches.push(entry);
+        }
+    }
+
+    // Build the output file
+    let out_path = PathBuf::from("/tmp/agent-run-review-prompt.md");
+    let mut f = fs::File::create(&out_path)
+        .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
+
+    write_review_header(&mut f, patches.len());
+
+    // Stats
+    writeln!(f, "## Patch Summary\n").unwrap();
+    writeln!(f, "- Source directory: `{}`", dir.display()).unwrap();
+    writeln!(f, "- Total patches: {}", patches.len()).unwrap();
+    writeln!(f, "- CODE patches (contain real code changes): {}", code_patches.len()).unwrap();
+    writeln!(f, "- ANNOT patches (annotation-only): {}\n", annot_patches.len()).unwrap();
+
+    // All patches categorized
+    writeln!(f, "## All Patches (categorized)\n").unwrap();
+    writeln!(f, "```").unwrap();
+    for (name, _) in &code_patches {
+        writeln!(f, "CODE  {}", name).unwrap();
+    }
+    for entry in &annot_patches {
+        writeln!(f, "{}", entry).unwrap();
+    }
+    writeln!(f, "```\n").unwrap();
+
+    // CODE patch diffs
+    writeln!(f, "## CODE Patches — Full Diffs\n").unwrap();
+    writeln!(f, "Focus your review on these {} patches:\n", code_patches.len()).unwrap();
+
+    for (name, content) in &code_patches {
+        writeln!(f, "---\n").unwrap();
+        writeln!(f, "### {}\n", name).unwrap();
+        writeln!(f, "```diff").unwrap();
+        let mut in_diff = false;
+        for dl in content.lines() {
+            if dl.starts_with("diff --git") {
+                in_diff = true;
+            }
+            if in_diff {
+                writeln!(f, "{}", dl).unwrap();
+            }
+        }
+        writeln!(f, "```\n").unwrap();
+    }
+
+    // Misleading patches
+    if !misleading.is_empty() {
+        writeln!(f, "## Misleading Patches (claim implement/fix but annotation-only)\n").unwrap();
+        writeln!(f, "```").unwrap();
+        for entry in &misleading {
+            writeln!(f, "{}", entry).unwrap();
+        }
+        writeln!(f, "```\n").unwrap();
+    }
+
+    write_review_response_format(&mut f);
+
+    if !no_src {
+        write_source_appendix(&mut f, workspace_root);
+    }
+
+    drop(f);
+
+    let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    let est_tokens = file_size / 4;
+
+    println!("Review prompt generated: {}", out_path.display());
+    println!("  {} patches analyzed ({} CODE, {} ANNOT)",
+        patches.len(), code_patches.len(), annot_patches.len());
+    if !misleading.is_empty() {
+        println!("  {} misleading patches flagged", misleading.len());
+    }
+    println!("  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+
+    Ok(())
+}
+
+fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: bool) -> Result<(), String> {
     use std::io::Write as _;
 
     // Verify the base commit exists
@@ -72,7 +345,6 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
             continue;
         }
 
-        // Get diff, count non-comment additions/deletions
         let output = Command::new("git")
             .args(["show", hash, "--", "*.rs"])
             .current_dir(workspace_root)
@@ -80,45 +352,18 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
             .map_err(|e| format!("git show failed: {}", e))?;
         let diff_text = String::from_utf8_lossy(&output.stdout).to_string();
 
-        let mut real_adds = 0usize;
-        let mut real_dels = 0usize;
-        let mut total_adds = 0usize;
-        let mut total_dels = 0usize;
-
-        for diff_line in diff_text.lines() {
-            if diff_line.starts_with("+++") || diff_line.starts_with("---") {
-                continue;
-            }
-            if diff_line.starts_with('+') {
-                total_adds += 1;
-                let trimmed = diff_line[1..].trim();
-                if !trimmed.is_empty() && !trimmed.starts_with("//") {
-                    real_adds += 1;
-                }
-            } else if diff_line.starts_with('-') {
-                total_dels += 1;
-                let trimmed = diff_line[1..].trim();
-                if !trimmed.is_empty() && !trimmed.starts_with("//") {
-                    real_dels += 1;
-                }
-            }
-        }
-
+        let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(&diff_text);
         let is_code = real_adds > 0 || real_dels > 0;
+
         let entry = format!(
             "{} {}  [+{}/-{}, code:+{}/-{}]",
             if is_code { "CODE " } else { "ANNOT" },
-            line,
-            total_adds,
-            total_dels,
-            real_adds,
-            real_dels,
+            line, total_adds, total_dels, real_adds, real_dels,
         );
 
         if is_code {
             code_commits.push((hash.to_string(), line.clone(), diff_text));
         } else {
-            // Check for misleading message
             let lower = line.to_lowercase();
             if lower.contains("implement") || lower.contains("fix") {
                 misleading.push(entry.clone());
@@ -127,51 +372,12 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
         }
     }
 
-    // Source files to include for context
-    let source_files = [
-        "layout/src/solver3/fc.rs",
-        "layout/src/solver3/layout_tree.rs",
-        "layout/src/solver3/positioning.rs",
-        "layout/src/solver3/sizing.rs",
-        "layout/src/solver3/geometry.rs",
-        "layout/src/solver3/cache.rs",
-        "layout/src/solver3/getters.rs",
-        "layout/src/solver3/taffy_bridge.rs",
-        "layout/src/solver3/mod.rs",
-        "layout/src/text3/cache.rs",
-        "layout/src/text3/knuth_plass.rs",
-    ];
-
     // Build the output file
     let out_path = PathBuf::from("/tmp/agent-run-review-prompt.md");
     let mut f = fs::File::create(&out_path)
         .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
 
-    writeln!(f, "# Agent Run Code Review — Refactoring & Lazy Commit Analysis\n").unwrap();
-    writeln!(f, "You are reviewing {} commits made by AI agents to a CSS layout engine (Rust).", all_commits.len()).unwrap();
-    writeln!(f, "The agents were tasked with reading W3C CSS spec paragraphs and either:").unwrap();
-    writeln!(f, "1. Annotating the source code with `// +spec:feature-pXXX` markers where behavior is already implemented").unwrap();
-    writeln!(f, "2. Implementing missing behavior described by the spec paragraph\n").unwrap();
-
-    writeln!(f, "## Your Tasks\n").unwrap();
-    writeln!(f, "### Task A: Identify commits that need refactoring").unwrap();
-    writeln!(f, "Look for:").unwrap();
-    writeln!(f, "- **Code duplication**: same logic repeated in multiple places (should be extracted to a helper)").unwrap();
-    writeln!(f, "- **Comment concatenation bugs**: two comments merged on one line").unwrap();
-    writeln!(f, "- **Spaghetti if/else**: unnecessary branching that makes code harder to follow").unwrap();
-    writeln!(f, "- **Wrong abstractions**: code added in the wrong place architecturally\n").unwrap();
-    writeln!(f, "For each issue, specify:").unwrap();
-    writeln!(f, "- Which commit(s) introduced it").unwrap();
-    writeln!(f, "- What the problem is").unwrap();
-    writeln!(f, "- What refactoring is needed (be specific)\n").unwrap();
-
-    writeln!(f, "### Task B: Identify lazy/misleading commits").unwrap();
-    writeln!(f, "Some commits claim to \"implement\" or \"fix\" behavior but only add annotation comments.").unwrap();
-    writeln!(f, "For each, specify: commit hash, what it claims, what it actually does,").unwrap();
-    writeln!(f, "and whether the claimed implementation is genuinely needed.\n").unwrap();
-
-    writeln!(f, "### Task C: Identify genuinely good implementation commits").unwrap();
-    writeln!(f, "List commits that made real, correct code changes. Note any conflicts.\n").unwrap();
+    write_review_header(&mut f, all_commits.len());
 
     // Stats
     writeln!(f, "## Commit Summary\n").unwrap();
@@ -184,7 +390,7 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
     // All commits categorized
     writeln!(f, "## All Commits (categorized)\n").unwrap();
     writeln!(f, "```").unwrap();
-    for (hash, line, _) in &code_commits {
+    for (_hash, line, _) in &code_commits {
         writeln!(f, "CODE  {}", line).unwrap();
     }
     for entry in &annot_commits {
@@ -196,11 +402,10 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
     writeln!(f, "## CODE Commits — Full Diffs\n").unwrap();
     writeln!(f, "Focus your review on these {} commits:\n", code_commits.len()).unwrap();
 
-    for (hash, line, diff_text) in &code_commits {
+    for (_hash, line, diff_text) in &code_commits {
         writeln!(f, "---\n").unwrap();
         writeln!(f, "### {}\n", line).unwrap();
         writeln!(f, "```diff").unwrap();
-        // Skip the commit message header, start from diff lines
         let mut in_diff = false;
         for dl in diff_text.lines() {
             if dl.starts_with("diff --git") {
@@ -223,49 +428,15 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
         writeln!(f, "```\n").unwrap();
     }
 
-    // Response format
-    writeln!(f, "## Response Format\n").unwrap();
-    writeln!(f, "### A. Refactoring Needed").unwrap();
-    writeln!(f, "| Commit(s) | Issue | Refactoring Required |").unwrap();
-    writeln!(f, "|-----------|-------|---------------------|").unwrap();
-    writeln!(f, "| ... | ... | ... |\n").unwrap();
-    writeln!(f, "### B. Lazy/Misleading Commits to Redo").unwrap();
-    writeln!(f, "| Commit | Claims | Actually Does | Implementation Needed? |").unwrap();
-    writeln!(f, "|--------|--------|---------------|----------------------|").unwrap();
-    writeln!(f, "| ... | ... | ... | Yes/No (explain) |\n").unwrap();
-    writeln!(f, "### C. Good Implementation Commits").unwrap();
-    writeln!(f, "| Commit | What it does | Quality | Notes |").unwrap();
-    writeln!(f, "|--------|-------------|---------|-------|").unwrap();
-    writeln!(f, "| ... | ... | Good/OK/Needs review | ... |\n").unwrap();
+    write_review_response_format(&mut f);
 
-    // Append source files
-    writeln!(f, "---\n").unwrap();
-    writeln!(f, "## APPENDIX: Current Source Files (post all commits)\n").unwrap();
-    writeln!(f, "Full source for refactoring context.\n").unwrap();
-
-    for src in &source_files {
-        let full_path = workspace_root.join(src);
-        match fs::read_to_string(&full_path) {
-            Ok(content) => {
-                writeln!(f, "### `{}`\n", src).unwrap();
-                writeln!(f, "```rust").unwrap();
-                write!(f, "{}", content).unwrap();
-                if !content.ends_with('\n') {
-                    writeln!(f).unwrap();
-                }
-                writeln!(f, "```\n").unwrap();
-            }
-            Err(e) => {
-                writeln!(f, "### `{}` — MISSING: {}\n", src, e).unwrap();
-            }
-        }
+    if !no_src {
+        write_source_appendix(&mut f, workspace_root);
     }
 
     drop(f);
 
-    let file_size = fs::metadata(&out_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
     let est_tokens = file_size / 4;
 
     println!("Review prompt generated: {}", out_path.display());
@@ -275,10 +446,615 @@ pub fn cmd_review_md(base_commit: &str, workspace_root: &Path) -> Result<(), Str
         println!("  {} misleading commits flagged", misleading.len());
     }
     println!("  File size: {:.1} MB (~{:.0}K tokens)",
-        file_size as f64 / 1_048_576.0,
-        est_tokens as f64 / 1000.0);
+        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
 
     Ok(())
+}
+
+// ── review-arch command ───────────────────────────────────────────────
+
+/// Generate a Gemini architecture-review prompt.
+///
+/// Takes the output of `review-md` (patch review) plus the patch directory
+/// and asks Gemini to produce merge groups with application ordering.
+pub fn cmd_review_arch(
+    patch_dir: &str,
+    review_path: &str,
+    workspace_root: &Path,
+    no_src: bool,
+) -> Result<(), String> {
+    use std::io::Write as _;
+
+    // Resolve patch dir
+    let patch_dir = {
+        let p = PathBuf::from(patch_dir);
+        if p.is_dir() { p } else {
+            let resolved = workspace_root.join(patch_dir);
+            if resolved.is_dir() { resolved } else {
+                return Err(format!("Patch directory not found: {}", patch_dir));
+            }
+        }
+    };
+
+    // Read review file
+    let review_path = PathBuf::from(review_path);
+    let review_content = fs::read_to_string(&review_path)
+        .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+
+    // Scan all patches, extract metadata
+    let mut patches: Vec<PathBuf> = fs::read_dir(&patch_dir)
+        .map_err(|e| format!("Failed to read dir {}: {}", patch_dir.display(), e))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "patch").unwrap_or(false))
+        .collect();
+    patches.sort();
+
+    if patches.is_empty() {
+        return Err(format!("No .patch files found in {}", patch_dir.display()));
+    }
+
+    // Build per-patch summary: name, files touched, CODE/ANNOT, size
+    struct PatchInfo {
+        name: String,
+        feature: String,
+        para_num: String,
+        files_touched: Vec<String>,
+        is_code: bool,
+        added: usize,
+        removed: usize,
+    }
+
+    let mut patch_infos = Vec::new();
+    for patch_path in &patches {
+        let content = fs::read_to_string(patch_path)
+            .map_err(|e| format!("Failed to read {}: {}", patch_path.display(), e))?;
+        let name = patch_path.file_name().unwrap().to_string_lossy().to_string();
+
+        // Extract feature and paragraph number from name
+        // e.g. "block-formatting-context_023.md.done.001.patch"
+        let stem = name.split(".md").next().unwrap_or(&name);
+        let (feature, para_num) = if let Some(idx) = stem.rfind('_') {
+            (stem[..idx].to_string(), stem[idx + 1..].to_string())
+        } else {
+            (stem.to_string(), String::new())
+        };
+
+        // Files touched
+        let files_touched: Vec<String> = content
+            .lines()
+            .filter(|l| l.starts_with("diff --git"))
+            .filter_map(|l| l.split(" b/").nth(1))
+            .map(|s| s.to_string())
+            .collect();
+
+        let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(&content);
+        let is_code = real_adds > 0 || real_dels > 0;
+
+        patch_infos.push(PatchInfo {
+            name,
+            feature,
+            para_num,
+            files_touched,
+            is_code,
+            added: total_adds,
+            removed: total_dels,
+        });
+    }
+
+    let code_count = patch_infos.iter().filter(|p| p.is_code).count();
+    let annot_count = patch_infos.len() - code_count;
+
+    // Build file-to-patches index (which patches touch which files)
+    let mut file_to_patches: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for pi in &patch_infos {
+        for f in &pi.files_touched {
+            file_to_patches
+                .entry(f.clone())
+                .or_default()
+                .push(pi.name.clone());
+        }
+    }
+
+    // Identify conflict clusters: patches that touch the same file
+    let conflict_files: Vec<(&String, &Vec<String>)> = file_to_patches
+        .iter()
+        .filter(|(_, patches)| patches.len() > 1)
+        .collect();
+
+    // Build output
+    let out_path = PathBuf::from("/tmp/agent-arch-review-prompt.md");
+    let mut f = fs::File::create(&out_path)
+        .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
+
+    writeln!(f, "# Architecture Review — Patch Merge Planning\n").unwrap();
+    writeln!(f, "You are planning how to apply {} patches to a CSS layout engine (Rust).", patches.len()).unwrap();
+    writeln!(f, "A previous review identified code quality issues and conflicts.").unwrap();
+    writeln!(f, "Your job is to produce a **merge plan**: group patches into ordered merge groups.\n").unwrap();
+
+    writeln!(f, "## Your Tasks\n").unwrap();
+    writeln!(f, "### Task 1: Produce merge groups").unwrap();
+    writeln!(f, "Group patches that touch the same code regions or implement the same spec feature.").unwrap();
+    writeln!(f, "For each group, specify:").unwrap();
+    writeln!(f, "- **Group ID** (sequential number)").unwrap();
+    writeln!(f, "- **Patches** in this group (by filename)").unwrap();
+    writeln!(f, "- **Action**: `APPLY` (apply as-is), `MERGE` (agent must merge conflicting patches),").unwrap();
+    writeln!(f, "  `PICK_ONE` (choose best, skip others), `SKIP` (don't apply)").unwrap();
+    writeln!(f, "- **Preferred patch** (for PICK_ONE groups)").unwrap();
+    writeln!(f, "- **Notes**: what the agent should watch for when applying\n").unwrap();
+
+    writeln!(f, "### Task 2: Order the groups").unwrap();
+    writeln!(f, "Order groups so that:").unwrap();
+    writeln!(f, "- Independent patches come first (fewer conflicts, establish base)").unwrap();
+    writeln!(f, "- ANNOT-only patches come last (they just add comments, easy to adapt)").unwrap();
+    writeln!(f, "- Complex MERGE groups come after their dependencies are applied").unwrap();
+    writeln!(f, "- Patches that add new types/enums come before patches that use them\n").unwrap();
+
+    writeln!(f, "### Task 3: Flag patches to skip").unwrap();
+    writeln!(f, "Based on the patch review below, flag patches that:").unwrap();
+    writeln!(f, "- Are regressions (replace better code with worse code)").unwrap();
+    writeln!(f, "- Are completely superseded by another patch in the same group").unwrap();
+    writeln!(f, "- Have hallucinated APIs or fundamentally wrong logic\n").unwrap();
+
+    // Stats
+    writeln!(f, "## Patch Inventory\n").unwrap();
+    writeln!(f, "- Total patches: {}", patches.len()).unwrap();
+    writeln!(f, "- CODE patches: {}", code_count).unwrap();
+    writeln!(f, "- ANNOT patches: {}", annot_count).unwrap();
+
+    // Features breakdown
+    let mut feature_counts: std::collections::BTreeMap<&str, (usize, usize)> =
+        std::collections::BTreeMap::new();
+    for pi in &patch_infos {
+        let entry = feature_counts.entry(&pi.feature).or_insert((0, 0));
+        if pi.is_code {
+            entry.0 += 1;
+        } else {
+            entry.1 += 1;
+        }
+    }
+    writeln!(f, "\n### By feature\n").unwrap();
+    writeln!(f, "| Feature | CODE | ANNOT | Total |").unwrap();
+    writeln!(f, "|---------|------|-------|-------|").unwrap();
+    for (feature, (code, annot)) in &feature_counts {
+        writeln!(f, "| {} | {} | {} | {} |", feature, code, annot, code + annot).unwrap();
+    }
+
+    // Conflict map
+    writeln!(f, "\n## File Conflict Map\n").unwrap();
+    writeln!(f, "These files are touched by multiple patches (potential merge conflicts):\n").unwrap();
+    for (file, patches) in &conflict_files {
+        writeln!(f, "### `{}`  ({} patches)\n", file, patches.len()).unwrap();
+        for p in *patches {
+            let info = patch_infos.iter().find(|pi| &pi.name == p).unwrap();
+            writeln!(f, "- `{}` [{}] +{}/-{}",
+                p,
+                if info.is_code { "CODE" } else { "ANNOT" },
+                info.added,
+                info.removed,
+            ).unwrap();
+        }
+        writeln!(f).unwrap();
+    }
+
+    // All patches list
+    writeln!(f, "## All Patches\n").unwrap();
+    writeln!(f, "```").unwrap();
+    for pi in &patch_infos {
+        writeln!(f, "{} {} {} [+{}/-{}] files: {}",
+            if pi.is_code { "CODE " } else { "ANNOT" },
+            pi.name,
+            pi.feature,
+            pi.added,
+            pi.removed,
+            pi.files_touched.join(", "),
+        ).unwrap();
+    }
+    writeln!(f, "```\n").unwrap();
+
+    // Include the prior review
+    writeln!(f, "---\n").unwrap();
+    writeln!(f, "## APPENDIX A: Patch Review (from review-md)\n").unwrap();
+    writeln!(f, "This review was produced by a prior analysis pass. Use it to inform your grouping.\n").unwrap();
+    writeln!(f, "{}\n", review_content).unwrap();
+
+    // Include source if requested
+    if !no_src {
+        write_source_appendix(&mut f, workspace_root);
+    }
+
+    // Response format
+    writeln!(f, "---\n").unwrap();
+    writeln!(f, "## Required Response Format\n").unwrap();
+    writeln!(f, "Respond with a JSON array of merge groups:\n").unwrap();
+    writeln!(f, "```json").unwrap();
+    writeln!(f, "[").unwrap();
+    writeln!(f, "  {{").unwrap();
+    writeln!(f, "    \"group_id\": 1,").unwrap();
+    writeln!(f, "    \"action\": \"APPLY\",").unwrap();
+    writeln!(f, "    \"patches\": [\"floats_004.md.done.001.patch\"],").unwrap();
+    writeln!(f, "    \"preferred\": null,").unwrap();
+    writeln!(f, "    \"notes\": \"Independent fix for float margin-box overlap. Apply first.\"").unwrap();
+    writeln!(f, "  }},").unwrap();
+    writeln!(f, "  {{").unwrap();
+    writeln!(f, "    \"group_id\": 2,").unwrap();
+    writeln!(f, "    \"action\": \"PICK_ONE\",").unwrap();
+    writeln!(f, "    \"patches\": [\"line-breaking_008.md.done.001.patch\", \"line-breaking_015.md.done.001.patch\", \"line-breaking_040.md.done.001.patch\"],").unwrap();
+    writeln!(f, "    \"preferred\": \"line-breaking_008.md.done.001.patch\",").unwrap();
+    writeln!(f, "    \"notes\": \"All three add WordBreak enum. Pick _008: correctly suppresses hyphenation.\"").unwrap();
+    writeln!(f, "  }},").unwrap();
+    writeln!(f, "  {{").unwrap();
+    writeln!(f, "    \"group_id\": 3,").unwrap();
+    writeln!(f, "    \"action\": \"SKIP\",").unwrap();
+    writeln!(f, "    \"patches\": [\"display-property_001.md.done.001.patch\"],").unwrap();
+    writeln!(f, "    \"preferred\": null,").unwrap();
+    writeln!(f, "    \"notes\": \"Regression: replaces comprehensive blockification with simpler version.\"").unwrap();
+    writeln!(f, "  }}").unwrap();
+    writeln!(f, "]").unwrap();
+    writeln!(f, "```\n").unwrap();
+    writeln!(f, "IMPORTANT: Every patch file must appear in exactly one group. Do not omit any patches.").unwrap();
+
+    drop(f);
+
+    let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    let est_tokens = file_size / 4;
+
+    println!("Architecture review prompt generated: {}", out_path.display());
+    println!("  {} patches inventoried ({} CODE, {} ANNOT)", patches.len(), code_count, annot_count);
+    println!("  {} files with multi-patch conflicts", conflict_files.len());
+    println!("  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+
+    Ok(())
+}
+
+// ── agent-apply command ──────────────────────────────────────────────
+
+/// Apply patches sequentially using an AI agent, guided by an architecture plan.
+///
+/// Reads the merge-group JSON (from Gemini's review-arch output), then processes
+/// each group in order: SKIP groups are ignored, APPLY/PICK_ONE/MERGE groups
+/// get dispatched to a `claude` agent that applies the patch(es) to the codebase.
+pub fn cmd_agent_apply(
+    patch_dir: &str,
+    arch_plan_path: &str,
+    workspace_root: &Path,
+) -> Result<(), String> {
+
+    // Resolve patch dir
+    let patch_dir = {
+        let p = PathBuf::from(patch_dir);
+        if p.is_dir() { p } else {
+            let resolved = workspace_root.join(patch_dir);
+            if resolved.is_dir() { resolved } else {
+                return Err(format!("Patch directory not found: {}", patch_dir));
+            }
+        }
+    };
+
+    // Read and parse the architecture plan
+    let plan_content = fs::read_to_string(arch_plan_path)
+        .map_err(|e| format!("Failed to read arch plan {}: {}", arch_plan_path, e))?;
+
+    // Extract JSON from the plan (may be wrapped in markdown code fences)
+    let json_str = extract_json_from_plan(&plan_content)?;
+
+    let groups: Vec<MergeGroup> = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse merge groups JSON: {}", e))?;
+
+    println!("Loaded {} merge groups from {}", groups.len(), arch_plan_path);
+
+    let mut applied = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+
+    for group in &groups {
+        match group.action.as_str() {
+            "SKIP" => {
+                println!("  [group {}] SKIP: {}", group.group_id,
+                    group.patches.join(", "));
+                skipped += group.patches.len();
+                // Move patches to a .skipped dir
+                let skip_dir = patch_dir.join("skipped");
+                let _ = fs::create_dir_all(&skip_dir);
+                for p in &group.patches {
+                    let src = patch_dir.join(p);
+                    let dst = skip_dir.join(p);
+                    if src.exists() {
+                        let _ = fs::rename(&src, &dst);
+                    }
+                }
+                continue;
+            }
+            "APPLY" | "PICK_ONE" | "MERGE" => {}
+            other => {
+                eprintln!("  [group {}] Unknown action '{}', skipping", group.group_id, other);
+                skipped += group.patches.len();
+                continue;
+            }
+        }
+
+        // Determine which patches to give the agent
+        let active_patches: Vec<String> = match group.action.as_str() {
+            "PICK_ONE" => {
+                // Use preferred if specified, otherwise first
+                let preferred = group.preferred.as_deref()
+                    .unwrap_or_else(|| &group.patches[0]);
+                vec![preferred.to_string()]
+            }
+            _ => group.patches.clone(), // APPLY and MERGE: give all patches
+        };
+
+        // Read patch contents
+        let mut patch_contents = Vec::new();
+        let mut missing = false;
+        for p in &active_patches {
+            let path = patch_dir.join(p);
+            match fs::read_to_string(&path) {
+                Ok(content) => patch_contents.push((p.clone(), content)),
+                Err(e) => {
+                    eprintln!("  [group {}] Missing patch {}: {}", group.group_id, p, e);
+                    missing = true;
+                }
+            }
+        }
+        if missing {
+            failed += active_patches.len();
+            continue;
+        }
+
+        println!("  [group {}] {} {} patches: {}",
+            group.group_id,
+            group.action,
+            active_patches.len(),
+            active_patches.join(", "),
+        );
+
+        // Build agent prompt
+        let prompt = build_apply_prompt(&group, &patch_contents, workspace_root);
+
+        // Run agent
+        let result = run_apply_agent(&prompt, workspace_root, group.group_id)?;
+
+        if result {
+            applied += active_patches.len();
+            // Move applied patches out of the dir
+            let done_dir = patch_dir.join("applied");
+            let _ = fs::create_dir_all(&done_dir);
+            for p in &group.patches {
+                let src = patch_dir.join(p);
+                let dst = done_dir.join(p);
+                if src.exists() {
+                    let _ = fs::rename(&src, &dst);
+                }
+            }
+        } else {
+            failed += active_patches.len();
+            // Move to failed dir
+            let fail_dir = patch_dir.join("failed");
+            let _ = fs::create_dir_all(&fail_dir);
+            for p in &active_patches {
+                let src = patch_dir.join(p);
+                let dst = fail_dir.join(p);
+                if src.exists() {
+                    let _ = fs::rename(&src, &dst);
+                }
+            }
+        }
+    }
+
+    println!("\nAgent apply complete:");
+    println!("  Applied: {}", applied);
+    println!("  Skipped: {}", skipped);
+    println!("  Failed:  {}", failed);
+
+    // Check if any patches remain in dir
+    let remaining = fs::read_dir(&patch_dir)
+        .map(|rd| rd.filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "patch").unwrap_or(false))
+            .count())
+        .unwrap_or(0);
+    if remaining > 0 {
+        println!("  Remaining (not in any group): {}", remaining);
+    }
+
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct MergeGroup {
+    group_id: usize,
+    action: String,
+    patches: Vec<String>,
+    preferred: Option<String>,
+    notes: Option<String>,
+}
+
+fn extract_json_from_plan(content: &str) -> Result<String, String> {
+    // Try to find JSON array in the content (may be in a code fence)
+    let content = content.trim();
+
+    // If it starts with '[', it's raw JSON
+    if content.starts_with('[') {
+        return Ok(content.to_string());
+    }
+
+    // Look for ```json ... ``` block
+    if let Some(start) = content.find("```json") {
+        let after = &content[start + 7..];
+        if let Some(end) = after.find("```") {
+            return Ok(after[..end].trim().to_string());
+        }
+    }
+
+    // Look for just ``` ... ``` with JSON inside
+    if let Some(start) = content.find("```") {
+        let after = &content[start + 3..];
+        // Skip optional language tag on same line
+        let after = if let Some(nl) = after.find('\n') {
+            &after[nl + 1..]
+        } else {
+            after
+        };
+        if let Some(end) = after.find("```") {
+            let candidate = after[..end].trim();
+            if candidate.starts_with('[') {
+                return Ok(candidate.to_string());
+            }
+        }
+    }
+
+    // Look for first '[' to last ']'
+    if let Some(start) = content.find('[') {
+        if let Some(end) = content.rfind(']') {
+            return Ok(content[start..=end].to_string());
+        }
+    }
+
+    Err("Could not find JSON merge-group array in arch plan file".to_string())
+}
+
+fn build_apply_prompt(
+    group: &MergeGroup,
+    patch_contents: &[(String, String)],
+    workspace_root: &Path,
+) -> String {
+    let mut prompt = String::new();
+
+    prompt.push_str("You are applying patches to a CSS layout engine written in Rust.\n");
+    prompt.push_str(&format!("Working directory: {}\n\n", workspace_root.display()));
+
+    prompt.push_str("## CRITICAL RULES\n\n");
+    prompt.push_str("1. DO NOT cd TO ANY OTHER DIRECTORY. Stay in the working directory.\n");
+    prompt.push_str("2. Apply the semantic intent of the patch, not the literal diff.\n");
+    prompt.push_str("   The patch was generated against a different version of the code.\n");
+    prompt.push_str("   Read the current source files, understand what the patch wants to change,\n");
+    prompt.push_str("   and make the equivalent change to the current code.\n");
+    prompt.push_str("3. After applying, run `cargo check -p azul-layout` to verify compilation.\n");
+    prompt.push_str("4. If compilation fails, fix the errors. Do NOT leave broken code.\n");
+    prompt.push_str("5. Commit your changes with a descriptive message.\n\n");
+
+    match group.action.as_str() {
+        "APPLY" => {
+            prompt.push_str("## Task: Apply patch\n\n");
+            prompt.push_str("Apply the following patch to the codebase.\n\n");
+        }
+        "PICK_ONE" => {
+            prompt.push_str("## Task: Apply preferred patch\n\n");
+            prompt.push_str("The following patch was selected as the best from a conflicting set.\n");
+            prompt.push_str("Apply it to the codebase.\n\n");
+        }
+        "MERGE" => {
+            prompt.push_str("## Task: Merge multiple patches\n\n");
+            prompt.push_str("The following patches all modify the same code region.\n");
+            prompt.push_str("Read ALL of them, understand the combined intent, and produce\n");
+            prompt.push_str("a single coherent implementation that incorporates the best parts.\n\n");
+        }
+        _ => {}
+    }
+
+    if let Some(notes) = &group.notes {
+        prompt.push_str(&format!("## Reviewer Notes\n\n{}\n\n", notes));
+    }
+
+    for (name, content) in patch_contents {
+        prompt.push_str(&format!("## Patch: {}\n\n", name));
+        prompt.push_str("```diff\n");
+        // Include just the diff portion
+        let mut in_diff = false;
+        for line in content.lines() {
+            if line.starts_with("diff --git") {
+                in_diff = true;
+            }
+            if in_diff {
+                prompt.push_str(line);
+                prompt.push('\n');
+            }
+        }
+        prompt.push_str("```\n\n");
+    }
+
+    prompt
+}
+
+fn run_apply_agent(
+    prompt: &str,
+    workspace_root: &Path,
+    group_id: usize,
+) -> Result<bool, String> {
+
+    // Write prompt to temp file
+    let prompt_path = workspace_root.join(format!(".claude-agents/apply-group-{}.md", group_id));
+    let _ = fs::create_dir_all(prompt_path.parent().unwrap());
+    fs::write(&prompt_path, prompt)
+        .map_err(|e| format!("Failed to write prompt: {}", e))?;
+
+    let result_path = workspace_root.join(format!(".claude-agents/apply-group-{}.result", group_id));
+
+    let start = Instant::now();
+
+    let mut child = Command::new("claude")
+        .args([
+            "-p",
+            "--dangerously-skip-permissions",
+            "--verbose",
+            "--output-format", "stream-json",
+            "--disallowedTools",
+            "Bash(cargo build*)", "Bash(cargo run*)", "Bash(cargo test*)",
+            "mcp__*", "rust-analyzer-lsp",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .current_dir(workspace_root)
+        .env("GIT_DIR", workspace_root.join(".git"))
+        .env("GIT_WORK_TREE", workspace_root)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn claude: {}", e))?;
+
+    // Write prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt.as_bytes());
+    }
+
+    // Wait with timeout (10 minutes)
+    let timeout = Duration::from_secs(600);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let elapsed = start.elapsed().as_secs();
+                let stdout = child.stdout.take()
+                    .map(|mut s| {
+                        let mut buf = String::new();
+                        std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+
+                let _ = fs::write(&result_path, &stdout);
+
+                if status.success() {
+                    println!("    -> OK ({}s)", elapsed);
+                    return Ok(true);
+                } else {
+                    println!("    -> FAILED exit={} ({}s)", status.code().unwrap_or(-1), elapsed);
+                    return Ok(false);
+                }
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    println!("    -> TIMEOUT ({}s)", timeout.as_secs());
+                    return Ok(false);
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            Err(e) => {
+                return Err(format!("Failed to wait for agent: {}", e));
+            }
+        }
+    }
 }
 
 // ── CLI argument parsing ───────────────────────────────────────────────
