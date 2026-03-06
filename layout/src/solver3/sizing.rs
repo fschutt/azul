@@ -637,10 +637,15 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             .map(|l| l.bounds().width)
             .unwrap_or(0.0);
 
-        // +spec:inline-block-p049 - css-sizing-3 §2.1: for block containers (including
-        // IFC roots), the min-content block size equals the max-content block size.
-        // We use the max-content layout height (height with no wrapping constraints)
-        // as the canonical block size for both min and max content contributions.
+        // +spec:inline-block-p049 - css-sizing-3 §2.1: the min-content block size
+        // is the height when content wraps at min-content width (taller due to wrapping),
+        // the max-content block size is the height with no wrapping constraints (shorter).
+        let min_content_height = max_layout
+            .fragment_layouts
+            .get("min")
+            .map(|l| l.bounds().height)
+            .unwrap_or(0.0);
+
         let max_content_height = max_layout
             .fragment_layouts
             .get("max")
@@ -651,7 +656,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             min_content_width: min_width,
             max_content_width: max_width,
             preferred_width: None,
-            min_content_height: max_content_height,
+            min_content_height,
             max_content_height,
             preferred_height: None,
         })
