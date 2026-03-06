@@ -2485,6 +2485,11 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 /// This is critical for correct float interaction: normal blocks should overlap floats
 /// (not shrink around them), while their inline content wraps around floats.
 fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNode) -> bool {
+    // +spec:block-formatting-context-p013 - table wrapper box establishes a BFC (CSS 2.2 §17.4)
+    // Anonymous table wrapper boxes have no dom_node_id but must still establish BFC
+    if node.anonymous_type == Some(AnonymousBoxType::TableWrapper) {
+        return true;
+    }
     let Some(dom_id) = node.dom_node_id else {
         return false;
     };
