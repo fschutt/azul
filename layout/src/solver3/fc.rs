@@ -4539,32 +4539,34 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     }
 }
 
-/// Measure a cell's minimum content width (with maximum wrapping)
-fn measure_cell_min_content_width<T: ParsedFontTrait>(
+/// Measure a cell's content width for a given intrinsic sizing mode.
+///
+/// CSS 2.2 Section 17.5.2.2: shared helper for min-content and max-content
+/// width measurement. Lays out the cell subtree in ComputeSize mode and
+/// returns the border-box width (content + padding + border).
+fn measure_cell_content_width<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut crate::font_traits::TextLayoutCache,
     cell_index: usize,
     constraints: &LayoutConstraints,
+    sizing_mode: crate::text3::cache::AvailableSpace,
 ) -> Result<f32> {
-    // CSS 2.2 Section 17.5.2.2: "Calculate the minimum content width (MCW) of each cell"
-    //
-    // Min-content width is the width with maximum wrapping.
-    // Use AvailableSpace::MinContent to signal intrinsic min-content sizing to the
-    // text layout engine.
-    use crate::text3::cache::AvailableSpace;
-    let min_constraints = LayoutConstraints {
+    let width_type = match sizing_mode {
+        crate::text3::cache::AvailableSpace::MinContent => Text3AvailableSpace::MinContent,
+        crate::text3::cache::AvailableSpace::MaxContent => Text3AvailableSpace::MaxContent,
+        crate::text3::cache::AvailableSpace::Definite(w) => Text3AvailableSpace::Definite(w),
+    };
+    let cell_constraints = LayoutConstraints {
         available_size: LogicalSize {
-            width: AvailableSpace::MinContent.to_f32_for_layout(),
+            width: sizing_mode.to_f32_for_layout(),
             height: f32::INFINITY,
         },
         writing_mode: constraints.writing_mode,
-        bfc_state: None, // Don't propagate BFC state for measurement
+        bfc_state: None,
         text_align: constraints.text_align,
         containing_block_size: constraints.containing_block_size,
-        // CRITICAL: Mark this as min-content measurement, not definite width!
-        // This ensures the cached layout won't be incorrectly reused for final rendering.
-        available_width_type: Text3AvailableSpace::MinContent,
+        available_width_type: width_type,
     };
 
     let mut temp_positions: super::PositionVec = Vec::new();
@@ -4577,29 +4579,36 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
         text_cache,
         cell_index,
         LogicalPosition::zero(),
-        min_constraints.available_size,
+        cell_constraints.available_size,
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
-        // ComputeSize: we only need the resulting size, not final positions
         crate::solver3::cache::ComputeMode::ComputeSize,
     )?;
 
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
     let size = cell_node.used_size.unwrap_or_default();
-
-    // Add padding and border to get the total minimum width
     let padding = &cell_node.box_props.padding;
     let border = &cell_node.box_props.border;
-    let writing_mode = constraints.writing_mode;
+    let wm = constraints.writing_mode;
 
-    let min_width = size.width
-        + padding.cross_start(writing_mode)
-        + padding.cross_end(writing_mode)
-        + border.cross_start(writing_mode)
-        + border.cross_end(writing_mode);
+    Ok(size.width
+        + padding.cross_start(wm) + padding.cross_end(wm)
+        + border.cross_start(wm) + border.cross_end(wm))
+}
 
-    Ok(min_width)
+/// Measure a cell's minimum content width (with maximum wrapping)
+fn measure_cell_min_content_width<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    cell_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<f32> {
+    measure_cell_content_width(
+        ctx, tree, text_cache, cell_index, constraints,
+        crate::text3::cache::AvailableSpace::MinContent,
+    )
 }
 
 /// Measure a cell's maximum content width (without wrapping)
@@ -4610,59 +4619,10 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
-    // CSS 2.2 Section 17.5.2.2: "Calculate the maximum content width (MCW) of each cell"
-    //
-    // Max-content width is the width without any wrapping.
-    // Use AvailableSpace::MaxContent to signal intrinsic max-content sizing to
-    // the text layout engine.
-    use crate::text3::cache::AvailableSpace;
-    let max_constraints = LayoutConstraints {
-        available_size: LogicalSize {
-            width: AvailableSpace::MaxContent.to_f32_for_layout(),
-            height: f32::INFINITY,
-        },
-        writing_mode: constraints.writing_mode,
-        bfc_state: None, // Don't propagate BFC state for measurement
-        text_align: constraints.text_align,
-        containing_block_size: constraints.containing_block_size,
-        // CRITICAL: Mark this as max-content measurement, not definite width!
-        // This ensures the cached layout won't be incorrectly reused for final rendering.
-        available_width_type: Text3AvailableSpace::MaxContent,
-    };
-
-    let mut temp_positions: super::PositionVec = Vec::new();
-    let mut temp_scrollbar_reflow = false;
-    let mut temp_float_cache = HashMap::new();
-
-    crate::solver3::cache::calculate_layout_for_subtree(
-        ctx,
-        tree,
-        text_cache,
-        cell_index,
-        LogicalPosition::zero(),
-        max_constraints.available_size,
-        &mut temp_positions,
-        &mut temp_scrollbar_reflow,
-        &mut temp_float_cache,
-        // ComputeSize: we only need the resulting size, not final positions
-        crate::solver3::cache::ComputeMode::ComputeSize,
-    )?;
-
-    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
-    let size = cell_node.used_size.unwrap_or_default();
-
-    // Add padding and border to get the total maximum width
-    let padding = &cell_node.box_props.padding;
-    let border = &cell_node.box_props.border;
-    let writing_mode = constraints.writing_mode;
-
-    let max_width = size.width
-        + padding.cross_start(writing_mode)
-        + padding.cross_end(writing_mode)
-        + border.cross_start(writing_mode)
-        + border.cross_end(writing_mode);
-
-    Ok(max_width)
+    measure_cell_content_width(
+        ctx, tree, text_cache, cell_index, constraints,
+        crate::text3::cache::AvailableSpace::MaxContent,
+    )
 }
 
 // +spec:width-calculation-p019 - §17.5.2.2: automatic table layout algorithm (UA may use any algorithm)
