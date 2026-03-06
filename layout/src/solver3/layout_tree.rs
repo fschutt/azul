@@ -851,6 +851,7 @@ impl LayoutTreeBuilder {
     /// Main entry point for recursively building the layout tree.
     /// This function dispatches to specialized handlers based on the node's
     /// `display` property to correctly generate anonymous boxes.
+    // +spec:display-property-p040 - property index: dispatches by display value to generate boxes per §2 box layout modes
     pub fn process_node(
         &mut self,
         styled_dom: &StyledDom,
@@ -2278,6 +2279,7 @@ fn determine_formatting_context_for_display(
     }
 }
 
+// +spec:display-property-p027 - principal box: maps display type to formatting context
 /// The logic now correctly identifies all BFC roots.
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
     // Special case: Text nodes should be treated as inline content.
@@ -2311,6 +2313,7 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
             }
         }
         LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
+        // +spec:display-property-p016 - table behaves as block-level (display:table) or inline-level (display:inline-table); generates table wrapper box per CSS2§17.4
         LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
         LayoutDisplay::TableRowGroup
         | LayoutDisplay::TableHeaderGroup
@@ -2321,6 +2324,7 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
+        // +spec:display-property-p047 - grid containers: ::first-line/::first-letter don't apply; overflow property applies (CSS Grid 5.1/5.3)
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
 
         // These less common display types default to block behavior
