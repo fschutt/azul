@@ -2836,12 +2836,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         constraints.available_size.width
     );
 
-    // Get text-indent
-    let text_indent = styled_dom
+    // +spec:line-breaking-p038 - §8.1 text-indent: resolve value and extract each-line/hanging flags
+    let text_indent_prop = styled_dom
         .css_property_cache
         .ptr
         .get_text_indent(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+        .and_then(|s| s.get_property().cloned());
+    let text_indent = text_indent_prop
         .map(|ti| {
             let context = ResolutionContext {
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
@@ -2855,6 +2856,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 .resolve_with_context(&context, PropertyContext::Other)
         })
         .unwrap_or(0.0);
+    let text_indent_each_line = text_indent_prop.map(|ti| ti.each_line).unwrap_or(false);
+    let text_indent_hanging = text_indent_prop.map(|ti| ti.hanging).unwrap_or(false);
 
     // Get column-count for multi-column layout (default: 1 = no columns)
     let columns = styled_dom
@@ -3006,6 +3009,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         exclusion_margin,
         hyphenation_language,
         text_indent,
+        text_indent_each_line,
+        text_indent_hanging,
         initial_letter,
         line_clamp,
         columns,

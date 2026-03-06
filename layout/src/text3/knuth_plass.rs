@@ -241,6 +241,22 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         // every character (including mid-word).
         AvailableSpace::MinContent => f32::MAX / 2.0,
     };
+
+    // +spec:line-breaking-p039 - text-indent reduces available width for the first line
+    // (and lines after forced breaks when each-line is set). The hanging keyword would
+    // invert this, indenting all lines EXCEPT the first.
+    let text_indent = constraints.text_indent;
+    let first_line_width = if !constraints.text_indent_hanging {
+        line_width - text_indent
+    } else {
+        line_width
+    };
+    let non_first_line_width = if constraints.text_indent_hanging {
+        line_width - text_indent
+    } else {
+        line_width
+    };
+
     let mut breakpoints = vec![
         Breakpoint {
             demerit: INFINITY_BADNESS,
@@ -286,17 +302,26 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
                 }
             }
 
+            // +spec:line-breaking-p039 - use reduced line width for first line to account for text-indent
+            let effective_line_width = if breakpoints[j].line == 0 {
+                first_line_width
+            } else if constraints.text_indent_hanging {
+                non_first_line_width
+            } else {
+                line_width
+            };
+
             // Calculate adjustment ratio. If the line is wider than the available width
             // but has no glue to shrink, it is an invalid candidate.
-            let ratio = if current_width < line_width {
+            let ratio = if current_width < effective_line_width {
                 if stretch > 0.0 {
-                    (line_width - current_width) / stretch
+                    (effective_line_width - current_width) / stretch
                 } else {
                     INFINITY_BADNESS // Cannot stretch
                 }
-            } else if current_width > line_width {
+            } else if current_width > effective_line_width {
                 if shrink > 0.0 {
-                    (line_width - current_width) / shrink
+                    (effective_line_width - current_width) / shrink
                 } else {
                     INFINITY_BADNESS // Cannot shrink
                 }
@@ -443,6 +468,23 @@ fn position_lines_from_breaks(
             TextAlign::Right => remaining_space,
             _ => 0.0,
         };
+
+        // +spec:line-breaking-p038 - §8.1 text-indent: apply based on each-line/hanging keywords
+        if constraints.text_indent != 0.0 {
+            let is_indent_target = if constraints.text_indent_each_line {
+                line_index == 0 // TODO: also detect lines after forced breaks in KP path
+            } else {
+                line_index == 0
+            };
+            let should_indent = if constraints.text_indent_hanging {
+                !is_indent_target
+            } else {
+                is_indent_target
+            };
+            if should_indent {
+                main_axis_pen += constraints.text_indent;
+            }
+        }
 
         for item in line_items {
             let item_advance = get_item_measure(&item, false);

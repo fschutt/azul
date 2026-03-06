@@ -715,6 +715,9 @@ pub struct UnifiedConstraints {
     pub hyphenation: bool,
     pub hyphenation_language: Option<Language>,
     pub text_indent: f32,
+    // +spec:line-breaking-p038 - §8.1 text-indent each-line and hanging flags
+    pub text_indent_each_line: bool,
+    pub text_indent_hanging: bool,
     pub initial_letter: Option<InitialLetter>,
     pub line_clamp: Option<NonZeroUsize>,
 
@@ -762,6 +765,8 @@ impl Default for UnifiedConstraints {
             column_gap: 0.0,
             hanging_punctuation: false,
             text_indent: 0.0,
+            text_indent_each_line: false,
+            text_indent_hanging: false,
             initial_letter: None,
             line_clamp: None,
             text_wrap: TextWrap::default(),
@@ -796,6 +801,8 @@ impl Hash for UnifiedConstraints {
         self.columns.hash(state);
         (self.column_gap.round() as usize).hash(state);
         self.hanging_punctuation.hash(state);
+        self.text_indent_each_line.hash(state);
+        self.text_indent_hanging.hash(state);
         self.word_break.hash(state);
         self.white_space_mode.hash(state);
         self.line_break.hash(state);
@@ -827,6 +834,8 @@ impl PartialEq for UnifiedConstraints {
             && self.columns == other.columns
             && round_eq(self.column_gap, other.column_gap)
             && self.hanging_punctuation == other.hanging_punctuation
+            && self.text_indent_each_line == other.text_indent_each_line
+            && self.text_indent_hanging == other.text_indent_hanging
             && self.word_break == other.word_break
             && self.white_space_mode == other.white_space_mode
             && self.line_break == other.line_break
@@ -6212,6 +6221,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut line_top_y = 0.0;
         let mut line_index = 0;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
+        // +spec:line-breaking-p038 - §8.1 text-indent each-line: track forced line breaks
+        let mut is_after_forced_break = false;
         const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
 
         while !cursor.is_done() {
@@ -6354,6 +6365,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 )));
             }
 
+            // +spec:line-breaking-p038 - §8.1 text-indent each-line: detect if this line ends with a forced break
+            let line_ends_with_forced_break = line_items.iter().any(|item| matches!(item, ShapedItem::Break { .. }));
+
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
                 &line_constraints,
@@ -6365,7 +6379,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fragment_constraints,
                 debug_messages,
                 fonts,
+                is_after_forced_break,
             );
+
+            // Track whether the next line follows a forced break
+            is_after_forced_break = line_ends_with_forced_break;
 
             for item in &mut line_pos_items {
                 item.position.x += column_start_x;
@@ -6807,6 +6825,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
+    // +spec:line-breaking-p038 - §8.1 text-indent each-line: track if line follows a forced break
+    is_after_forced_break: bool,
 ) -> (Vec<PositionedItem>, f32) {
     let line_text: String = line_items
         .iter()
@@ -6980,9 +7000,27 @@ pub fn position_one_line<T: ParsedFontTrait>(
             )));
         }
 
-        // Apply text-indent only to the very first segment of the first line.
-        if is_first_line_of_para && segment_idx == 0 {
-            main_axis_pen += constraints.text_indent;
+        // +spec:line-breaking-p038 - §8.1 text-indent: apply indent based on each-line/hanging keywords
+        // +spec:floats-p029 - text-indent applied to first line; adds to start_x which already accounts for float exclusions
+        // Default: indent first line only. each-line: also indent after forced breaks.
+        // hanging: invert which lines get the indent.
+        if segment_idx == 0 {
+            let is_indent_target = if constraints.text_indent_each_line {
+                // each-line: first line AND each line after a forced break
+                is_first_line_of_para || is_after_forced_break
+            } else {
+                // Default: only the first line of the block
+                is_first_line_of_para
+            };
+            // hanging: inverts which lines are affected
+            let should_indent = if constraints.text_indent_hanging {
+                !is_indent_target
+            } else {
+                is_indent_target
+            };
+            if should_indent {
+                main_axis_pen += constraints.text_indent;
+            }
         }
 
         // Calculate total marker width for proper outside marker positioning
