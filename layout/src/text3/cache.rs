@@ -5933,17 +5933,23 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 }
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
-/// for a single item.
+/// for a single item, incorporating half-leading from line-height.
+// +spec:line-height - §10.8.1: half-leading applied per glyph: L = line-height - AD, A' = A + L/2, D' = D + L/2
 pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
             if c.glyphs.is_empty() {
-                // For an empty text cluster, use the line height from its style as a fallback.
-                return (c.style.line_height, 0.0);
+                // §10.8.1 strut: if inline box contains no glyphs, it is considered to
+                // contain a strut with A and D of the element's first available font.
+                // Without actual font metrics here, approximate by splitting line_height
+                // using a typical 80/20 ascent/descent ratio.
+                let lh = c.style.line_height;
+                return (lh * 0.8, lh * 0.2);
             }
-            // CORRECTED: Iterate through ALL glyphs in the cluster to find the true max
-            // ascent/descent.
+            // §10.8.1: for each glyph determine A, D from font metrics,
+            // then L = line-height - (A + D), and adjust: A' = A + L/2, D' = D + L/2.
+            // Note: L may be negative.
             c.glyphs
                 .iter()
                 .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
@@ -5952,10 +5958,15 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
                         return (max_asc, max_desc);
                     }
                     let scale = glyph.style.font_size_px / metrics.units_per_em as f32;
-                    let item_asc = metrics.ascent * scale;
+                    let a = metrics.ascent * scale;
                     // Descent in OpenType is typically negative, so we negate it to get a positive
                     // distance.
-                    let item_desc = (-metrics.descent * scale).max(0.0);
+                    let d = (-metrics.descent * scale).max(0.0);
+                    let ad = a + d;
+                    let leading = glyph.style.line_height - ad;
+                    let half_leading = leading / 2.0;
+                    let item_asc = a + half_leading;
+                    let item_desc = d + half_leading;
                     (max_asc.max(item_asc), max_desc.max(item_desc))
                 })
         }
