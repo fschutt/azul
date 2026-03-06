@@ -2777,6 +2777,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     let writing_mode = get_writing_mode(styled_dom, id, node_state).unwrap_or_default();
 
+    // +spec:inline-formatting-context-p015 - §9.4.2: text-align property controls horizontal distribution of inline boxes within line box
+    // +spec:inline-formatting-context-p032 - §17.5.4: text-align on cell controls horizontal alignment of inline-level content
     let text_align = get_text_align(styled_dom, id, node_state).unwrap_or_default();
 
     let text_justify = styled_dom
@@ -3083,6 +3085,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleHyphens::Auto => text3::cache::Hyphens::Auto,
         },
         text_orientation,
+        // +spec:inline-formatting-context-p015 - §9.4.2: text-align property controls horizontal distribution of inline boxes within line box
         text_align: match text_align {
             StyleTextAlign::Start => text3::cache::TextAlign::Start,
             StyleTextAlign::End => text3::cache::TextAlign::End,
@@ -3100,8 +3103,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
         // +spec:inline-block-p033 - §10.8.1: line-height <number>/<percentage> computed as normalized × font-size
         // +spec:inline-block-p036 - §10.8.1: line-height = normalized_value × font-size (handles number and percentage cases)
+        // +spec:inline-formatting-context-p028 - §10.8.1: line-height resolved relative to font-size (number/em/percentage)
+        // +spec:inline-formatting-context-p050 - §10.8.1: uniform line-height ensures baselines are exactly line-height apart
         line_height: line_height_value.inner.normalized() * font_size,
         // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
+        // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property (initial: baseline, applies to inline-level elements)
         vertical_align,
         word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
         // +spec:white-space-processing-p028 - white-space interaction with line-break strictness
@@ -3160,12 +3166,16 @@ struct TableLayoutContext {
     use_fixed_layout: bool,
     /// Computed height for each row
     row_heights: Vec<f32>,
+    // +spec:inline-formatting-context-p032 - §17.6: border-collapse property (separate|collapse|inherit)
     /// Border collapse mode
     border_collapse: StyleBorderCollapse,
+    // +spec:inline-formatting-context-p032 - §17.6.1: border-spacing in separated borders model
     /// Border spacing (only used when border_collapse is Separate)
     border_spacing: LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
     caption_index: Option<usize>,
+    // +spec:inline-formatting-context-p032 - §17.5.5: visibility:collapse removes rows/columns
+    //   from display without forcing table re-layout
     /// CSS 2.2 Section 17.6: Rows with visibility:collapse (dynamic effects)
     /// Set of row indices that have visibility:collapse
     collapsed_rows: std::collections::HashSet<usize>,
@@ -3658,6 +3668,9 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     StyleCaptionSide::Top // Default per CSS 2.2
 }
 
+// +spec:inline-formatting-context-p032 - §17.5.5: visibility:collapse on row/column/row-group/column-group
+//   removes entire row or column from display; space made available for other content;
+//   spanned content clipped; does not otherwise affect table layout
 /// CSS 2.2 Section 17.6 - Dynamic row and column effects:
 ///
 /// "The 'visibility' value 'collapse' removes a row or column from display,
@@ -3895,6 +3908,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         .iter()
         .filter_map(|col| col.computed_width)
         .sum();
+    // +spec:inline-formatting-context-p033 - §17.5.3: table height = sum of row heights (+ spacing/borders)
+    // +spec:inline-formatting-context-p037 - §17.5.3: 'auto' means sum of row heights; other value is minimum height
     let mut table_height: f32 = table_ctx.row_heights.iter().sum();
 
     debug_table_layout!(
@@ -4035,7 +4050,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         }
     }
 
-    // Total table height includes caption
+    // +spec:inline-formatting-context-p033 - §17.5.3: total table height includes caption
     let total_height = table_height + caption_height;
 
     debug_table_layout!(ctx, "Final table dimensions:");
@@ -4053,7 +4068,9 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         },
         // Cell positions calculated in position_table_cells
         positions: cell_positions,
-        // Tables don't have a baseline
+        // +spec:inline-formatting-context-p033 - §17.5.3: baseline of cell = baseline of first in-flow
+        // line box or first in-flow table-row; if none, bottom of content edge
+        // TODO: implement proper table baseline propagation
         baseline: None,
     };
 
@@ -4663,6 +4680,8 @@ fn distribute_cell_width_across_columns(
 }
 
 /// Layout a cell with its computed column width to determine its content height
+/// +spec:inline-formatting-context-p033 - §17.5.3: cell box height is the minimum height required by content
+/// +spec:inline-formatting-context-p037 - §17.5.3: cell's 'height' property can influence row height but does not increase cell box height
 fn layout_cell_for_height<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -4806,6 +4825,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 }
 
 /// Calculate row heights based on cell content after column widths are determined
+/// +spec:inline-formatting-context-p033 - §17.5.3: row height = max(row's height, cells' heights, MIN from content)
+/// +spec:inline-formatting-context-p037 - §17.5.3: 'auto' height for table-row means MIN; MIN depends on cell box heights and alignment
 fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -4830,6 +4851,9 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         }
     }
 
+    // +spec:inline-formatting-context-p013 - §17.5.3: cell box height is minimum height
+    // required by content; 'height' property can influence row height but does not
+    // increase cell box height
     // First pass: Calculate heights for cells that don't span multiple rows
     for cell_info in &table_ctx.cells {
         // Skip cells in collapsed rows
@@ -4873,13 +4897,16 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             cell_height
         );
 
-        // For single-row cells, update the row height
+        // +spec:inline-formatting-context-p035 - §17.5.3: cell height is min height required by content;
+        //   row height = max of all single-span cell heights in the row
         if cell_info.rowspan == 1 {
             let current_height = table_ctx.row_heights[cell_info.row];
             table_ctx.row_heights[cell_info.row] = current_height.max(cell_height);
         }
     }
 
+    // +spec:inline-formatting-context-p013 - §17.5.3: rowspan cells - sum of row heights
+    // involved must be great enough to encompass the cell spanning the rows
     // Second pass: Handle cells that span multiple rows (rowspan > 1)
     for cell_info in &table_ctx.cells {
         // Skip cells that start in collapsed rows
@@ -5151,6 +5178,9 @@ fn position_table_cells<T: ParsedFontTrait>(
             table_ctx.row_heights
         );
 
+        // +spec:inline-formatting-context-p013 - §17.5.3: cells smaller than row height
+        // receive extra top or bottom padding; vertical-align determines alignment
+        // +spec:inline-formatting-context-p033 - §17.5.3: vertical-align determines cell alignment within row
         // Apply vertical-align to cell content if it has inline layout
         if let Some(ref cached_layout) = cell_node.inline_layout_result {
             let inline_result = &cached_layout.layout;
@@ -5182,19 +5212,28 @@ fn position_table_cells<T: ParsedFontTrait>(
                 - border.main_start(writing_mode)
                 - border.main_end(writing_mode);
 
-            // Calculate vertical offset based on alignment within content-box
+            // +spec:inline-formatting-context-p013 - §17.5.3: vertical-align in table cells
+            // top: top of cell box aligned with top of first row it spans
+            // bottom: bottom of cell box aligned with bottom of last row it spans
+            // middle: center of cell aligned with center of rows it spans
+            // sub, super, text-top, text-bottom, <length>, <percentage>: do not apply to cells;
+            //   the cell is aligned at the baseline instead (approximated as top here)
+            // baseline: baseline of cell put at same height as baseline of first row it spans
+            //   (approximated as top alignment; full baseline algorithm not yet implemented)
             let align_factor = match vertical_align {
                 StyleVerticalAlign::Top => 0.0,
                 StyleVerticalAlign::Middle => 0.5,
                 StyleVerticalAlign::Bottom => 1.0,
-                // For inline text alignments within table cells, default to middle
+                // +spec:inline-formatting-context-p013 - §17.5.3: sub/super/text-top/text-bottom
+                // do not apply to cells; cell is aligned at baseline instead.
+                // Baseline alignment approximated as top (0.0) pending full baseline algorithm.
                 StyleVerticalAlign::Baseline
                 | StyleVerticalAlign::Sub
                 | StyleVerticalAlign::Superscript
                 | StyleVerticalAlign::TextTop
                 | StyleVerticalAlign::TextBottom
                 | StyleVerticalAlign::Percentage(_)
-                | StyleVerticalAlign::Length(_) => 0.5,
+                | StyleVerticalAlign::Length(_) => 0.0,
             };
             let y_offset = (content_box_height - content_height) * align_factor;
 
@@ -5397,7 +5436,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 );
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
-                // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
+                // +spec:inline-formatting-context-p048 - Phase I processing for text nodes in IFC
                 let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref()));
                 let text_items = split_text_for_whitespace(
                     ctx.styled_dom,
@@ -5708,7 +5747,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
-    // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
+    // +spec:inline-formatting-context-p048 - Phase I processing for IFC root text node
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
         let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref()));
         let text_items = split_text_for_whitespace(
@@ -6087,6 +6126,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     Ok((content, child_map))
 }
 
+// +spec:inline-formatting-context-p044 - css-display-3 §2.7: if an inline box is inlinified,
+// it recursively inlinifies all of its in-flow children, so that no block-level descendants
+// break up the inline formatting context in which it participates.
 /// Recursively collects inline content from an inline span (display: inline) element.
 ///
 /// According to CSS Inline Layout Module Level 3 §2:
@@ -6186,14 +6228,14 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
 
         // CASE 1: Text node - collect with span's style
-        // Use split_text_for_whitespace to correctly handle white-space: pre-wrap with \n
+        // +spec:inline-formatting-context-p048 - Phase I processing for inline span text in IFC
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
             debug_info!(
                 ctx,
                 "[collect_inline_span_recursive] ✓ Found text in span: '{}'",
                 text_content.as_str()
             );
-            // Use split_text_for_whitespace to correctly handle white-space: pre with \n
+            // +spec:inline-formatting-context-p048 - Phase I processing for inline span text in IFC
             let text_items = split_text_for_whitespace(
                 ctx.styled_dom,
                 child_dom_id,
@@ -6315,13 +6357,28 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
             }
             _ => {
-                // Other display types inside span (shouldn't normally happen)
+                // +spec:inline-formatting-context-p044 - css-display-3 §2.7: block-level
+                // in-flow children of an inline box are recursively inlinified so they
+                // don't break the IFC. Treat them as inline spans and recurse into their
+                // children to collect text and inline content.
                 debug_info!(
                     ctx,
-                    "[collect_inline_span_recursive] WARNING: Unsupported display type {:?} \
-                     inside inline span",
+                    "[collect_inline_span_recursive] Inlinifying block-level child {:?} \
+                     (display: {:?}) inside inline span per css-display-3 §2.7",
+                    child_dom_id,
                     child_display
                 );
+                let child_style = get_style_properties(ctx.styled_dom, child_dom_id, ctx.system_style.as_ref());
+                collect_inline_span_recursive(
+                    ctx,
+                    tree,
+                    child_dom_id,
+                    child_style,
+                    content,
+                    child_map,
+                    parent_children,
+                    constraints,
+                )?;
             }
         }
     }
@@ -7040,6 +7097,28 @@ pub fn ws_phase4_resolve_tabs(text: &str) -> String {
 /// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
 ///
 /// Returns a Vec of InlineContent items that correctly represent line breaks.
+
+// +spec:inline-formatting-context-p048 - §4.1.1: Returns true if the character has the
+// Bidi_Control property (UAX #9). These characters are ignored during white-space processing.
+fn is_bidi_control(c: char) -> bool {
+    matches!(c,
+        '\u{200E}' | // LEFT-TO-RIGHT MARK
+        '\u{200F}' | // RIGHT-TO-LEFT MARK
+        '\u{202A}' | // LEFT-TO-RIGHT EMBEDDING
+        '\u{202B}' | // RIGHT-TO-LEFT EMBEDDING
+        '\u{202C}' | // POP DIRECTIONAL FORMATTING
+        '\u{202D}' | // LEFT-TO-RIGHT OVERRIDE
+        '\u{202E}' | // RIGHT-TO-LEFT OVERRIDE
+        '\u{2066}' | // LEFT-TO-RIGHT ISOLATE
+        '\u{2067}' | // RIGHT-TO-LEFT ISOLATE
+        '\u{2068}' | // FIRST STRONG ISOLATE
+        '\u{2069}' | // POP DIRECTIONAL ISOLATE
+        '\u{061C}'   // ARABIC LETTER MARK
+    )
+}
+
+// +spec:inline-formatting-context-p048 - §4.1.1 Phase I: for each inline within an IFC,
+// white space characters are processed prior to line breaking and bidi reordering
 pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -7047,7 +7126,14 @@ pub fn split_text_for_whitespace(
     style: Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
     use crate::text3::cache::{BreakType, ClearType, InlineBreak};
-    
+
+    // +spec:inline-formatting-context-p048 - §4.1.1: "ignoring bidi formatting characters
+    // (characters with the Bidi_Control property) as if they were not there"
+    // Strip bidi control characters before white-space processing so they don't
+    // interfere with collapsing (e.g. a bidi mark between two spaces).
+    let text: String = text.chars().filter(|c| !is_bidi_control(*c)).collect();
+    let text: &str = &text;
+
     // Get the white-space property - TEXT NODES inherit from parent!
     // We need to check the parent element's white-space, not the text node itself
     let node_hierarchy = styled_dom.node_hierarchy.as_container();
