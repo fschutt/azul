@@ -544,8 +544,11 @@ pub fn cmd_review_arch(
         }
     };
 
-    // Read review file
-    let review_path = PathBuf::from(review_path);
+    // Read review file (resolve relative to workspace root if needed)
+    let review_path = {
+        let p = PathBuf::from(review_path);
+        if p.is_file() { p } else { workspace_root.join(review_path) }
+    };
     let review_content = fs::read_to_string(&review_path)
         .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
 
@@ -805,34 +808,63 @@ pub fn cmd_review_arch(
 /// Reads the merge-group JSON (from Gemini's review-arch output), then processes
 /// each group in order: SKIP groups are ignored, APPLY/PICK_ONE/MERGE groups
 /// get dispatched to a `claude` agent that applies the patch(es) to the codebase.
+/// Arguments for agent-apply, parsed from CLI flags.
+pub struct AgentApplyArgs {
+    pub patch_dir: String,
+    pub groups_json: String,
+    pub refactor_md: Option<String>,
+    pub review_md: Option<String>,
+    pub arch_md: Option<String>,
+}
+
 pub fn cmd_agent_apply(
-    patch_dir: &str,
-    arch_plan_path: &str,
+    args: &AgentApplyArgs,
     workspace_root: &Path,
 ) -> Result<(), String> {
 
+    // Helper: resolve a path relative to workspace_root if not absolute/found
+    let resolve = |path: &str| -> PathBuf {
+        let p = PathBuf::from(path);
+        if p.exists() { p } else { workspace_root.join(path) }
+    };
+
     // Resolve patch dir
     let patch_dir = {
-        let p = PathBuf::from(patch_dir);
-        if p.is_dir() { p } else {
-            let resolved = workspace_root.join(patch_dir);
-            if resolved.is_dir() { resolved } else {
-                return Err(format!("Patch directory not found: {}", patch_dir));
-            }
+        let resolved = resolve(&args.patch_dir);
+        if resolved.is_dir() { resolved } else {
+            return Err(format!("Patch directory not found: {}", args.patch_dir));
         }
     };
 
-    // Read and parse the architecture plan
-    let plan_content = fs::read_to_string(arch_plan_path)
-        .map_err(|e| format!("Failed to read arch plan {}: {}", arch_plan_path, e))?;
+    // Read optional markdown context files
+    let read_optional = |path: &Option<String>, label: &str| -> Result<Option<String>, String> {
+        match path {
+            Some(p) => {
+                let resolved = resolve(p);
+                let content = fs::read_to_string(&resolved)
+                    .map_err(|e| format!("Failed to read {} {}: {}", label, resolved.display(), e))?;
+                println!("Loaded {}: {} ({} bytes)", label, resolved.display(), content.len());
+                Ok(Some(content))
+            }
+            None => Ok(None),
+        }
+    };
 
-    // Extract JSON from the plan (may be wrapped in markdown code fences)
+    let refactor_content = read_optional(&args.refactor_md, "--refactor-md")?;
+    let review_content = read_optional(&args.review_md, "--review-md")?;
+    let arch_content = read_optional(&args.arch_md, "--arch-md")?;
+
+    // Read and parse the groups JSON
+    let groups_path = resolve(&args.groups_json);
+    let plan_content = fs::read_to_string(&groups_path)
+        .map_err(|e| format!("Failed to read groups JSON {}: {}", groups_path.display(), e))?;
+
     let json_str = extract_json_from_plan(&plan_content)?;
 
     let groups: Vec<MergeGroup> = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to parse merge groups JSON: {}", e))?;
 
-    println!("Loaded {} merge groups from {}", groups.len(), arch_plan_path);
+    println!("Loaded {} merge groups from {}", groups.len(), groups_path.display());
 
     let mut applied = 0usize;
     let mut skipped = 0usize;
@@ -901,7 +933,14 @@ pub fn cmd_agent_apply(
         );
 
         // Build agent prompt
-        let prompt = build_apply_prompt(&group, &patch_contents, workspace_root);
+        let prompt = build_apply_prompt(
+            &group,
+            &patch_contents,
+            refactor_content.as_deref(),
+            review_content.as_deref(),
+            arch_content.as_deref(),
+            workspace_root,
+        );
 
         // Run agent
         let result = run_apply_agent(&prompt, workspace_root, group.group_id)?;
@@ -1012,6 +1051,9 @@ fn extract_json_from_plan(content: &str) -> Result<String, String> {
 fn build_apply_prompt(
     group: &MergeGroup,
     patch_contents: &[(String, String)],
+    refactor_content: Option<&str>,
+    review_content: Option<&str>,
+    arch_content: Option<&str>,
     workspace_root: &Path,
 ) -> String {
     let mut prompt = String::new();
@@ -1021,51 +1063,110 @@ fn build_apply_prompt(
 
     prompt.push_str("## CRITICAL RULES\n\n");
     prompt.push_str("1. DO NOT cd TO ANY OTHER DIRECTORY. Stay in the working directory.\n");
-    prompt.push_str("2. Apply the semantic intent of the patch, not the literal diff.\n");
-    prompt.push_str("   The patch was generated against a different version of the code.\n");
-    prompt.push_str("   Read the current source files, understand what the patch wants to change,\n");
+    prompt.push_str("2. Apply the SEMANTIC INTENT of the patches, not the literal diff.\n");
+    prompt.push_str("   The patches were generated against a different version of the code.\n");
+    prompt.push_str("   Read the current source files, understand what the patches want to change,\n");
     prompt.push_str("   and make the equivalent change to the current code.\n");
-    prompt.push_str("3. After applying, run `cargo check -p azul-layout` to verify compilation.\n");
+    prompt.push_str("3. Compile with: `cargo check -p azul-dll --features build-dll`\n");
+    prompt.push_str("   This is the ONLY valid compilation check. Do NOT use `cargo check -p azul-layout`.\n");
     prompt.push_str("4. If compilation fails, fix the errors. Do NOT leave broken code.\n");
-    prompt.push_str("5. Commit your changes with a descriptive message.\n\n");
+    prompt.push_str("5. Create CLEAN, SEMANTIC commits. The goal is ~2-5 well-structured commits per group,\n");
+    prompt.push_str("   NOT one commit per patch. Group related changes logically.\n");
+    prompt.push_str("6. Commit messages should follow: `spec(<feature>): <what it does>`\n");
+    prompt.push_str("   Example: `spec(line-breaking): implement word-break and line-break CSS properties`\n\n");
 
+    // ── 4-Phase Workflow ───────────────────────────────────────────────
+    prompt.push_str("## Workflow (4 phases, in order)\n\n");
+
+    prompt.push_str("### Phase 1: Refactoring Groundwork\n\n");
+    prompt.push_str("Before touching the patches, perform any refactoring needed to prepare the codebase.\n");
+    prompt.push_str("This ensures patches plug into clean abstractions rather than scattering ad-hoc logic.\n");
+    prompt.push_str("Commit refactoring changes separately with message like:\n");
+    prompt.push_str("  `refactor(<area>): <what was restructured and why>`\n\n");
+
+    prompt.push_str("### Phase 2: Apply Patches (LLM-apply)\n\n");
+    prompt.push_str("Read each patch diff below. Understand the semantic intent. Apply the changes to the\n");
+    prompt.push_str("current codebase, adapting line numbers, function signatures, and context as needed.\n");
+    prompt.push_str("For MERGE groups: combine the best parts of all patches into one coherent implementation.\n");
+    prompt.push_str("For PICK_ONE groups: apply the preferred patch, verify nothing unique is lost from others.\n");
+    prompt.push_str("Commit with: `spec(<feature>): <semantic description>`\n\n");
+
+    prompt.push_str("### Phase 3: Compile Check\n\n");
+    prompt.push_str("Run: `cargo check -p azul-dll --features build-dll`\n");
+    prompt.push_str("Fix ALL compilation errors. Commit fixes if needed.\n\n");
+
+    prompt.push_str("### Phase 4: Review Against Spec\n\n");
+    prompt.push_str("Re-read the patch diffs and the agent_context. Verify:\n");
+    prompt.push_str("- The implementation matches the referenced W3C spec section\n");
+    prompt.push_str("- No logic was lost or incorrectly adapted\n");
+    prompt.push_str("- Edge cases mentioned in agent_context are handled\n");
+    prompt.push_str("If you find issues, fix them and commit. Then compile again:\n");
+    prompt.push_str("  `cargo check -p azul-dll --features build-dll`\n\n");
+
+    // ── Task type ──────────────────────────────────────────────────────
     match group.action.as_str() {
         "APPLY" => {
-            prompt.push_str("## Task: Apply patch\n\n");
-            prompt.push_str("Apply the following patch to the codebase.\n\n");
+            prompt.push_str("## Task Type: APPLY\n\n");
+            prompt.push_str("Apply the following patch(es) to the codebase. These are independent patches\n");
+            prompt.push_str("that don't conflict with each other.\n\n");
         }
         "PICK_ONE" => {
-            prompt.push_str("## Task: Apply preferred patch\n\n");
-            prompt.push_str("The following patch was selected as the best from a conflicting set.\n");
-            prompt.push_str("Apply it to the codebase.\n\n");
+            prompt.push_str("## Task Type: PICK_ONE\n\n");
+            prompt.push_str("Multiple patches implement the same feature. The preferred patch has been selected.\n");
+            prompt.push_str("Apply it, but review the others to ensure no unique logic is lost.\n\n");
         }
         "MERGE" => {
-            prompt.push_str("## Task: Merge multiple patches\n\n");
-            prompt.push_str("The following patches all modify the same code region.\n");
-            prompt.push_str("Read ALL of them, understand the combined intent, and produce\n");
-            prompt.push_str("a single coherent implementation that incorporates the best parts.\n\n");
+            prompt.push_str("## Task Type: MERGE\n\n");
+            prompt.push_str("Multiple patches modify the same code region with overlapping changes.\n");
+            prompt.push_str("Read ALL patches, understand the combined intent, and produce a single\n");
+            prompt.push_str("coherent implementation incorporating the best parts of each.\n\n");
         }
         _ => {}
     }
 
-    // Include the rich agent context from the architecture review.
-    // This is the primary source of truth for what the agent should do.
+    // ── Refactoring groundwork (from --refactor-md) ──────────────────
+    if let Some(refactor) = refactor_content {
+        prompt.push_str("## Refactoring Plan (Phase 1 reference)\n\n");
+        prompt.push_str("The following is the full refactoring groundwork plan. Identify which sections\n");
+        prompt.push_str("are relevant to THIS group's patches and implement them in Phase 1.\n");
+        prompt.push_str("Not all sections will be relevant — only implement what this group needs.\n\n");
+        prompt.push_str(refactor);
+        prompt.push_str("\n\n");
+    }
+
+    // ── Patch review summary (from --review-md) ────────────────────────
+    if let Some(review) = review_content {
+        prompt.push_str("## Patch Review Summary\n\n");
+        prompt.push_str("The following is a quality review of all patches. Use it to understand which\n");
+        prompt.push_str("patches are CODE vs ANNOT, known conflict clusters, and skip recommendations.\n\n");
+        prompt.push_str(review);
+        prompt.push_str("\n\n");
+    }
+
+    // ── Architecture review (from --arch-md) ───────────────────────────
+    if let Some(arch) = arch_content {
+        prompt.push_str("## Architecture Review\n\n");
+        prompt.push_str("The following is an architecture-level review of how patches should be merged.\n");
+        prompt.push_str("It provides the rationale behind the merge groups and ordering.\n\n");
+        prompt.push_str(arch);
+        prompt.push_str("\n\n");
+    }
+
+    // ── Per-group agent context (from groups JSON agent_context field) ──
     if let Some(ctx) = &group.agent_context {
-        prompt.push_str("## Architecture Review Context\n\n");
-        prompt.push_str("The following context was produced by an architecture reviewer who analyzed\n");
-        prompt.push_str("all patches, identified conflicts, and planned the merge strategy.\n");
-        prompt.push_str("Follow these instructions carefully.\n\n");
+        prompt.push_str("## Group-Specific Instructions\n\n");
+        prompt.push_str("The following instructions are specific to THIS merge group.\n");
+        prompt.push_str("This is your primary source of truth for what to do.\n\n");
         prompt.push_str(ctx);
         prompt.push_str("\n\n");
     } else if let Some(notes) = &group.notes {
-        // Fallback to legacy notes field
         prompt.push_str(&format!("## Reviewer Notes\n\n{}\n\n", notes));
     }
 
+    // ── Patch diffs ────────────────────────────────────────────────────
     for (name, content) in patch_contents {
         prompt.push_str(&format!("## Patch: {}\n\n", name));
         prompt.push_str("```diff\n");
-        // Include just the diff portion
         let mut in_diff = false;
         for line in content.lines() {
             if line.starts_with("diff --git") {
