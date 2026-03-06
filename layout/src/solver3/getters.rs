@@ -2165,6 +2165,7 @@ pub fn get_style_properties(
     // should only be used when referenced through CSS system-color keywords.
     let color = color_from_cache.unwrap_or(ColorU::BLACK);
 
+    // +spec:line-height-p012 - §10.8.1: line-height resolved to absolute px; normal ≈ 1.0–1.2, <number>/<percentage> × font-size, <length> as-is
     let line_height = {
         // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16)
         let mut fast_lh = None;

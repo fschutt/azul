@@ -224,7 +224,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
     let mut current_run: Option<GlyphRun<T>> = None;
 
     for item in &layout.items {
-        // We need the ascent of the item to find its baseline from its top-left position.
+        // +spec:line-height-p012 - §10.8.1: baseline recovered from item position + ascent (includes half-leading)
         let (item_ascent, _) = get_item_vertical_metrics(&item.item);
         let baseline_y = item.position.y + item_ascent;
 
@@ -563,7 +563,7 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
     let mut final_glyphs = Vec::new();
 
     for item in &layout.items {
-        // We need the ascent of the item to find its baseline from its top-left position.
+        // +spec:line-height-p012 - §10.8.1: baseline recovered from item position + ascent (includes half-leading)
         let (item_ascent, _) = get_item_vertical_metrics(&item.item);
         let baseline_y = item.position.y + item_ascent;
 

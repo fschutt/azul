@@ -2686,7 +2686,7 @@ impl Default for StyleProperties {
             border: None,
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
-            line_height: FONT_SIZE * 1.2,
+            line_height: FONT_SIZE * 1.2, // +spec:line-height-p012 - §10.8.1: 'normal' defaults to ~1.2 (spec recommends 1.0–1.2)
             text_decoration: TextDecoration::default(),
             font_features: Vec::new(),
             font_variations: Vec::new(),
@@ -3443,6 +3443,13 @@ impl UnifiedLayout {
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
+    // +spec:line-height-p019 - §17.5.3: baseline of a cell is the baseline of the first in-flow line box
+    pub fn first_baseline(&self) -> Option<f32> {
+        self.items
+            .iter()
+            .find_map(|item| get_baseline_for_item(&item.item))
+    }
+
     pub fn last_baseline(&self) -> Option<f32> {
         self.items
             .iter()
@@ -4423,6 +4430,7 @@ impl UnifiedLayout {
     }
 }
 
+// +spec:line-height-p019 - §17.5.3: baseline of a cell is the baseline of the first in-flow line box
 fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
     match item {
         ShapedItem::CombinedBlock {
@@ -6036,6 +6044,9 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
 // +spec:line-height - §10.8.1: half-leading applied per glyph: L = line-height - AD, A' = A + L/2, D' = D + L/2
+// +spec:line-height-p012 - §10.8.1: half-leading applied above ascent and below descent; leading = line-height - (ascent + descent)
+// +spec:line-height-p016 - §10.8: inline box height = line-height (half-leading model); replaced/inline-block = margin box height
+// +spec:line-height-p021 - §10.8.1: on a non-replaced inline element, line-height specifies the height used in line box height calculation
 // +spec:inline-formatting-context-p003 - §10.8.1: half-leading applied to inline boxes; L = line-height - AD, A' = A + L/2, D' = D + L/2
 // +spec:inline-formatting-context-p028 - §10.8.1: for inline non-replaced elements, alignment box is line-height box; for all other elements, alignment box is margin box
 pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
@@ -6074,12 +6085,14 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
                     (max_asc.max(item_asc), max_desc.max(item_desc))
                 })
         }
+        // +spec:line-height-p016 - §10.8: for replaced elements and inline-block, height = margin box
         ShapedItem::Object {
             bounds,
             baseline_offset,
             ..
         } => {
             // Per analysis, `baseline_offset` is the distance from the bottom.
+            // bounds.height already includes margins (set from margin_box_height in fc.rs)
             let ascent = bounds.height - *baseline_offset;
             let descent = *baseline_offset;
             (ascent.max(0.0), descent.max(0.0))
@@ -6101,6 +6114,7 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
 /// Calculates the maximum ascent and descent for an entire line of items.
 /// This determines the "line box" used for vertical alignment.
 ///
+// +spec:line-height-p015 - §10.8: computes uppermost box top and lowermost box bottom across all inline boxes on the line
 // +spec:inline-formatting-context-p004 - §10.8: two-pass line box height calculation
 /// Per CSS 2.2 §10.8: Inline-level boxes aligned 'top' or 'bottom' must be aligned
 /// so as to minimize the line box height. The algorithm is:
@@ -6518,6 +6532,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 item.position.x += column_start_x;
             }
 
+            // +spec:line-height-p012 - §10.8.1: strut — each line box starts with zero-width inline box
+            // with element's font/line-height; minimum line box height = fragment_constraints.line_height
             line_top_y += line_height.max(fragment_constraints.line_height);
             line_index += 1;
             positioned_items.extend(line_pos_items);
@@ -7030,7 +7046,17 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
-    let (line_ascent, line_descent) = calculate_line_metrics(&line_items, constraints.vertical_align);
+    let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align);
+
+    // +spec:line-height-p015 - §10.8: line box height includes the strut: an imaginary zero-width
+    // inline box with the block container's font and line-height. The strut's half-leading
+    // is distributed equally above and below the content area, ensuring the line box height
+    // is at least constraints.line_height (the parent element's computed line-height).
+    let strut_height = constraints.line_height;
+    let strut_half = strut_height / 2.0;
+    let line_ascent = content_ascent.max(strut_half);
+    let line_descent = content_descent.max(strut_half);
+    // +spec:line-height-p015 - line box height = distance from uppermost box top to lowermost box bottom
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.
