@@ -188,3 +188,21 @@ pub fn resolve_pixel_value(
     }
 }
 
+/// Like `resolve_pixel_value`, but with proper viewport unit resolution.
+pub fn resolve_pixel_value_with_viewport(
+    pv: &PixelValue,
+    basis: f32,
+    em_size: f32,
+    rem_size: f32,
+    viewport_width: f32,
+    viewport_height: f32,
+) -> f32 {
+    match pv.metric {
+        SizeMetric::Vw => pv.number.get() / 100.0 * viewport_width,
+        SizeMetric::Vh => pv.number.get() / 100.0 * viewport_height,
+        SizeMetric::Vmin => pv.number.get() / 100.0 * viewport_width.min(viewport_height),
+        SizeMetric::Vmax => pv.number.get() / 100.0 * viewport_width.max(viewport_height),
+        _ => resolve_pixel_value(pv, basis, em_size, rem_size),
+    }
+}
+

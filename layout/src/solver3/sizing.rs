@@ -1425,20 +1425,11 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::MaxContent => intrinsic.max_content_width,
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         LayoutWidth::FitContent(px) => {
-            use azul_css::props::basic::{pixel::{DEFAULT_FONT_SIZE, PT_TO_PX}, SizeMetric};
-            let arg = match px.metric {
-                SizeMetric::Px => px.number.get(),
-                SizeMetric::Pt => px.number.get() * PT_TO_PX,
-                SizeMetric::In => px.number.get() * 96.0,
-                SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
-                SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
-                SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
-                SizeMetric::Percent => px.to_percent().map(|p| p.get() * containing_block_size.width).unwrap_or(0.0),
-                SizeMetric::Vw => px.number.get() / 100.0 * viewport_size.width,
-                SizeMetric::Vh => px.number.get() / 100.0 * viewport_size.height,
-                SizeMetric::Vmin => px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height),
-                SizeMetric::Vmax => px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height),
-            };
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let arg = super::calc::resolve_pixel_value_with_viewport(
+                &px, containing_block_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                viewport_size.width, viewport_size.height,
+            );
             intrinsic.max_content_width.min(intrinsic.min_content_width.max(arg))
         }
         LayoutWidth::Calc(_) => intrinsic.max_content_width, // TODO: resolve calc
@@ -1502,22 +1493,11 @@ pub fn calculate_used_size_for_node(
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         // For block axis, both min-content and max-content equal auto height
         LayoutHeight::FitContent(px) => {
-            use azul_css::props::basic::{pixel::{DEFAULT_FONT_SIZE, PT_TO_PX}, SizeMetric};
-            let arg = match px.metric {
-                SizeMetric::Px => px.number.get(),
-                SizeMetric::Pt => px.number.get() * PT_TO_PX,
-                SizeMetric::In => px.number.get() * 96.0,
-                SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
-                SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
-                SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
-                SizeMetric::Percent => {
-                    px.to_percent().map(|p| p.get() * containing_block_size.height).unwrap_or(0.0)
-                }
-                SizeMetric::Vw => px.number.get() / 100.0 * viewport_size.width,
-                SizeMetric::Vh => px.number.get() / 100.0 * viewport_size.height,
-                SizeMetric::Vmin => px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height),
-                SizeMetric::Vmax => px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height),
-            };
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let arg = super::calc::resolve_pixel_value_with_viewport(
+                &px, containing_block_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                viewport_size.width, viewport_size.height,
+            );
             let auto_height = intrinsic.max_content_height;
             auto_height.min(auto_height.max(arg))
         }

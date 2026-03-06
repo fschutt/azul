@@ -2916,13 +2916,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
-            use azul_css::props::basic::SizeMetric;
-            let offset = match l.metric {
-                SizeMetric::Px => l.number.get(),
-                SizeMetric::Pt => l.number.get() * PT_TO_PX,
-                SizeMetric::Em | SizeMetric::Rem => l.number.get() * font_size,
-                _ => 0.0,
-            };
+            let offset = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
             text3::cache::VerticalAlign::Offset(offset)
         }
     };

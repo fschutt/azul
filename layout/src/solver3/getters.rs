@@ -1744,13 +1744,7 @@ pub fn get_inline_border_info(
     fn resolve_padding(mv: MultiValue<PixelValue>) -> f32 {
         match mv {
             MultiValue::Exact(pv) => {
-                use azul_css::props::basic::SizeMetric;
-                match pv.metric {
-                    SizeMetric::Px => pv.number.get(),
-                    SizeMetric::Pt => pv.number.get() * PT_TO_PX,
-                    SizeMetric::Em | SizeMetric::Rem => pv.number.get() * 16.0,
-                    _ => 0.0,
-                }
+                super::calc::resolve_pixel_value(&pv, 0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
             }
             _ => 0.0,
         }
@@ -2056,14 +2050,8 @@ pub fn get_vertical_align_for_node(
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
-            use azul_css::props::basic::SizeMetric;
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            let px = match l.metric {
-                SizeMetric::Px => l.number.get(),
-                SizeMetric::Pt => l.number.get() * PT_TO_PX,
-                SizeMetric::Em | SizeMetric::Rem => l.number.get() * font_size,
-                _ => 0.0,
-            };
+            let px = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
             crate::text3::cache::VerticalAlign::Offset(px)
         }
     }
