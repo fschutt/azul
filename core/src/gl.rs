@@ -3549,7 +3549,7 @@ impl GlShader {
         let mut current_renderbuffers = [0_i32];
         let mut current_texture_2d = [0_i32];
         let mut current_blend_enabled = [0_u8];
-        let mut current_primitive_restart_fixed_index_enabled = [0_u8];
+        let mut current_primitive_restart_enabled = [0_u8];
 
         gl_context.get_boolean_v(gl::MULTISAMPLE, (&mut current_multisample[..]).into());
         gl_context.get_integer_v(
@@ -3570,8 +3570,8 @@ impl GlShader {
         gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
         gl_context.get_boolean_v(gl::BLEND, (&mut current_blend_enabled[..]).into());
         gl_context.get_boolean_v(
-            gl::PRIMITIVE_RESTART_FIXED_INDEX,
-            (&mut current_primitive_restart_fixed_index_enabled[..]).into(),
+            gl::PRIMITIVE_RESTART,
+            (&mut current_primitive_restart_enabled[..]).into(),
         );
 
         // 1. Create the framebuffer
@@ -3662,7 +3662,17 @@ impl GlShader {
 
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
         gl_context.enable(gl::BLEND);
-        gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+        // Use GL_PRIMITIVE_RESTART (OpenGL 3.1+) instead of
+        // GL_PRIMITIVE_RESTART_FIXED_INDEX (4.3+) for macOS compatibility.
+        gl_context.enable(gl::PRIMITIVE_RESTART);
+        unsafe {
+            let gl = gl_context.get();
+            if gl.glPrimitiveRestartIndex != core::ptr::null_mut() {
+                let func: extern "system" fn(u32) =
+                    core::mem::transmute(gl.glPrimitiveRestartIndex);
+                func(GL_RESTART_INDEX); // u32::MAX
+            }
+        }
         gl_context.disable(gl::MULTISAMPLE);
         gl_context.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA); // TODO: enable / disable
         gl_context.use_program(shader_program_id);
@@ -3722,8 +3732,8 @@ impl GlShader {
         if u32::from(current_blend_enabled[0]) == gl::FALSE {
             gl_context.disable(gl::BLEND);
         }
-        if u32::from(current_primitive_restart_fixed_index_enabled[0]) == gl::FALSE {
-            gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+        if u32::from(current_primitive_restart_enabled[0]) == gl::FALSE {
+            gl_context.disable(gl::PRIMITIVE_RESTART);
         }
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
         gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
