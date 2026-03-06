@@ -1299,7 +1299,8 @@ pub fn calculate_used_size_for_node(
                     available_width.max(0.0)
                 }
                 // +spec:width-calculation-p001 - §10.3.9: inline-block non-replaced with auto width uses shrink-to-fit width
-                LayoutDisplay::InlineBlock => {
+                // +spec:display-property-p047 - inline-grid in IFC is sized as atomic inline-level box (CSS Grid 5.2)
+                LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid => {
                     // CSS 2.2 §10.3.9: If 'width' is 'auto', the used value is the
                     // shrink-to-fit width as for floating elements.
                     // shrink-to-fit = min(max(preferred_minimum, available), preferred)
@@ -1395,6 +1396,7 @@ pub fn calculate_used_size_for_node(
             // For 'auto' height, we initially use the intrinsic content height.
             // For block containers, this will be updated later in the layout process
             // after the children's heights are known.
+            // +spec:display-property-p047 - grid container's auto block size is its max-content size (CSS Grid 5.2)
             intrinsic.max_content_height
         }
         LayoutHeight::Px(px) => {
