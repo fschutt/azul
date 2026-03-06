@@ -244,6 +244,7 @@ impl FloatingContext {
         self.floats.push(FloatBox { kind, rect, margin });
     }
 
+    // +spec:floats-p004 - line boxes next to a float are shortened; resume normal width after the float
     /// Finds the available space on the cross-axis for a line box at a given main-axis range.
     ///
     /// Returns a tuple of (`cross_start_offset`, `cross_end_offset`) relative to the
@@ -258,16 +259,21 @@ impl FloatingContext {
         let mut available_cross_start = 0.0_f32;
         let mut available_cross_end = bfc_cross_size;
 
+        // +spec:floats-p004 - floats with zero outer height do not shorten line boxes
         for float in &self.floats {
-            // Get the logical main-axis span of the existing float.
-            let float_main_start = float.rect.origin.main(wm);
-            let float_main_end = float_main_start + float.rect.size.main(wm);
+            // +spec:floats-p004 - use float margin box for overlap checks (border box must not overlap MARGIN BOX of floats)
+            // Get the logical main-axis span of the existing float's MARGIN BOX.
+            let float_main_start = float.rect.origin.main(wm) - float.margin.main_start(wm);
+            let float_main_end = float_main_start + float.rect.size.main(wm)
+                + float.margin.main_start(wm) + float.margin.main_end(wm);
 
             // Check for overlap on the main axis.
             if main_end > float_main_start && main_start < float_main_end {
-                // The float overlaps with the main-axis range of the element we're placing.
-                let float_cross_start = float.rect.origin.cross(wm);
-                let float_cross_end = float_cross_start + float.rect.size.cross(wm);
+                // CSS 2.2 § 9.5: border box must not overlap MARGIN BOX of floats,
+                // so we include the float's margins in the cross-axis bounds.
+                let float_cross_start = float.rect.origin.cross(wm) - float.margin.cross_start(wm);
+                let float_cross_end = float_cross_start + float.rect.size.cross(wm)
+                    + float.margin.cross_start(wm) + float.margin.cross_end(wm);
 
                 if float.kind == LayoutFloat::Left {
                     // "line-left", i.e., cross-start
@@ -667,16 +673,21 @@ fn position_float(
             }
         }
 
-        // Not enough space at this Y, move down past the lowest overlapping float
+        // +spec:floats-p042 - §9.5.1: when left outer edge cannot be right of earlier float's right outer edge,
+        // top is moved lower than earlier float's bottom (outer edge / margin box bottom)
+        // Not enough space at this Y, move down past the lowest overlapping float's margin box bottom
         let next_main = float_ctx
             .floats
             .iter()
             .filter(|f| {
-                let f_main_start = f.rect.origin.main(wm);
-                let f_main_end = f_main_start + f.rect.size.main(wm);
+                // +spec:floats-p042 - use margin box (outer edges) for overlap check
+                let f_main_start = f.rect.origin.main(wm) - f.margin.main_start(wm);
+                let f_main_end = f_main_start + f.rect.size.main(wm)
+                    + f.margin.main_start(wm) + f.margin.main_end(wm);
                 f_main_end > main_start && f_main_start < main_start + total_main
             })
-            .map(|f| f.rect.origin.main(wm) + f.rect.size.main(wm))
+            // +spec:floats-p042 - move past bottom outer edge (margin box bottom) of earlier float
+            .map(|f| f.rect.origin.main(wm) + f.rect.size.main(wm) + f.margin.main_end(wm))
             .max_by(|a, b| a.partial_cmp(b).unwrap());
 
         if let Some(next) = next_main {
