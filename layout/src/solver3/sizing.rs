@@ -532,27 +532,11 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 });
                 
                 if has_inline_children {
-                    // InlineBlock with inline children - measure as IFC root
-                    let mut intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
-                    
-                    // +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2: intrinsic size contributions
-                    // are based on the outer size of the box. Add margin, padding, and border
-                    // to the content intrinsic size. Auto margins are treated as zero.
-                    // +spec:intrinsic-sizing-p047 - css-sizing-3 §5.2.1: padding/border added to intrinsic contributions
-                    let h_extras = node.box_props.margin.left + node.box_props.margin.right
-                                 + node.box_props.padding.left + node.box_props.padding.right
-                                 + node.box_props.border.left + node.box_props.border.right;
-                    // +spec:height-calculation-p034 - §8.1: padding and border areas surround content area vertically
-                    let v_extras = node.box_props.margin.top + node.box_props.margin.bottom
-                                 + node.box_props.padding.top + node.box_props.padding.bottom
-                                 + node.box_props.border.top + node.box_props.border.bottom;
-                    
-                    intrinsic.min_content_width += h_extras;
-                    intrinsic.max_content_width += h_extras;
-                    intrinsic.min_content_height += v_extras;
-                    intrinsic.max_content_height += v_extras;
-                    
-                    Ok(intrinsic)
+                    // InlineBlock with inline children - measure as IFC root.
+                    // Return content intrinsic sizes only — the parent's
+                    // calculate_block_intrinsic_sizes adds this node's
+                    // margin/border/padding as outer-box extras.
+                    self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
                     // InlineBlock with block children - aggregate like block
                     self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)
