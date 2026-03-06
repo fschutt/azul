@@ -115,6 +115,7 @@ impl UnresolvedMargin {
     pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
         match self {
             UnresolvedMargin::Zero => 0.0,
+            // +spec:width-calculation-p001 - §10.3.9: for inline-block, auto margin-left/margin-right becomes used value of 0
             UnresolvedMargin::Auto => 0.0, // Auto is handled separately in layout
             UnresolvedMargin::Length(pv) => pv.resolve_with_context(ctx, PropertyContext::Margin),
         }

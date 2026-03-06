@@ -189,6 +189,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
+        // +spec:width-calculation-p010 - §10.3.8: abs-pos replaced elements use inline replaced width rules (§10.3.2); intrinsic width used here
         // VirtualViews are replaced elements with a default intrinsic size of 300x150px
         // (same as virtualized view elements)
         if let Some(dom_id) = node.dom_node_id {
@@ -204,6 +205,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 });
             }
             
+            // +spec:width-calculation-p010 - §10.3.8/§10.3.2: abs-pos replaced image width from intrinsic size (same rules as inline replaced)
             // Images are replaced elements - get intrinsic size from the ImageRef
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
                 let size = image_ref.get_size();
@@ -1078,11 +1080,33 @@ pub fn calculate_used_size_for_node(
     let css_height = get_css_height(styled_dom, id, node_state);
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
     let display = get_display_property(styled_dom, Some(id));
+    let position = get_position_type(styled_dom, dom_id);
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width.unwrap_or_default() {
         LayoutWidth::Auto => {
+            // +spec:width-calculation-p002 - §10.3.7: absolutely positioned non-replaced elements with auto width use shrink-to-fit
+            let is_abs_pos = matches!(
+                position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            );
+
+            if is_abs_pos {
+                // §10.3.7: abs-pos elements with auto width use shrink-to-fit
+                // shrink-to-fit = min(max(preferred_minimum, available), preferred)
+                let available_width = (containing_block_size.width
+                    - _box_props.margin.left
+                    - _box_props.margin.right
+                    - _box_props.border.left
+                    - _box_props.border.right
+                    - _box_props.padding.left
+                    - _box_props.padding.right)
+                    .max(0.0);
+                let preferred_minimum = intrinsic.min_content_width;
+                let preferred = intrinsic.max_content_width;
+                preferred_minimum.max(available_width).min(preferred).max(0.0)
+            } else {
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
                 LayoutDisplay::Block
@@ -1092,12 +1116,8 @@ pub fn calculate_used_size_for_node(
                 | LayoutDisplay::Grid => {
                     // For block-level elements (including flex and grid containers),
                     // 'auto' width fills the containing block (minus margins, borders, padding).
-                    // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left -
+                    // CSS 2.2 §10.3.3: width = containing_block_width - margin_left -
                     // margin_right - border_left - border_right - padding_left - padding_right
-                    //
-                    // Note: Flex/Grid CONTAINERS behave like blocks for sizing purposes.
-                    // Flex/Grid ITEMS have different sizing, but that's handled by Taffy
-                    // during the formatting context layout, not here.
                     let available_width = containing_block_size.width
                         - _box_props.margin.left
                         - _box_props.margin.right
@@ -1108,13 +1128,31 @@ pub fn calculate_used_size_for_node(
 
                     available_width.max(0.0)
                 }
-                LayoutDisplay::Inline | LayoutDisplay::InlineBlock => {
-                    // For inline-level elements, 'auto' width is the shrink-to-fit width,
-                    // which is the max-content width
+                // +spec:width-calculation-p001 - §10.3.9: inline-block non-replaced with auto width uses shrink-to-fit width
+                LayoutDisplay::InlineBlock => {
+                    // CSS 2.2 §10.3.9: If 'width' is 'auto', the used value is the
+                    // shrink-to-fit width as for floating elements.
+                    // shrink-to-fit = min(max(preferred_minimum, available), preferred)
+                    let available_width = (containing_block_size.width
+                        - _box_props.margin.left
+                        - _box_props.margin.right
+                        - _box_props.border.left
+                        - _box_props.border.right
+                        - _box_props.padding.left
+                        - _box_props.padding.right)
+                        .max(0.0);
+                    let preferred_minimum = intrinsic.min_content_width;
+                    let preferred = intrinsic.max_content_width;
+                    preferred_minimum.max(available_width).min(preferred).max(0.0)
+                }
+                // +spec:width-calculation-p001 - §10.3.10: inline-block replaced uses intrinsic width (same as inline replaced)
+                LayoutDisplay::Inline => {
+                    // For inline elements, 'auto' width is the intrinsic/max-content width
                     intrinsic.max_content_width
                 }
                 // Table and other display types use intrinsic sizing
                 _ => intrinsic.max_content_width,
+            }
             }
         }
         LayoutWidth::Px(px) => {
