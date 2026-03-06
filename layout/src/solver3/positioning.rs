@@ -342,7 +342,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // +spec:width-calculation-p002 - §10.3.7: horizontal constraint equation for absolutely positioned, non-replaced elements
             // +spec:width-calculation-p001 - §10.3.7/§10.3.8: horizontal constraint for abs-pos elements
             // +spec:width-calculation-p010 - §10.3.8: abs-pos replaced elements use inline replaced width; auto margins resolved by horizontal constraint
+            // +spec:width-calculation-p012 - §10.3.7: all three of left, width, right auto → direction-dependent static position
+            // +spec:width-calculation-p026 - §10.3.8: if left or right is auto, replace auto margin-left/margin-right with 0
+            // +spec:width-calculation-p027 - §10.3.7: left+width auto, right not auto → shrink-to-fit width, then solve for left
             // +spec:width-calculation-p032 - §10.3.8: abs-pos replaced elements with both margins auto, solve with equal values
+            // +spec:width-calculation-p034 - §10.3.7: abs-pos non-replaced auto width → shrink-to-fit when left or right is also auto
             // +spec:width-calculation-p050 - §10.3.7: horizontal constraint for absolutely positioned, non-replaced elements
             // Constraint: left + margin-left + border-left + padding-left + width +
             //   padding-right + border-right + margin-right + right = CB width
