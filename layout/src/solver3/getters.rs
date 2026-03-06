@@ -4261,7 +4261,9 @@ get_css_property_value!(get_flex_shrink_prop, get_flex_shrink, LayoutFlexShrinkV
 get_css_property_value!(get_flex_basis_prop, get_flex_basis, LayoutFlexBasisValue);
 
 // Alignment properties
+// +spec:box-model-p041 - §8.3 align-items: center centers margin box in cross axis; baseline aligns baselines with cross-start margin edge
 get_css_property_value!(get_align_items_prop, get_align_items, LayoutAlignItemsValue);
+// +spec:box-model-p041 - §8.3 align-self: per-item override of align-items (center / baseline behavior)
 get_css_property_value!(get_align_self_prop, get_align_self, LayoutAlignSelfValue);
 get_css_property_value!(get_align_content_prop, get_align_content, LayoutAlignContentValue);
 get_css_property_value!(get_justify_content_prop, get_justify_content, LayoutJustifyContentValue);

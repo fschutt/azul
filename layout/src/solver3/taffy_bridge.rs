@@ -251,8 +251,8 @@ pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::Al
         LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items
         LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
         LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
-        LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center),
-        LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline),
+        LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center), // +spec:box-model-p041 - §8.3 center: margin box centered in cross axis
+        LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline), // +spec:box-model-p041 - §8.3 baseline: align baselines, largest baseline-to-cross-start-margin-edge flush against cross-start
         LayoutAlignSelf::Stretch => Some(taffy::AlignSelf::Stretch),
     }
 }

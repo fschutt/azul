@@ -74,6 +74,7 @@ impl EdgeSizes {
         self.main_start(wm) + self.main_end(wm)
     }
 
+    // +spec:box-model-p041 - §8.3 baseline: item with largest distance between baseline and cross-start margin edge placed flush against cross-start edge
     /// Returns the size of the edge at the start of the cross/inline axis.
     pub fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
