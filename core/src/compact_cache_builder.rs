@@ -449,6 +449,7 @@ impl LayoutWidthLike for LayoutWidth {
             LayoutWidth::Px(pv) => encode_pixel_value_u32(pv),
             LayoutWidth::MinContent => U32_MIN_CONTENT,
             LayoutWidth::MaxContent => U32_MAX_CONTENT,
+            LayoutWidth::FitContent(_) => U32_SENTINEL,
             LayoutWidth::Calc(_) => U32_SENTINEL, // Calc → overflow to tier 3
         }
     }
@@ -461,6 +462,7 @@ impl LayoutWidthLike for LayoutHeight {
             LayoutHeight::Px(pv) => encode_pixel_value_u32(pv),
             LayoutHeight::MinContent => U32_MIN_CONTENT,
             LayoutHeight::MaxContent => U32_MAX_CONTENT,
+            LayoutHeight::FitContent(_) => U32_SENTINEL,
             LayoutHeight::Calc(_) => U32_SENTINEL,
         }
     }

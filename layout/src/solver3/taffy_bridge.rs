@@ -1910,7 +1910,7 @@ fn from_layout_width(
                 },
             }
         }
-        LayoutWidth::MinContent | LayoutWidth::MaxContent => Dimension::auto(),
+        LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => Dimension::auto(),
         LayoutWidth::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
 }
@@ -1932,7 +1932,7 @@ fn from_layout_height(
                 },
             }
         }
-        LayoutHeight::MinContent | LayoutHeight::MaxContent => Dimension::auto(),
+        LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => Dimension::auto(),
         LayoutHeight::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
 }

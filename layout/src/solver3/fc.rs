@@ -589,7 +589,7 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     );
                     (Some(pixels), true)
                 }
-                LayoutWidth::MinContent | LayoutWidth::MaxContent => (None, false),
+                LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => (None, false),
                 LayoutWidth::Calc(_) => (None, false), // TODO: resolve calc
             }
         })
@@ -620,7 +620,7 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     );
                     (Some(pixels), true)
                 }
-                LayoutHeight::MinContent | LayoutHeight::MaxContent => (None, false),
+                LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => (None, false),
                 LayoutHeight::Calc(_) => (None, false), // TODO: resolve calc
             }
         })

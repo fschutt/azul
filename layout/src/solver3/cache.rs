@@ -2083,7 +2083,7 @@ fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
                         && px.metric != SizeMetric::Em
                         && px.metric != SizeMetric::Rem)
             }
-            LayoutHeight::MinContent | LayoutHeight::MaxContent => {
+            LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => {
                 // These are content-based, so they should use the content size
                 true
             }

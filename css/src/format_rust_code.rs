@@ -462,6 +462,7 @@ impl FormatAsRustCode for LayoutWidth {
             LayoutWidth::Px(px) => format!("LayoutWidth::Px({})", format_pixel_value(px)),
             LayoutWidth::MinContent => "LayoutWidth::MinContent".to_string(),
             LayoutWidth::MaxContent => "LayoutWidth::MaxContent".to_string(),
+            LayoutWidth::FitContent(px) => format!("LayoutWidth::FitContent({})", format_pixel_value(px)),
             LayoutWidth::Calc(items) => format!("LayoutWidth::Calc(/* {} items */)", items.len()),
         }
     }
@@ -474,6 +475,7 @@ impl FormatAsRustCode for LayoutHeight {
             LayoutHeight::Px(px) => format!("LayoutHeight::Px({})", format_pixel_value(px)),
             LayoutHeight::MinContent => "LayoutHeight::MinContent".to_string(),
             LayoutHeight::MaxContent => "LayoutHeight::MaxContent".to_string(),
+            LayoutHeight::FitContent(px) => format!("LayoutHeight::FitContent({})", format_pixel_value(px)),
             LayoutHeight::Calc(items) => format!("LayoutHeight::Calc(/* {} items */)", items.len()),
         }
     }
