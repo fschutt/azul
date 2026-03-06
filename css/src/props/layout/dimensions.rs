@@ -224,6 +224,8 @@ pub enum LayoutWidth {
     Px(PixelValue),
     MinContent,
     MaxContent,
+    /// `fit-content(<length-percentage>)` = `min(max-content, max(min-content, <length-percentage>))`
+    FitContent(PixelValue),
     /// `calc()` expression stored as a flat stack-machine AST
     Calc(CalcAstItemVec),
 }
@@ -247,6 +249,7 @@ impl PrintAsCssValue for LayoutWidth {
             LayoutWidth::Px(v) => v.to_string(),
             LayoutWidth::MinContent => "min-content".to_string(),
             LayoutWidth::MaxContent => "max-content".to_string(),
+            LayoutWidth::FitContent(v) => alloc::format!("fit-content({})", v),
             LayoutWidth::Calc(items) => {
                 let inner: Vec<String> = items.iter().map(|i| match i {
                     CalcAstItem::Value(v) => v.to_string(),
@@ -275,6 +278,7 @@ impl LayoutWidth {
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
             (LayoutWidth::Px(a), LayoutWidth::Px(b)) => LayoutWidth::Px(a.interpolate(b, t)),
+            (LayoutWidth::FitContent(a), LayoutWidth::FitContent(b)) => LayoutWidth::FitContent(a.interpolate(b, t)),
             (_, LayoutWidth::Px(b)) if t >= 0.5 => LayoutWidth::Px(*b),
             (LayoutWidth::Px(a), _) if t < 0.5 => LayoutWidth::Px(*a),
             (LayoutWidth::Auto, LayoutWidth::Auto) => LayoutWidth::Auto,
@@ -292,6 +296,8 @@ pub enum LayoutHeight {
     Px(PixelValue),
     MinContent,
     MaxContent,
+    /// `fit-content(<length-percentage>)` = `min(max-content, max(min-content, <length-percentage>))`
+    FitContent(PixelValue),
     /// `calc()` expression stored as a flat stack-machine AST
     Calc(CalcAstItemVec),
 }
@@ -315,6 +321,7 @@ impl PrintAsCssValue for LayoutHeight {
             LayoutHeight::Px(v) => v.to_string(),
             LayoutHeight::MinContent => "min-content".to_string(),
             LayoutHeight::MaxContent => "max-content".to_string(),
+            LayoutHeight::FitContent(v) => alloc::format!("fit-content({})", v),
             LayoutHeight::Calc(items) => {
                 let inner: Vec<String> = items.iter().map(|i| match i {
                     CalcAstItem::Value(v) => v.to_string(),
@@ -343,6 +350,7 @@ impl LayoutHeight {
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
             (LayoutHeight::Px(a), LayoutHeight::Px(b)) => LayoutHeight::Px(a.interpolate(b, t)),
+            (LayoutHeight::FitContent(a), LayoutHeight::FitContent(b)) => LayoutHeight::FitContent(a.interpolate(b, t)),
             (_, LayoutHeight::Px(b)) if t >= 0.5 => LayoutHeight::Px(*b),
             (LayoutHeight::Px(a), _) if t < 0.5 => LayoutHeight::Px(*a),
             (LayoutHeight::Auto, LayoutHeight::Auto) => LayoutHeight::Auto,
@@ -502,6 +510,19 @@ pub mod parser {
             "auto" => Ok(LayoutWidth::Auto),
             "min-content" => Ok(LayoutWidth::MinContent),
             "max-content" => Ok(LayoutWidth::MaxContent),
+            s if s.starts_with("fit-content(") && s.ends_with(')') => {
+                let inner = &s[12..s.len() - 1].trim();
+                parse_pixel_value(inner)
+                    .map(|pv| {
+                        // Negative values are invalid per spec; clamp to zero
+                        if pv.number.get() < 0.0 {
+                            LayoutWidth::FitContent(PixelValue::zero())
+                        } else {
+                            LayoutWidth::FitContent(pv)
+                        }
+                    })
+                    .map_err(LayoutWidthParseError::PixelValue)
+            }
             s if s.starts_with("calc(") && s.ends_with(')') => {
                 let inner = &s[5..s.len() - 1];
                 parse_calc_expression(inner)
@@ -569,6 +590,19 @@ pub mod parser {
             "auto" => Ok(LayoutHeight::Auto),
             "min-content" => Ok(LayoutHeight::MinContent),
             "max-content" => Ok(LayoutHeight::MaxContent),
+            s if s.starts_with("fit-content(") && s.ends_with(')') => {
+                let inner = &s[12..s.len() - 1].trim();
+                parse_pixel_value(inner)
+                    .map(|pv| {
+                        // Negative values are invalid per spec; clamp to zero
+                        if pv.number.get() < 0.0 {
+                            LayoutHeight::FitContent(PixelValue::zero())
+                        } else {
+                            LayoutHeight::FitContent(pv)
+                        }
+                    })
+                    .map_err(LayoutHeightParseError::PixelValue)
+            }
             s if s.starts_with("calc(") && s.ends_with(')') => {
                 let inner = &s[5..s.len() - 1];
                 parse_calc_expression(inner)
