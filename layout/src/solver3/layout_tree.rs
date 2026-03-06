@@ -1885,6 +1885,24 @@ fn collect_box_props(
             bottom: UnresolvedMargin::Zero,
             left: UnresolvedMargin::Zero,
         },
+        // +spec:height-calculation-p032 - §8.3: vertical margins have no effect on non-replaced inline elements
+        // "These properties apply to all elements, but vertical margins will not have
+        //  any effect on non-replaced inline elements."
+        LayoutDisplay::Inline => {
+            let is_replaced = matches!(
+                node_data.get_node_type(),
+                NodeType::Image(_) | NodeType::VirtualView
+            );
+            if is_replaced {
+                unresolved_margin
+            } else {
+                UnresolvedEdge {
+                    top: UnresolvedMargin::Zero,
+                    bottom: UnresolvedMargin::Zero,
+                    ..unresolved_margin
+                }
+            }
+        },
         _ => unresolved_margin,
     };
 
