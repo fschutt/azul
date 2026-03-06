@@ -1451,22 +1451,59 @@ fn layout_bfc<T: ParsedFontTrait>(
         // formatting context as the element itself."
 
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let establishes_bfc = establishes_new_bfc(ctx, child_node);
+        // +spec:floats-p004 - border box of table, block-level replaced element, or BFC-establishing element must not overlap float margin boxes
+        let avoids_floats = establishes_new_bfc(ctx, child_node)
+            || is_block_level_replaced(ctx, child_node);
 
-        // Query available space considering floats ONLY if child establishes new BFC
-        let (cross_start, cross_end, available_cross) = if establishes_bfc {
-            // New BFC: Must shrink or move down to avoid overlapping floats
-            let (start, end) = float_context.available_line_box_space(
+        // Query available space considering floats ONLY if child avoids floats
+        let (cross_start, cross_end, available_cross) = if avoids_floats {
+            // New BFC / replaced / table: Must shrink or move down to avoid overlapping floats
+            let child_cross_needed = child_size.cross(writing_mode);
+            let bfc_cross = constraints.available_size.cross(writing_mode);
+
+            let (mut start, mut end) = float_context.available_line_box_space(
                 main_pen,
                 main_pen + child_size.main(writing_mode),
-                constraints.available_size.cross(writing_mode),
+                bfc_cross,
                 writing_mode,
             );
-            let available = end - start;
+            let mut available = end - start;
+
+            // +spec:floats-p004 - if insufficient space adjacent to floats, clear below preceding floats; may place adjacent if sufficient space
+            // CSS 2.2 § 9.5: "If necessary, implementations should clear the said element
+            // by placing it below any preceding floats, but may place it adjacent to such
+            // floats if there is sufficient space."
+            if available < child_cross_needed && !float_context.floats.is_empty() {
+                let clear_to = float_context.floats.iter()
+                    .filter(|f| {
+                        let f_main_start = f.rect.origin.main(writing_mode) - f.margin.main_start(writing_mode);
+                        let f_main_end = f_main_start + f.rect.size.main(writing_mode)
+                            + f.margin.main_start(writing_mode) + f.margin.main_end(writing_mode);
+                        f_main_end > main_pen && f_main_start < main_pen + child_size.main(writing_mode)
+                    })
+                    .map(|f| {
+                        f.rect.origin.main(writing_mode) + f.rect.size.main(writing_mode)
+                            + f.margin.main_end(writing_mode)
+                    })
+                    .fold(main_pen, f32::max);
+
+                if clear_to > main_pen {
+                    main_pen = clear_to;
+                    let (s, e) = float_context.available_line_box_space(
+                        main_pen,
+                        main_pen + child_size.main(writing_mode),
+                        bfc_cross,
+                        writing_mode,
+                    );
+                    start = s;
+                    end = e;
+                    available = end - start;
+                }
+            }
 
             debug_info!(
                 ctx,
-                "[layout_bfc] Child {} establishes BFC: shrinking to avoid floats, \
+                "[layout_bfc] Child {} avoids floats: shrinking to avoid floats, \
                  cross_range={}..{}, available_cross={}",
                 child_index,
                 start,
@@ -1530,7 +1567,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // CSS 2.2 § 10.3.3: If margin-left and margin-right are both auto, 
         // their used values are equal, centering the element horizontally.
         
-        let (child_cross_pos, mut child_main_pos) = if establishes_bfc {
+        let (child_cross_pos, mut child_main_pos) = if avoids_floats {
             // BFC: Position in space between floats
             (
                 cross_start + child_margin.cross_start(writing_mode),
@@ -1618,16 +1655,16 @@ fn layout_bfc<T: ParsedFontTrait>(
         debug_info!(
             ctx,
             "[layout_bfc] *** NORMAL FLOW BLOCK POSITIONED: child={}, final_pos={:?}, \
-             main_pen={}, establishes_bfc={}",
+             main_pen={}, avoids_floats={}",
             child_index,
             final_pos,
             main_pen,
-            establishes_bfc
+            avoids_floats
         );
 
         // Re-layout IFC children with float context for correct text wrapping
         // Normal flow blocks WITH inline content need float context propagated
-        if is_inline_fc && !establishes_bfc {
+        if is_inline_fc && !avoids_floats {
             // Use cached floats if available (from previous layout passes),
             // otherwise use the floats positioned in this pass
             let floats_for_ifc = float_cache.get(&node_index).unwrap_or(&float_context);
@@ -2508,6 +2545,34 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
 
     // Normal flow block boxes do NOT establish BFC
     false
+}
+
+// +spec:floats-p004 - block-level replaced elements must not overlap float margin boxes (CSS 2.2 § 9.5)
+/// CSS 2.2 § 9.5: "The border box of a table, a block-level replaced element, or an element
+/// in the normal flow that establishes a new block formatting context [...] must not overlap
+/// the margin box of any floats in the same block formatting context as the element itself."
+fn is_block_level_replaced<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNode) -> bool {
+    let Some(dom_id) = node.dom_node_id else {
+        return false;
+    };
+
+    // Check display is block-level
+    let display = get_display_property(ctx.styled_dom, Some(dom_id));
+    let is_block_level = matches!(
+        display,
+        MultiValue::Exact(LayoutDisplay::Block | LayoutDisplay::ListItem | LayoutDisplay::FlowRoot)
+    );
+
+    if !is_block_level {
+        return false;
+    }
+
+    // Check if the element is a replaced element (image, video, etc.)
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    matches!(
+        node_data.get_node_type(),
+        NodeType::Image(_)
+    )
 }
 
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
