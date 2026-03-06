@@ -54,17 +54,20 @@ azul-doc autofix debug api <T>       # Debug type: api.json vs workspace
 azul-doc autofix debug file <path>   # Debug parsing a specific Rust source file
 ```
 
-### normalize / dedup — Clean Up api.json
+### normalize — Clean Up api.json
 
 ```bash
-azul-doc normalize    # Canonicalize type representations in api.json
-                      # (array types, pointer aliases, generic args, enum variants)
-azul-doc dedup        # Remove duplicate type entries across modules
+azul-doc normalize    # Canonicalize types + remove cross-module duplicates
 ```
 
-`normalize` fixes data format (e.g. `"[f32; 20]"` → `{type: "f32", arraysize: 20}`,
-`"*mut c_void"` → `{target: "c_void", ref_kind: "mutptr"}`). `dedup` removes types
-that appear in multiple modules, keeping only the canonical location.
+Performs all api.json cleanup in one pass:
+- Canonicalize array types (`"[f32; 20]"` → `{type: "f32", arraysize: 20}`)
+- Normalize pointer aliases (`"*mut c_void"` → `{target: "c_void", ref_kind: "mutptr"}`)
+- Extract embedded generics (`"Foo<Bar>"` → `{target: "Foo", generic_args: ["Bar"]}`)
+- Normalize enum variant pointer types
+- Remove duplicate type entries across modules (keeps canonical location only)
+
+Only writes if content actually changed. Idempotent.
 
 ### codegen — Generate Language Bindings
 

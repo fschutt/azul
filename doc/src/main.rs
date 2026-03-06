@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
             return print::handle_print_command(&api_json, &args[2..]);
         }
         ["normalize"] => {
-            println!("[REFRESH] Normalizing api.json...\n");
+            println!("[NORMALIZE] Normalizing api.json...\n");
 
             // Read original content first
             let original_content = fs::read_to_string(&api_path)?;
@@ -76,6 +76,12 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
+            // Remove duplicate types across modules
+            let dedup_count = patch::remove_duplicate_types(&mut api_data);
+            if dedup_count > 0 {
+                println!("[DEDUP] Removed {} duplicate types", dedup_count);
+            }
+
             let api_json = to_json_pretty_4space(&api_data)?;
 
             // Only write if content actually changed
@@ -88,16 +94,26 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         ["dedup"] => {
-            println!("[DEDUP] Removing duplicate types from api.json...\n");
+            println!("[DEDUP] Note: dedup is now part of 'normalize'. Running normalize...\n");
+            let original_content = fs::read_to_string(&api_path)?;
             let mut api_data = load_api_json(&api_path)?;
-            let removed = patch::remove_duplicate_types(&mut api_data);
-            if removed > 0 {
-                let api_json = to_json_pretty_4space(&api_data)?;
+
+            let array_count = api::normalize_array_types(&mut api_data);
+            let type_alias_count = api::normalize_type_aliases(&mut api_data);
+            let enum_variant_count = api::normalize_enum_variant_types(&mut api_data);
+            let dedup_count = patch::remove_duplicate_types(&mut api_data);
+
+            if array_count > 0 { println!("[ARRAY] Normalized {} array type fields", array_count); }
+            if type_alias_count > 0 { println!("[TYPE_ALIAS] Normalized {} type alias entries", type_alias_count); }
+            if enum_variant_count > 0 { println!("[ENUM_VARIANT] Normalized {} enum variant type entries", enum_variant_count); }
+            if dedup_count > 0 { println!("[DEDUP] Removed {} duplicate types", dedup_count); }
+
+            let api_json = to_json_pretty_4space(&api_data)?;
+            if api_json != original_content {
                 fs::write(&api_path, api_json)?;
-                println!("\n[OK] Removed {} duplicate types", removed);
                 println!("[SAVE] Saved updated api.json\n");
             } else {
-                println!("[OK] No duplicates found\n");
+                println!("[OK] No changes needed\n");
             }
             return Ok(());
         }
@@ -1630,7 +1646,7 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {
             print_cli_help()?;
-            return Ok(());
+            anyhow::bail!("Unknown command: '{}'", args[1..].join(" "));
         }
     }
 
