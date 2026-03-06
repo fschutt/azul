@@ -528,6 +528,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         run_mode: taffy::RunMode::PerformLayout,
         sizing_mode,
         axis: taffy::RequestedAxis::Both,
+        // +spec:margin-collapsing-p001 - margins do not collapse across formatting context boundaries (flex/grid establish independent FC)
         // Flex and Grid containers establish a new BFC, preventing margin collapse.
         vertical_margins_are_collapsible: Line::FALSE,
     };
@@ -930,10 +931,16 @@ fn layout_bfc<T: ParsedFontTrait>(
     let parent_margin_top = node.box_props.margin.main_start(writing_mode);
     let parent_margin_bottom = node.box_props.margin.main_end(writing_mode);
 
+    // +spec:margin-collapsing-p001 - margins do not collapse across formatting context boundaries
+    // If this node establishes an independent formatting context (new BFC), its margins
+    // must NOT collapse with its children's margins. The children are in a different FC.
+    let is_bfc_root = node.parent.is_none() || establishes_new_bfc(ctx, &node);
+
     // Check if parent (this BFC root) has border/padding that prevents parent-child collapse
-    let parent_has_top_blocker = has_margin_collapse_blocker(&node.box_props, writing_mode, true);
-    let parent_has_bottom_blocker =
-        has_margin_collapse_blocker(&node.box_props, writing_mode, false);
+    let parent_has_top_blocker = is_bfc_root
+        || has_margin_collapse_blocker(&node.box_props, writing_mode, true);
+    let parent_has_bottom_blocker = is_bfc_root
+        || has_margin_collapse_blocker(&node.box_props, writing_mode, false);
 
     // Track accumulated top margin for first-child escape
     let mut accumulated_top_margin = 0.0f32;
@@ -2057,7 +2064,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // +spec:box-model-p028 - §10.6.7: auto height increased to include floating descendants
     // whose bottom margin edge exceeds bottom content edge; only floats participating
     // in this BFC are counted (not floats inside abspos descendants or nested BFCs)
-    let is_bfc_root = node.parent.is_none() || establishes_new_bfc(ctx, &node);
+    // +spec:margin-collapsing-p001 - independent FC contains its floats (reuses is_bfc_root from above)
     if is_bfc_root {
         for float_box in &float_context.floats {
             let float_bottom_margin_edge = float_box.rect.origin.main(writing_mode)
@@ -2489,6 +2496,7 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 
 /// Checks if a node establishes a new Block Formatting Context (BFC).
 ///
+// +spec:margin-collapsing-p001 - checks whether a box establishes an independent formatting context
 /// Per CSS 2.2 § 9.4.1, a BFC is established by:
 /// - Floats (elements with float other than 'none')
 /// - Absolutely positioned elements (position: absolute or fixed)
