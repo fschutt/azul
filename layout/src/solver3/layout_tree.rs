@@ -100,7 +100,7 @@ use azul_css::{
             LayoutWritingMode,
         },
         property::{CssProperty, CssPropertyType},
-        style::StyleTextAlign,
+        style::{StyleTextAlign, StyleWhiteSpace},
     },
 };
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
@@ -116,7 +116,8 @@ use crate::{
         getters::{
             get_css_height, get_css_max_height, get_css_max_width, get_css_min_height,
             get_css_min_width, get_css_width, get_display_property, get_float, get_overflow_x,
-            get_overflow_y, get_position, get_text_align, get_writing_mode, MultiValue,
+            get_overflow_y, get_position, get_text_align, get_white_space_property,
+            get_writing_mode, MultiValue,
         },
         scrollbar::ScrollbarRequirements,
         LayoutContext, Result,
@@ -1992,15 +1993,43 @@ fn collect_box_props(
 /// 'irrelevant boxes' means anonymous inline boxes that contain only white space."
 ///
 /// Checks if a DOM node is whitespace-only text (for table anonymous box generation).
-/// Returns true if the node is a text node containing only whitespace characters.
+/// Returns true if the node is a text node containing only whitespace characters
+/// that would be collapsed away by the white-space property.
+// +spec:white-space-processing-p046 - whitespace content that would be collapsed away
+// according to the 'white-space' property does not generate any anonymous inline boxes (CSS2§9.2.2.1)
+// +spec:white-space-processing-p047 - use document white space chars (U+0020, U+0009, segment breaks) not Unicode whitespace
 fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let binding = styled_dom.node_data.as_container();
     let node_data = binding.get(node_id);
     if let Some(data) = node_data {
         if let NodeType::Text(text) = data.get_node_type() {
-            // Check if the text contains only whitespace characters
-            // Per CSS 2.2 Section 17.2.1: whitespace-only anonymous boxes are irrelevant
-            return text.chars().all(|c| c.is_whitespace());
+            // Check if the text contains only CSS document white space characters
+            // Per CSS Text 3 §4.1: document white space = U+0020, U+0009, segment breaks
+            if !text.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')) {
+                return false;
+            }
+            // Per CSS2§9.2.2.1: "White space content that would subsequently be
+            // collapsed away according to the 'white-space' property does not
+            // generate any anonymous inline boxes."
+            // For white-space: pre / pre-wrap / break-spaces, whitespace is preserved
+            // and should NOT be treated as collapsible.
+            let white_space = styled_dom
+                .styled_nodes
+                .as_container()
+                .get(node_id)
+                .map(|n| {
+                    match get_white_space_property(styled_dom, node_id, &n.styled_node_state) {
+                        MultiValue::Exact(ws) => ws,
+                        _ => StyleWhiteSpace::Normal,
+                    }
+                })
+                .unwrap_or(StyleWhiteSpace::Normal);
+            return match white_space {
+                // These values collapse whitespace — whitespace-only text is collapsible
+                StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap | StyleWhiteSpace::PreLine => true,
+                // These values preserve whitespace — whitespace-only text is NOT collapsible
+                StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => false,
+            };
         }
     }
 

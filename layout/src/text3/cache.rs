@@ -2450,6 +2450,7 @@ pub struct InlineBreak {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BreakType {
     Soft,   // Soft wrap break: UA creates unforced line breaks to fit content within the measure
+    // +spec:white-space-processing-p025 - preserved segment breaks and BK/NL class = forced line breaks
     Hard,   // Forced line break: explicit line-breaking controls (preserved newline, <br>)
     Page,   // Page break
     Column, // Column break
@@ -5076,6 +5077,8 @@ pub fn create_logical_items(
                 }
             }
             // +spec:line-breaking-p026 - forced line break: explicit line-breaking controls (preserved newline or <br>)
+            // +spec:white-space-processing-p025 - preserved segment breaks and BK/NL
+            // line breaking class characters must be treated as forced line breaks
             InlineContent::LineBreak(break_info) => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(

@@ -5581,6 +5581,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
 
             if display != LayoutDisplay::Inline {
+                // +spec:white-space-processing-p025 - soft wrap opportunity before and after each atomic inline (handled by is_break_opportunity in text3)
                 // This is an atomic inline-level box (e.g., inline-block, image).
                 // We must determine its size and baseline before passing it to text3.
 
@@ -7292,6 +7293,8 @@ pub fn split_text_for_whitespace(
     // CSS Text Level 3: "Newlines in the source will be honored as forced line breaks."
     match white_space {
         StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => {
+            // +spec:white-space-processing-p003 - §4.1.1 Phase I: pre/pre-wrap/break-spaces treat spaces as sequences of non-breaking spaces
+            // +spec:white-space-processing-p015 - preserved tabs are emitted as InlineContent::Tab for tab stop rendering
             // Pre, pre-wrap, break-spaces: preserve whitespace and honor newlines
             // Split by newlines and BK/NL class chars, insert LineBreak between parts
             // Also handle tab characters (\t) by inserting InlineContent::Tab
@@ -7329,6 +7332,7 @@ pub fn split_text_for_whitespace(
             }
         }
         StyleWhiteSpace::PreLine => {
+            // +spec:white-space-processing-p047 - pre-line: collapse only document white space chars
             // Pre-line: collapse whitespace but honor newlines and BK/NL class chars
             // +spec:white-space-processing-p024 - §5.1: preserved segment breaks + BK/NL always forced
             let segments = split_at_forced_breaks(text);
@@ -7362,6 +7366,7 @@ pub fn split_text_for_whitespace(
                 }
             }
         }
+        // +spec:white-space-processing-p003 - §4.1.1 Phase I: normal/nowrap collapse whitespace sequences to single space
         StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap => {
             // CSS Text Level 3, Section 4.1.1 - Phase I: Collapsing and Transformation
             // https://www.w3.org/TR/css-text-3/#white-space-phase-1
