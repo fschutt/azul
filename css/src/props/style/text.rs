@@ -436,7 +436,7 @@ impl PrintAsCssValue for StyleTextDecoration {
 
 /// CSS 2.2 §10.8.1 vertical-align property values
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C, u8)]
+#[repr(C)]
 pub enum StyleVerticalAlign {
     /// CSS default - align baselines
     Baseline,
