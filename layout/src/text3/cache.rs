@@ -6668,7 +6668,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// # Missing Features:
 /// - word-break property (normal, break-all, keep-all) - IMPLEMENTED via BreakCursor.word_break
 /// - \u26a0\ufe0f line-break property: anywhere implemented; loose/normal/strict CJK strictness
-///   filtering added via `is_cjk_break_allowed_by_strictness` (§5.3)
+///   filtering not yet integrated (§5.3)
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
 /// - \u2705 white-space: break-spaces handling
 // +spec:white-space-processing-p029 - §5.3 line-break: anywhere creates soft wrap opportunity
@@ -8302,79 +8302,6 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
 
 // +spec:white-space-processing-p028 - line-break strictness filtering for CJK break opportunities
 // CSS Text Level 3 §5.3: Determines whether a break opportunity before a character is
-// allowed based on the line-break strictness level. The spec defines:
-// - strict: forbids breaks before small kana (class CJ), CJK hyphens, and certain punctuation
-// - normal: allows breaks before small kana (CJ); allows CJK hyphen breaks for CJK writing systems
-// - loose: additionally allows breaks before hyphens U+2010/U+2013 after ID-class chars
-// - anywhere: allows soft wrap around every typographic character unit
-fn is_cjk_break_allowed_by_strictness(
-    ch: char,
-    _prev_ch: Option<char>,
-    strictness: LineBreakStrictness,
-) -> bool {
-    match strictness {
-        LineBreakStrictness::Anywhere => true,
-        LineBreakStrictness::Loose => {
-            // Loose allows breaks before hyphens U+2010, U+2013 when preceded by ID-class chars
-            // Also allows breaks before small kana (CJ class) and CJK hyphens
-            true
-        }
-        LineBreakStrictness::Normal | LineBreakStrictness::Auto => {
-            // Normal forbids breaks before hyphens U+2010/U+2013 for non-CJK text
-            // but allows breaks before small kana (CJ) and CJK hyphen-like chars
-            // (〜 U+301C, ゠ U+30A0) for CJK writing systems
-            match ch {
-                '\u{2010}' | '\u{2013}' => false, // hyphens forbidden in normal
-                _ => true,
-            }
-        }
-        LineBreakStrictness::Strict => {
-            // Strict forbids breaks before:
-            // - Small kana and prolonged sound mark (Unicode line break class CJ)
-            // - CJK hyphen-like characters: 〜 U+301C, ゠ U+30A0
-            // - Hyphens: ‐ U+2010, – U+2013
-            match ch {
-                '\u{301C}' | '\u{30A0}' => false, // CJK hyphen-like
-                '\u{2010}' | '\u{2013}' => false,  // hyphens
-                c if is_small_kana(c) => false,
-                _ => true,
-            }
-        }
-    }
-}
-
-/// Returns true if the character is a Japanese small kana or Katakana-Hiragana prolonged sound mark
-/// (Unicode line break class CJ). These are forbidden break points in strict line breaking.
-fn is_small_kana(ch: char) -> bool {
-    matches!(ch,
-        '\u{3041}' | // ぁ HIRAGANA LETTER SMALL A
-        '\u{3043}' | // ぃ HIRAGANA LETTER SMALL I
-        '\u{3045}' | // ぅ HIRAGANA LETTER SMALL U
-        '\u{3047}' | // ぇ HIRAGANA LETTER SMALL E
-        '\u{3049}' | // ぉ HIRAGANA LETTER SMALL O
-        '\u{3063}' | // っ HIRAGANA LETTER SMALL TU
-        '\u{3083}' | // ゃ HIRAGANA LETTER SMALL YA
-        '\u{3085}' | // ゅ HIRAGANA LETTER SMALL YU
-        '\u{3087}' | // ょ HIRAGANA LETTER SMALL YO
-        '\u{308E}' | // ゎ HIRAGANA LETTER SMALL WA
-        '\u{3095}' | // ゕ HIRAGANA LETTER SMALL KA
-        '\u{3096}' | // ゖ HIRAGANA LETTER SMALL KE
-        '\u{30A1}' | // ァ KATAKANA LETTER SMALL A
-        '\u{30A3}' | // ィ KATAKANA LETTER SMALL I
-        '\u{30A5}' | // ゥ KATAKANA LETTER SMALL U
-        '\u{30A7}' | // ェ KATAKANA LETTER SMALL E
-        '\u{30A9}' | // ォ KATAKANA LETTER SMALL O
-        '\u{30C3}' | // ッ KATAKANA LETTER SMALL TU
-        '\u{30E3}' | // ャ KATAKANA LETTER SMALL YA
-        '\u{30E5}' | // ュ KATAKANA LETTER SMALL YU
-        '\u{30E7}' | // ョ KATAKANA LETTER SMALL YO
-        '\u{30EE}' | // ヮ KATAKANA LETTER SMALL WA
-        '\u{30F5}' | // ヵ KATAKANA LETTER SMALL KA
-        '\u{30F6}' | // ヶ KATAKANA LETTER SMALL KE
-        '\u{30FC}'   // ー KATAKANA-HIRAGANA PROLONGED SOUND MARK
-    )
-}
-
 // +spec:white-space-processing-p029 - §5.3 line-break: anywhere would make this return true
 // for every typographic character unit, disregarding GL/WJ/ZWJ line breaking classes
 // +spec:line-breaking-p007 - §5.1: soft wrap opportunity before and after each
