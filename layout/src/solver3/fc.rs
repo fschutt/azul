@@ -6473,26 +6473,27 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             .map(|v| v.inner.normalized() * font_size)
             .unwrap_or(font_size * 1.2);
 
+        let cb_width = constraints.containing_block_size.main(constraints.writing_mode);
         let padding_top = crate::solver3::getters::get_css_padding_top(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let padding_bottom = crate::solver3::getters::get_css_padding_bottom(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let padding_left = crate::solver3::getters::get_css_padding_left(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let padding_right = crate::solver3::getters::get_css_padding_right(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let border_top = crate::solver3::getters::get_css_border_top_width(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let border_bottom = crate::solver3::getters::get_css_border_bottom_width(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let border_left = crate::solver3::getters::get_css_border_left_width(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let border_right = crate::solver3::getters::get_css_border_right_width(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let margin_left = crate::solver3::getters::get_css_margin_left(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
         let margin_right = crate::solver3::getters::get_css_margin_right(ctx.styled_dom, span_dom_id, &node_state)
-            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
 
         let total_height = line_height + padding_top + padding_bottom + border_top + border_bottom;
         let total_width = margin_left + padding_left + border_left
