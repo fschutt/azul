@@ -5996,14 +5996,43 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
 
 /// Calculates the maximum ascent and descent for an entire line of items.
 /// This determines the "line box" used for vertical alignment.
+///
+/// Per CSS 2.2 §10.8, top/bottom aligned boxes must minimize line box height.
+/// Two-pass algorithm:
+/// 1) Compute baseline-relative line box from non-top/non-bottom items
+/// 2) Expand if needed to fit top/bottom aligned items
 fn calculate_line_metrics(items: &[ShapedItem]) -> (f32, f32) {
-    // (max_ascent, max_descent)
-    items
+    // Pass 1: Compute ascent/descent from baseline-aligned items only
+    // (i.e., items that are NOT vertical-align: top or bottom).
+    let (mut max_asc, mut max_desc) = items
         .iter()
+        .filter(|item| {
+            let align = get_item_vertical_align(item);
+            !matches!(align, Some(VerticalAlign::Top) | Some(VerticalAlign::Bottom))
+        })
         .fold((0.0f32, 0.0f32), |(max_asc, max_desc), item| {
             let (item_asc, item_desc) = get_item_vertical_metrics(item);
             (max_asc.max(item_asc), max_desc.max(item_desc))
-        })
+        });
+
+    let baseline_line_height = max_asc + max_desc;
+
+    // Pass 2: Check top/bottom aligned items. If any of them is taller
+    // than the current line box, expand the line box to fit.
+    for item in items {
+        let align = get_item_vertical_align(item);
+        if matches!(align, Some(VerticalAlign::Top) | Some(VerticalAlign::Bottom)) {
+            let (item_asc, item_desc) = get_item_vertical_metrics(item);
+            let item_height = item_asc + item_desc;
+            if item_height > baseline_line_height {
+                let excess = item_height - baseline_line_height;
+                max_asc += excess / 2.0;
+                max_desc += excess / 2.0;
+            }
+        }
+    }
+
+    (max_asc, max_desc)
 }
 
 /// Performs layout for a single fragment, consuming items from a `BreakCursor`.
