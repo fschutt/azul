@@ -459,20 +459,11 @@ fn position_lines_from_breaks(
         let ends_with_forced_break = line_nodes.iter().any(|n| matches!(
             n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
         ));
-        let effective_align = if is_last_line || ends_with_forced_break {
-            let tal = constraints.text_align_last;
-            if tal == TextAlign::default() {
-                if constraints.text_align == TextAlign::Justify {
-                    TextAlign::Start
-                } else {
-                    constraints.text_align
-                }
-            } else {
-                tal
-            }
-        } else {
-            constraints.text_align
-        };
+        let effective_align = super::cache::resolve_effective_alignment(
+            constraints.text_align,
+            constraints.text_align_last,
+            is_last_line || ends_with_forced_break,
+        );
 
         let should_justify = constraints.text_justify != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll

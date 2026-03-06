@@ -2141,6 +2141,25 @@ impl ShapeDefinition {
     }
 }
 
+/// Resolve effective text alignment for a line, handling text-align-last per CSS Text §6.3.
+/// For the last line (or lines before forced breaks), text-align-last overrides text-align.
+/// When text-align-last is auto (default), justify falls back to start; others use text-align.
+pub(crate) fn resolve_effective_alignment(
+    text_align: TextAlign,
+    text_align_last: TextAlign,
+    is_last_or_forced: bool,
+) -> TextAlign {
+    if is_last_or_forced {
+        if text_align_last == TextAlign::default() {
+            if text_align == TextAlign::Justify { TextAlign::Start } else { text_align }
+        } else {
+            text_align_last
+        }
+    } else {
+        text_align
+    }
+}
+
 /// Helper function to calculate the size of the bounding box enclosing a set of points.
 fn calculate_bounding_box_size(points: &[Point]) -> Size {
     if points.is_empty() {
@@ -6548,22 +6567,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // +spec:line-breaking-p042 - §6.3 text-align-last: determine if this line
             // uses text-align-last (last line of block, or line right before forced break)
             let is_last_line = cursor.is_done() && !was_hyphenated;
-            let effective_align = if is_last_line || line_ends_with_forced_break {
-                let tal = fragment_constraints.text_align_last;
-                // text-align-last: auto (default) means use text-align,
-                // except when text-align is justify, use start instead
-                if tal == TextAlign::default() {
-                    if fragment_constraints.text_align == TextAlign::Justify {
-                        TextAlign::Start
-                    } else {
-                        fragment_constraints.text_align
-                    }
-                } else {
-                    tal
-                }
-            } else {
-                fragment_constraints.text_align
-            };
+            let effective_align = resolve_effective_alignment(
+                fragment_constraints.text_align,
+                fragment_constraints.text_align_last,
+                is_last_line || line_ends_with_forced_break,
+            );
 
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
