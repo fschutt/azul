@@ -384,19 +384,25 @@ pub fn expand_rect_by_edges(rect: LogicalRect, edges: &EdgeSizes) -> LogicalRect
 // Verwende die Typen aus azul_css für float und clear
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 
+// +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2/§2.3: min-content contribution, max-content contribution,
+// min-content constraint, max-content constraint definitions
+// +spec:intrinsic-sizing-p032 - §2.1 css-sizing-3: defines min-content, max-content,
+// and fit-content sizes for both inline and block axes
+// +spec:intrinsic-sizing-p047 - css-sizing-3 index: IntrinsicSizes struct implements min-content, max-content intrinsic size terms
 /// Represents the intrinsic sizing information for an element, calculated
 /// without knowledge of the final containing block size.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IntrinsicSizes {
-    /// The narrowest possible width, e.g., the width of the longest word.
+    /// §2.1 min-content inline size: inline size fitting contents if all soft wraps taken.
     pub min_content_width: f32,
-    /// The preferred width if infinite horizontal space is available.
+    /// §2.1 max-content inline size: narrowest inline size if no soft wraps taken.
     pub max_content_width: f32,
     /// The width specified by CSS properties, if any.
     pub preferred_width: Option<f32>,
-    /// The height of the element at its `min_content_width`.
+    /// §2.1 min-content block size: for block containers, tables, and inline boxes,
+    /// equivalent to max-content block size.
     pub min_content_height: f32,
-    /// The height of the element at its `max_content_width`.
+    /// §2.1 max-content block size: "ideal" block size, usually content height after layout.
     pub max_content_height: f32,
     /// The height specified by CSS properties, if any.
     pub preferred_height: Option<f32>,
