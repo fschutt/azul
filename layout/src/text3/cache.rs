@@ -6703,7 +6703,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
             if next_unit.is_empty() {
                 break;
             }
-            if next_unit.len() == 1 && is_word_separator(&next_unit[0]) {
+            if next_unit.len() == 1 && is_collapsible_whitespace(&next_unit[0]) {
                 cursor.consume(1);
             } else {
                 break;
@@ -6807,7 +6807,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
     // Note: pre-wrap and break-spaces have different handling (hanging/preserving)
     // which is not yet implemented here.
     while let Some(last) = line_items.last() {
-        if is_word_separator(last) {
+        if is_collapsible_whitespace(last) {
             line_items.pop();
         } else {
             break;
@@ -7791,13 +7791,26 @@ fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
 fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
     let mut trailing_ws = 0.0;
     for item in items.iter().rev() {
-        if is_word_separator(item) {
+        if is_collapsible_whitespace(item) {
             trailing_ws += get_item_measure(item, is_vertical);
         } else {
             break;
         }
     }
     trailing_ws
+}
+
+/// Returns true if the item is collapsible whitespace per CSS Text 3 §4.1.2 Phase II.
+/// This is used for stripping leading/trailing whitespace at line edges —
+/// distinct from `is_word_separator` which is for word-spacing per §7.1.
+pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
+    if let ShapedItem::Cluster(c) = item {
+        c.text.chars().all(|ch| matches!(ch,
+            ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
+        ))
+    } else {
+        false
+    }
 }
 
 // +spec:margin-collapsing-p013 - CSS Text §7.1: word-separator characters
