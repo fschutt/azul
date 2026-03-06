@@ -1209,23 +1209,47 @@ pub fn calculate_used_size_for_node(
     // If the resulting width is smaller than 'min-width', the rules above are applied again
     // using the value of 'min-width' as the computed value for 'width'."
 
-    let constrained_width = apply_width_constraints(
-        styled_dom,
-        id,
-        node_state,
-        resolved_width,
-        containing_block_size.width,
-        _box_props,
-    );
+    // +spec:height-calculation-p043 - §10.4: for replaced elements with intrinsic ratios,
+    // use the constraint violation table to coordinate width+height together;
+    // for non-replaced elements, apply width and height constraints independently
+    let has_intrinsic_ratio = intrinsic.preferred_width.is_some()
+        && intrinsic.preferred_height.is_some()
+        && intrinsic.preferred_width.unwrap_or(0.0) > 0.0
+        && intrinsic.preferred_height.unwrap_or(0.0) > 0.0;
 
-    let constrained_height = apply_height_constraints(
-        styled_dom,
-        id,
-        node_state,
-        resolved_height,
-        containing_block_size.height,
-        _box_props,
-    );
+    let (constrained_width, constrained_height) = if has_intrinsic_ratio {
+        // Replaced element with intrinsic ratio: use §10.4 constraint violation table
+        apply_constraint_violation_table(
+            styled_dom,
+            id,
+            node_state,
+            resolved_width,
+            resolved_height,
+            containing_block_size.width,
+            containing_block_size.height,
+            _box_props,
+        )
+    } else {
+        // Non-replaced element: apply width and height constraints independently
+        let cw = apply_width_constraints(
+            styled_dom,
+            id,
+            node_state,
+            resolved_width,
+            containing_block_size.width,
+            _box_props,
+        );
+
+        let ch = apply_height_constraints(
+            styled_dom,
+            id,
+            node_state,
+            resolved_height,
+            containing_block_size.height,
+            _box_props,
+        );
+        (cw, ch)
+    };
 
     // Step 4: Convert to border-box dimensions, respecting box-sizing property
     // CSS box-sizing:
@@ -1275,6 +1299,162 @@ pub fn calculate_used_size_for_node(
         LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
 
     Ok(result)
+}
+
+// +spec:height-calculation-p047 - §10.4: constraint violation table for replaced elements
+// with intrinsic ratios. Implements all 10 cases from the spec table, coordinating
+// width and height together to preserve the aspect ratio while respecting min/max constraints.
+fn apply_constraint_violation_table(
+    styled_dom: &StyledDom,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    w: f32,  // tentative width (ignoring min/max)
+    h: f32,  // tentative height (ignoring min/max)
+    containing_block_width: f32,
+    containing_block_height: f32,
+    box_props: &BoxProps,
+) -> (f32, f32) {
+    use azul_css::props::basic::{
+        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+        SizeMetric,
+    };
+    use crate::solver3::getters::{
+        get_css_min_width, get_css_max_width, get_css_min_height, get_css_max_height, MultiValue,
+    };
+
+    // Helper to resolve a pixel value to f32
+    fn resolve_px(px: &azul_css::props::basic::pixel::PixelValue, containing: f32, box_props: &BoxProps, is_horizontal: bool) -> Option<f32> {
+        let pixels_opt = match px.metric {
+            SizeMetric::Px => Some(px.number.get()),
+            SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+            SizeMetric::In => Some(px.number.get() * 96.0),
+            SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+            SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+            SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+            SizeMetric::Percent => None,
+            _ => None,
+        };
+        match pixels_opt {
+            Some(v) => Some(v),
+            None => {
+                px.to_percent().map(|p| {
+                    let (m1, m2, b1, b2, p1, p2) = if is_horizontal {
+                        (box_props.margin.left, box_props.margin.right,
+                         box_props.border.left, box_props.border.right,
+                         box_props.padding.left, box_props.padding.right)
+                    } else {
+                        (box_props.margin.top, box_props.margin.bottom,
+                         box_props.border.top, box_props.border.bottom,
+                         box_props.padding.top, box_props.padding.bottom)
+                    };
+                    resolve_percentage_with_box_model(containing, p.get(), (m1, m2), (b1, b2), (p1, p2))
+                })
+            }
+        }
+    }
+
+    // Resolve min-width (default 0)
+    let min_w = match get_css_min_width(styled_dom, id, node_state) {
+        MultiValue::Exact(mw) => resolve_px(&mw.inner, containing_block_width, box_props, true).unwrap_or(0.0),
+        _ => 0.0,
+    };
+
+    // Resolve max-width (default infinity)
+    let max_w = match get_css_max_width(styled_dom, id, node_state) {
+        MultiValue::Exact(mw) => {
+            if mw.inner.number.get() >= core::f32::MAX - 1.0 {
+                f32::MAX
+            } else {
+                resolve_px(&mw.inner, containing_block_width, box_props, true).unwrap_or(f32::MAX)
+            }
+        }
+        _ => f32::MAX,
+    };
+
+    // Resolve min-height (default 0)
+    let min_h = match get_css_min_height(styled_dom, id, node_state) {
+        MultiValue::Exact(mh) => resolve_px(&mh.inner, containing_block_height, box_props, false).unwrap_or(0.0),
+        _ => 0.0,
+    };
+
+    // Resolve max-height (default infinity)
+    let max_h = match get_css_max_height(styled_dom, id, node_state) {
+        MultiValue::Exact(mh) => {
+            if mh.inner.number.get() >= core::f32::MAX - 1.0 {
+                f32::MAX
+            } else {
+                resolve_px(&mh.inner, containing_block_height, box_props, false).unwrap_or(f32::MAX)
+            }
+        }
+        _ => f32::MAX,
+    };
+
+    // +spec:height-calculation-p047 - §10.4: "Take the max-width and max-height as
+    // max(min, max) so that min ≤ max holds true."
+    let max_w = max_w.max(min_w);
+    let max_h = max_h.max(min_h);
+
+    // Guard against zero dimensions (avoid division by zero)
+    if w <= 0.0 || h <= 0.0 {
+        return (w.max(min_w).min(max_w), h.max(min_h).min(max_h));
+    }
+
+    let w_over = w > max_w;
+    let w_under = w < min_w;
+    let h_over = h > max_h;
+    let h_under = h < min_h;
+
+    match (w_over, w_under, h_over, h_under) {
+        // Row 1: no constraint violation
+        (false, false, false, false) => (w, h),
+
+        // Row 2: w > max-width only
+        (true, false, false, false) => {
+            (max_w, (max_w * h / w).max(min_h))
+        }
+
+        // Row 3: w < min-width only
+        (false, true, false, false) => {
+            (min_w, (min_w * h / w).min(max_h))
+        }
+
+        // Row 4: h > max-height only
+        (false, false, true, false) => {
+            ((max_h * w / h).max(min_w), max_h)
+        }
+
+        // Row 5: h < min-height only
+        (false, false, false, true) => {
+            ((min_h * w / h).min(max_w), min_h)
+        }
+
+        // Row 6+7: (w > max-width) and (h > max-height)
+        (true, false, true, false) => {
+            if max_w / w <= max_h / h {
+                (max_w, (max_w * h / w).max(min_h))
+            } else {
+                ((max_h * w / h).max(min_w), max_h)
+            }
+        }
+
+        // Row 8+9: (w < min-width) and (h < min-height)
+        (false, true, false, true) => {
+            if min_w / w <= min_h / h {
+                ((min_h * w / h).min(max_w), min_h)
+            } else {
+                (min_w, (min_w * h / w).min(max_h))
+            }
+        }
+
+        // Row 10: (w < min-width) and (h > max-height)
+        (false, true, true, false) => (min_w, max_h),
+
+        // Row 11: (w > max-width) and (h < min-height)
+        (true, false, false, true) => (max_w, min_h),
+
+        // Fallback (impossible combinations like w_over && w_under)
+        _ => (w.max(min_w).min(max_w), h.max(min_h).min(max_h)),
+    }
 }
 
 /// Apply min-width and max-width constraints to tentative width
