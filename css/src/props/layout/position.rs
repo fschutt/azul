@@ -98,6 +98,7 @@ pub fn parse_layout_position<'a>(
         "relative" => Ok(LayoutPosition::Relative),
         "absolute" => Ok(LayoutPosition::Absolute),
         "fixed" => Ok(LayoutPosition::Fixed),
+        "sticky" => Ok(LayoutPosition::Sticky),
         _ => Err(LayoutPositionParseError::InvalidValue(input)),
     }
 }
@@ -455,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_parse_layout_position_invalid() {
-        assert!(parse_layout_position("sticky").is_err());
+        assert_eq!(parse_layout_position("sticky").unwrap(), LayoutPosition::Sticky);
         assert!(parse_layout_position("").is_err());
         assert!(parse_layout_position("absolutely").is_err());
     }
