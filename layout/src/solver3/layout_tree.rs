@@ -2346,75 +2346,6 @@ fn determine_formatting_context_for_display(
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
-        LayoutDisplay::TableColumn | LayoutDisplay::RunIn | LayoutDisplay::Marker => {
-            FormattingContext::Block {
-                establishes_new_context: true,
-            }
-        }
-    }
-}
-
-// +spec:display-property-p027 - principal box: maps display type to formatting context
-/// The logic now correctly identifies all BFC roots.
-fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
-    // Special case: Text nodes should be treated as inline content.
-    // They participate in their parent's inline formatting context.
-    let node_data = &styled_dom.node_data.as_container()[node_id];
-
-    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-        // +spec:display-property-p014 - anonymous inline boxes: text directly in a block container is treated as anonymous inline element (CSS2§9.2.2.1)
-        // Text nodes are inline-level content within their parent's IFC
-        return FormattingContext::Inline;
-    }
-
-    let display_type = get_display_type(styled_dom, node_id);
-
-    // +spec:block-formatting-context-p005 - map display types to formatting contexts (block->BFC, inline->IFC, table->table FC)
-    match display_type {
-        // +spec:display-property-p014 - display:inline on non-replaced element generates an inline box (CSS2§9.2.2)
-        LayoutDisplay::Inline => FormattingContext::Inline,
-
-        // CSS 2.2 Section 9.4.2: "An inline formatting context is established by a
-        // block container box that contains no block-level boxes."
-        // Check if this block container has only inline-level children.
-        LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
-            if has_only_inline_children(styled_dom, node_id) {
-                // This block container should establish an IFC for its inline children
-                FormattingContext::Inline
-            } else {
-                // Normal BFC
-                FormattingContext::Block {
-                    establishes_new_context: establishes_new_block_formatting_context(
-                        styled_dom, node_id,
-                    ),
-                }
-            }
-        }
-        // +spec:display-property-p014 - inline-block is an atomic inline-level box: formatted as block internally, inline-level externally (CSS2§9.2.2)
-        LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
-        // +spec:display-property-p016 - table behaves as block-level (display:table) or inline-level (display:inline-table); generates table wrapper box per CSS2§17.4
-        // +spec:table-layout-p002 - §17.4: table behaves as block-level (table) or inline-level (inline-table)
-        // +spec:table-layout-p019 - display:table / display:inline-table map to Table FC (§17.2)
-        LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
-        // +spec:table-layout-p019 - table-row-group, table-header-group, table-footer-group all map to TableRowGroup FC (§17.2)
-        LayoutDisplay::TableRowGroup
-        | LayoutDisplay::TableHeaderGroup
-        | LayoutDisplay::TableFooterGroup => FormattingContext::TableRowGroup,
-        // +spec:table-layout-p019 - display:table-row maps to TableRow FC (§17.2)
-        LayoutDisplay::TableRow => FormattingContext::TableRow,
-        // +spec:table-layout-p019 - display:table-cell maps to TableCell FC (§17.2)
-        LayoutDisplay::TableCell => FormattingContext::TableCell,
-        // +spec:display-property-p014 - display:none causes element to not appear in formatting structure (CSS2§9.2.4)
-        LayoutDisplay::None => FormattingContext::None,
-        LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
-        // +spec:table-layout-p019 - display:table-column-group maps to TableColumnGroup FC; not rendered but may carry style (§17.2)
-        LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
-        // +spec:table-layout-p019 - display:table-caption maps to TableCaption FC; all captions must be rendered (§17.2, §17.4)
-        LayoutDisplay::TableCaption => FormattingContext::TableCaption,
-        // +spec:display-property-p047 - grid containers: ::first-line/::first-letter don't apply; overflow property applies (CSS Grid 5.1/5.3)
-        // +spec:inline-block-p018 - grid container sized per formatting context rules (BFC: as block box; IFC: as atomic inline-level box) (CSS Grid 5.2)
-        LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
-
         // +spec:table-layout-p019 - display:table-column is not rendered (as if display:none) but may carry style (§17.2)
         // table-column elements are used only for column styling, not for generating boxes
         LayoutDisplay::TableColumn => FormattingContext::None,
@@ -2425,4 +2356,15 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
             }
         }
     }
+}
+
+// +spec:display-property-p027 - principal box: maps display type to formatting context
+/// The logic now correctly identifies all BFC roots.
+fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        return FormattingContext::Inline;
+    }
+    let display_type = get_display_type(styled_dom, node_id);
+    determine_formatting_context_for_display(styled_dom, node_id, display_type)
 }
