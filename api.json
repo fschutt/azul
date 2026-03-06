@@ -26013,6 +26013,18 @@
                                 "inner": {
                                     "type": "PixelValue"
                                 }
+                            },
+                            {
+                                "each_line": {
+                                    "type": "bool",
+                                    "doc": ["each-line keyword: indent first line of each block container AND each line after a forced line break (but not after soft wrap)."]
+                                }
+                            },
+                            {
+                                "hanging": {
+                                    "type": "bool",
+                                    "doc": ["hanging keyword: inverts which lines are affected by the indent."]
+                                }
                             }
                         ],
                         "repr": "C"

@@ -617,10 +617,16 @@ pub fn parse_style_letter_spacing(
 // -- StyleTextIndent (text-indent property) --
 
 /// Represents a `text-indent` attribute (indentation of first line in a block).
+// +spec:line-breaking-p038 - §8.1 text-indent: each-line and hanging keywords
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTextIndent {
     pub inner: PixelValue,
+    /// `each-line` keyword: indent first line of each block container
+    /// AND each line after a forced line break (but not after soft wrap).
+    pub each_line: bool,
+    /// `hanging` keyword: inverts which lines are affected by the indent.
+    pub hanging: bool,
 }
 
 impl fmt::Debug for StyleTextIndent {
@@ -629,19 +635,89 @@ impl fmt::Debug for StyleTextIndent {
     }
 }
 
-impl_pixel_value!(StyleTextIndent);
+// +spec:line-breaking-p038 - manually implement pixel value constructors because StyleTextIndent
+// has extra fields (each_line, hanging) beyond just `inner: PixelValue`
+impl StyleTextIndent {
+    #[inline]
+    pub const fn zero() -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::zero(), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_px(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_px(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_em(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_em(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_pt(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_pt(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_percent(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_percent(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_in(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_in(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_cm(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_cm(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_mm(value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_mm(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub const fn const_from_metric(metric: crate::props::basic::length::SizeMetric, value: isize) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::const_from_metric(metric, value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub fn px(value: f32) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::px(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub fn em(value: f32) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::em(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub fn pt(value: f32) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::pt(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub fn percent(value: f32) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::percent(value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub fn from_metric(metric: crate::props::basic::length::SizeMetric, value: f32) -> Self {
+        Self { inner: crate::props::basic::pixel::PixelValue::from_metric(metric, value), each_line: false, hanging: false }
+    }
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        StyleTextIndent { inner: self.inner.interpolate(&other.inner, t), each_line: self.each_line, hanging: self.hanging }
+    }
+}
 
 impl PrintAsCssValue for StyleTextIndent {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_string()
+        let mut s = self.inner.to_string();
+        if self.hanging {
+            s.push_str(" hanging");
+        }
+        if self.each_line {
+            s.push_str(" each-line");
+        }
+        s
     }
 }
 
 impl crate::format_rust_code::FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
-            "StyleTextIndent {{ inner: PixelValue::const_px(0) /* {} */ }}",
-            self.inner
+            "StyleTextIndent {{ inner: PixelValue::const_px(0) /* {} */, each_line: {}, hanging: {} }}",
+            self.inner, self.each_line, self.hanging
         )
     }
 }
@@ -689,9 +765,26 @@ impl StyleTextIndentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+// +spec:line-breaking-p038 - §8.1 text-indent: parse each-line and hanging keywords
 pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError> {
-    crate::props::basic::pixel::parse_pixel_value(input)
-        .map(|inner| StyleTextIndent { inner })
+    let mut each_line = false;
+    let mut hanging = false;
+    let mut pixel_part: Option<&str> = None;
+
+    for token in input.split_whitespace() {
+        match token {
+            "each-line" => each_line = true,
+            "hanging" => hanging = true,
+            _ => {
+                pixel_part = Some(token);
+            }
+        }
+    }
+
+    let pixel_str = pixel_part.unwrap_or("0px");
+
+    crate::props::basic::pixel::parse_pixel_value(pixel_str)
+        .map(|inner| StyleTextIndent { inner, each_line, hanging })
         .map_err(|e| StyleTextIndentParseError::PixelValue(e))
 }
 
