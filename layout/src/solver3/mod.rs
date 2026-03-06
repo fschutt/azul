@@ -684,6 +684,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // absolutely positioned descendants. If we adjust relative positions after
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
+    // +spec:positioning-p023 - §9.4.3: relative positioning applied AFTER normal flow layout; following boxes not re-positioned after offset
     // Pass the viewport to correctly resolve percentage offsets for the root element.
     positioning::adjust_relative_positions(
         &mut ctx,

@@ -538,6 +538,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         //   - In LTR: if both specified, `left` wins and `right` is ignored
         //   - In RTL: if both specified, `right` wins and `left` is ignored
 
+        // +spec:positioning-p023 - §9.4.3: top moves boxes down, bottom moves up;
+        // both auto → 0; one auto → negative of other; neither auto → bottom ignored (top wins)
         // Vertical positioning: `top` takes precedence over `bottom`
         if let Some(top) = offsets.top {
             delta_y = top;
@@ -545,19 +547,25 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             delta_y = -bottom;
         }
 
-        // Horizontal positioning: depends on direction
-        // Get the direction for this element
-        let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
-        let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].styled_node_state;
-
+        // +spec:positioning-p023 - §9.4.3: horizontal offset depends on CONTAINING BLOCK's direction
+        // Spec: "If the 'direction' property of the containing block is 'ltr', the value of 'left' wins"
+        // Get the direction of the containing block (parent), not the element itself
         use azul_css::props::style::StyleDirection;
-        let direction = match get_direction_property(ctx.styled_dom, node_dom_id, node_state) {
-            MultiValue::Exact(v) => v,
-            _ => StyleDirection::Ltr,
-        };
-        match direction {
+        let cb_direction = node.parent
+            .and_then(|parent_idx| tree.get(parent_idx))
+            .map(|parent_node| {
+                let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
+                let parent_state =
+                    &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+                match get_direction_property(ctx.styled_dom, parent_dom_id, parent_state) {
+                    MultiValue::Exact(v) => v,
+                    _ => StyleDirection::Ltr,
+                }
+            })
+            .unwrap_or(StyleDirection::Ltr);
+        match cb_direction {
             StyleDirection::Ltr => {
-                // In LTR mode: `left` takes precedence over `right`
+                // +spec:positioning-p023 - §9.4.3: LTR over-constrained → left wins, right = -left
                 if let Some(left) = offsets.left {
                     delta_x = left;
                 } else if let Some(right) = offsets.right {
@@ -565,7 +573,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 }
             }
             StyleDirection::Rtl => {
-                // In RTL mode: `right` takes precedence over `left`
+                // +spec:positioning-p023 - §9.4.3: RTL over-constrained → right wins, left ignored
                 if let Some(right) = offsets.right {
                     delta_x = -right;
                 } else if let Some(left) = offsets.left {
