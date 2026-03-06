@@ -3043,9 +3043,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutWritingMode::VerticalLr => text3::cache::WritingMode::VerticalLr,
         }),
         direction, // Use the CSS direction property (currently defaulting to LTR)
+        // +spec:line-breaking-p045 - §5.4 hyphens property maps to Hyphens enum
         hyphenation: match hyphenation {
-            StyleHyphens::None => false,
-            StyleHyphens::Auto => true,
+            StyleHyphens::None => text3::cache::Hyphens::None,
+            StyleHyphens::Manual => text3::cache::Hyphens::Manual,
+            StyleHyphens::Auto => text3::cache::Hyphens::Auto,
         },
         text_orientation,
         text_align: match text_align {

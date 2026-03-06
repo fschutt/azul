@@ -662,7 +662,7 @@ pub struct CursorBoundsError {
 /// ## CSS Text Module Level 3
 /// - `text_indent`: \u2705 First line indentation
 /// - `text_justify`: \u2705 Justification algorithm (auto, inter-word, inter-character)
-/// - `hyphenation`: \u2705 Automatic hyphenation
+/// - `hyphenation`: \u2705 Hyphens property (none / manual / auto)
 /// - `hanging_punctuation`: \u2705 Hanging punctuation at line edges
 ///
 /// ## CSS Text Level 4
@@ -712,7 +712,8 @@ pub struct UnifiedConstraints {
     // Advanced features
     pub text_combine_upright: Option<TextCombineUpright>,
     pub exclusion_margin: f32,
-    pub hyphenation: bool,
+    // +spec:line-breaking-p045 - §5.4 hyphens property (none/manual/auto)
+    pub hyphenation: Hyphens,
     pub hyphenation_language: Option<Language>,
     pub text_indent: f32,
     // +spec:line-breaking-p038 - §8.1 text-indent each-line and hanging flags
@@ -759,7 +760,7 @@ impl Default for UnifiedConstraints {
             segment_alignment: SegmentAlignment::default(),
             text_combine_upright: None,
             exclusion_margin: 0.0,
-            hyphenation: false,
+            hyphenation: Hyphens::default(),
             hyphenation_language: None,
             columns: 1,
             column_gap: 0.0,
@@ -1096,6 +1097,19 @@ pub enum TextWrap {
     NoWrap,
 }
 
+// +spec:line-breaking-p045 - §5.4 hyphens property values
+/// Controls whether hyphenation is allowed to create soft wrap opportunities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Hyphens {
+    /// No hyphenation: U+00AD soft hyphens are not treated as break points.
+    None,
+    /// Only break at manually-inserted soft hyphens (U+00AD) or explicit hyphens.
+    #[default]
+    Manual,
+    /// The UA may automatically hyphenate words in addition to manual opportunities.
+    Auto,
+}
+
 // +spec:white-space-processing-p030 - CSS white-space mode for trailing whitespace handling
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum WhiteSpaceMode {
@@ -1422,6 +1436,7 @@ impl Glyph {
     }
 
     #[inline]
+    // +spec:line-breaking-p041 - §5.4 U+00AD soft hyphen suggests a hyphenation opportunity
     fn break_opportunity_after(&self) -> bool {
         let is_whitespace = self.codepoint.is_whitespace();
         let is_soft_hyphen = self.codepoint == '\u{00AD}';
@@ -4775,6 +4790,7 @@ impl LayoutCache {
         // The cursor now manages the stream of items for the entire flow.
         // §5.2 word-break: pass word_break from constraints to cursor
         let mut cursor = BreakCursor::with_word_break(&oriented_items, first_constraints.word_break);
+        cursor.hyphens = first_constraints.hyphenation;
 
         for fragment in flow_chain {
             // Perform layout for this single fragment, consuming items from the cursor.
@@ -6134,7 +6150,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // Get the shaped items from the cursor
         let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
 
-        let hyphenator = if fragment_constraints.hyphenation {
+        // +spec:line-breaking-p045 - §5.4 only use automatic hyphenator for hyphens:auto
+        let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
             fragment_constraints
                 .hyphenation_language
                 .and_then(|lang| get_hyphenator(lang).ok())
@@ -6152,7 +6169,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         );
     }
 
-    let hyphenator = if fragment_constraints.hyphenation {
+    // +spec:line-breaking-p045 - §5.4 only use automatic hyphenator for hyphens:auto
+    let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
         fragment_constraints
             .hyphenation_language
             .and_then(|lang| get_hyphenator(lang).ok())
@@ -7911,7 +7929,7 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 }
 
 // §5.2 word-break property: break opportunity logic
-fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak) -> bool {
+fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
     // Break after spaces or explicit break items (always, regardless of word-break).
     if is_word_separator(item) {
         return true;
@@ -7919,10 +7937,13 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
     if let ShapedItem::Break { .. } = item {
         return true;
     }
-    // Also consider soft hyphens as opportunities.
-    if let ShapedItem::Cluster(c) = item {
-        if c.text.starts_with('\u{00AD}') {
-            return true;
+    // +spec:line-breaking-p045 - §5.4 soft hyphens (U+00AD) are break opportunities
+    // only when hyphens != none. With hyphens:none, soft hyphens do not create break points.
+    if hyphens != Hyphens::None {
+        if let ShapedItem::Cluster(c) = item {
+            if c.text.starts_with('\u{00AD}') {
+                return true;
+            }
         }
     }
 
@@ -7963,7 +7984,7 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
             return false;
         }
     }
-    is_break_opportunity_with_word_break(item, WordBreak::Normal)
+    is_break_opportunity_with_word_break(item, WordBreak::Normal, Hyphens::Manual)
 }
 
 // A cursor to manage the state of the line breaking process.
@@ -7978,6 +7999,8 @@ pub struct BreakCursor<'a> {
     pub partial_remainder: Vec<ShapedItem>,
     // §5.2 word-break property stored on cursor
     pub word_break: WordBreak,
+    // +spec:line-breaking-p045 - §5.4 hyphens property stored on cursor
+    pub hyphens: Hyphens,
 }
 
 impl<'a> BreakCursor<'a> {
@@ -7987,6 +8010,7 @@ impl<'a> BreakCursor<'a> {
             next_item_index: 0,
             partial_remainder: Vec::new(),
             word_break: WordBreak::Normal,
+            hyphens: Hyphens::default(),
         }
     }
 
@@ -7996,6 +8020,7 @@ impl<'a> BreakCursor<'a> {
             next_item_index: 0,
             partial_remainder: Vec::new(),
             word_break,
+            hyphens: Hyphens::default(),
         }
     }
 
@@ -8051,7 +8076,7 @@ impl<'a> BreakCursor<'a> {
         }
 
         // If the first item is a break opportunity (like a space), it's a unit on its own.
-        if is_break_opportunity_with_word_break(&source_items[0], self.word_break) {
+        if is_break_opportunity_with_word_break(&source_items[0], self.word_break, self.hyphens) {
             unit.push(source_items[0].clone());
             return unit;
         }
@@ -8061,7 +8086,7 @@ impl<'a> BreakCursor<'a> {
         // For keep-all: CJK sequences are NOT break opportunities.
         // For normal: CJK characters are individual break opportunities.
         for (i, item) in source_items.iter().enumerate() {
-            if i > 0 && is_break_opportunity_with_word_break(item, self.word_break) {
+            if i > 0 && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
                 break;
             }
             unit.push(item.clone());
