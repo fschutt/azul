@@ -164,7 +164,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 })
             };
 
-            // Determine containing block FIRST (before calculating size)
+            // +spec:containing-block-p001 +spec:containing-block-p032 - fixed: CB is viewport; absolute: CB is padding edge of nearest positioned ancestor
             let containing_block_rect = if position_type == LayoutPosition::Fixed {
                 viewport
             } else {
@@ -231,6 +231,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
             let mut final_pos = LogicalPosition::zero();
 
+            // +spec:containing-block-p016 - top/left offsets position relative to containing block
             // +spec:containing-block-p028 - §10.6.4: constraint equation for abspos vertical dimensions
             // top + margin-top + border-top + padding-top + height + padding-bottom +
             // border-bottom + margin-bottom + bottom = containing block height
@@ -576,6 +577,9 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 /// Returns a `LogicalRect` representing the padding-box of the nearest
 /// positioned ancestor, or the viewport (initial containing block) if none exists.
 /// This is the unified entry point used by both sizing and positioning phases.
+// +spec:containing-block-p001 +spec:containing-block-p016 +spec:containing-block-p019 +spec:containing-block-p032
+// Containing block for absolutely positioned elements is established by
+// nearest positioned ancestor (relative/absolute/fixed), or initial containing block if none.
 pub fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
@@ -588,6 +592,7 @@ pub fn find_absolute_containing_block_rect(
     while let Some(parent_index) = current_parent_idx {
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
 
+        // +spec:containing-block-p016 +spec:containing-block-p019 - nearest positioned ancestor (relative/absolute/fixed)
         if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
             // calculated_positions stores margin-box positions
             let margin_box_pos = calculated_positions
@@ -619,5 +624,7 @@ pub fn find_absolute_containing_block_rect(
         current_parent_idx = parent_node.parent;
     }
 
-    Ok(viewport) // Fallback to the initial containing block.
+    // +spec:containing-block-p001 +spec:containing-block-p016 +spec:containing-block-p019 +spec:containing-block-p032
+    // No positioned ancestor found: fall back to initial containing block (viewport)
+    Ok(viewport)
 }

@@ -735,7 +735,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     Ok(display_list)
 }
 
-// STUB: This helper is required by the main loop
+// +spec:containing-block-p001 - static/relative: CB is content edge of nearest block container ancestor
 fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
@@ -775,8 +775,10 @@ fn get_containing_block_for_node(
         }
     }
     
-    // +spec:containing-block-p035 +spec:containing-block-p047 - root element's containing block
-    // is the initial containing block (CSS Display 3 §2.8).
+    // +spec:containing-block-p001 +spec:containing-block-p031 +spec:containing-block-p035 +spec:containing-block-p047
+    // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
+    // +spec:containing-block-p031 - §5.1 css-sizing-3: initial CB dimensions used as fallback inline size
+    // for replaced elements with aspect ratio but no intrinsic size.
     // For ROOT nodes: the containing block is the viewport (initial containing block).
     // Do NOT subtract margin here - margins are handled in calculate_used_size().
     // The margin creates space between viewport edge and element's border-box,
