@@ -3442,7 +3442,7 @@ fn get_border_info<T: ParsedFontTrait>(
     };
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = StyledNodeState::default();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
     let cache = &ctx.styled_dom.css_property_cache.ptr;
 
     // FAST PATH: compact cache for normal state
@@ -3642,7 +3642,7 @@ fn get_table_layout_property<T: ParsedFontTrait>(
     };
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = StyledNodeState::default();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
     ctx.styled_dom
         .css_property_cache
@@ -3667,7 +3667,7 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
     }
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = StyledNodeState::default();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
     ctx.styled_dom
         .css_property_cache
@@ -3701,7 +3701,7 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
         }
 
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = StyledNodeState::default();
+        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
         if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_border_spacing(
             node_data,
@@ -3753,7 +3753,7 @@ fn get_caption_side_property<T: ParsedFontTrait>(
 ) -> StyleCaptionSide {
     if let Some(dom_id) = node.dom_node_id {
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = StyledNodeState::default();
+        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
         if let Some(prop) =
             ctx.styled_dom
@@ -3788,7 +3788,7 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
     node: &LayoutNode,
 ) -> bool {
     if let Some(dom_id) = node.dom_node_id {
-        let node_state = StyledNodeState::default();
+        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
         if let MultiValue::Exact(value) = get_visibility(ctx.styled_dom, dom_id, &node_state) {
             return matches!(value, StyleVisibility::Collapse);
@@ -5477,7 +5477,7 @@ fn position_table_cells<T: ParsedFontTrait>(
             // +spec:line-height-p018 - §17.5.3: vertical-align determines cell alignment within the row
             // Get vertical-align property from styled_dom
             let vertical_align = if let Some(dom_id) = cell_node.dom_node_id {
-                let node_state = StyledNodeState::default();
+                let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
                 match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
                     MultiValue::Exact(v) => v,
