@@ -2051,7 +2051,23 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Sibling margins are *between* boxes (part of layout), not *outside* boxes
     // (like escaped margins).
 
-    let content_box_height = main_pen - total_escaped_top_margin;
+    let mut content_box_height = main_pen - total_escaped_top_margin;
+
+    // +spec:box-model-p028 - §10.6.7: auto height increased to include floating descendants
+    // whose bottom margin edge exceeds bottom content edge; only floats participating
+    // in this BFC are counted (not floats inside abspos descendants or nested BFCs)
+    let is_bfc_root = node.parent.is_none() || establishes_new_bfc(ctx, &node);
+    if is_bfc_root {
+        for float_box in &float_context.floats {
+            let float_bottom_margin_edge = float_box.rect.origin.main(writing_mode)
+                + float_box.rect.size.main(writing_mode)
+                + float_box.margin.main_end(writing_mode);
+            if float_bottom_margin_edge > content_box_height {
+                content_box_height = float_bottom_margin_edge;
+            }
+        }
+    }
+
     output.overflow_size =
         LogicalSize::from_main_cross(content_box_height, max_cross_size, writing_mode);
 
