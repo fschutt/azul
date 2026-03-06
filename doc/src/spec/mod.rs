@@ -110,10 +110,11 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
         "download" => cmd_download(&config),
         "tree" => cmd_tree(&config),
         "extract" => {
+            // Legacy alias: redirect to "paragraphs <feature>"
             if args.len() < 2 {
-                return print_subcommand_help("extract");
+                return print_subcommand_help("paragraphs");
             }
-            cmd_extract(&config, &args[1], workspace_root)
+            cmd_paragraphs(&config, Some(&args[1]), workspace_root)
         }
         "build-all" => cmd_build_all(&config, workspace_root),
         "claude-exec" => {
@@ -121,7 +122,13 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             executor::run_executor(&config, workspace_root, &rest)
         }
         "status" => cmd_status(&config, workspace_root),
-        "paragraphs" => cmd_paragraphs(),
+        "paragraphs" => {
+            if args.len() >= 2 {
+                cmd_paragraphs(&config, Some(&args[1]), workspace_root)
+            } else {
+                cmd_paragraphs(&config, None, workspace_root)
+            }
+        }
         "annotations" => cmd_annotations(workspace_root),
         "review-md" => {
             if args.len() < 2 {
@@ -267,12 +274,8 @@ fn print_subcommand_help(cmd: &str) -> Result<(), String> {
             println!("Display the 16-feature CSS skill tree with dependency tiers and status.");
         }
         "extract" => {
-            println!("azul-doc spec extract <feature-id>");
-            println!();
-            println!("Extract and display spec paragraphs matched by a feature's keywords.");
-            println!("Useful for inspecting which W3C text maps to a feature before building prompts.");
-            println!();
-            println!("Example: azul-doc spec extract block-formatting-context");
+            // Legacy alias
+            return print_subcommand_help("paragraphs");
         }
         "build-all" => {
             println!("azul-doc spec build-all");
@@ -302,9 +305,13 @@ fn print_subcommand_help(cmd: &str) -> Result<(), String> {
             println!("verification coverage as a progress bar.");
         }
         "paragraphs" => {
-            println!("azul-doc spec paragraphs");
+            println!("azul-doc spec paragraphs              # All paragraphs grouped by feature");
+            println!("azul-doc spec paragraphs <feature>    # Paragraphs for one feature (with text)");
             println!();
-            println!("List all known spec paragraph IDs from the paragraph registry.");
+            println!("List extracted W3C spec paragraphs. Without arguments, shows all paragraphs");
+            println!("grouped by feature. With a feature ID, shows detailed paragraph text.");
+            println!();
+            println!("Example: azul-doc spec paragraphs block-formatting-context");
         }
         "annotations" => {
             println!("azul-doc spec annotations");
@@ -450,8 +457,8 @@ fn print_spec_help() {
     println!();
     println!("Utilities:");
     println!("  status                Verification progress (scans +spec: markers)");
-    println!("  extract <feature>     Show spec paragraphs matched by a feature");
-    println!("  paragraphs            List all known spec paragraph IDs");
+    println!("  paragraphs            All paragraphs grouped by feature");
+    println!("  paragraphs <feature>  Show paragraphs for one feature (with text)");
     println!("  annotations           Scan source for +spec: annotation comments");
     println!();
     println!("Run 'azul-doc spec <command> --help' for detailed usage of any command.");
@@ -566,35 +573,35 @@ fn cmd_tree(config: &SpecConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_extract(config: &SpecConfig, feature_id: &str, _workspace_root: &std::path::Path) -> Result<(), String> {
+fn cmd_paragraphs_for_feature(config: &SpecConfig, feature_id: &str) -> Result<(), String> {
     let tree = config.load_skill_tree();
-    
+
     let node = tree.nodes.get(feature_id)
         .ok_or_else(|| format!("Unknown feature: {}. Use 'spec tree' to see available features.", feature_id))?;
-    
-    println!("Extracting spec paragraphs for: {}\n", node.name);
+
+    println!("Spec paragraphs for: {}\n", node.name);
     println!("Keywords: {}\n", node.keywords.join(", "));
-    
+
     let paragraphs = extract_for_skill_node(node, &config.spec_dir)?;
-    
+
     println!("Found {} relevant paragraphs:\n", paragraphs.len());
-    
+
     for (i, para) in paragraphs.iter().enumerate().take(20) {
-        println!("{}. [{}] {} (from {})", 
+        println!("{}. [{}] {} (from {})",
             i + 1,
             para.matched_keywords.join(", "),
             para.section,
             para.source_file
         );
-        println!("   {}\n", 
+        println!("   {}\n",
             para.text.chars().take(200).collect::<String>()
         );
     }
-    
+
     if paragraphs.len() > 20 {
         println!("... and {} more paragraphs", paragraphs.len() - 20);
     }
-    
+
     Ok(())
 }
 
@@ -711,9 +718,41 @@ fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(
 }
 
 
-fn cmd_paragraphs() -> Result<(), String> {
-    let registry = ParagraphRegistry::new();
-    registry.print_all();
+fn cmd_paragraphs(config: &SpecConfig, feature: Option<&str>, workspace_root: &std::path::Path) -> Result<(), String> {
+    if let Some(feature_id) = feature {
+        return cmd_paragraphs_for_feature(config, feature_id);
+    }
+
+    // No feature specified: show all paragraphs grouped by feature
+    let tree = config.load_skill_tree();
+    let mut total = 0usize;
+
+    for (feature_id, node) in &tree.nodes {
+        match extract_for_skill_node(node, &config.spec_dir) {
+            Ok(paragraphs) if !paragraphs.is_empty() => {
+                println!("## {} ({}) — {} paragraphs\n",
+                    node.name, feature_id, paragraphs.len());
+                for (i, para) in paragraphs.iter().enumerate() {
+                    println!("  {}. [{}] {} (from {})",
+                        i + 1,
+                        para.matched_keywords.join(", "),
+                        para.section,
+                        para.source_file,
+                    );
+                }
+                println!();
+                total += paragraphs.len();
+            }
+            Ok(_) => {
+                println!("## {} ({}) — 0 paragraphs\n", node.name, feature_id);
+            }
+            Err(e) => {
+                eprintln!("## {} ({}) — error: {}\n", node.name, feature_id, e);
+            }
+        }
+    }
+
+    println!("Total: {} paragraphs across {} features", total, tree.nodes.len());
     Ok(())
 }
 

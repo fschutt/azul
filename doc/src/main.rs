@@ -1761,8 +1761,6 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    normalize                     - Normalize/reformat api.json");
     println!("    dedup                         - Remove duplicate types from api.json");
     println!("    print [options]               - Print API information");
-    println!("    unused                        - Find unused types in api.json");
-    println!("    unused patch                  - Generate patches to remove unused types");
     println!();
     println!("  DISCOVERY (find unindexed types):");
     println!("    discover                      - Scan workspace for all unindexed types");
@@ -1783,13 +1781,13 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  DEPLOYMENT:");
     println!("    deploy                        - Build and deploy (production, inline CSS)");
     println!("    deploy debug                  - Deploy in debug mode (external CSS)");
-    println!("    fast-deploy-with-reftests     - Quick deploy with reftest regeneration");
+    println!("    deploy with-reftests          - Debug deploy + run reftests");
     println!();
     println!("  SPEC (W3C specification verification):");
     println!("    spec                          - Show spec subcommand help");
     println!("    spec download                 - Download all W3C specs locally");
     println!("    spec tree                     - Display the CSS feature skill tree");
-    println!("    spec extract <feature>        - Extract relevant spec paragraphs for a feature");
+    println!("    spec paragraphs               - All paragraphs grouped by feature");
     println!("    spec review <feature>         - Generate review prompt (saves to file)");
     println!("    spec review <feature> --stage=impl");
     println!("                                  - Generate implementation-level review prompt");
@@ -1804,7 +1802,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    spec status                   - Show verification status for all features");
     println!("    spec next                     - Show the next feature to verify");
     println!("    spec holistic                 - Generate holistic analysis from all results");
-    println!("    spec paragraphs               - List all known spec paragraph IDs");
+    println!("    spec paragraphs <feature>     - Paragraphs for one feature (with text)");
     println!("    spec annotations              - Scan source for +spec: annotations");
     println!();
     println!("  OTHER:");
