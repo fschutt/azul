@@ -626,8 +626,10 @@ pub enum AnonymousBoxType {
     /// Anonymous box for a list item marker (bullet or number)
     /// DEPRECATED: Use PseudoElement::Marker instead
     ListItemMarker,
+    // +spec:table-layout-p002 - §17.4: table generates table wrapper box containing table box + caption boxes
     /// Anonymous table wrapper
     TableWrapper,
+    // +spec:table-layout-p022 - §17.2.1: missing elements generate anonymous table objects
     /// Anonymous table row group (tbody)
     TableRowGroup,
     /// Anonymous table row
@@ -2122,6 +2124,7 @@ fn needs_table_parent_wrapper(
 ) -> Option<AnonymousBoxType> {
     let child_display = get_display_type(styled_dom, node_id);
 
+    // +spec:table-layout-p002 - §17.2.1: table-cell not in table-row gets anonymous table-row wrapper
     // CSS 2.2 Section 17.2.1, Stage 3 - Generate missing parents:
     // "For each 'table-cell' box C, if C's parent is not a 'table-row'
     // then generate an anonymous 'table-row' box."
@@ -2131,6 +2134,7 @@ fn needs_table_parent_wrapper(
             _ => Some(AnonymousBoxType::TableRow),
         }
     }
+    // +spec:table-layout-p002 - §17.2.1: table-row misparented if parent is not row-group/table/inline-table
     // "A 'table-row' is misparented if its parent is neither a row group box
     // nor a 'table' or 'inline-table' box."
     else if matches!(child_display, LayoutDisplay::TableRow) {
@@ -2143,6 +2147,7 @@ fn needs_table_parent_wrapper(
             _ => Some(AnonymousBoxType::TableWrapper),
         }
     }
+    // +spec:table-layout-p002 - §17.2.1: table-column misparented if parent is not column-group/table/inline-table
     // "A 'table-column' box is misparented if its parent is neither a
     // 'table-column-group' box nor a 'table' or 'inline-table' box."
     else if matches!(child_display, LayoutDisplay::TableColumn) {

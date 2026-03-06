@@ -393,6 +393,12 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         FormattingContext::Flex | FormattingContext::Grid => {
             layout_flex_grid(ctx, tree, text_cache, node_index, constraints)
         }
+        // +spec:table-layout-p042 - §9.4.1: table-cells and table-captions are block containers
+        // that are not block boxes, so they establish new BFCs for their contents
+        FormattingContext::TableCell | FormattingContext::TableCaption => {
+            let mut temp_float_cache = HashMap::new();
+            layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
+        }
         _ => {
             // Unknown formatting context - fall back to BFC
             let mut temp_float_cache = HashMap::new();
@@ -2541,6 +2547,8 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
         return true;
     }
 
+    // +spec:table-layout-p019 - table-cells and table-captions establish BFC (§17.2: they are block containers)
+    // +spec:table-layout-p042 - §9.4.1: table-cells and table-captions are block containers (not block boxes) that establish new BFCs
     // 3. Inline-blocks, table-cells, table-captions establish BFC
     let display = get_display_property(ctx.styled_dom, Some(dom_id));
     if matches!(
