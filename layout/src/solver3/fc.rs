@@ -5040,7 +5040,9 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 // +spec:line-height-p018 - §17.5.3: baseline of a cell = baseline of first in-flow line box,
 // or bottom of content edge if no such line box exists
 fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
-    let cell_node = &tree.nodes[cell_index];
+    let Some(cell_node) = tree.nodes.get(cell_index) else {
+        return 0.0;
+    };
 
     // Check if the cell has inline layout (first in-flow line box)
     if let Some(ref cached_layout) = cell_node.inline_layout_result {
