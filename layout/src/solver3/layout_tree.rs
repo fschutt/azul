@@ -953,13 +953,27 @@ impl LayoutTreeBuilder {
                 );
 
                 for child_dom_id in children {
-                    let child_idx = self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
-                    // +spec:table-layout-p026 +spec:table-layout-p043 - CSS Flexbox §3:
-                    // table-internal flex items are blockified, preventing anonymous table
-                    // box generation (e.g. two display:table-cell flex items become two
-                    // separate display:block flex items)
-                    if is_flex_or_grid {
-                        blockify_flex_item_if_table_internal(&mut self.nodes, child_idx);
+                    // +spec:box-model-p034 - CSS Flexbox §4: for flex items with display:table,
+                    // the table wrapper box becomes the flex item; align-self applies to the
+                    // wrapper, flex longhands apply to the inner table box, caption contents
+                    // contribute to wrapper min/max-content sizes
+                    let child_display = get_display_type(styled_dom, child_dom_id);
+                    if is_flex_or_grid && matches!(child_display, LayoutDisplay::Table | LayoutDisplay::InlineTable) {
+                        let wrapper_idx = self.create_anonymous_node(
+                            node_idx,
+                            AnonymousBoxType::TableWrapper,
+                            FormattingContext::Block { establishes_new_context: true },
+                        );
+                        self.process_node(styled_dom, child_dom_id, Some(wrapper_idx), debug_messages)?;
+                    } else {
+                        let child_idx = self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                        // +spec:table-layout-p026 +spec:table-layout-p043 - CSS Flexbox §3:
+                        // table-internal flex items are blockified, preventing anonymous table
+                        // box generation (e.g. two display:table-cell flex items become two
+                        // separate display:block flex items)
+                        if is_flex_or_grid {
+                            blockify_flex_item_if_table_internal(&mut self.nodes, child_idx);
+                        }
                     }
                 }
             }
