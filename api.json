@@ -15838,6 +15838,18 @@
                                 "Hyphens": {
                                     "type": "StyleHyphensValue"
                                 },
+                                "WordBreak": {
+                                    "type": "StyleWordBreakValue"
+                                },
+                                "OverflowWrap": {
+                                    "type": "StyleOverflowWrapValue"
+                                },
+                                "LineBreak": {
+                                    "type": "StyleLineBreakValue"
+                                },
+                                "TextAlignLast": {
+                                    "type": "StyleTextAlignLastValue"
+                                },
                                 "Direction": {
                                     "type": "StyleDirectionValue"
                                 },
@@ -20545,6 +20557,9 @@
                                 },
                                 "MinContent": {},
                                 "MaxContent": {},
+                                "FitContent": {
+                                    "type": "PixelValue"
+                                },
                                 "Calc": {
                                     "type": "CalcAstItemVec"
                                 }
@@ -21017,6 +21032,9 @@
                                 },
                                 "MinContent": {},
                                 "MaxContent": {},
+                                "FitContent": {
+                                    "type": "PixelValue"
+                                },
                                 "Calc": {
                                     "type": "CalcAstItemVec"
                                 }
@@ -25214,10 +25232,9 @@
                         ],
                         "enum_fields": [
                             {
+                                "None": {},
+                                "Manual": {},
                                 "Auto": {}
-                            },
-                            {
-                                "None": {}
                             }
                         ],
                         "repr": "C"
@@ -25877,31 +25894,23 @@
                         ],
                         "enum_fields": [
                             {
-                                "Baseline": {}
-                            },
-                            {
-                                "Top": {}
-                            },
-                            {
-                                "Middle": {}
-                            },
-                            {
-                                "Bottom": {}
-                            },
-                            {
-                                "Sub": {}
-                            },
-                            {
-                                "Superscript": {}
-                            },
-                            {
-                                "TextTop": {}
-                            },
-                            {
-                                "TextBottom": {}
+                                "Baseline": {},
+                                "Top": {},
+                                "Middle": {},
+                                "Bottom": {},
+                                "Sub": {},
+                                "Superscript": {},
+                                "TextTop": {},
+                                "TextBottom": {},
+                                "Percentage": {
+                                    "type": "PercentageValue"
+                                },
+                                "Length": {
+                                    "type": "PixelValue"
+                                }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "StyleLineClamp": {
                         "doc": [
@@ -26017,13 +26026,17 @@
                             {
                                 "each_line": {
                                     "type": "bool",
-                                    "doc": ["each-line keyword: indent first line of each block container AND each line after a forced line break (but not after soft wrap)."]
+                                    "doc": [
+                                        "each-line keyword: indent first line of each block container AND each line after a forced line break (but not after soft wrap)."
+                                    ]
                                 }
                             },
                             {
                                 "hanging": {
                                     "type": "bool",
-                                    "doc": ["hanging keyword: inverts which lines are affected by the indent."]
+                                    "doc": [
+                                        "hanging keyword: inverts which lines are affected by the indent."
+                                    ]
                                 }
                             }
                         ],
@@ -28462,6 +28475,10 @@
                                 "TabSize": {},
                                 "WhiteSpace": {},
                                 "Hyphens": {},
+                                "WordBreak": {},
+                                "OverflowWrap": {},
+                                "LineBreak": {},
+                                "TextAlignLast": {},
                                 "Direction": {},
                                 "UserSelect": {},
                                 "TextDecoration": {},
@@ -32830,6 +32847,212 @@
                                 "StyleBoxShadow"
                             ]
                         }
+                    },
+                    "StyleOverflowWrapValue": {
+                        "external": "azul_css::props::property::StyleOverflowWrapValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleOverflowWrap"
+                            ]
+                        }
+                    },
+                    "StyleTextAlignLastParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextAlignLastParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleLineBreakValue": {
+                        "external": "azul_css::props::property::StyleLineBreakValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleLineBreak"
+                            ]
+                        }
+                    },
+                    "StyleWordBreakParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleWordBreakParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextAlignLastValue": {
+                        "external": "azul_css::props::property::StyleTextAlignLastValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextAlignLast"
+                            ]
+                        }
+                    },
+                    "StyleWordBreakValue": {
+                        "external": "azul_css::props::property::StyleWordBreakValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleWordBreak"
+                            ]
+                        }
+                    },
+                    "StyleOverflowWrapParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleOverflowWrapParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleLineBreakParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleLineBreakParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleLineBreak": {
+                        "external": "azul_css::props::style::text::StyleLineBreak",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Loose": {},
+                                "Normal": {},
+                                "Strict": {},
+                                "Anywhere": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextAlignLast": {
+                        "external": "azul_css::props::style::text::StyleTextAlignLast",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Start": {},
+                                "End": {},
+                                "Left": {},
+                                "Right": {},
+                                "Center": {},
+                                "Justify": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleOverflowWrap": {
+                        "external": "azul_css::props::style::text::StyleOverflowWrap",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Anywhere": {},
+                                "BreakWord": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleWordBreak": {
+                        "external": "azul_css::props::style::text::StyleWordBreak",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "BreakAll": {},
+                                "KeepAll": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -76077,6 +76300,18 @@
                                 },
                                 "Hyphens": {
                                     "type": "StyleHyphensParseErrorOwned"
+                                },
+                                "WordBreak": {
+                                    "type": "StyleWordBreakParseErrorOwned"
+                                },
+                                "OverflowWrap": {
+                                    "type": "StyleOverflowWrapParseErrorOwned"
+                                },
+                                "LineBreak": {
+                                    "type": "StyleLineBreakParseErrorOwned"
+                                },
+                                "TextAlignLast": {
+                                    "type": "StyleTextAlignLastParseErrorOwned"
                                 },
                                 "Direction": {
                                     "type": "StyleDirectionParseErrorOwned"
