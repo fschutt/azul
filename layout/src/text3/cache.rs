@@ -727,6 +727,10 @@ pub struct UnifiedConstraints {
     pub columns: u32,
     pub column_gap: f32,
     pub hanging_punctuation: bool,
+    // +spec:line-breaking-p014 - §5.5 overflow-wrap property on constraints
+    pub overflow_wrap: OverflowWrap,
+    // +spec:line-breaking-p042 - §6.3 text-align-last: alignment for last line and lines before forced breaks
+    pub text_align_last: TextAlign,
     // §5.2 word-break property on constraints
     pub word_break: WordBreak,
     // +spec:white-space-processing-p030 - white-space mode for trailing WS hang/collapse
@@ -771,6 +775,8 @@ impl Default for UnifiedConstraints {
             initial_letter: None,
             line_clamp: None,
             text_wrap: TextWrap::default(),
+            overflow_wrap: OverflowWrap::default(),
+            text_align_last: TextAlign::default(),
             word_break: WordBreak::default(),
             white_space_mode: WhiteSpaceMode::default(),
             line_break: LineBreakStrictness::default(),
@@ -804,6 +810,8 @@ impl Hash for UnifiedConstraints {
         self.hanging_punctuation.hash(state);
         self.text_indent_each_line.hash(state);
         self.text_indent_hanging.hash(state);
+        self.overflow_wrap.hash(state);
+        self.text_align_last.hash(state);
         self.word_break.hash(state);
         self.white_space_mode.hash(state);
         self.line_break.hash(state);
@@ -837,6 +845,8 @@ impl PartialEq for UnifiedConstraints {
             && self.hanging_punctuation == other.hanging_punctuation
             && self.text_indent_each_line == other.text_indent_each_line
             && self.text_indent_hanging == other.text_indent_hanging
+            && self.overflow_wrap == other.overflow_wrap
+            && self.text_align_last == other.text_align_last
             && self.word_break == other.word_break
             && self.white_space_mode == other.white_space_mode
             && self.line_break == other.line_break
@@ -1095,6 +1105,26 @@ pub enum TextWrap {
     Wrap,
     Balance,
     NoWrap,
+}
+
+// +spec:line-breaking-p014 - §5.5 overflow-wrap property values
+/// CSS `overflow-wrap` (aka `word-wrap`) property.
+///
+/// Controls whether an otherwise unbreakable sequence of characters
+/// may be broken at an arbitrary point to prevent overflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OverflowWrap {
+    /// No special break opportunities are introduced.
+    #[default]
+    Normal,
+    /// Break at arbitrary points if no other break points exist.
+    /// Soft wrap opportunities from `anywhere` ARE considered
+    /// when calculating min-content intrinsic sizes.
+    Anywhere,
+    /// Same as `anywhere` except soft wrap opportunities introduced
+    /// by `break-word` are NOT considered when calculating
+    /// min-content intrinsic sizes.
+    BreakWord,
 }
 
 // +spec:line-breaking-p045 - §5.4 hyphens property values
@@ -1444,10 +1474,13 @@ impl Glyph {
 
     #[inline]
     // +spec:line-breaking-p041 - §5.4 U+00AD soft hyphen suggests a hyphenation opportunity
+    // +spec:line-breaking-p047 - U+002D HYPHEN-MINUS and U+2010 HYPHEN create soft wrap opportunities (not hyphenation opportunities)
     fn break_opportunity_after(&self) -> bool {
         let is_whitespace = self.codepoint.is_whitespace();
         let is_soft_hyphen = self.codepoint == '\u{00AD}';
-        is_whitespace || is_soft_hyphen
+        let is_hyphen_minus = self.codepoint == '\u{002D}';
+        let is_hyphen = self.codepoint == '\u{2010}';
+        is_whitespace || is_soft_hyphen || is_hyphen_minus || is_hyphen
     }
 }
 
@@ -2413,10 +2446,11 @@ pub struct InlineBreak {
     pub content_index: usize,
 }
 
+// +spec:line-breaking-p026 - line break types: forced (explicit controls, block start/end) vs soft wrap (content wrapping)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BreakType {
-    Soft,   // Preferred break (like <wbr>)
-    Hard,   // Forced break (like <br>)
+    Soft,   // Soft wrap break: UA creates unforced line breaks to fit content within the measure
+    Hard,   // Forced line break: explicit line-breaking controls (preserved newline, <br>)
     Page,   // Page break
     Column, // Column break
 }
@@ -5030,7 +5064,7 @@ pub fn create_logical_items(
                     }
                 }
             }
-            // Handle explicit line breaks (from white-space: pre or <br>)
+            // +spec:line-breaking-p026 - forced line break: explicit line-breaking controls (preserved newline or <br>)
             InlineContent::LineBreak(break_info) => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
@@ -6401,12 +6435,23 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // Reset counter when we find valid segments
             empty_segment_count = 0;
 
+            // +spec:line-breaking-p014 - §5.5 overflow-wrap: for min-content intrinsic sizes,
+            // `anywhere` introduces soft wrap opportunities (min-content = widest cluster),
+            // but `break-word` does NOT (min-content = widest unbreakable word).
+            let effective_overflow_wrap = if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::Anywhere {
+                OverflowWrap::Anywhere
+            } else if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::BreakWord {
+                OverflowWrap::Normal
+            } else {
+                fragment_constraints.overflow_wrap
+            };
+
             // CSS Text Module Level 3 § 5 Line Breaking and Word Boundaries
             // https://www.w3.org/TR/css-text-3/#line-breaking
             // "When an inline box exceeds the logical width of a line box, it is split
             // into several fragments, which are partitioned across multiple line boxes."
             let (mut line_items, was_hyphenated) =
-                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts, fragment_constraints.line_break, fragment_constraints.white_space_mode);
+                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts, fragment_constraints.line_break, fragment_constraints.white_space_mode, effective_overflow_wrap);
             if line_items.is_empty() {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(
@@ -6432,14 +6477,34 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // +spec:line-breaking-p038 - §8.1 text-indent each-line: detect if this line ends with a forced break
             let line_ends_with_forced_break = line_items.iter().any(|item| matches!(item, ShapedItem::Break { .. }));
 
+            // +spec:line-breaking-p042 - §6.3 text-align-last: determine if this line
+            // uses text-align-last (last line of block, or line right before forced break)
+            let is_last_line = cursor.is_done() && !was_hyphenated;
+            let effective_align = if is_last_line || line_ends_with_forced_break {
+                let tal = fragment_constraints.text_align_last;
+                // text-align-last: auto (default) means use text-align,
+                // except when text-align is justify, use start instead
+                if tal == TextAlign::default() {
+                    if fragment_constraints.text_align == TextAlign::Justify {
+                        TextAlign::Start
+                    } else {
+                        fragment_constraints.text_align
+                    }
+                } else {
+                    tal
+                }
+            } else {
+                fragment_constraints.text_align
+            };
+
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
                 &line_constraints,
                 line_top_y,
                 line_index,
-                fragment_constraints.text_align,
+                effective_align,
                 base_direction,
-                cursor.is_done() && !was_hyphenated,
+                is_last_line,
                 fragment_constraints,
                 debug_messages,
                 fonts,
@@ -6547,6 +6612,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
     fonts: &LoadedFonts<T>,
     line_break: LineBreakStrictness,
     white_space_mode: WhiteSpaceMode,
+    overflow_wrap: OverflowWrap,
 ) -> (Vec<ShapedItem>, bool) {
     let mut line_items = Vec::new();
     let mut current_width = 0.0;
@@ -6626,11 +6692,40 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 }
             }
 
+            // +spec:line-breaking-p014 - §5.5 overflow-wrap: anywhere/break-word allow breaking
+            // an otherwise unbreakable sequence at an arbitrary point when no other
+            // break points exist. Grapheme clusters stay together; no hyphen inserted.
             // 4. Cannot hyphenate or fit. The line is finished.
             // If the line is empty, we must force at least one item to avoid an infinite loop.
+            // With overflow-wrap: anywhere or break-word, we break the unbreakable
+            // unit at an arbitrary cluster boundary. With normal, we only force one
+            // item to prevent infinite loops (content will overflow).
             if line_items.is_empty() {
-                line_items.push(next_unit[0].clone());
-                cursor.consume(1);
+                match overflow_wrap {
+                    OverflowWrap::Anywhere | OverflowWrap::BreakWord => {
+                        // Break the unbreakable sequence: fit as many clusters
+                        // as possible on this line (grapheme clusters stay together).
+                        for item in next_unit.iter() {
+                            let item_w = get_item_measure(item, is_vertical);
+                            if !line_items.is_empty() && current_width + item_w > line_constraints.total_available {
+                                break;
+                            }
+                            line_items.push(item.clone());
+                            current_width += item_w;
+                        }
+                        // Must consume at least one to avoid infinite loop
+                        let consumed = line_items.len().max(1);
+                        if line_items.is_empty() {
+                            line_items.push(next_unit[0].clone());
+                        }
+                        cursor.consume(consumed);
+                    }
+                    OverflowWrap::Normal => {
+                        // No emergency breaking — just force one item to prevent infinite loop
+                        line_items.push(next_unit[0].clone());
+                        cursor.consume(1);
+                    }
+                }
             }
             break;
         }
@@ -7622,6 +7717,18 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
     }
 }
 
+// +spec:line-breaking-p050 - U+200B (zero width space) acts as explicit word delimiter / soft wrap opportunity
+/// Helper to identify if an item is a zero-width space (U+200B),
+/// which provides a soft wrap opportunity with no visible width.
+/// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
+pub fn is_zero_width_space(item: &ShapedItem) -> bool {
+    if let ShapedItem::Cluster(c) = item {
+        c.text.contains('\u{200B}')
+    } else {
+        false
+    }
+}
+
 // +spec:inline-formatting-context-p015 - §9.4.2: justify stretches spaces/words in inline boxes, not inline-table/inline-block
 /// Helper to identify if space can be added after an item.
 fn can_justify_after(item: &ShapedItem) -> bool {
@@ -8138,7 +8245,15 @@ fn is_small_kana(ch: char) -> bool {
 
 // +spec:white-space-processing-p029 - §5.3 line-break: anywhere would make this return true
 // for every typographic character unit, disregarding GL/WJ/ZWJ line breaking classes
+// +spec:line-breaking-p007 - §5.1: soft wrap opportunity before and after each
+// replaced element or other atomic inline for web-compat
 fn is_break_opportunity(item: &ShapedItem) -> bool {
+    // +spec:line-breaking-p005 - soft wrap opportunity before and after each atomic inline
+    // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and
+    // after each replaced element or other atomic inline"
+    if matches!(item, ShapedItem::Object { .. } | ShapedItem::CombinedBlock { .. }) {
+        return true;
+    }
     // +spec:white-space-processing-p024 - §5.1: WJ, ZW, GL, ZWJ line breaking classes honored
     // +spec:inline-block-p048 - non-tailorable Unicode line breaking controls take precedence
     // over atomic inline rules: break-forcing controls (ZWSP, LS, PS) create break opportunities
@@ -8156,6 +8271,12 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
         // WJ (word joiner U+2060), ZWJ (U+200D), and GL (NBSP U+00A0) suppress breaks
         if c.text.chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
             return false;
+        }
+        // +spec:line-breaking-p047 - U+002D HYPHEN-MINUS and U+2010 HYPHEN: these characters
+        // are always visible and create a soft wrap opportunity after them, but are NOT
+        // hyphenation opportunities (no extra glyph is inserted at the break).
+        if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') {
+            return true;
         }
     }
     is_break_opportunity_with_word_break(item, WordBreak::Normal, Hyphens::Manual)

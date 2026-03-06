@@ -3109,6 +3109,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
         // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property (initial: baseline, applies to inline-level elements)
         vertical_align,
+        overflow_wrap: text3::cache::OverflowWrap::Normal, // TODO: wire up CSS overflow-wrap property
+        text_align_last: text3::cache::TextAlign::default(), // TODO: wire up CSS text-align-last property
         word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
         // +spec:white-space-processing-p028 - white-space interaction with line-break strictness
         // CSS Text Level 3 §5.3: The line-break property affects preserved white space behavior:

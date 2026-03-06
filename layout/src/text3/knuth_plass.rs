@@ -9,10 +9,10 @@ use hyphenation::{Hyphenator, Standard};
 use crate::text3::cache::Standard;
 
 use crate::text3::cache::{
-    get_base_direction_from_logical, get_item_measure, is_word_separator, AvailableSpace,
-    BidiDirection, GlyphKind, JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo,
-    ParsedFontTrait, Point, PositionedItem, Rect, ShapedCluster, ShapedGlyph, ShapedItem,
-    TextAlign, UnifiedConstraints, UnifiedLayout,
+    get_base_direction_from_logical, get_item_measure, is_word_separator, is_zero_width_space,
+    AvailableSpace, BidiDirection, GlyphKind, JustifyContent, LayoutError, LoadedFonts,
+    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem, Rect, ShapedCluster,
+    ShapedGlyph, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -29,6 +29,7 @@ enum LayoutNode {
         stretch: f32,
         shrink: f32,
     },
+    // +spec:line-breaking-p031 - soft wrap opportunity (§5): a Penalty node represents a potential soft wrap break point
     /// A point where a line break is allowed, with an associated cost.
     Penalty {
         /// Optional item associated with the penalty (e.g., a hyphen glyph).
@@ -66,6 +67,10 @@ struct Breakpoint {
 /// - Only supports horizontal text (vertical writing modes use greedy algorithm)
 /// - Higher computational cost than greedy breaking
 /// - May produce different results than browsers for edge cases
+/// - Does not yet handle overflow-wrap: anywhere/break-word (handled in greedy path)
+// +spec:line-breaking-p012 - line breaking process (§5): Knuth-Plass optimal line breaking
+// +spec:line-breaking-p014 - §5.5 overflow-wrap: KP algorithm does not yet handle
+// overflow-wrap emergency breaks; the greedy break_one_line path handles this
 pub(crate) fn kp_layout<T: ParsedFontTrait>(
     items: &[ShapedItem],
     logical_items: &[LogicalItem],
@@ -111,6 +116,15 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
         // nodes between CJK clusters (normal) or between all clusters (break-all),
         // or suppress CJK inter-character penalties (keep-all).
         match item {
+            // +spec:line-breaking-p050 - U+200B (zero width space) creates a soft wrap opportunity with zero width
+            item if is_zero_width_space(item) => {
+                nodes.push(LayoutNode::Penalty {
+                    item: None,
+                    width: 0.0,
+                    penalty: 0.0,
+                });
+            }
+            // +spec:line-breaking-p026 - soft wrap opportunity: word separator creates a potential soft wrap break point
             item if is_word_separator(item) => {
                 let width = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Glue {
@@ -119,6 +133,21 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     stretch: width * 0.5,
                     shrink: width * 0.33,
                 });
+                nodes.push(LayoutNode::Penalty {
+                    item: None,
+                    width: 0.0,
+                    penalty: 0.0,
+                });
+            }
+            // +spec:line-breaking-p047 - U+002D HYPHEN-MINUS and U+2010 HYPHEN: soft wrap after, no extra glyph
+            ShapedItem::Cluster(cluster)
+                if cluster.text.ends_with('\u{002D}')
+                    || cluster.text.ends_with('\u{2010}') =>
+            {
+                let width = get_item_measure(item, is_vertical);
+                nodes.push(LayoutNode::Box(item.clone(), width));
+                // Zero-width penalty: allows a line break after the visible
+                // hyphen character without inserting an additional hyphen glyph.
                 nodes.push(LayoutNode::Penalty {
                     item: None,
                     width: 0.0,
@@ -138,6 +167,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     }
                 }
 
+                // +spec:line-breaking-p036 - language-specific hyphenation rules apply to explicit hyphenation opportunities
                 // 2. Try to find all hyphenation opportunities for this word.
                 let hyphenation_breaks = hyphenator.and_then(|h| {
                     crate::text3::cache::find_all_hyphenation_breaks(
@@ -170,7 +200,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         }
                         current_item_cursor += num_items_in_syllable;
 
-                        // Add the hyphen penalty
+                        // +spec:line-breaking-p033 - soft wrap opportunity at hyphenation points (word-break/overflow-wrap §5.2/§5.5)
                         let hyphen_measure = get_item_measure(&b.hyphen_item, is_vertical);
                         nodes.push(LayoutNode::Penalty {
                             item: Some(b.hyphen_item.clone()),
@@ -196,12 +226,28 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     }
                 }
             }
+            // +spec:line-breaking-p005 - soft wrap opportunity before and after each atomic inline
+            // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and
+            // after each replaced element or other atomic inline"
             ShapedItem::Object { .. } | ShapedItem::CombinedBlock { .. } => {
+                // Soft wrap opportunity before the atomic inline
+                nodes.push(LayoutNode::Penalty {
+                    item: None,
+                    width: 0.0,
+                    penalty: 0.0,
+                });
                 nodes.push(LayoutNode::Box(
                     item.clone(),
                     get_item_measure(item, is_vertical),
                 ));
+                // Soft wrap opportunity after the atomic inline
+                nodes.push(LayoutNode::Penalty {
+                    item: None,
+                    width: 0.0,
+                    penalty: 0.0,
+                });
             }
+            // +spec:line-breaking-p031 - tab size / tab stop (§4.1.2, §4.2): tabs treated as flexible glue
             ShapedItem::Tab { bounds, .. } => {
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
@@ -210,6 +256,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     shrink: bounds.width * 0.33,
                 });
             }
+            // +spec:line-breaking-p026 - forced line break: explicit line-breaking controls map to mandatory penalty
+            // +spec:line-breaking-p012 - line break (§5): forced line break via infinite penalty
             ShapedItem::Break { .. } => {
                 nodes.push(LayoutNode::Penalty {
                     item: None,
@@ -223,6 +271,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
     nodes
 }
 
+// +spec:line-breaking-p012 - soft wrap break (§5): DP selects optimal soft wrap break points
 /// Uses dynamic programming to find the optimal set of line breaks.
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For Knuth-Plass, we need a definite line width.
@@ -405,8 +454,29 @@ fn position_lines_from_breaks(
         let mut extra_per_space = 0.0;
         let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
 
+        // +spec:line-breaking-p042 - §6.3 text-align-last: use text_align_last for
+        // the last line and lines ending with a forced break
+        let ends_with_forced_break = line_nodes.iter().any(|n| matches!(
+            n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
+        ));
+        let effective_align = if is_last_line || ends_with_forced_break {
+            let tal = constraints.text_align_last;
+            if tal == TextAlign::default() {
+                if constraints.text_align == TextAlign::Justify {
+                    TextAlign::Start
+                } else {
+                    constraints.text_align
+                }
+            } else {
+                tal
+            }
+        } else {
+            constraints.text_align
+        };
+
         let should_justify = constraints.text_justify != JustifyContent::None
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll);
+            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll
+                || effective_align == TextAlign::Justify || effective_align == TextAlign::JustifyAll);
 
         // Get the available width as f32 for calculations
         // For MinContent/MaxContent, we use the actual computed line_width
@@ -453,9 +523,10 @@ fn position_lines_from_breaks(
                             .count() as f32)
         };
 
+        // +spec:containing-block-p037 - §6.1 text-align: alignment is w.r.t. line box start/end sides, NOT viewport or containing block
         // Resolve the physical alignment here, inside the function,
         // just like in position_one_line
-        let physical_align = match (constraints.text_align, base_direction) {
+        let physical_align = match (effective_align, base_direction) {
             (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
             (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
             (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
