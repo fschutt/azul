@@ -98,6 +98,7 @@ use crate::{
 /// Margins, borders, and padding are NOT subtracted from the base for percentage
 /// resolution in content-box sizing. They may cause overflow if the total exceeds
 /// the containing block width.
+// +spec:width-calculation-p016 - §10.2: percentage width resolved against containing block dimension
 pub fn resolve_percentage_with_box_model(
     containing_block_dimension: f32,
     percentage: f32,
@@ -365,20 +366,27 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             // +spec:containing-block-p031 - §5.1 css-sizing-3: replaced element with aspect ratio
             // but no intrinsic size uses initial CB inline size
             // +spec:width-calculation-p010 - §10.3.8/§10.3.2: abs-pos replaced image width from intrinsic size
+            // +spec:width-calculation-p006 - §10.3.2: inline replaced elements — intrinsic width/height/ratio cascading rules and 300x150 fallback
+            // +spec:width-calculation-p007 - §10.3.2: inline replaced element width from intrinsic dimensions
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
                 let size = image_ref.get_size();
                 // Per css-sizing-3 §5.1: "use an inline size matching the corresponding dimension
                 // of the initial containing block and calculate the other dimension using the aspect ratio"
+                // +spec:width-calculation-p006 - §10.3.2: if width+height both auto and intrinsic width exists, use intrinsic width
+                // +spec:width-calculation-p006 - §10.3.2: if width auto, height auto, no intrinsic width but has intrinsic height+ratio → width = height * ratio
+                // +spec:width-calculation-p006 - §10.3.2: fallback 300px (or 2:1 device-fit rectangle)
                 let (width, height) = if size.width > 0.0 && size.height > 0.0 {
+                    // +spec:width-calculation-p007 - §10.3.2: both intrinsic width and height available
                     (size.width, size.height)
                 } else if size.width > 0.0 {
-                    // Has intrinsic width but no height — use 2:1 fallback ratio
+                    // +spec:width-calculation-p007 - §10.3.2: has intrinsic width, use it directly
                     (size.width, size.width / 2.0)
                 } else if size.height > 0.0 {
                     // Has intrinsic height but no width — use initial CB inline dimension
                     (self.ctx.viewport_size.width, size.height)
                 } else {
                     // No intrinsic dimensions — cap at 300x150 per CSS 2.2 §10.3.2
+                    // +spec:width-calculation-p005 - §10.3.2: auto width with no intrinsic width fallback to 300px (2:1 ratio)
                     let w = self.ctx.viewport_size.width.min(300.0);
                     (w, w / 2.0)
                 };
@@ -1419,17 +1427,55 @@ pub fn calculate_used_size_for_node(
     let display = get_display_property(styled_dom, Some(id));
     let position = get_position_type(styled_dom, dom_id);
 
+    // +spec:width-calculation-p007 - §10.3: width/margin calculation depends on box type
+    // Determine if this element is a replaced element (images, virtual views)
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let is_replaced = matches!(node_data.get_node_type(), NodeType::Image(_))
+        || node_data.is_virtual_view_node();
+
+    // +spec:width-calculation-p008 - §10.3.1: the 'width' property does not apply to inline, non-replaced elements
+    // For inline non-replaced elements, override any explicit width to Auto.
+    let css_width = if display.unwrap_or_default() == LayoutDisplay::Inline
+        && !is_replaced
+    {
+        MultiValue::Exact(LayoutWidth::Auto)
+    } else {
+        css_width
+    };
+
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
+    // +spec:width-calculation-p005 - §10.3.2/§10.3.3/§10.3.4/§10.3.5: width calculation dispatch by box type
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width.unwrap_or_default() {
         LayoutWidth::Auto => {
+            // +spec:width-calculation-p005 - §10.3.2: inline replaced elements with auto width use intrinsic width
+            // +spec:width-calculation-p005 - §10.3.4: block-level replaced elements use inline replaced width rules
+            // CSS 2.2 §10.3.2: If 'width' has a computed value of 'auto', and the element
+            // has an intrinsic width, then that intrinsic width is the used value of 'width'.
+            // §10.3.4: "The used value of 'width' is determined as for inline replaced elements."
+            if is_replaced {
+                // For replaced elements (inline or block-level), auto width = intrinsic width.
+                // The intrinsic sizes were already computed with the 300px fallback per §10.3.2.
+                intrinsic.max_content_width
+            }
+            // +spec:width-calculation-p005 - §10.3.5: floating non-replaced elements with auto width use shrink-to-fit
+            else if get_float(styled_dom, id, node_state).unwrap_or(LayoutFloat::None) != LayoutFloat::None {
+                // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
+                // shrink-to-fit = min(max(preferred minimum width, available width), preferred width)
+                let available_width = (containing_block_size.width
+                    - _box_props.margin.left
+                    - _box_props.margin.right
+                    - _box_props.border.left
+                    - _box_props.border.right
+                    - _box_props.padding.left
+                    - _box_props.padding.right)
+                    .max(0.0);
+                let preferred_minimum = intrinsic.min_content_width;
+                let preferred = intrinsic.max_content_width;
+                preferred_minimum.max(available_width).min(preferred).max(0.0)
+            }
             // +spec:width-calculation-p002 - §10.3.7: absolutely positioned non-replaced elements with auto width use shrink-to-fit
-            let is_abs_pos = matches!(
-                position,
-                LayoutPosition::Absolute | LayoutPosition::Fixed
-            );
-
-            if is_abs_pos {
+            else if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
                 // §10.3.7: abs-pos elements with auto width use shrink-to-fit
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                 let available_width = (containing_block_size.width
@@ -1446,15 +1492,19 @@ pub fn calculate_used_size_for_node(
             } else {
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
+                // +spec:width-calculation-p005 - §10.3.3: block-level non-replaced auto width fills containing block
+                // +spec:width-calculation-p006 - §10.3.3: block-level non-replaced width:auto → solve constraint equation for width
+                // +spec:width-calculation-p007 - §10.3.3: block-level non-replaced auto width = CB width - margins - borders - padding
                 LayoutDisplay::Block
                 | LayoutDisplay::FlowRoot
                 | LayoutDisplay::ListItem
                 | LayoutDisplay::Flex
                 | LayoutDisplay::Grid => {
-                    // For block-level elements (including flex and grid containers),
+                    // For block-level non-replaced elements,
                     // 'auto' width fills the containing block (minus margins, borders, padding).
                     // CSS 2.2 §10.3.3: width = containing_block_width - margin_left -
                     // margin_right - border_left - border_right - padding_left - padding_right
+                    // +spec:width-calculation-p005 - §10.3.3: constraint equation solved for width when width is auto, other auto values become 0
                     let available_width = containing_block_size.width
                         - _box_props.margin.left
                         - _box_props.margin.right
@@ -1465,6 +1515,7 @@ pub fn calculate_used_size_for_node(
 
                     available_width.max(0.0)
                 }
+                // +spec:width-calculation-p024 - §10.3.9: inline-block non-replaced auto width uses shrink-to-fit width as for floats
                 // +spec:width-calculation-p001 - §10.3.9: inline-block non-replaced with auto width uses shrink-to-fit width
                 // +spec:display-property-p047 - inline-grid in IFC is sized as atomic inline-level box (CSS Grid 5.2)
                 // +spec:inline-block-p018 - inline-grid in IFC sized as atomic inline-level box (like inline-block) per CSS Grid 5.2
@@ -1487,15 +1538,20 @@ pub fn calculate_used_size_for_node(
                     preferred_minimum.max(available_width).min(preferred).max(0.0)
                 }
                 // +spec:width-calculation-p001 - §10.3.10: inline-block replaced uses intrinsic width (same as inline replaced)
+                // +spec:width-calculation-p006 - §10.3.2: inline replaced elements with auto width use intrinsic width (via max_content_width from intrinsic size pass)
                 LayoutDisplay::Inline => {
                     // For inline elements, 'auto' width is the intrinsic/max-content width
                     intrinsic.max_content_width
                 }
-                // Table and other display types use intrinsic sizing
+                // +spec:width-calculation-p017 - §17.5.2: table with width:auto does NOT fill containing block; uses intrinsic (max-content) width
+                // +spec:width-calculation-p018 - §17.5.2: table with width:auto does NOT auto-fill containing block; uses intrinsic sizing instead
+                LayoutDisplay::Table | LayoutDisplay::InlineTable => intrinsic.max_content_width,
+                // Other display types use intrinsic sizing
                 _ => intrinsic.max_content_width,
             }
             }
         }
+        // +spec:width-calculation-p016 - §10.2: <length> specifies content area width; <percentage> w.r.t. containing block width
         LayoutWidth::Px(px) => {
             // Resolve percentage or absolute pixel value
             use azul_css::props::basic::{
@@ -1691,6 +1747,7 @@ pub fn calculate_used_size_for_node(
         (cw, ch)
     };
 
+    // +spec:width-calculation-p042 - §8.1: width defines content edge; content-box adds padding+border outside, border-box includes them
     // Step 4: Convert to border-box dimensions, respecting box-sizing property
     // CSS box-sizing:
     // - content-box (default): width/height set content size, border+padding are added
@@ -1714,6 +1771,7 @@ pub fn calculate_used_size_for_node(
             // border and padding are added outside
             // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
             // margin, border, padding, width, and height."
+            // +spec:width-calculation-p039 - §8.1: content-box width adds padding and border areas outside content area
             let border_box_width = constrained_width
                 + _box_props.padding.left
                 + _box_props.padding.right
