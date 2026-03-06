@@ -25,7 +25,7 @@ use crate::{
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
         getters::{
-            get_direction_property, get_writing_mode, get_position, MultiValue,
+            get_direction_property, get_display_property, get_writing_mode, get_position, MultiValue,
             get_css_top, get_css_bottom, get_css_left, get_css_right,
             get_css_height, get_css_width,
         },
@@ -497,6 +497,27 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // Early continue for non-relative positioning
         if position_type != LayoutPosition::Relative {
             continue;
+        }
+
+        // +spec:table-layout-p004 - §9.3.1: effect of position:relative on table-internal elements is undefined; skip them
+        {
+            use azul_css::props::layout::LayoutDisplay;
+            let display = get_display_property(ctx.styled_dom, node.dom_node_id);
+            if let MultiValue::Exact(d) = display {
+                if matches!(
+                    d,
+                    LayoutDisplay::TableRowGroup
+                        | LayoutDisplay::TableHeaderGroup
+                        | LayoutDisplay::TableFooterGroup
+                        | LayoutDisplay::TableRow
+                        | LayoutDisplay::TableColumnGroup
+                        | LayoutDisplay::TableColumn
+                        | LayoutDisplay::TableCell
+                        | LayoutDisplay::TableCaption
+                ) {
+                    continue;
+                }
+            }
         }
 
         // Determine the containing block size for resolving percentages.
