@@ -3222,6 +3222,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // for Latin fonts). TODO: resolve actual font and use its OS/2 metrics.
         strut_ascent: font_size * 0.8,
         strut_descent: font_size * 0.2,
+        // ch unit width: try to get actual space width from font, fall back to 0.5 * font_size
+        ch_width: font_size * 0.5, // TODO: resolve from ParsedFontTrait::get_space_width()
         // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
         // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property (initial: baseline, applies to inline-level elements)
         vertical_align,

@@ -410,6 +410,13 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
             FontOrRef::Ref(r) => r.num_glyphs(),
         }
     }
+
+    fn get_space_width(&self) -> Option<usize> {
+        match self {
+            FontOrRef::Font(f) => f.get_space_width(),
+            FontOrRef::Ref(r) => r.get_space_width(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -709,6 +716,10 @@ pub struct UnifiedConstraints {
     pub strut_ascent: f32,
     pub strut_descent: f32,
 
+    // Width of '0' (zero) character in px, used for ch unit and tab-size.
+    // Approximated as space_width from the first available font, or 0.5 * font_size fallback.
+    pub ch_width: f32,
+
     // Overflow handling
     pub overflow: OverflowBehavior,
     pub segment_alignment: SegmentAlignment,
@@ -766,6 +777,7 @@ impl Default for UnifiedConstraints {
             vertical_align: VerticalAlign::default(),
             strut_ascent: 12.8, // 80% of default line-height (typical ratio)
             strut_descent: 3.2, // 20% of default line-height
+            ch_width: 8.0, // 0.5 * default font_size (16.0)
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
             text_combine_upright: None,
@@ -808,6 +820,7 @@ impl Hash for UnifiedConstraints {
         self.vertical_align.hash(state);
         (self.strut_ascent.round() as usize).hash(state);
         (self.strut_descent.round() as usize).hash(state);
+        (self.ch_width.round() as usize).hash(state);
         self.overflow.hash(state);
         self.text_combine_upright.hash(state);
         (self.exclusion_margin.round() as usize).hash(state);
@@ -845,6 +858,7 @@ impl PartialEq for UnifiedConstraints {
             && self.vertical_align == other.vertical_align
             && round_eq(self.strut_ascent, other.strut_ascent)
             && round_eq(self.strut_descent, other.strut_descent)
+            && round_eq(self.ch_width, other.ch_width)
             && self.overflow == other.overflow
             && self.text_combine_upright == other.text_combine_upright
             && round_eq(self.exclusion_margin, other.exclusion_margin)
@@ -5630,7 +5644,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         },
                     });
                 } else {
-                    // Approximate ch unit as 0.5 * font_size
+                    // TODO: use actual font's space_width via ParsedFontTrait::get_space_width()
+                    // once we thread font resolution into the shaping phase for tab stops.
+                    // For now, approximate ch unit as 0.5 * font_size (typical for Latin fonts).
                     let ch_approx = style.font_size_px * 0.5;
                     // Tab stop interval in pixels: tab_size (number) * ch unit
                     let tab_interval = style.tab_size * ch_approx;

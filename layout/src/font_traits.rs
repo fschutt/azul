@@ -61,6 +61,10 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     fn get_font_metrics(&self) -> LayoutFontMetrics;
 
     fn num_glyphs(&self) -> u16;
+
+    /// Returns the advance width of the space character (U+0020) in font units,
+    /// or None if the font doesn't have a space glyph.
+    fn get_space_width(&self) -> Option<usize>;
 }
 
 /// Trait for loading fonts from raw bytes.

@@ -157,6 +157,10 @@ impl ParsedFontTrait for MockFont {
     fn num_glyphs(&self) -> u16 {
         256
     }
+
+    fn get_space_width(&self) -> Option<usize> {
+        Some(10)
+    }
 }
 
 #[derive(Debug)]

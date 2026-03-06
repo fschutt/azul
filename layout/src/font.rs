@@ -1232,5 +1232,9 @@ pub mod parsed {
         fn num_glyphs(&self) -> u16 {
             self.num_glyphs
         }
+
+        fn get_space_width(&self) -> Option<usize> {
+            self.space_width
+        }
     }
 }

@@ -151,6 +151,10 @@ impl ParsedFontTrait for FontRef {
     fn num_glyphs(&self) -> u16 {
         get_parsed_font(self).num_glyphs
     }
+
+    fn get_space_width(&self) -> Option<usize> {
+        get_parsed_font(self).get_space_width()
+    }
 }
 
 /// Extension trait for FontRef to provide access to font bytes and metrics
