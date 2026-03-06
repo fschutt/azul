@@ -2794,16 +2794,26 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         });
 
     // Map white-space CSS property to TextWrap
-    let text_wrap = match get_white_space_property(styled_dom, id, node_state) {
-        MultiValue::Exact(ws) => match ws {
-            StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
-            StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
-            StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
-            StyleWhiteSpace::PreWrap => text3::cache::TextWrap::Wrap,
-            StyleWhiteSpace::PreLine => text3::cache::TextWrap::Wrap,
-            StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
-        },
-        _ => text3::cache::TextWrap::Wrap,
+    let resolved_ws = match get_white_space_property(styled_dom, id, node_state) {
+        MultiValue::Exact(ws) => ws,
+        _ => StyleWhiteSpace::Normal,
+    };
+    let text_wrap = match resolved_ws {
+        StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
+        StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
+        StyleWhiteSpace::PreWrap => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::PreLine => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
+    };
+    // +spec:white-space-processing-p030 - preserve white-space mode for trailing WS handling
+    let white_space_mode = match resolved_ws {
+        StyleWhiteSpace::Normal => text3::cache::WhiteSpaceMode::Normal,
+        StyleWhiteSpace::Nowrap => text3::cache::WhiteSpaceMode::Nowrap,
+        StyleWhiteSpace::Pre => text3::cache::WhiteSpaceMode::Pre,
+        StyleWhiteSpace::PreWrap => text3::cache::WhiteSpaceMode::PreWrap,
+        StyleWhiteSpace::PreLine => text3::cache::WhiteSpaceMode::PreLine,
+        StyleWhiteSpace::BreakSpaces => text3::cache::WhiteSpaceMode::BreakSpaces,
     };
 
     // Get initial-letter for drop caps
@@ -2904,6 +2914,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         column_gap,
         hanging_punctuation,
         text_wrap,
+        white_space_mode,
         text_combine_upright,
         segment_alignment: SegmentAlignment::Total,
         overflow: match overflow_behaviour {
@@ -2952,6 +2963,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         line_height: line_height_value.inner.normalized() * font_size, /* Resolve line-height relative to font-size */
         vertical_align, // CSS vertical-align property (defaults to Baseline)
         word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
+        line_break: text3::cache::LineBreakStrictness::Normal, // TODO: wire up CSS line-break property
     }
 }
 
@@ -6515,16 +6527,178 @@ fn generate_list_marker_segments(
     }]
 }
 
+// +spec:white-space-processing-p024 - §5.1: Unicode BK/NL line breaking class chars are always forced breaks
+/// Returns true if a character has Unicode line breaking class BK (mandatory break)
+/// or NL (next line). Per CSS Text 3 §5.1, these must be treated as forced line
+/// breaks regardless of the white-space property value.
+#[inline]
+fn is_bk_or_nl_class(c: char) -> bool {
+    matches!(c, '\u{000B}' | '\u{000C}' | '\u{0085}' | '\u{2028}' | '\u{2029}')
+}
+
+/// Splits text at all forced break points: newlines (\n, \r\n, \r) and BK/NL class chars.
+/// Used for white-space modes that preserve segment breaks (pre, pre-wrap, pre-line, break-spaces).
+fn split_at_forced_breaks(text: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\n' {
+            segments.push(std::mem::take(&mut current));
+        } else if c == '\r' {
+            segments.push(std::mem::take(&mut current));
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+        } else if is_bk_or_nl_class(c) {
+            segments.push(std::mem::take(&mut current));
+        } else {
+            current.push(c);
+        }
+    }
+    segments.push(current);
+    segments
+}
+
+/// Splits text only at BK/NL class characters (not \n which is collapsed in normal/nowrap).
+/// Used for white-space: normal/nowrap where \n is collapsed to space but BK/NL chars
+/// still produce forced breaks per CSS Text 3 §5.1.
+fn split_at_bk_nl_chars(text: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    for c in text.chars() {
+        if is_bk_or_nl_class(c) {
+            segments.push(std::mem::take(&mut current));
+        } else {
+            current.push(c);
+        }
+    }
+    segments.push(current);
+    segments
+}
+
+// +spec:white-space-processing-p032 - §4.1.3 segment break transformation
+/// Returns true if the character is East Asian (CJK) for the purposes of
+/// segment break transformation rules (CSS Text Level 3, §4.1.3).
+fn is_east_asian_wide(c: char) -> bool {
+    let cp = c as u32;
+    // CJK Unified Ideographs
+    (0x4E00..=0x9FFF).contains(&cp)
+    || (0x3400..=0x4DBF).contains(&cp)
+    || (0x20000..=0x2A6DF).contains(&cp)
+    || (0xF900..=0xFAFF).contains(&cp)
+    // Hiragana
+    || (0x3040..=0x309F).contains(&cp)
+    // Katakana
+    || (0x30A0..=0x30FF).contains(&cp)
+    || (0x31F0..=0x31FF).contains(&cp)
+    // CJK Radicals / Kangxi / Ideographic Description
+    || (0x2E80..=0x2EFF).contains(&cp)
+    || (0x2F00..=0x2FDF).contains(&cp)
+    || (0x2FF0..=0x2FFF).contains(&cp)
+    // CJK Symbols and Punctuation
+    || (0x3000..=0x303F).contains(&cp)
+    || (0x3200..=0x32FF).contains(&cp)
+    || (0x3300..=0x33FF).contains(&cp)
+    // Bopomofo
+    || (0x3100..=0x312F).contains(&cp)
+    // Hangul Syllables
+    || (0xAC00..=0xD7AF).contains(&cp)
+    // Fullwidth forms
+    || (0xFF01..=0xFF60).contains(&cp)
+    || (0xFFE0..=0xFFE6).contains(&cp)
+}
+
+// +spec:white-space-processing-p045 - East Asian Width check excluding Hangul
+fn is_east_asian_fullwidth_or_wide(ch: char) -> bool {
+    let cp = ch as u32;
+    // Exclude Hangul
+    if (0x1100..=0x11FF).contains(&cp)
+        || (0x3130..=0x318F).contains(&cp)
+        || (0xAC00..=0xD7AF).contains(&cp)
+        || (0xA960..=0xA97F).contains(&cp)
+        || (0xD7B0..=0xD7FF).contains(&cp)
+    {
+        return false;
+    }
+    is_east_asian_wide(ch)
+        || (0xFF61..=0xFFDC).contains(&cp)
+        || (0xFFE8..=0xFFEE).contains(&cp)
+        || (0xA000..=0xA4CF).contains(&cp)
+}
+
+// +spec:white-space-processing-p045 - §4.1.3 segment break transformation rules
+/// Transforms segment breaks (newlines) in text according to CSS Text Level 3 §4.1.3.
+/// - If adjacent to a zero-width space (U+200B), the segment break is removed.
+/// - If both adjacent chars are East Asian F/W/H (not Hangul), removed entirely.
+/// - Otherwise, converted to a single space.
+fn apply_segment_break_transform(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut result = String::with_capacity(text.len());
+    let mut i = 0;
+
+    while i < len {
+        let ch = chars[i];
+        if ch == '\n' || ch == '\r' {
+            let break_end = if ch == '\r' && i + 1 < len && chars[i + 1] == '\n' {
+                i + 2
+            } else {
+                i + 1
+            };
+
+            // §4.1.1: remove collapsible whitespace around segment breaks
+            while result.ends_with(' ') || result.ends_with('\t') {
+                result.pop();
+            }
+
+            let mut after_idx = break_end;
+            while after_idx < len && (chars[after_idx] == ' ' || chars[after_idx] == '\t') {
+                after_idx += 1;
+            }
+
+            let char_before = result.chars().last();
+            let char_after = if after_idx < len { Some(chars[after_idx]) } else { None };
+
+            // Rule 1: adjacent to zero-width space → remove
+            if char_before == Some('\u{200B}') || char_after == Some('\u{200B}') {
+                // remove segment break
+            }
+            // Rule 2: both sides East Asian F/W/H (not Hangul) → remove
+            else if let (Some(before), Some(after)) = (char_before, char_after) {
+                if is_east_asian_fullwidth_or_wide(before) && is_east_asian_fullwidth_or_wide(after) {
+                    // remove segment break
+                } else {
+                    result.push(' ');
+                }
+            } else {
+                result.push(' ');
+            }
+
+            i = after_idx;
+        } else {
+            result.push(ch);
+            i += 1;
+        }
+    }
+
+    result
+}
+
 /// Splits text content into InlineContent items based on white-space CSS property.
 ///
 /// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
 /// forced line breaks per CSS Text Level 3 specification:
 /// https://www.w3.org/TR/css-text-3/#white-space-property
 ///
+/// Additionally, Unicode characters with BK or NL line breaking class (VT, FF, NEL, LS, PS)
+/// are always treated as forced line breaks regardless of the white-space value.
+///
 /// This function:
 /// 1. Checks the white-space property of the node (or its parent for text nodes)
 /// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
 /// 3. Otherwise: returns the text as a single `InlineContent::Text`
+/// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
 ///
 /// Returns a Vec of InlineContent items that correctly represent line breaks.
 pub fn split_text_for_whitespace(
@@ -6563,16 +6737,17 @@ pub fn split_text_for_whitespace(
     match white_space {
         StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => {
             // Pre, pre-wrap, break-spaces: preserve whitespace and honor newlines
-            // Split by newlines and insert LineBreak between parts
+            // Split by newlines and BK/NL class chars, insert LineBreak between parts
             // Also handle tab characters (\t) by inserting InlineContent::Tab
-            let mut lines = text.split('\n').peekable();
+            // +spec:white-space-processing-p024 - §5.1: preserved segment breaks + BK/NL always forced
+            let segments = split_at_forced_breaks(text);
+            let segment_count = segments.len();
             let mut content_index = 0;
-            
-            while let Some(line) = lines.next() {
-                // Split the line by tab characters and insert Tab elements
-                let mut tab_parts = line.split('\t').peekable();
+
+            for (seg_idx, segment) in segments.into_iter().enumerate() {
+                // Split the segment by tab characters and insert Tab elements
+                let mut tab_parts = segment.split('\t').peekable();
                 while let Some(part) = tab_parts.next() {
-                    // Add the text part if not empty
                     if !part.is_empty() {
                         result.push(InlineContent::Text(StyledRun {
                             text: part.to_string(),
@@ -6581,15 +6756,13 @@ pub fn split_text_for_whitespace(
                             source_node_id: Some(dom_id),
                         }));
                     }
-                    
-                    // If there's more content after this part, insert a Tab
+
                     if tab_parts.peek().is_some() {
                         result.push(InlineContent::Tab { style: Arc::clone(&style) });
                     }
                 }
-                
-                // If there's more content, insert a forced line break
-                if lines.peek().is_some() {
+
+                if seg_idx + 1 < segment_count {
                     result.push(InlineContent::LineBreak(InlineBreak {
                         break_type: BreakType::Hard,
                         clear: ClearType::None,
@@ -6600,14 +6773,15 @@ pub fn split_text_for_whitespace(
             }
         }
         StyleWhiteSpace::PreLine => {
-            // Pre-line: collapse whitespace but honor newlines
-            let mut lines = text.split('\n').peekable();
+            // Pre-line: collapse whitespace but honor newlines and BK/NL class chars
+            // +spec:white-space-processing-p024 - §5.1: preserved segment breaks + BK/NL always forced
+            let segments = split_at_forced_breaks(text);
+            let segment_count = segments.len();
             let mut content_index = 0;
-            
-            while let Some(line) = lines.next() {
-                // Collapse whitespace within the line
-                let collapsed: String = line.split_whitespace().collect::<Vec<_>>().join(" ");
-                
+
+            for (seg_idx, segment) in segments.into_iter().enumerate() {
+                let collapsed: String = segment.split_whitespace().collect::<Vec<_>>().join(" ");
+
                 if !collapsed.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
                         text: collapsed,
@@ -6616,9 +6790,8 @@ pub fn split_text_for_whitespace(
                         source_node_id: Some(dom_id),
                     }));
                 }
-                
-                // If there's more content, insert a forced line break
-                if lines.peek().is_some() {
+
+                if seg_idx + 1 < segment_count {
                     result.push(InlineContent::LineBreak(InlineBreak {
                         break_type: BreakType::Hard,
                         clear: ClearType::None,
@@ -6633,54 +6806,66 @@ pub fn split_text_for_whitespace(
             // https://www.w3.org/TR/css-text-3/#white-space-phase-1
             //
             // For `white-space: normal` and `nowrap`:
-            // 1. All newlines are converted to spaces
+            // 1. Segment breaks are transformed per §4.1.3
             // 2. Any sequence of consecutive spaces/tabs is collapsed to a single space
             // 3. Leading/trailing spaces at line boundaries are handled during line layout
             //
-            // Note: We perform basic collapsing here. Full inter-element collapsing 
-            // (removing spaces at start/end of lines) happens during line breaking.
-            
-            // Step 1: Replace all whitespace (including newlines, tabs) with spaces
-            // Step 2: Collapse consecutive spaces to a single space
-            let collapsed: String = text
-                .chars()
-                .map(|c| if c.is_whitespace() { ' ' } else { c })
-                .collect::<String>()
-                .split(' ')
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
-            
-            // Preserve a single space if the original text was whitespace-only
-            // This is important for inter-element spacing: "<span>Hello</span> <span>World</span>"
-            // The space between the spans should be preserved as a single space
-            let final_text = if collapsed.is_empty() && !text.is_empty() {
-                // Original had whitespace but collapsed to empty - preserve one space
-                // This handles cases like "<span> </span>" which should render as " "
-                " ".to_string()
-            } else if !collapsed.is_empty() {
-                // Check if original had leading/trailing whitespace and preserve them
-                let had_leading = text.chars().next().map(|c| c.is_whitespace()).unwrap_or(false);
-                let had_trailing = text.chars().last().map(|c| c.is_whitespace()).unwrap_or(false);
-                
-                let mut result = String::new();
-                if had_leading { result.push(' '); }
-                result.push_str(&collapsed);
-                if had_trailing && !had_leading { result.push(' '); }
-                else if had_trailing && had_leading && collapsed.is_empty() { /* already have one space */ }
-                else if had_trailing { result.push(' '); }
-                result
-            } else {
-                collapsed
-            };
-            
-            if !final_text.is_empty() {
-                result.push(InlineContent::Text(StyledRun {
-                    text: final_text,
-                    style,
-                    logical_start_byte: 0,
-                    source_node_id: Some(dom_id),
-                }));
+            // +spec:white-space-processing-p024 - §5.1: BK/NL class chars (VT, FF, NEL, LS, PS)
+            // are forced breaks regardless of white-space value. Split on them first,
+            // then collapse whitespace within each segment.
+            let segments = split_at_bk_nl_chars(text);
+            let segment_count = segments.len();
+            let mut content_index = 0;
+
+            for (seg_idx, segment) in segments.into_iter().enumerate() {
+                // +spec:white-space-processing-p045 - §4.1.3 segment break transformation
+                let after_segment_breaks = apply_segment_break_transform(&segment);
+
+                // Collapse whitespace within this segment (normal/nowrap rules)
+                let collapsed: String = after_segment_breaks
+                    .chars()
+                    .map(|c| if c.is_whitespace() { ' ' } else { c })
+                    .collect::<String>()
+                    .split(' ')
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                let final_text = if collapsed.is_empty() && !segment.is_empty() {
+                    " ".to_string()
+                } else if !collapsed.is_empty() {
+                    let had_leading = segment.chars().next().map(|c| c.is_whitespace()).unwrap_or(false);
+                    let had_trailing = segment.chars().last().map(|c| c.is_whitespace()).unwrap_or(false);
+
+                    let mut r = String::new();
+                    if had_leading { r.push(' '); }
+                    r.push_str(&collapsed);
+                    if had_trailing && !had_leading { r.push(' '); }
+                    else if had_trailing && had_leading && collapsed.is_empty() { /* already have one space */ }
+                    else if had_trailing { r.push(' '); }
+                    r
+                } else {
+                    collapsed
+                };
+
+                if !final_text.is_empty() {
+                    result.push(InlineContent::Text(StyledRun {
+                        text: final_text,
+                        style: Arc::clone(&style),
+                        logical_start_byte: 0,
+                        source_node_id: Some(dom_id),
+                    }));
+                }
+
+                // Insert forced break between segments (for BK/NL chars)
+                if seg_idx + 1 < segment_count {
+                    result.push(InlineContent::LineBreak(InlineBreak {
+                        break_type: BreakType::Hard,
+                        clear: ClearType::None,
+                        content_index,
+                    }));
+                    content_index += 1;
+                }
             }
         }
     }
