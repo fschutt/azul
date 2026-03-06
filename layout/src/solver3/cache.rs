@@ -757,7 +757,8 @@ fn is_whitespace_only_inline_run(
             match data.get_node_type() {
                 NodeType::Text(text) => {
                     let s = text.as_str();
-                    if !s.chars().all(|c| c.is_whitespace()) {
+                    // +spec:white-space-processing-p047 - only CSS document white space chars
+                    if !s.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')) {
                         return false; // Non-whitespace text → must create wrapper
                     }
                 }

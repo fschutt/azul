@@ -7233,6 +7233,15 @@ fn is_bidi_control(c: char) -> bool {
     )
 }
 
+// +spec:white-space-processing-p047 - CSS Text 3 §4.1: document white space characters are only U+0020, U+0009, and segment breaks
+/// Returns true if `c` is a CSS "document white space character" per CSS Text Level 3 §4.1.
+/// Only spaces (U+0020), tabs (U+0009), and segment breaks (LF, CR, FF) qualify.
+/// Other Unicode whitespace (e.g. U+00A0 non-breaking space) is NOT document white space.
+#[inline]
+pub fn is_css_document_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')
+}
+
 // +spec:inline-formatting-context-p048 - §4.1.1 Phase I: for each inline within an IFC,
 // white space characters are processed prior to line breaking and bidi reordering
 pub fn split_text_for_whitespace(
@@ -7327,7 +7336,12 @@ pub fn split_text_for_whitespace(
             let mut content_index = 0;
 
             for (seg_idx, segment) in segments.into_iter().enumerate() {
-                let collapsed: String = segment.split_whitespace().collect::<Vec<_>>().join(" ");
+                // Collapse only CSS document white space within the line (not all Unicode whitespace)
+                let collapsed: String = segment
+                    .split(|c: char| is_css_document_whitespace(c))
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
 
                 if !collapsed.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
@@ -7368,10 +7382,11 @@ pub fn split_text_for_whitespace(
                 // +spec:white-space-processing-p045 - §4.1.3 segment break transformation
                 let after_segment_breaks = apply_segment_break_transform(&segment);
 
-                // Collapse whitespace within this segment (normal/nowrap rules)
+                // +spec:white-space-processing-p047 - only collapse document white space chars (U+0020, U+0009, segment breaks)
+                // Collapse document white space within this segment (normal/nowrap rules)
                 let collapsed: String = after_segment_breaks
                     .chars()
-                    .map(|c| if c.is_whitespace() { ' ' } else { c })
+                    .map(|c| if is_css_document_whitespace(c) { ' ' } else { c })
                     .collect::<String>()
                     .split(' ')
                     .filter(|s| !s.is_empty())
@@ -7381,8 +7396,9 @@ pub fn split_text_for_whitespace(
                 let final_text = if collapsed.is_empty() && !segment.is_empty() {
                     " ".to_string()
                 } else if !collapsed.is_empty() {
-                    let had_leading = segment.chars().next().map(|c| c.is_whitespace()).unwrap_or(false);
-                    let had_trailing = segment.chars().last().map(|c| c.is_whitespace()).unwrap_or(false);
+                    // Check if original had leading/trailing document whitespace
+                    let had_leading = segment.chars().next().map(|c| is_css_document_whitespace(c)).unwrap_or(false);
+                    let had_trailing = segment.chars().last().map(|c| is_css_document_whitespace(c)).unwrap_or(false);
 
                     let mut r = String::new();
                     if had_leading { r.push(' '); }
