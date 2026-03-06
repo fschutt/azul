@@ -6672,7 +6672,8 @@ pub fn break_one_line<T: ParsedFontTrait>(
         return (Vec::new(), false);
     }
 
-    // CSS Text Module Level 3 § 4.1.1: At the beginning of a line, white space
+    // +spec:white-space-processing-p002 - §4.1.2 Phase II: collapsible spaces at the beginning of a line are removed
+    // CSS Text Module Level 3 § 4.1.2: At the beginning of a line, white space
     // is collapsed away. Skip leading whitespace at line start.
     // https://www.w3.org/TR/css-text-3/#white-space-phase-2
     // +spec:white-space-processing-p035 - break-spaces: spaces cannot be collapsed, skip stripping
@@ -6778,6 +6779,18 @@ pub fn break_one_line<T: ParsedFontTrait>(
                     }
                 }
             }
+            break;
+        }
+    }
+
+    // +spec:white-space-processing-p002 - §4.1.2 Phase II: collapsible spaces at the end of a line are removed,
+    // as well as any trailing U+1680 OGHAM SPACE MARK whose white-space is normal/nowrap/pre-line.
+    // Note: pre-wrap and break-spaces have different handling (hanging/preserving)
+    // which is not yet implemented here.
+    while let Some(last) = line_items.last() {
+        if is_word_separator(last) {
+            line_items.pop();
+        } else {
             break;
         }
     }
