@@ -2710,6 +2710,8 @@ where
         Ok(())
     }
 
+    // +spec:table-layout-p035 - §17.6.1: in spacing area, row/column/row group/column group
+    //   backgrounds are invisible, allowing table background to show through
     /// CSS 2.2 Section 17.5.1: Table background painting in 6 layers
     ///
     /// Implements the CSS 2.2 specification for table background painting order.
