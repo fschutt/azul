@@ -2000,6 +2000,7 @@ pub fn get_computed_display(
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
 // +spec:inline-block-p036 - §10.8.1: vertical-align conversion (keyword values only; <percentage>/<length> not yet supported)
+// +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property retrieval (initial: baseline)
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
