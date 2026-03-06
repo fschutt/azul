@@ -3658,7 +3658,7 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
 // =============================================================================
 
 use azul_css::props::layout::text::LayoutTextJustify;
-use azul_css::props::layout::table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide};
+use azul_css::props::layout::table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells};
 use azul_css::props::style::text::StyleHyphens;
 use azul_css::props::style::effects::StyleCursor;
 
@@ -3702,6 +3702,16 @@ impl ExtractPropertyValue<StyleCaptionSide> for CssProperty {
     fn extract(&self) -> Option<StyleCaptionSide> {
         match self {
             Self::CaptionSide(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+// +spec:table-layout-p034 - §17.6.1.1: empty-cells extract (show/hide for table-cell elements)
+impl ExtractPropertyValue<StyleEmptyCells> for CssProperty {
+    fn extract(&self) -> Option<StyleEmptyCells> {
+        match self {
+            Self::EmptyCells(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }
@@ -3754,6 +3764,14 @@ get_css_property!(
     get_caption_side,
     StyleCaptionSide,
     CssPropertyType::CaptionSide
+);
+
+// +spec:table-layout-p034 - §17.6.1.1: empty-cells getter (show|hide; initial: show; inherited; applies to table-cell)
+get_css_property!(
+    get_empty_cells,
+    get_empty_cells,
+    StyleEmptyCells,
+    CssPropertyType::EmptyCells
 );
 
 get_css_property!(

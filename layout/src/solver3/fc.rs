@@ -3209,6 +3209,9 @@ struct TableLayoutContext {
     /// CSS 2.2 Section 17.6: Columns with visibility:collapse (dynamic effects)
     /// Set of column indices that have visibility:collapse
     collapsed_columns: std::collections::HashSet<usize>,
+    // +spec:table-layout-p038 - §17.6.1.1: rows where all cells have empty-cells:hide and no visible content
+    /// Rows that are hidden-empty (zero height, border-spacing on only one side)
+    hidden_empty_rows: std::collections::HashSet<usize>,
 }
 
 impl TableLayoutContext {
@@ -3225,10 +3228,13 @@ impl TableLayoutContext {
             caption_index: None,
             collapsed_rows: std::collections::HashSet::new(),
             collapsed_columns: std::collections::HashSet::new(),
+            hidden_empty_rows: std::collections::HashSet::new(),
         }
     }
 }
 
+// +spec:table-layout-p002 - §17.3: border properties on columns apply only when border-collapse:collapse
+// +spec:table-layout-p002 - §17.3: conflict resolution algorithm selects border styles at every cell edge
 /// Source of a border in the border conflict resolution algorithm
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BorderSource {
@@ -3989,8 +3995,12 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         }
 
         // Add spacing: top + (n-1 between rows) + bottom = n+1 spacings
+        // +spec:table-layout-p038 - §17.6.1.1: hidden-empty rows get border-spacing on only one side
         if table_ctx.num_rows > 0 {
-            table_height += v_spacing * (table_ctx.num_rows + 1) as f32;
+            let full_spacings = (table_ctx.num_rows + 1) as f32;
+            // Each hidden-empty row loses one side of border-spacing
+            let hidden_empty_count = table_ctx.hidden_empty_rows.len() as f32;
+            table_height += v_spacing * (full_spacings - hidden_empty_count);
         }
     }
 
@@ -4175,6 +4185,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
 ///
 /// - CSS 2.2 Section 17.2: Column groups contain columns
 /// - CSS 2.2 Section 17.6: Columns can have visibility:collapse
+// +spec:table-layout-p002 - §17.3: column visibility:collapse hides cells and diminishes table width
 fn analyze_table_colgroup<T: ParsedFontTrait>(
     tree: &LayoutTree,
     colgroup_index: usize,
@@ -5082,6 +5093,8 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             });
             if all_hidden_empty {
                 table_ctx.row_heights[row_idx] = 0.0;
+                // +spec:table-layout-p038 - §17.6.1.1: track hidden-empty rows for border-spacing adjustment
+                table_ctx.hidden_empty_rows.insert(row_idx);
             }
         }
     }
@@ -5164,6 +5177,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     }
 
     // +spec:margin-collapsing-p008 - collapsed track treated as 0px, gutters on either side collapse
+    // +spec:table-layout-p038 - §17.6.1.1: hidden-empty rows get border-spacing on only one side
     // Calculate cumulative row positions (y-offsets) with spacing
     let mut row_positions = vec![0.0; table_ctx.num_rows];
     let mut y_offset = v_spacing; // Start with spacing on the top
@@ -5172,6 +5186,10 @@ fn position_table_cells<T: ParsedFontTrait>(
         // Collapsed rows: gutters on either side collapse (height is 0, skip spacing)
         if table_ctx.collapsed_rows.contains(&i) {
             // No height, no gutter added
+        } else if table_ctx.hidden_empty_rows.contains(&i) {
+            // Hidden-empty row: zero height, only one side of spacing
+            // (we already added spacing before this row, so skip the spacing after)
+            y_offset += height; // height is 0.0
         } else {
             y_offset += height + v_spacing; // Add spacing between rows
         }
