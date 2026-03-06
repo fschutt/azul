@@ -7241,7 +7241,13 @@ pub fn split_text_for_whitespace(
     };
     
     let mut result = Vec::new();
-    
+
+    // +spec:margin-collapsing-p027 - normalize CR to LF per CSS Text 3 §4
+    // HTML parsers convert \r to \n during preprocessing, but \r can survive
+    // via escape sequences (e.g. &#x0d;). Any remaining U+000D must be
+    // treated identically to U+000A (line feed).
+    let text = &text.replace("\r\n", "\n").replace('\r', "\n");
+
     // For `pre`, `pre-wrap`, `pre-line`, and `break-spaces`, newlines must be preserved as forced breaks
     // CSS Text Level 3: "Newlines in the source will be honored as forced line breaks."
     match white_space {
