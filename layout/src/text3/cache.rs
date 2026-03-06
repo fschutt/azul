@@ -725,6 +725,10 @@ pub struct UnifiedConstraints {
     pub hanging_punctuation: bool,
     // §5.2 word-break property on constraints
     pub word_break: WordBreak,
+    // +spec:white-space-processing-p030 - white-space mode for trailing WS hang/collapse
+    pub white_space_mode: WhiteSpaceMode,
+    // +spec:white-space-processing-p034 - §5.3 line-break property
+    pub line_break: LineBreakStrictness,
 }
 
 impl Default for UnifiedConstraints {
@@ -762,6 +766,8 @@ impl Default for UnifiedConstraints {
             line_clamp: None,
             text_wrap: TextWrap::default(),
             word_break: WordBreak::default(),
+            white_space_mode: WhiteSpaceMode::default(),
+            line_break: LineBreakStrictness::default(),
         }
     }
 }
@@ -791,6 +797,8 @@ impl Hash for UnifiedConstraints {
         (self.column_gap.round() as usize).hash(state);
         self.hanging_punctuation.hash(state);
         self.word_break.hash(state);
+        self.white_space_mode.hash(state);
+        self.line_break.hash(state);
     }
 }
 
@@ -820,6 +828,8 @@ impl PartialEq for UnifiedConstraints {
             && round_eq(self.column_gap, other.column_gap)
             && self.hanging_punctuation == other.hanging_punctuation
             && self.word_break == other.word_break
+            && self.white_space_mode == other.white_space_mode
+            && self.line_break == other.line_break
     }
 }
 
@@ -1075,6 +1085,30 @@ pub enum TextWrap {
     Wrap,
     Balance,
     NoWrap,
+}
+
+// +spec:white-space-processing-p030 - CSS white-space mode for trailing whitespace handling
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum WhiteSpaceMode {
+    #[default]
+    Normal,
+    Nowrap,
+    Pre,
+    PreWrap,
+    PreLine,
+    BreakSpaces,
+}
+
+// +spec:white-space-processing-p034 - §5.3 line-break property strictness levels
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum LineBreakStrictness {
+    Loose,
+    #[default]
+    Normal,
+    Strict,
+    /// Soft wrap opportunity around every typographic character unit.
+    /// Hyphenation is not applied.
+    Anywhere,
 }
 
 // §5.2 word-break property: normal, break-all, keep-all
@@ -5424,9 +5458,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
             }
             LogicalItem::Tab { source, style } => {
-                // TODO: To get the space width accurately, we would need to shape
-                // a space character with the current font.
-                // For now, we approximate it as a fraction of the font size.
+                // +spec:white-space-processing-p032 - §4.2 tab-size: tab width is
+                // tab_size * advance width of U+0020 (space) including letter/word-spacing.
+                // TODO: shape actual space glyph for accurate advance width.
                 let space_advance = style.font_size_px * 0.33;
                 let tab_width = style.tab_size * space_advance;
                 shaped.push(ShapedItem::Tab {
@@ -6235,7 +6269,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // "When an inline box exceeds the logical width of a line box, it is split
             // into several fragments, which are partitioned across multiple line boxes."
             let (mut line_items, was_hyphenated) =
-                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts);
+                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts, fragment_constraints.line_break, fragment_constraints.white_space_mode);
             if line_items.is_empty() {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(
@@ -6354,15 +6388,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 ///
 /// # Missing Features:
 /// - word-break property (normal, break-all, keep-all) - IMPLEMENTED via BreakCursor.word_break
-/// - \u274c line-break property (auto, loose, normal, strict, anywhere)
+/// - \u26a0\ufe0f line-break property: anywhere implemented; loose/normal/strict use UA defaults
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
-/// - \u274c white-space: break-spaces handling
+/// - \u2705 white-space: break-spaces handling
 pub fn break_one_line<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     line_constraints: &LineConstraints,
     is_vertical: bool,
     hyphenator: Option<&Standard>,
     fonts: &LoadedFonts<T>,
+    line_break: LineBreakStrictness,
+    white_space_mode: WhiteSpaceMode,
 ) -> (Vec<ShapedItem>, bool) {
     let mut line_items = Vec::new();
     let mut current_width = 0.0;
@@ -6374,28 +6410,35 @@ pub fn break_one_line<T: ParsedFontTrait>(
     // CSS Text Module Level 3 § 4.1.1: At the beginning of a line, white space
     // is collapsed away. Skip leading whitespace at line start.
     // https://www.w3.org/TR/css-text-3/#white-space-phase-2
-    while !cursor.is_done() {
-        let next_unit = cursor.peek_next_unit();
-        if next_unit.is_empty() {
-            break;
-        }
-        // Check if the first item is whitespace-only
-        if next_unit.len() == 1 && is_word_separator(&next_unit[0]) {
-            // Skip this whitespace at line start
-            cursor.consume(1);
-        } else {
-            break;
+    // +spec:white-space-processing-p035 - break-spaces: spaces cannot be collapsed, skip stripping
+    let break_spaces = white_space_mode == WhiteSpaceMode::BreakSpaces;
+    if !break_spaces {
+        while !cursor.is_done() {
+            let next_unit = cursor.peek_next_unit();
+            if next_unit.is_empty() {
+                break;
+            }
+            if next_unit.len() == 1 && is_word_separator(&next_unit[0]) {
+                cursor.consume(1);
+            } else {
+                break;
+            }
         }
     }
 
     loop {
-        // 1. Identify the next unbreakable unit (word) or break opportunity.
-        let next_unit = cursor.peek_next_unit();
+        // +spec:white-space-processing-p034 - §5.3 line-break: anywhere treats every
+        // typographic character unit as a soft wrap opportunity; hyphenation is not applied
+        let next_unit = if line_break == LineBreakStrictness::Anywhere {
+            cursor.peek_next_single_item()
+        } else {
+            cursor.peek_next_unit()
+        };
         if next_unit.is_empty() {
             break; // End of content
         }
 
-        // Handle hard breaks immediately.
+        // +spec:white-space-processing-p024 - §5.1: preserved segment breaks and BK/NL class treated as forced line breaks
         if let Some(ShapedItem::Break { .. }) = next_unit.first() {
             line_items.push(next_unit[0].clone());
             cursor.consume(1);
@@ -6414,23 +6457,23 @@ pub fn break_one_line<T: ParsedFontTrait>(
             current_width += unit_width;
             cursor.consume(next_unit.len());
         } else {
+            // +spec:white-space-processing-p034 - §5.3 line-break: anywhere disables hyphenation
             // 3. The unit overflows. Can we hyphenate it?
-            if let Some(hyphenator) = hyphenator {
-                // We only try to hyphenate if the unit is a word (not a space).
-                if !is_break_opportunity(next_unit.last().unwrap()) {
-                    if let Some(hyphenation_result) = try_hyphenate_word_cluster(
-                        &next_unit,
-                        available_width,
-                        is_vertical,
-                        hyphenator,
-                        fonts,
-                    ) {
-                        line_items.extend(hyphenation_result.line_part);
-                        // Consume the original full word from the cursor.
-                        cursor.consume(next_unit.len());
-                        // Put the remainder back for the next line.
-                        cursor.partial_remainder = hyphenation_result.remainder_part;
-                        return (line_items, true);
+            if line_break != LineBreakStrictness::Anywhere {
+                if let Some(hyphenator) = hyphenator {
+                    if !is_break_opportunity(next_unit.last().unwrap()) {
+                        if let Some(hyphenation_result) = try_hyphenate_word_cluster(
+                            &next_unit,
+                            available_width,
+                            is_vertical,
+                            hyphenator,
+                            fonts,
+                        ) {
+                            line_items.extend(hyphenation_result.line_part);
+                            cursor.consume(next_unit.len());
+                            cursor.partial_remainder = hyphenation_result.remainder_part;
+                            return (line_items, true);
+                        }
                     }
                 }
             }
@@ -6816,8 +6859,39 @@ pub fn position_one_line<T: ParsedFontTrait>(
             .map(|item| get_item_measure(item, is_vertical))
             .sum();
 
+        // +spec:white-space-processing-p030 - Phase II trailing whitespace handling:
+        // For normal/nowrap/pre-line: unconditionally hang trailing WS.
+        // For pre-wrap: unconditionally hang, unless before forced break (then conditionally hang).
+        // For break-spaces: trailing spaces cannot hang.
+        // For pre: no hanging (whitespace preserved as-is).
+        let trailing_ws_width = match constraints.white_space_mode {
+            WhiteSpaceMode::BreakSpaces | WhiteSpaceMode::Pre => 0.0,
+            WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine => {
+                measure_trailing_whitespace(&justified_segment_items, is_vertical)
+            }
+            WhiteSpaceMode::PreWrap => {
+                let has_forced_break = justified_segment_items.last()
+                    .map(|item| matches!(item, ShapedItem::Break { .. }))
+                    .unwrap_or(false);
+                let ws_width = measure_trailing_whitespace(&justified_segment_items, is_vertical);
+                if has_forced_break {
+                    // Conditionally hang: only hang if it would overflow
+                    let content_width = final_segment_width - ws_width;
+                    if content_width + ws_width > segment.width {
+                        ws_width
+                    } else {
+                        0.0
+                    }
+                } else {
+                    ws_width // unconditionally hang
+                }
+            }
+        };
+        let effective_segment_width = final_segment_width - trailing_ws_width;
+
+        // +spec:containing-block-p037 - §6.1 text-align: alignment is w.r.t. line box start/end sides
         // 3. Calculate alignment offset *within this segment*.
-        let remaining_space = segment.width - final_segment_width;
+        let remaining_space = segment.width - effective_segment_width;
 
         // Handle MaxContent/indefinite width: when available_width is MaxContent (for intrinsic
         // sizing), segment.width will be f32::MAX / 2.0. Alignment calculations would
@@ -7326,6 +7400,19 @@ fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
 }
 
 /// Helper to identify if an item is a word separator (like a space).
+// +spec:white-space-processing-p030 - measure trailing whitespace width for hanging
+fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
+    let mut trailing_ws = 0.0;
+    for item in items.iter().rev() {
+        if is_word_separator(item) {
+            trailing_ws += get_item_measure(item, is_vertical);
+        } else {
+            break;
+        }
+    }
+    trailing_ws
+}
+
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         // A cluster is a word separator if its text is whitespace.
@@ -7749,6 +7836,17 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
 }
 
 fn is_break_opportunity(item: &ShapedItem) -> bool {
+    // +spec:white-space-processing-p024 - §5.1: WJ, ZW, GL, ZWJ line breaking classes honored
+    if let ShapedItem::Cluster(c) = item {
+        // ZW (zero-width space U+200B) is always a break opportunity
+        if c.text.contains('\u{200B}') {
+            return true;
+        }
+        // WJ (word joiner U+2060), ZWJ (U+200D), and GL (NBSP U+00A0) suppress breaks
+        if c.text.chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
+            return false;
+        }
+    }
     is_break_opportunity_with_word_break(item, WordBreak::Normal)
 }
 
@@ -7860,6 +7958,17 @@ impl<'a> BreakCursor<'a> {
             }
         }
         unit
+    }
+
+    // +spec:white-space-processing-p034 - §5.3 line-break: anywhere returns each item individually
+    pub fn peek_next_single_item(&self) -> Vec<ShapedItem> {
+        if !self.partial_remainder.is_empty() {
+            return vec![self.partial_remainder[0].clone()];
+        }
+        if self.next_item_index < self.items.len() {
+            return vec![self.items[self.next_item_index].clone()];
+        }
+        Vec::new()
     }
 }
 
