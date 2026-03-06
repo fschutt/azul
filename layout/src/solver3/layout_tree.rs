@@ -923,6 +923,23 @@ impl LayoutTreeBuilder {
             LayoutDisplay::TableRow => {
                 self.process_table_row_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
+            // +spec:table-layout-p022 - §17.2.1: all child boxes of a table-column parent are treated as display:none
+            LayoutDisplay::TableColumn => {
+                // CSS 2.2 §17.2.1: "All child boxes of a 'table-column' parent are
+                // treated as if they had 'display: none'." - skip all children.
+            }
+            // +spec:table-layout-p022 - §17.2.1: non-table-column children of table-column-group treated as display:none
+            LayoutDisplay::TableColumnGroup => {
+                // CSS 2.2 §17.2.1: "If a child C of a 'table-column-group' parent is not
+                // a 'table-column' box, then it is treated as if it had 'display: none'."
+                for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+                    let child_display = get_display_type(styled_dom, child_dom_id);
+                    if child_display == LayoutDisplay::TableColumn {
+                        self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                    }
+                    // Non-table-column children are suppressed (treated as display:none)
+                }
+            }
             // Inline, TableCell, etc., have their children processed as part of their
             // formatting context layout and don't require anonymous box generation at this stage.
             // +spec:table-layout-p026 +spec:table-layout-p028 - flex/grid item blockification
@@ -2333,22 +2350,32 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         }
         LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
         // +spec:display-property-p016 - table behaves as block-level (display:table) or inline-level (display:inline-table); generates table wrapper box per CSS2§17.4
+        // +spec:table-layout-p002 - §17.4: table behaves as block-level (table) or inline-level (inline-table)
+        // +spec:table-layout-p019 - display:table / display:inline-table map to Table FC (§17.2)
         LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
+        // +spec:table-layout-p019 - table-row-group, table-header-group, table-footer-group all map to TableRowGroup FC (§17.2)
         LayoutDisplay::TableRowGroup
         | LayoutDisplay::TableHeaderGroup
         | LayoutDisplay::TableFooterGroup => FormattingContext::TableRowGroup,
+        // +spec:table-layout-p019 - display:table-row maps to TableRow FC (§17.2)
         LayoutDisplay::TableRow => FormattingContext::TableRow,
+        // +spec:table-layout-p019 - display:table-cell maps to TableCell FC (§17.2)
         LayoutDisplay::TableCell => FormattingContext::TableCell,
         LayoutDisplay::None => FormattingContext::None,
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
+        // +spec:table-layout-p019 - display:table-column-group maps to TableColumnGroup FC; not rendered but may carry style (§17.2)
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
+        // +spec:table-layout-p019 - display:table-caption maps to TableCaption FC; all captions must be rendered (§17.2, §17.4)
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         // +spec:display-property-p047 - grid containers: ::first-line/::first-letter don't apply; overflow property applies (CSS Grid 5.1/5.3)
         // +spec:inline-block-p018 - grid container sized per formatting context rules (BFC: as block box; IFC: as atomic inline-level box) (CSS Grid 5.2)
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
 
+        // +spec:table-layout-p019 - display:table-column is not rendered (as if display:none) but may carry style (§17.2)
+        // table-column elements are used only for column styling, not for generating boxes
+        LayoutDisplay::TableColumn => FormattingContext::TableColumnGroup,
         // These less common display types default to block behavior
-        LayoutDisplay::TableColumn | LayoutDisplay::RunIn | LayoutDisplay::Marker => {
+        LayoutDisplay::RunIn | LayoutDisplay::Marker => {
             FormattingContext::Block {
                 establishes_new_context: true,
             }
