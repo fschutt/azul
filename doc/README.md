@@ -22,6 +22,7 @@ The typical workflow is:
 1. Modify Rust source code (add/change/remove public types or functions)
 2. Run `autofix` to synchronize `api.json` with the workspace
 3. Run `codegen all` to regenerate all language bindings
+4. Build the DLL: `cargo build -p azul-dll --features build-dll --release`
 
 ### autofix — Synchronize api.json with Source Code
 
