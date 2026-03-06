@@ -5562,21 +5562,56 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
             }
+            // +spec:white-space-processing-p004 - §4.1.2 Phase II: tab handling
+            // "If the tab size is zero, preserved tabs are not rendered."
+            // "Otherwise, each preserved tab is rendered as a horizontal shift that lines up
+            //  the start edge of the next glyph with the next tab stop."
+            // "Tab stops occur at points that are multiples of the tab size from the starting
+            //  content edge of the preserved tab's nearest block container ancestor."
             LogicalItem::Tab { source, style } => {
-                // +spec:white-space-processing-p032 - §4.2 tab-size: tab width is
-                // tab_size * advance width of U+0020 (space) including letter/word-spacing.
-                // TODO: shape actual space glyph for accurate advance width.
-                let space_advance = style.font_size_px * 0.33;
-                let tab_width = style.tab_size * space_advance;
-                shaped.push(ShapedItem::Tab {
-                    source: *source,
-                    bounds: Rect {
-                        x: 0.0,
-                        y: 0.0,
-                        width: tab_width,
-                        height: 0.0,
-                    },
-                });
+                if style.tab_size == 0.0 {
+                    // Tab size zero: tab is not rendered (zero width)
+                    shaped.push(ShapedItem::Tab {
+                        source: *source,
+                        bounds: Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 0.0,
+                            height: 0.0,
+                        },
+                    });
+                } else {
+                    // Approximate ch unit as 0.5 * font_size
+                    let ch_approx = style.font_size_px * 0.5;
+                    // Tab stop interval in pixels: tab_size (number) * ch unit
+                    let tab_interval = style.tab_size * ch_approx;
+                    // Calculate current advance to find next tab stop
+                    let current_advance: f32 = shaped.iter().map(|item| {
+                        match item {
+                            ShapedItem::Cluster(c) => c.advance,
+                            ShapedItem::Tab { bounds, .. } => bounds.width,
+                            ShapedItem::Object { bounds, .. } => bounds.width,
+                            _ => 0.0,
+                        }
+                    }).sum();
+                    // Next tab stop = next multiple of tab_interval from content edge
+                    let next_tab_stop = ((current_advance / tab_interval).floor() + 1.0) * tab_interval;
+                    let mut tab_width = next_tab_stop - current_advance;
+                    // "If this distance is less than 0.5ch, then the subsequent tab stop is used instead."
+                    let half_ch = ch_approx * 0.5;
+                    if tab_width < half_ch {
+                        tab_width += tab_interval;
+                    }
+                    shaped.push(ShapedItem::Tab {
+                        source: *source,
+                        bounds: Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: tab_width,
+                            height: 0.0,
+                        },
+                    });
+                }
             }
             LogicalItem::Ruby {
                 source,
