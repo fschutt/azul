@@ -42,7 +42,9 @@ pub struct PositionOffsets {
     left: Option<f32>,
 }
 
+// +spec:block-formatting-context-p025 - CSS-POSITION-3 terms: position, relative, static
 /// Looks up the `position` property using the compact-cache-aware getter.
+// +spec:block-formatting-context-p042 - § 9.3.1: 'position' property (static|relative|absolute|fixed) determines positioning scheme
 pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
@@ -122,6 +124,7 @@ fn resolve_position_offsets(
 
 /// After the main layout pass, this function iterates through the tree and correctly
 /// calculates the final positions of out-of-flow elements (`absolute`, `fixed`).
+// +spec:block-formatting-context-p042 - § 9.3.1: position:absolute/fixed boxes removed from normal flow, positioned relative to containing block
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -484,9 +487,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
 /// Final pass to shift relatively positioned elements from their static flow position.
 ///
+// +spec:block-formatting-context-p025 - CSS-POSITION-3 terms: top, right, bottom, left, relative, static position
 /// This function now correctly resolves percentage-based offsets for `top`, `left`, etc.
 /// According to the CSS spec, for relatively positioned elements, these percentages are
 /// relative to the dimensions of the parent element's content box.
+// +spec:block-formatting-context-p042 - § 9.3.1: position:relative offsets box after normal flow; following boxes unaffected by offset
 pub fn adjust_relative_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,

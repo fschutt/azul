@@ -904,6 +904,7 @@ impl DisplayListBuilder {
         }
     }
 
+    // +spec:height-calculation-p050 - §8.1: background style of content, padding, and border areas specified by 'background' property; margin backgrounds are always transparent
     /// Unified method to paint all background layers and border for an element.
     ///
     /// This consolidates the background/border painting logic that was previously
@@ -2693,6 +2694,7 @@ where
                 }
             }
 
+            // +spec:box-model-p003 - background painted on border-box (paint_rect), not margin-box; margin backgrounds are always transparent
             // Use unified background/border painting
             builder.push_backgrounds_and_border(
                 paint_rect,
@@ -3419,7 +3421,7 @@ where
                     run_bounds.size.height += top_inset + bottom_inset;
                 }
 
-                // Use unified inline background/border painting
+                // +spec:height-calculation-p030 - §10.8.1: inline box margins/borders/padding are still rendered even though they don't enter line box height calculation; may bleed into adjoining line boxes
                 builder.push_inline_backgrounds_and_border(
                     run_bounds,
                     glyph_run.background_color,

@@ -1099,6 +1099,7 @@ pub struct LineSegment {
     pub priority: u8,
 }
 
+// +spec:white-space-processing-p022 - nowrap (§3), soft wrap break / soft wrap opportunity (§5) definitions
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum TextWrap {
     #[default]
@@ -2743,10 +2744,13 @@ impl StyleProperties {
     ///
     /// This allows the layout cache to reuse layouts when only rendering
     /// properties change (e.g., color changes on hover).
+    // +spec:margin-collapsing-p010 - §7.3 boundary-shaping: layout_hash includes font_stack
+    // (family, weight, style) so that shaping runs break at element boundaries where font
+    // properties differ, preventing impossible cross-boundary ligatures (e.g. "and" → "&").
     pub fn layout_hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        
+
         // Font selection (affects shaping and metrics)
         self.font_stack.hash(&mut hasher);
         (self.font_size_px.round() as usize).hash(&mut hasher);
@@ -5135,6 +5139,8 @@ pub fn create_logical_items(
 
 // --- Stage 2 Implementation ---
 
+// +spec:inline-block-p012 - §9.10: non-text items (atomic inline-level boxes) are skipped
+// when determining base direction, consistent with their neutral bidi treatment
 pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
         if let LogicalItem::Text { text, .. } = item {
@@ -5172,6 +5178,10 @@ pub fn reorder_logical_items(
     let mut bidi_str = String::new();
     let mut item_map = Vec::new();
     for (idx, item) in logical_items.iter().enumerate() {
+        // +spec:inline-block-p012 - §9.10: all atomic inline-level boxes (inline-block, etc.)
+        // are treated as neutral characters in the bidi algorithm. Replaced elements with
+        // display:inline are also neutral unless unicode-bidi != normal (not yet implemented).
+        // U+FFFC (OBJECT REPLACEMENT CHARACTER) is a neutral bidi character.
         let text = match item {
             LogicalItem::Text { text, .. } => text.as_str(),
             LogicalItem::CombinedText { text, .. } => text.as_str(),
@@ -5318,6 +5328,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let bidi_level = item.bidi_level;
                 let script = item.script;
 
+                // +spec:margin-collapsing-p010 - §7.3 boundary-shaping: shaping runs are split
+                // when layout-affecting properties (font weight, family, size, etc.) change
+                // across element boundaries, preventing ligatures from forming across such changes.
                 // Look ahead: find consecutive text items with the same layout-affecting
                 // properties (font, size, spacing) that can be shaped as one merged run.
                 let mut coalesce_end = idx + 1;

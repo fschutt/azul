@@ -678,6 +678,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         break;
     }
 
+    // +spec:block-formatting-context-p042 - § 9.3: three positioning schemes (normal flow, floats, absolute); relative applied after normal flow
     // --- Step 3: Adjust Relatively Positioned Elements ---
     // This must be done BEFORE positioning out-of-flow elements, because
     // relatively positioned elements establish containing blocks for their
@@ -693,6 +694,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         viewport,
     )?;
 
+    // +spec:block-formatting-context-p042 - § 9.3: absolute positioning removes box from normal flow, positions relative to containing block
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
     // positioned elements are positioned relative to the final (post-adjustment)

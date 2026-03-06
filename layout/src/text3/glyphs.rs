@@ -11,6 +11,7 @@ use azul_core::{
 use azul_css::props::basic::ColorU;
 use azul_css::props::style::StyleBackgroundContent;
 
+// +spec:line-height-p032 - vertical-align term from CSS-INLINE-3 used here via vertical metrics for baseline positioning
 use crate::text3::cache::{
     get_item_vertical_metrics, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
     PositionedItem, ShapedGlyph, ShapedItem, UnifiedLayout,
@@ -77,6 +78,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut current_run: Option<SimpleGlyphRun> = None;
 
     for item in &layout.items {
+        // +spec:line-height-p032 - baseline derived from ascent (vertical-align baseline alignment)
         let (item_ascent, _) = get_item_vertical_metrics(&item.item);
         let baseline_y = item.position.y + item_ascent;
 
@@ -105,7 +107,11 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                         glyph.into_glyph_instance_at_simple(writing_mode, absolute_position);
 
                     if let Some(run) = current_run.as_mut() {
-                        // Break run if any style property changes (including background, gradient, border, or source node)
+                        // +spec:line-height-p044 - §7.3: rendering runs break on formatting
+                        // changes (font, color, border, size). Per spec, text-decoration
+                        // changes do not affect shaping (shaping is done upstream in
+                        // default.rs), but we still break rendering runs for correct drawing.
+                        // Border/margin/padding changes break both shaping and rendering runs.
                         if run.font_hash == font_hash
                             && run.color == glyph_color
                             && run.background_color == glyph_background
@@ -255,7 +261,10 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
                     let instance =
                         glyph.into_glyph_instance_at(writing_mode, absolute_position, fonts);
 
-                    // Check if we can add to the current run
+                    // +spec:line-height-p044 - §7.3: rendering runs break on font/color/size
+                    // changes. Text-decoration does not affect shaping (per spec, shaping
+                    // must not break when only text-decoration changes), but rendering
+                    // runs still split for correct visual output.
                     if let Some(run) = current_run.as_mut() {
                         if run.font_hash == font_hash
                             && run.color == glyph_color
@@ -481,8 +490,10 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 unicode_codepoint,
             };
 
-            // Check if we can add to the current run
-            // Break the run if any style property or line changes (including background)
+            // +spec:line-height-p044 - §7.3: PDF rendering runs break on formatting changes.
+            // Font hash change = font change (shaping must break per spec).
+            // Border/background change = margin/border/padding non-zero (shaping must break).
+            // Text-decoration change = rendering-only break (shaping unaffected per spec).
             let should_break = if let Some(run) = current_run.as_ref() {
                 run.font_hash != font_hash
                     || run.color != glyph_color

@@ -233,6 +233,7 @@ impl ResolutionParams {
 // UNRESOLVED BOX PROPS (new design)
 // ============================================================================
 
+// +spec:box-model-p048 - §8.1 example: each element stores its own margin/padding/border per-side (UL/LI nesting)
 /// Box properties with unresolved CSS values.
 ///
 /// This stores the raw CSS values as parsed, deferring resolution until
@@ -270,6 +271,7 @@ pub struct MarginAuto {
     pub bottom: bool,
 }
 
+// +spec:box-model-p048 - §8.1 example: resolved per-element margin/padding/border for correct parent-child box nesting
 /// A fully resolved representation of a node's box model properties.
 ///
 /// All values are in pixels. This is the result of resolving `UnresolvedBoxProps`

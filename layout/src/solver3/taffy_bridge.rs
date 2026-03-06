@@ -178,6 +178,7 @@ pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     }
 }
 
+// +spec:margin-collapsing-p016 - dense keyword in grid-auto-flow triggers backtracking in auto-placement (delegated to Taffy)
 pub fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutGridAutoFlow::Row => taffy::GridAutoFlow::Row,
@@ -665,6 +666,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Min/Max Size
+        // +spec:margin-collapsing-p040 - §4.5 css-flexbox-1: automatic minimum size of flex items;
+        // min-size:auto enables Taffy's auto minimum size algorithm which computes the
+        // content size suggestion (min-content in main axis) and transferred size suggestion
+        // (cross size converted through aspect ratio, if any). NOTE: aspect_ratio is not yet
+        // forwarded to Taffy, so the transferred size suggestion path is incomplete.
         // NOTE: In CSS, the default min-width/min-height for flex items is `auto`
         // (which resolves to `min-content`), preventing them from shrinking below
         // their content size. We must map Auto to Dimension::Auto, NOT to 0px.
@@ -892,6 +898,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         }
 
         // Flexbox
+        // +spec:margin-collapsing-p026 - Flexbox §5.4: order property not explicitly set; Taffy default order:0 preserves source document order
         taffy_style.flex_direction = match get_flex_direction(styled_dom, id, node_state) {
             MultiValue::Exact(v) => layout_flex_direction_to_taffy(CssPropertyValue::Exact(v)),
             _ => taffy::FlexDirection::Row,
@@ -1302,6 +1309,7 @@ impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'a, 'b, T> 
     where
         Self: 'c;
 
+    // +spec:margin-collapsing-p026 - Flexbox §5.4: children returned in source document order (default order:0 for all items)
     fn child_ids(&self, node_id: taffy::NodeId) -> Self::ChildIter<'_> {
         let node_idx: usize = node_id.into();
         let children = self.get_layout_children(node_idx);
@@ -1642,6 +1650,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .and_then(|n| n.intrinsic_sizes)
                     .unwrap_or_default();
 
+                // +spec:margin-collapsing-p040 - §4.5 css-flexbox-1: content size suggestion is the
+                // min-content size in the main axis; for items with a preferred aspect ratio, it
+                // should be clamped by definite min/max cross sizes converted through the ratio.
                 // For MinContent/MaxContent queries, use intrinsic sizes instead of layout result.
                 // HOWEVER: If intrinsic sizes are 0 but content_width is non-zero, use content_width.
                 // This happens for FormattingContext::Inline nodes that are measured by their

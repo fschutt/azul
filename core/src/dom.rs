@@ -786,6 +786,7 @@ impl NodeType {
     }
 }
 
+// +spec:display-property-p029 - CSS-DISPLAY-3 "formatting context" terms: block, inline, flex, grid, table formatting contexts
 /// Represents the CSS formatting context for an element
 #[derive(Clone, PartialEq)]
 pub enum FormattingContext {

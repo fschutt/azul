@@ -1,3 +1,4 @@
+// +spec:height-calculation-p022 - non-normative: extracted paragraph is spec document stylesheet (css-display-3.html), not normative height/margin rules
 //! solver3/sizing.rs
 //!
 //! Pass 2: Sizing calculations (intrinsic and used sizes)

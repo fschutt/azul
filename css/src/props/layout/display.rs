@@ -5,6 +5,7 @@ use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
+// +spec:display-property-p029 - CSS-DISPLAY-3 index: defines all display keyword values (none, block, inline, inline-block, flex, inline-flex, table, inline-table, grid, inline-grid, flow-root, list-item, run-in, layout-internal types)
 /// Represents a `display` CSS property value
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -66,6 +67,7 @@ impl LayoutDisplay {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
     }
 
+    // +spec:display-property-p029 - CSS-DISPLAY-3 "inline-level" term: elements with inline outer display type
     pub fn is_inline_level(&self) -> bool {
         matches!(
             self,

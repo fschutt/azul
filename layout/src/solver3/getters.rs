@@ -983,6 +983,7 @@ get_css_property!(
     compact = get_font_style
 );
 
+// +spec:display-property-p025 - visibility (term from CSS-DISPLAY-4 index)
 get_css_property!(
     get_visibility,
     get_visibility,
@@ -1948,6 +1949,7 @@ get_css_property!(
     compact = get_display
 );
 
+// +spec:display-property-p043 - property index: reads the display CSS property (#propdef-display) from the styled DOM
 pub fn get_display_property(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
@@ -2489,6 +2491,7 @@ get_css_property_pixel!(
     compact_i16 = get_bottom
 );
 
+// +spec:box-model-p046 - css-sizing-3 references: "margin properties" from css-box-4
 /// Get margin properties - returns MultiValue<PixelValue>
 get_css_property_pixel!(
     get_css_margin_left,
@@ -2515,6 +2518,7 @@ get_css_property_pixel!(
     compact_i16 = get_margin_bottom_raw
 );
 
+// +spec:box-model-p046 - css-sizing-3 references: "padding properties" from css-box-4
 /// Get padding properties - returns MultiValue<PixelValue>
 get_css_property_pixel!(
     get_css_padding_left,
@@ -2574,6 +2578,7 @@ get_css_property!(
     compact_u32_struct = get_max_height_raw
 );
 
+// +spec:box-model-p046 - css-sizing-3 references: "border" from css-backgrounds-3
 /// Get border width properties (no UA CSS fallback needed, defaults to 0)
 get_css_property_pixel!(
     get_css_border_left_width,

@@ -1064,6 +1064,7 @@ impl LayoutTreeBuilder {
         for child_id in children {
             if is_block_level(styled_dom, child_id) {
                 // End the current inline run — but skip if all nodes are whitespace-only text.
+                // +spec:display-property-p014 - white space that would be collapsed does not generate anonymous inline boxes (CSS2§9.2.2.1)
                 // CSS 2.1 §9.2.2.1: "White space content that would subsequently be collapsed
                 // away according to the 'white-space' property does not generate any anonymous
                 // inline boxes."
@@ -1585,6 +1586,7 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 /// - Elements with display: inline, inline-block, inline-table, inline-flex, inline-grid
 /// - Text nodes
 /// - Generated content
+// +spec:display-property-p014 - inline box (display:inline non-replaced) vs atomic inline-level box (inline-block, inline-table, replaced inline-level) (CSS2§9.2.2)
 fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     // Text nodes are always inline-level
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -1599,6 +1601,7 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::InlineBlock
             | LayoutDisplay::InlineTable
             | LayoutDisplay::InlineFlex
+// +spec:display-property-p029 - CSS-DISPLAY-3 "block-level" term: elements with block outer display type
             | LayoutDisplay::InlineGrid
     )
 }
@@ -1626,6 +1629,7 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     // Check all children
     while let Some(child_id) = current_child {
         let is_inline = is_inline_level(styled_dom, child_id);
+// +spec:display-property-p029 - CSS-DISPLAY-3 "inline-level box", "text node" terms: inline-level elements and text nodes
 
         if !is_inline {
             // Found a block-level child
@@ -1812,6 +1816,7 @@ fn collect_box_props(
     // This is fine for initial resolution - will be re-resolved during layout
     let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
 
+    // +spec:box-model-p048 - §8.1 example: read per-side margin/padding/border from CSS (e.g. margin: 12px 12px 12px 12px)
     // Read margin values from styled_dom
     let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
     let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
@@ -2357,13 +2362,16 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        // +spec:display-property-p014 - anonymous inline boxes: text directly in a block container is treated as anonymous inline element (CSS2§9.2.2.1)
         // Text nodes are inline-level content within their parent's IFC
         return FormattingContext::Inline;
     }
 
     let display_type = get_display_type(styled_dom, node_id);
 
+    // +spec:block-formatting-context-p005 - map display types to formatting contexts (block->BFC, inline->IFC, table->table FC)
     match display_type {
+        // +spec:display-property-p014 - display:inline on non-replaced element generates an inline box (CSS2§9.2.2)
         LayoutDisplay::Inline => FormattingContext::Inline,
 
         // CSS 2.2 Section 9.4.2: "An inline formatting context is established by a
@@ -2382,6 +2390,7 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
                 }
             }
         }
+        // +spec:display-property-p014 - inline-block is an atomic inline-level box: formatted as block internally, inline-level externally (CSS2§9.2.2)
         LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
         // +spec:display-property-p016 - table behaves as block-level (display:table) or inline-level (display:inline-table); generates table wrapper box per CSS2§17.4
         // +spec:table-layout-p002 - §17.4: table behaves as block-level (table) or inline-level (inline-table)
@@ -2395,6 +2404,7 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::TableRow => FormattingContext::TableRow,
         // +spec:table-layout-p019 - display:table-cell maps to TableCell FC (§17.2)
         LayoutDisplay::TableCell => FormattingContext::TableCell,
+        // +spec:display-property-p014 - display:none causes element to not appear in formatting structure (CSS2§9.2.4)
         LayoutDisplay::None => FormattingContext::None,
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
         // +spec:table-layout-p019 - display:table-column-group maps to TableColumnGroup FC; not rendered but may carry style (§17.2)

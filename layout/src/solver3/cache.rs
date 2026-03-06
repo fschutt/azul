@@ -852,6 +852,7 @@ pub fn reconcile_recursive(
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
     let mut new_child_hashes = Vec::new();
 
+    // +spec:display-property-p017 - when inline box contains in-flow block-level box, inline box is broken around the block-level box, splitting into two anonymous block boxes (CSS2§9.2.1.1)
     // CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
     // "When an inline box contains an in-flow block-level box, the inline box
     // (and its inline ancestors within the same line box) are broken around
