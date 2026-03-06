@@ -7733,13 +7733,37 @@ fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
     trailing_ws
 }
 
+// +spec:margin-collapsing-p013 - CSS Text §7.1: word-separator characters
+// exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        // A cluster is a word separator if its text is whitespace.
-        // This is a simplification; a single glyph might be whitespace.
-        c.text.chars().any(|g| g.is_whitespace())
+        c.text.chars().any(|g| is_word_separator_char(g))
     } else {
         false
+    }
+}
+
+/// Returns true if the character is a word-separator character per CSS Text §7.1.
+/// Punctuation and fixed-width spaces (U+3000, U+2000 through U+200A) are NOT
+/// word-separator characters even though they may visually separate words.
+fn is_word_separator_char(c: char) -> bool {
+    match c {
+        // Standard ASCII space
+        '\u{0020}' => true,
+        // NO-BREAK SPACE
+        '\u{00A0}' => true,
+        // OGHAM SPACE MARK
+        '\u{1680}' => true,
+        // Fixed-width spaces: NOT word separators per spec
+        '\u{2000}'..='\u{200A}' => false,
+        // NARROW NO-BREAK SPACE
+        '\u{202F}' => true,
+        // MEDIUM MATHEMATICAL SPACE
+        '\u{205F}' => true,
+        // IDEOGRAPHIC SPACE: NOT a word separator per spec
+        '\u{3000}' => false,
+        // Other Unicode whitespace not listed above
+        _ => false,
     }
 }
 
