@@ -2173,6 +2173,7 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
 pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
     match display {
         LayoutDisplay::Inline => LayoutDisplay::Block,
+        // +spec:inline-block-p022 - inline-block (= inline flow-root) blockifies to flow-root (= block flow-root), preserving inner display (CSS-DISPLAY-3 §2.7, Issue 1246)
         LayoutDisplay::InlineBlock => LayoutDisplay::FlowRoot,
         LayoutDisplay::InlineTable => LayoutDisplay::Table,
         LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
@@ -2208,18 +2209,19 @@ fn blockify_flex_item_if_table_internal(nodes: &mut Vec<LayoutNode>, node_idx: u
 
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
 /// A BFC contains floats and prevents margin collapse.
+// +spec:inline-block-p022 - block boxes establishing independent FC have used display of flow-root (CSS-DISPLAY-3 Issue 1550)
 fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let display = get_display_type(styled_dom, node_id);
+    // +spec:inline-block-p010 - §9.4.1: block containers (inline-blocks, table-cells, table-captions) that are not block boxes establish new BFC
     if matches!(
         display,
-        LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::FlowRoot
+        LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::TableCaption | LayoutDisplay::FlowRoot
     ) {
         return true;
     }
 
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-        // `overflow` other than `visible`
-
+        // +spec:inline-block-p010 - §9.4.1: block boxes with overflow other than visible establish new BFC
         let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.styled_node_state);
         if !overflow_x.is_visible_or_clip() {
             return true;
@@ -2230,14 +2232,13 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
             return true;
         }
 
-        // `position: absolute` or `position: fixed`
+        // +spec:inline-block-p010 - §9.4.1: absolutely positioned elements establish new BFC
         let position = get_position(styled_dom, node_id, &styled_node.styled_node_state);
-
         if position.is_absolute_or_fixed() {
             return true;
         }
 
-        // `float` is not `none`
+        // +spec:inline-block-p010 - §9.4.1: floats establish new BFC
         let float = get_float(styled_dom, node_id, &styled_node.styled_node_state);
         if !float.is_none() {
             return true;
@@ -2343,6 +2344,7 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         // +spec:display-property-p047 - grid containers: ::first-line/::first-letter don't apply; overflow property applies (CSS Grid 5.1/5.3)
+        // +spec:inline-block-p018 - grid container sized per formatting context rules (BFC: as block box; IFC: as atomic inline-level box) (CSS Grid 5.2)
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
 
         // These less common display types default to block behavior
