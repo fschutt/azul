@@ -535,11 +535,11 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             .and_then(|parent_idx| tree.get(parent_idx))
             .map(|parent_node| {
                 // Get parent's writing mode to correctly calculate its inner (content) size.
-                let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
-                let parent_node_state =
-                    &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
-                let parent_wm =
-                    get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state)
+                let parent_wm = parent_node.dom_node_id
+                    .map(|pid| {
+                        let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
+                        get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
+                    })
                     .unwrap_or_default();
                 let parent_used_size = parent_node.used_size.unwrap_or_default();
                 parent_node.box_props.inner_size(parent_used_size, parent_wm)
@@ -583,13 +583,13 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         use azul_css::props::style::StyleDirection;
         let cb_direction = node.parent
             .and_then(|parent_idx| tree.get(parent_idx))
-            .map(|parent_node| {
-                let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
+            .and_then(|parent_node| {
+                let parent_dom_id = parent_node.dom_node_id?;
                 let parent_state =
                     &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
                 match get_direction_property(ctx.styled_dom, parent_dom_id, parent_state) {
-                    MultiValue::Exact(v) => v,
-                    _ => StyleDirection::Ltr,
+                    MultiValue::Exact(v) => Some(v),
+                    _ => None,
                 }
             })
             .unwrap_or(StyleDirection::Ltr);
