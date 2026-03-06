@@ -596,7 +596,9 @@ pub fn cmd_review_arch(
                             if !para_text.is_empty() {
                                 // Truncate very long paragraphs
                                 let truncated = if para_text.len() > 600 {
-                                    format!("{}...", &para_text[..600])
+                                    let mut end = 600;
+                                    while !para_text.is_char_boundary(end) { end -= 1; }
+                                    format!("{}...", &para_text[..end])
                                 } else {
                                     para_text
                                 };
