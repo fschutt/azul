@@ -1512,26 +1512,27 @@ impl Ord for ImageSource {
     }
 }
 
+// CSS 2.2 §10.8.1 vertical-align property values
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum VerticalAlign {
-    // Align image baseline with text baseline
+    // Align baseline of box with baseline of parent box
     #[default]
     Baseline,
-    // Align image bottom with line bottom
+    // Align bottom of aligned subtree with bottom of line box
     Bottom,
-    // Align image top with line top
+    // Align top of aligned subtree with top of line box
     Top,
-    // Align image middle with text middle
+    // Align vertical midpoint of box with baseline of parent plus half x-height
     Middle,
-    // Align with tallest text in line
+    // Align top of box with top of parent's content area (§10.6.1)
     TextTop,
-    // Align with lowest text in line
+    // Align bottom of box with bottom of parent's content area (§10.6.1)
     TextBottom,
-    // Subscript alignment
+    // Lower baseline to proper subscript position
     Sub,
-    // Superscript alignment
+    // Raise baseline to proper superscript position
     Super,
-    // Custom offset from baseline
+    // Raise (positive) or lower (negative) by this distance; 0 = baseline
     Offset(f32),
 }
 
@@ -7002,14 +7003,30 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
                 .unwrap_or(constraints.vertical_align);
+            // §10.8.1 vertical-align positioning
             let item_baseline_pos = match effective_align {
+                // top: align top of aligned subtree with top of line box
                 VerticalAlign::Top => line_top_y + item_ascent,
+                // middle: align vertical midpoint with baseline + half x-height
+                // Approximation: x-height ≈ 0.5 * ascent (no direct x-height metric available)
                 VerticalAlign::Middle => {
-                    line_top_y + (line_box_height / 2.0) - ((item_ascent + item_descent) / 2.0)
-                        + item_ascent
+                    let half_x_height = line_ascent * 0.25;
+                    line_baseline_y + half_x_height - (item_ascent + item_descent) / 2.0 + item_ascent
                 }
+                // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
-                _ => line_baseline_y, // Baseline
+                // sub: lower baseline to proper subscript position (~0.3em)
+                VerticalAlign::Sub => line_baseline_y + line_ascent * 0.3,
+                // super: raise baseline to proper superscript position (~0.4em)
+                VerticalAlign::Super => line_baseline_y - line_ascent * 0.4,
+                // text-top: align top of box with top of parent's content area
+                VerticalAlign::TextTop => line_top_y + item_ascent,
+                // text-bottom: align bottom of box with bottom of parent's content area
+                VerticalAlign::TextBottom => line_top_y + line_box_height - item_descent,
+                // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
+                VerticalAlign::Offset(offset) => line_baseline_y - offset,
+                // baseline: align baseline of box with baseline of parent box
+                VerticalAlign::Baseline => line_baseline_y,
             };
 
             // Calculate item measure (needed for both positioning and pen advance)
