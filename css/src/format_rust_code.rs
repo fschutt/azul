@@ -620,7 +620,8 @@ impl_enum_fmt!(
     Marker,
     Grid,
     InlineGrid,
-    FlowRoot
+    FlowRoot,
+    Contents
 );
 
 impl_enum_fmt!(LayoutFloat, Left, Right, None);

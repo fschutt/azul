@@ -906,6 +906,22 @@ impl LayoutTreeBuilder {
             self.create_marker_pseudo_element(styled_dom, dom_id, node_idx);
         }
 
+        // display:contents - element generates no box; promote children to parent
+        if display_type == LayoutDisplay::Contents {
+            // Remove the node we just created — it shouldn't generate a box
+            if let Some(parent) = parent_idx {
+                if let Some(p) = self.nodes.get_mut(parent) {
+                    p.children.retain(|&c| c != node_idx);
+                }
+            }
+            // Process children as if they belong to the parent (or root if no parent)
+            let effective_parent = parent_idx.unwrap_or(node_idx);
+            for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+                self.process_node(styled_dom, child_dom_id, Some(effective_parent), debug_messages)?;
+            }
+            return Ok(node_idx);
+        }
+
         match display_type {
             LayoutDisplay::Block
             | LayoutDisplay::InlineBlock
@@ -2349,6 +2365,8 @@ fn determine_formatting_context_for_display(
         // +spec:table-layout-p019 - display:table-column is not rendered (as if display:none) but may carry style (§17.2)
         // table-column elements are used only for column styling, not for generating boxes
         LayoutDisplay::TableColumn => FormattingContext::None,
+        // display:contents - element generates no box, children are promoted to parent
+        LayoutDisplay::Contents => FormattingContext::Contents,
         // These less common display types default to block behavior
         LayoutDisplay::RunIn | LayoutDisplay::Marker => {
             FormattingContext::Block {

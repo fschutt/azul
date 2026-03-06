@@ -819,6 +819,8 @@ pub enum FormattingContext {
     TableCaption,
     /// Grid formatting context
     Grid,
+    /// display:contents - element generates no box, children promoted to parent
+    Contents,
     /// No formatting context (display: none)
     None,
 }
@@ -847,6 +849,7 @@ impl fmt::Debug for FormattingContext {
             FormattingContext::TableCell => write!(f, "TableCell"),
             FormattingContext::TableColumnGroup => write!(f, "TableColumnGroup"),
             FormattingContext::TableCaption => write!(f, "TableCaption"),
+            FormattingContext::Contents => write!(f, "Contents"),
         }
     }
 }

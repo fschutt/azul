@@ -45,6 +45,9 @@ pub enum LayoutDisplay {
     // CSS3 additions
     Grid,
     InlineGrid,
+
+    // display:contents - element generates no box, children promoted to parent
+    Contents,
 }
 
 impl LayoutDisplay {
@@ -105,6 +108,7 @@ impl PrintAsCssValue for LayoutDisplay {
             LayoutDisplay::FlowRoot => "flow-root",
             LayoutDisplay::Grid => "grid",
             LayoutDisplay::InlineGrid => "inline-grid",
+            LayoutDisplay::Contents => "contents",
         })
     }
 }
@@ -203,6 +207,7 @@ pub fn parse_layout_display<'a>(
         "grid" => Ok(LayoutDisplay::Grid),
         "inline-grid" => Ok(LayoutDisplay::InlineGrid),
         "flow-root" => Ok(LayoutDisplay::FlowRoot),
+        "contents" => Ok(LayoutDisplay::Contents),
         _ => Err(LayoutDisplayParseError::InvalidValue(input)),
     }
 }

@@ -178,6 +178,7 @@ pub fn layout_display_from_u8(v: u8) -> LayoutDisplay {
         19 => LayoutDisplay::Marker,
         20 => LayoutDisplay::Grid,
         21 => LayoutDisplay::InlineGrid,
+        22 => LayoutDisplay::Contents,
         _ => LayoutDisplay::Block, // safe fallback
     }
 }
@@ -208,6 +209,7 @@ pub fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
         LayoutDisplay::Marker => 19,
         LayoutDisplay::Grid => 20,
         LayoutDisplay::InlineGrid => 21,
+        LayoutDisplay::Contents => 22,
     }
 }
 
