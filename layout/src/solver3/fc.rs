@@ -936,6 +936,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
+        // +spec:containing-block-p028 - 10.6.3: only normal flow children count for block height
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             continue;
