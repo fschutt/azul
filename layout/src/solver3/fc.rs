@@ -3105,6 +3105,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // +spec:inline-block-p036 - §10.8.1: line-height = normalized_value × font-size (handles number and percentage cases)
         // +spec:inline-formatting-context-p028 - §10.8.1: line-height resolved relative to font-size (number/em/percentage)
         // +spec:inline-formatting-context-p050 - §10.8.1: uniform line-height ensures baselines are exactly line-height apart
+        // +spec:line-height-p012 - §10.8.1: resolve line-height to absolute px (number/percentage × font-size)
         line_height: line_height_value.inner.normalized() * font_size,
         // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
         // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property (initial: baseline, applies to inline-level elements)
@@ -3168,6 +3169,9 @@ struct TableLayoutContext {
     use_fixed_layout: bool,
     /// Computed height for each row
     row_heights: Vec<f32>,
+    // +spec:line-height-p018 - §17.5.3: row baseline = max top-to-baseline distance among baseline-aligned cells
+    /// Computed baseline offset for each row (distance from row top to row baseline)
+    row_baselines: Vec<f32>,
     // +spec:inline-formatting-context-p032 - §17.6: border-collapse property (separate|collapse|inherit)
     /// Border collapse mode
     border_collapse: StyleBorderCollapse,
@@ -3194,6 +3198,7 @@ impl TableLayoutContext {
             num_rows: 0,
             use_fixed_layout: false,
             row_heights: Vec::new(),
+            row_baselines: Vec::new(),
             border_collapse: StyleBorderCollapse::Separate,
             border_spacing: LayoutBorderSpacing::default(),
             caption_index: None,
@@ -4826,6 +4831,44 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     Ok(total_height)
 }
 
+// +spec:line-height-p018 - §17.5.3: baseline of a cell = baseline of first in-flow line box,
+// or bottom of content edge if no such line box exists
+fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
+    let cell_node = &tree.nodes[cell_index];
+
+    // Check if the cell has inline layout (first in-flow line box)
+    if let Some(ref cached_layout) = cell_node.inline_layout_result {
+        let inline_result = &cached_layout.layout;
+        // The baseline is the ascent of the first item from the top of the cell
+        if let Some(first_item) = inline_result.items.first() {
+            let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics(&first_item.item);
+            let padding_top = cell_node.box_props.padding.top;
+            let border_top = cell_node.box_props.border.top;
+            return padding_top + border_top + first_item.position.y + item_ascent;
+        }
+    }
+
+    // Check children for first in-flow line box
+    let children = &cell_node.children;
+    for &child_idx in children {
+        if child_idx < tree.nodes.len() {
+            let child_node = &tree.nodes[child_idx];
+            if child_node.inline_layout_result.is_some() {
+                let child_baseline = compute_cell_baseline(child_idx, tree);
+                let padding_top = cell_node.box_props.padding.top;
+                let border_top = cell_node.box_props.border.top;
+                return padding_top + border_top + child_baseline;
+            }
+        }
+    }
+
+    // No line box found: baseline is the bottom of the content edge
+    let used_size = cell_node.used_size.unwrap_or_default();
+    let padding_bottom = cell_node.box_props.padding.bottom;
+    let border_bottom = cell_node.box_props.border.bottom;
+    used_size.height - padding_bottom - border_bottom
+}
+
 /// Calculate row heights based on cell content after column widths are determined
 /// +spec:inline-formatting-context-p033 - §17.5.3: row height = max(row's height, cells' heights, MIN from content)
 /// +spec:inline-formatting-context-p037 - §17.5.3: 'auto' height for table-row means MIN; MIN depends on cell box heights and alignment
@@ -4843,8 +4886,10 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         constraints.available_size
     );
 
-    // Initialize row heights
+    // Initialize row heights and baselines
     table_ctx.row_heights = vec![0.0; table_ctx.num_rows];
+    // +spec:line-height-p018 - §17.5.3: initialize row baselines for baseline alignment
+    table_ctx.row_baselines = vec![0.0; table_ctx.num_rows];
 
     // CSS 2.2 Section 17.6: Set collapsed rows to height 0
     for &row_idx in &table_ctx.collapsed_rows {
@@ -4901,9 +4946,19 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 
         // +spec:inline-formatting-context-p035 - §17.5.3: cell height is min height required by content;
         //   row height = max of all single-span cell heights in the row
+        // +spec:line-height-p018 - §17.5.3: row height = max of row's computed height and cell MIN heights
         if cell_info.rowspan == 1 {
             let current_height = table_ctx.row_heights[cell_info.row];
             table_ctx.row_heights[cell_info.row] = current_height.max(cell_height);
+        }
+
+        // +spec:line-height-p018 - §17.5.3: compute cell baseline for vertical-align:baseline
+        // The baseline of a cell is the baseline of its first line box (from inline layout)
+        // or the bottom of the content box if no inline content.
+        if cell_info.rowspan == 1 {
+            let cell_baseline = compute_cell_baseline(cell_info.node_index, tree);
+            let current_baseline = table_ctx.row_baselines[cell_info.row];
+            table_ctx.row_baselines[cell_info.row] = current_baseline.max(cell_baseline);
         }
     }
 
@@ -5089,6 +5144,9 @@ fn position_table_cells<T: ParsedFontTrait>(
 
     // Position each cell
     for cell_info in &table_ctx.cells {
+        // +spec:line-height-p018 - §17.5.3: pre-compute cell baseline before mutable borrow
+        let precomputed_cell_baseline = compute_cell_baseline(cell_info.node_index, tree);
+
         let cell_node = tree
             .get_mut(cell_info.node_index)
             .ok_or(LayoutError::InvalidTree)?;
@@ -5188,16 +5246,18 @@ fn position_table_cells<T: ParsedFontTrait>(
             let inline_result = &cached_layout.layout;
             use StyleVerticalAlign;
 
+            // +spec:line-height-p018 - §17.5.3: vertical-align determines cell alignment within the row
             // Get vertical-align property from styled_dom
             let vertical_align = if let Some(dom_id) = cell_node.dom_node_id {
                 let node_state = StyledNodeState::default();
 
                 match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
                     MultiValue::Exact(v) => v,
-                    _ => StyleVerticalAlign::Top,
+                    // +spec:line-height-p019 - §17.5.3: default vertical-align for table cells is baseline
+                    _ => StyleVerticalAlign::Baseline,
                 }
             } else {
-                StyleVerticalAlign::Top
+                StyleVerticalAlign::Baseline
             };
 
             // Calculate content height from inline layout bounds
@@ -5214,30 +5274,31 @@ fn position_table_cells<T: ParsedFontTrait>(
                 - border.main_start(writing_mode)
                 - border.main_end(writing_mode);
 
-            // +spec:inline-formatting-context-p013 - §17.5.3: vertical-align in table cells
+            // +spec:line-height-p018 - §17.5.3: vertical-align in table cells
             // top: top of cell box aligned with top of first row it spans
             // bottom: bottom of cell box aligned with bottom of last row it spans
             // middle: center of cell aligned with center of rows it spans
-            // sub, super, text-top, text-bottom, <length>, <percentage>: do not apply to cells;
-            //   the cell is aligned at the baseline instead (approximated as top here)
-            // baseline: baseline of cell put at same height as baseline of first row it spans
-            //   (approximated as top alignment; full baseline algorithm not yet implemented)
-            let align_factor = match vertical_align {
+            // +spec:line-height-p019 - §17.5.3: sub/super/text-top/text-bottom do not apply to cells;
+            //   the cell is aligned at the baseline instead
+            // +spec:line-height-p018 - §17.5.3: baseline alignment uses row baseline
+            let y_offset = match vertical_align {
                 StyleVerticalAlign::Top => 0.0,
-                StyleVerticalAlign::Middle => 0.5,
-                StyleVerticalAlign::Bottom => 1.0,
-                // +spec:inline-formatting-context-p013 - §17.5.3: sub/super/text-top/text-bottom
-                // do not apply to cells; cell is aligned at baseline instead.
-                // Baseline alignment approximated as top (0.0) pending full baseline algorithm.
+                StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
+                StyleVerticalAlign::Bottom => content_box_height - content_height,
+                // +spec:line-height-p018 - §17.5.3: baseline alignment: cell's baseline must
+                // align with the row baseline. cell_baseline = distance from top of cell box
+                // to cell's baseline; row_baseline = distance from top of row to row's baseline
                 StyleVerticalAlign::Baseline
                 | StyleVerticalAlign::Sub
                 | StyleVerticalAlign::Superscript
                 | StyleVerticalAlign::TextTop
                 | StyleVerticalAlign::TextBottom
                 | StyleVerticalAlign::Percentage(_)
-                | StyleVerticalAlign::Length(_) => 0.0,
+                | StyleVerticalAlign::Length(_) => {
+                    let row_baseline = table_ctx.row_baselines.get(cell_info.row).copied().unwrap_or(0.0);
+                    (row_baseline - precomputed_cell_baseline).max(0.0)
+                }
             };
-            let y_offset = (content_box_height - content_height) * align_factor;
 
             debug_info!(
                 ctx,
