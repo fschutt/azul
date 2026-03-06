@@ -1589,7 +1589,9 @@ fn layout_bfc<T: ParsedFontTrait>(
         // For normal flow blocks (including IFCs): position at full width (cross_start = 0)
         // For BFC-establishing blocks: position in available space between floats
         //
-        // CSS 2.2 § 10.3.3: If margin-left and margin-right are both auto, 
+        // +spec:width-calculation-p005 - §10.3.3: auto margin resolution for block-level non-replaced elements
+        // +spec:width-calculation-p007 - §10.3.3: block-level non-replaced elements auto margin centering
+        // CSS 2.2 § 10.3.3: If margin-left and margin-right are both auto,
         // their used values are equal, centering the element horizontally.
         
         let (child_cross_pos, mut child_main_pos) = if avoids_floats {
@@ -1613,6 +1615,9 @@ fn layout_bfc<T: ParsedFontTrait>(
                 child_margin_auto.right
             );
             
+            // +spec:width-calculation-p005 - §10.3.3: both margins auto → equal (centering); over-constrained → auto margins treated as zero
+            // +spec:width-calculation-p006 - §10.3.3: auto margins absorb remaining space; both auto → center; one auto → absorb remaining
+            // +spec:width-calculation-p017 - §17.5.2: once table width is calculated, §10.3 applies; table can be centered using left and right auto margins
             // CSS 2.2 § 10.3.3: If both margin-left and margin-right are auto,
             // center the element within the available space
             let cross_pos = if child_margin_auto.left && child_margin_auto.right {
@@ -1646,14 +1651,37 @@ fn layout_bfc<T: ParsedFontTrait>(
                 );
                 child_margin.cross_start(writing_mode)
             } else {
-                // No auto margins: use normal margin
+                // +spec:width-calculation-p033 - §10.3.3: over-constrained case (no auto values);
+                // in LTR, margin-right is ignored (element positioned at margin-left);
+                // in RTL, margin-left is ignored (element positioned from right edge)
+                let is_rtl = child_dom_id_for_debug.map_or(false, |dom_id| {
+                    let parent_dom_id = tree.get(node_index)
+                        .and_then(|n| n.dom_node_id);
+                    let containing_block_dom_id = parent_dom_id.unwrap_or(dom_id);
+                    let node_state = ctx.styled_dom.styled_nodes.as_container()
+                        .get(containing_block_dom_id)
+                        .map(|s| s.styled_node_state.clone())
+                        .unwrap_or_default();
+                    matches!(
+                        get_direction_property(ctx.styled_dom, containing_block_dom_id, &node_state),
+                        MultiValue::Exact(StyleDirection::Rtl)
+                    )
+                });
+                let cross_pos = if is_rtl {
+                    // RTL: ignore margin-left, position from right edge
+                    available_cross - child_cross_size - child_margin.cross_end(writing_mode)
+                } else {
+                    // LTR (default): ignore margin-right, position at margin-left
+                    child_margin.cross_start(writing_mode)
+                };
                 debug_info!(
                     ctx,
-                    "[layout_bfc] Child {} NO auto margins, using left margin={}",
+                    "[layout_bfc] Child {} NO auto margins (over-constrained), is_rtl={}, cross_pos={}",
                     child_index,
-                    child_margin.cross_start(writing_mode)
+                    is_rtl,
+                    cross_pos
                 );
-                child_margin.cross_start(writing_mode)
+                cross_pos
             };
             
             (cross_pos, main_pen)
