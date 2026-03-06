@@ -57,7 +57,7 @@ test_c_examples() {
     echo ""
     echo "=== Testing C Examples ==="
     local c_dir="$PROJECT_ROOT/examples/c"
-    local header_dir="$PROJECT_ROOT/target/codegen/v2"
+    local header_dir="$PROJECT_ROOT/target/codegen"
     local output_dir="$PROJECT_ROOT/target/cpp_test"
     
     if [ ! -d "$c_dir" ]; then
@@ -97,7 +97,7 @@ test_cpp_examples() {
     echo ""
     echo "=== Testing C++ Examples ==="
     local cpp_dir="$PROJECT_ROOT/examples/cpp"
-    local header_dir="$PROJECT_ROOT/target/codegen/v2"
+    local header_dir="$PROJECT_ROOT/target/codegen"
     local output_dir="$PROJECT_ROOT/target/cpp_test"
     
     if [ ! -d "$cpp_dir" ]; then

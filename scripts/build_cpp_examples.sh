@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Paths
-HEADER_DIR="$PROJECT_ROOT/target/codegen/v2"
+HEADER_DIR="$PROJECT_ROOT/target/codegen"
 LIB_DIR="$PROJECT_ROOT/target/release"
 EXAMPLES_DIR="$PROJECT_ROOT/examples/cpp"
 OUTPUT_DIR="$PROJECT_ROOT/target/cpp_examples"

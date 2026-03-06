@@ -22,7 +22,7 @@ cargo build -p azul-dll --release --features build-dll 2>&1 | tail -3
 
 # Compile async.c
 echo "[2] Compiling async.c..."
-cp target/codegen/v2/azul.h examples/c/
+cp target/codegen/azul.h examples/c/
 cd examples/c
 gcc -o async async.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release 2>&1 | grep -v "warning:" || true
 

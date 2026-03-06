@@ -36,7 +36,7 @@ echo "================================================"
 
 # Build
 echo -e "${YELLOW}Building selection...${NC}"
-cc selection.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o selection -Wl,-rpath,../../target/release 2>&1
+cc selection.c -I../../target/codegen/ -L../../target/release/ -lazul -o selection -Wl,-rpath,../../target/release 2>&1
 if [ $? -ne 0 ]; then
     echo -e "${RED}Build failed${NC}"
     exit 1

@@ -6,7 +6,7 @@
 # Usage: ./test_scroll_into_view_api.sh
 #
 # Prerequisites:
-#   1. Build focus_scroll: cc focus_scroll.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o focus_scroll_test -Wl,-rpath,../../target/release
+#   1. Build focus_scroll: cc focus_scroll.c -I../../target/codegen/ -L../../target/release/ -lazul -o focus_scroll_test -Wl,-rpath,../../target/release
 #   2. Have jq installed for JSON parsing
 
 set -e
@@ -31,7 +31,7 @@ echo "================================================"
 # Build the test executable
 echo -e "${YELLOW}Building focus_scroll_test...${NC}"
 if [ -f focus_scroll.c ]; then
-    cc focus_scroll.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o focus_scroll_test -Wl,-rpath,../../target/release 2>&1
+    cc focus_scroll.c -I../../target/codegen/ -L../../target/release/ -lazul -o focus_scroll_test -Wl,-rpath,../../target/release 2>&1
     if [ $? -ne 0 ]; then
         echo -e "${RED}Build failed${NC}"
         exit 1

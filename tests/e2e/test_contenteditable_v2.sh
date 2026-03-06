@@ -6,7 +6,7 @@
 # Usage: ./test_contenteditable_v2.sh
 #
 # Prerequisites:
-#   1. Build the test: cc contenteditable.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o contenteditable_test -Wl,-rpath,../../target/release
+#   1. Build the test: cc contenteditable.c -I../../target/codegen/ -L../../target/release/ -lazul -o contenteditable_test -Wl,-rpath,../../target/release
 #   2. Have jq installed for JSON parsing
 
 set -e
@@ -35,7 +35,7 @@ echo "================================================"
 
 # Build the test executable
 echo -e "${YELLOW}Building contenteditable_test...${NC}"
-cc contenteditable.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o contenteditable_test -Wl,-rpath,../../target/release 2>&1
+cc contenteditable.c -I../../target/codegen/ -L../../target/release/ -lazul -o contenteditable_test -Wl,-rpath,../../target/release 2>&1
 if [ $? -ne 0 ]; then
     echo -e "${RED}Build failed${NC}"
     exit 1

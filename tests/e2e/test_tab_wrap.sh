@@ -7,7 +7,7 @@ LOG=/tmp/focus_debug.log
 pkill -f focus_test 2>/dev/null
 sleep 1
 
-cc focus.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o focus_test -Wl,-rpath,../../target/release
+cc focus.c -I../../target/codegen/ -L../../target/release/ -lazul -o focus_test -Wl,-rpath,../../target/release
 
 echo "Starting focus_test..."
 AZUL_DEBUG=8765 ./focus_test > $LOG 2>&1 &

@@ -74,7 +74,7 @@ else
     LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul"
 fi
 
-HEADER_DIR="${PROJECT_ROOT}/target/codegen/v2"
+HEADER_DIR="${PROJECT_ROOT}/target/codegen"
 C_SOURCE="${PROJECT_ROOT}/examples/c/hello-world.c"
 BINARY="${BINARY_DIR}/hello-world"
 

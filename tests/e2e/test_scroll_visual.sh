@@ -44,7 +44,7 @@ echo "========================================"
 
 # Build and start
 echo "Building scrollbar_drag..."
-cc scrollbar_drag.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o scrollbar_drag -Wl,-rpath,../../target/release 2>&1
+cc scrollbar_drag.c -I../../target/codegen/ -L../../target/release/ -lazul -o scrollbar_drag -Wl,-rpath,../../target/release 2>&1
 echo "Build successful"
 
 echo "Starting scrollbar_drag with debug server..."

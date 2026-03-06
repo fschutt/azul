@@ -79,7 +79,7 @@ else
     LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul"
 fi
 
-HEADER_DIR="${PROJECT_ROOT}/target/codegen/v2"
+HEADER_DIR="${PROJECT_ROOT}/target/codegen"
 C_SOURCE="${SCRIPT_DIR}/scrolling.c"
 BINARY="${BINARY_DIR}/scrolling"
 

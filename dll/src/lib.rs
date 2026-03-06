@@ -53,7 +53,7 @@ pub mod desktop;
 mod __ffi_build {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/v2/dll_api_build.rs"
+        "/../target/codegen/dll_api_build.rs"
     ));
 }
 
@@ -75,7 +75,7 @@ pub mod ffi {
 mod __ffi_static {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/v2/dll_api_static.rs"
+        "/../target/codegen/dll_api_static.rs"
     ));
 }
 
@@ -101,7 +101,7 @@ pub mod ffi {
 mod __ffi_dynamic {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/v2/dll_api_dynamic.rs"
+        "/../target/codegen/dll_api_dynamic.rs"
     ));
 }
 
@@ -138,7 +138,7 @@ pub mod ffi {
 ))]
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../target/codegen/v2/reexports.rs"
+    "/../target/codegen/reexports.rs"
 ));
 
 // =============================================================================
@@ -150,7 +150,7 @@ include!(concat!(
 mod python {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/v2/python_api.rs"
+        "/../target/codegen/python_api.rs"
     ));
 }
 
@@ -168,6 +168,6 @@ pub use python::azul;
 mod memtest {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/v2/memtest.rs"
+        "/../target/codegen/memtest.rs"
     ));
 }

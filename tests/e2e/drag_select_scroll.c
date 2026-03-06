@@ -11,7 +11,7 @@
  * beyond the visible area to test auto-scroll behavior.
  * 
  * Compile:
- *   cd tests/e2e && cc drag_select_scroll.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o drag_select_scroll -Wl,-rpath,../../target/release
+ *   cd tests/e2e && cc drag_select_scroll.c -I../../target/codegen/ -L../../target/release/ -lazul -o drag_select_scroll -Wl,-rpath,../../target/release
  * 
  * Run with: AZUL_DEBUG=8765 ./drag_select_scroll
  * Test with: ./test_drag_select_scroll.sh

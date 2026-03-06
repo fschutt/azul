@@ -5,7 +5,7 @@
 set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HEADER_DIR="$PROJECT_ROOT/target/codegen/v2"
+HEADER_DIR="$PROJECT_ROOT/target/codegen"
 EXAMPLES_DIR="$PROJECT_ROOT/examples/cpp"
 BUILD_DIR="$PROJECT_ROOT/target/cpp_test"
 

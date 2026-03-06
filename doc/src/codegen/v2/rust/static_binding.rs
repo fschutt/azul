@@ -7,7 +7,7 @@
 //! real implementations that call directly into the internal azul_core types
 //! using transmute for ABI compatibility.
 //!
-//! Output: `target/codegen/v2/rust-binding-static.rs`
+//! Output: `target/codegen/rust-binding-static.rs`
 //! Usage: `include!("rust-binding-static.rs")` with `feature = "static"`
 
 use anyhow::Result;

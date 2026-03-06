@@ -6,7 +6,7 @@
 //! The generated code uses `extern "C"` declarations with `#[link(name = "azul")]`
 //! to call into the DLL at runtime. Trait implementations call these C-ABI functions.
 //!
-//! Output: `target/codegen/v2/rust-binding-dynamic.rs`
+//! Output: `target/codegen/rust-binding-dynamic.rs`
 //! Usage: `include!("rust-binding-dynamic.rs")` with `feature = "dynamic"`
 
 use anyhow::Result;

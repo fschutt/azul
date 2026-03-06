@@ -12,7 +12,7 @@
  * Creates a container with many items to ensure scrollbar is visible.
  * 
  * Compile:
- *   cd tests/e2e && cc scrollbar_drag.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o scrollbar_drag -Wl,-rpath,../../target/release
+ *   cd tests/e2e && cc scrollbar_drag.c -I../../target/codegen/ -L../../target/release/ -lazul -o scrollbar_drag -Wl,-rpath,../../target/release
  * 
  * Run with: AZUL_DEBUG=8765 ./scrollbar_drag
  * Test with: ./test_scrollbar_drag.sh

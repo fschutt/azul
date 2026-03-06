@@ -301,7 +301,7 @@ jobs:
 
       - name: Compile C hello-world with ASan
         run: |
-          cp target/codegen/v2/azul.h examples/c/
+          cp target/codegen/azul.h examples/c/
           cd examples/c
           clang -g -O0 -fsanitize=address -I. hello-world.c -L../../target/debug -lazul -o hello-world-asan
 
@@ -372,14 +372,14 @@ jobs:
       - name: Validate C header syntax (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
-          cd target/codegen/v2
+          cd target/codegen
           clang -fsyntax-only -std=c99 -x c azul.h
           echo "C header (C99) compiles successfully"
 
       - name: Validate C++ headers (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
-          cd target/codegen/v2
+          cd target/codegen
           clang++ -std=c++03 -fsyntax-only -I. azul03.hpp && echo "C++03 ✓"
           clang++ -std=c++11 -fsyntax-only -I. azul11.hpp && echo "C++11 ✓"
           clang++ -std=c++14 -fsyntax-only -I. azul14.hpp && echo "C++14 ✓"
@@ -393,7 +393,7 @@ jobs:
         run: |
           cd examples/c
           for example in *.c; do
-            [ -f "$example" ] && clang -fsyntax-only -std=c99 -I../../target/codegen/v2 "$example" && echo "✓ $example"
+            [ -f "$example" ] && clang -fsyntax-only -std=c99 -I../../target/codegen "$example" && echo "✓ $example"
           done
 
       - name: Compile C++ examples (syntax check)
@@ -406,7 +406,7 @@ jobs:
             if [ -d "examples/cpp/$dir" ]; then
               cd "examples/cpp/$dir"
               for example in *.cpp; do
-                [ -f "$example" ] && clang++ -fsyntax-only -std=$flag -I../../../target/codegen/v2 "$example" && echo "✓ $dir/$example"
+                [ -f "$example" ] && clang++ -fsyntax-only -std=$flag -I../../../target/codegen "$example" && echo "✓ $dir/$example"
               done
               cd ../../..
             fi
@@ -518,8 +518,8 @@ jobs:
         run: |
           echo "=== target/release ==="
           ls -la target/release/ 2>/dev/null | head -30 || echo "Not found"
-          echo "=== target/codegen/v2 ==="
-          ls -la target/codegen/v2/ 2>/dev/null | head -20 || echo "Not found"
+          echo "=== target/codegen ==="
+          ls -la target/codegen/ 2>/dev/null | head -20 || echo "Not found"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -535,13 +535,13 @@ jobs:
         with:
           name: azul-headers
           path: |
-            target/codegen/v2/azul.h
-            target/codegen/v2/azul03.hpp
-            target/codegen/v2/azul11.hpp
-            target/codegen/v2/azul14.hpp
-            target/codegen/v2/azul17.hpp
-            target/codegen/v2/azul20.hpp
-            target/codegen/v2/azul23.hpp
+            target/codegen/azul.h
+            target/codegen/azul03.hpp
+            target/codegen/azul11.hpp
+            target/codegen/azul14.hpp
+            target/codegen/azul17.hpp
+            target/codegen/azul20.hpp
+            target/codegen/azul23.hpp
           retention-days: 30
           if-no-files-found: error
 
@@ -672,7 +672,7 @@ jobs:
           name: nfpm-config
           path: |
             target/packages/nfpm.yaml
-            target/codegen/v2/azul.h
+            target/codegen/azul.h
           retention-days: 30
           if-no-files-found: error
 

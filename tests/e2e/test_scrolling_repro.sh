@@ -58,7 +58,7 @@ echo -e "${GREEN}DLL built successfully${NC}"
 # --- Step 2: Copy header & compile scrolling.c ---
 echo ""
 echo -e "${YELLOW}[2/7] Compiling scrolling.c...${NC}"
-cp "$ROOT_DIR/target/codegen/v2/azul.h" "$EXAMPLES_C/azul.h"
+cp "$ROOT_DIR/target/codegen/azul.h" "$EXAMPLES_C/azul.h"
 cd "$EXAMPLES_C"
 cc -o scrolling scrolling.c \
     -I. \

@@ -23,7 +23,7 @@ The agent should build, run, and take native screenshots to validate each fix.
 cargo build --release -p azul-dll
 
 # 2. Copy the generated header and compile
-cp target/codegen/v2/azul.h examples/c/azul.h
+cp target/codegen/azul.h examples/c/azul.h
 cd examples/c
 cc -o opengl opengl.c -I. -L../../target/release -lazul \
    -Wl,-rpath,../../target/release

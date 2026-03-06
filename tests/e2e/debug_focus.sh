@@ -10,7 +10,7 @@ rm -f $LOG
 sleep 1
 
 # Compile
-cc focus.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o focus_test -Wl,-rpath,../../target/release
+cc focus.c -I../../target/codegen/ -L../../target/release/ -lazul -o focus_test -Wl,-rpath,../../target/release
 
 # Start with output to log
 echo "Starting focus_test..."

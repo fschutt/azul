@@ -12,7 +12,7 @@
  * Uses large font (48px) for visual debugging.
  * 
  * Compile:
- *   cd tests/e2e && cc text_input.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o text_input -Wl,-rpath,../../target/release
+ *   cd tests/e2e && cc text_input.c -I../../target/codegen/ -L../../target/release/ -lazul -o text_input -Wl,-rpath,../../target/release
  * 
  * Run with: AZUL_DEBUG=8765 ./text_input
  * Test with: ./test_text_input.sh

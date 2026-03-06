@@ -12,7 +12,7 @@
  * Uses large font (36px) with limited height to force scrolling.
  * 
  * Compile:
- *   cd tests/e2e && cc text_area.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o text_area -Wl,-rpath,../../target/release
+ *   cd tests/e2e && cc text_area.c -I../../target/codegen/ -L../../target/release/ -lazul -o text_area -Wl,-rpath,../../target/release
  * 
  * Run with: AZUL_DEBUG=8765 ./text_area
  * Test with: ./test_text_area.sh

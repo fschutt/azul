@@ -19,7 +19,7 @@ if [[ ! -f "$BINARY" ]] || [[ "$SOURCE" -nt "$BINARY" ]]; then
     echo "Building test-system-style..."
     mkdir -p "$ROOT_DIR/target/c-examples"
     cc -o "$BINARY" "$SOURCE" \
-        -I"$ROOT_DIR/target/codegen/v2" \
+        -I"$ROOT_DIR/target/codegen" \
         -framework Cocoa -framework OpenGL -framework IOKit \
         -framework CoreFoundation -framework CoreGraphics \
         -L"$ROOT_DIR/target/release" -lazul \

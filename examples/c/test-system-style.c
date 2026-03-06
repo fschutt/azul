@@ -3,7 +3,7 @@
  *
  * Build:
  *   cc -o target/c-examples/test-system-style examples/c/test-system-style.c \
- *      -Itarget/codegen/v2 \
+ *      -Itarget/codegen \
  *      -framework Cocoa -framework OpenGL -framework IOKit \
  *      -framework CoreFoundation -framework CoreGraphics \
  *      -Ltarget/release -lazul -Wl,-rpath,target/release

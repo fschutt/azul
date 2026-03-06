@@ -3,7 +3,7 @@
 //! Generates a file that re-exports all `Az*` prefixed types from `crate::ffi`
 //! as unprefixed types organized into submodules.
 //!
-//! Output: `target/codegen/v2/reexports.rs`
+//! Output: `target/codegen/reexports.rs`
 //!
 //! Example output:
 //! ```rust

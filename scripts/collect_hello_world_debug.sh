@@ -16,7 +16,7 @@ if [ ! -f "$HELLO" ] || [ "$AZUL_ROOT/examples/c/hello-world.c" -nt "$HELLO" ]; 
   echo "[*] Building hello-world.c ..."
   mkdir -p "$AZUL_ROOT/target/c-examples"
   cc -o "$HELLO" "$AZUL_ROOT/examples/c/hello-world.c" \
-    -I"$AZUL_ROOT/target/codegen/v2" \
+    -I"$AZUL_ROOT/target/codegen" \
     -framework Cocoa -framework OpenGL -framework IOKit \
     -framework CoreFoundation -framework CoreGraphics \
     -L"$AZUL_ROOT/target/release" -lazul \

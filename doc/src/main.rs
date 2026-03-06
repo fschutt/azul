@@ -1502,7 +1502,7 @@ fn generate_release_pages(
     deploy_mode: dllgen::deploy::DeployMode,
     examples_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
-    use codegen::cpp_api::CppVersion;
+    use codegen::CppStandard;
     use dllgen::deploy::{DeployMode, ReleaseAssets};
 
     let versions = api_data.get_sorted_versions();
@@ -1512,42 +1512,18 @@ fn generate_release_pages(
         fs::create_dir_all(&version_dir)?;
 
         // Generate C header for this version
-        let c_api_code = codegen::c_api::generate_c_api(api_data, version);
+        let c_api_code = codegen::generate_c_header(api_data)?;
         fs::write(version_dir.join("azul.h"), &c_api_code)?;
         println!("  [OK] Generated: release/{}/azul.h", version);
 
         // Generate C++ headers for all supported standards
         let cpp_headers = dllgen::deploy::CppHeaders {
-            cpp03: codegen::cpp_api::generate_cpp_api_for_version(
-                api_data,
-                version,
-                CppVersion::Cpp03,
-            ),
-            cpp11: codegen::cpp_api::generate_cpp_api_for_version(
-                api_data,
-                version,
-                CppVersion::Cpp11,
-            ),
-            cpp14: codegen::cpp_api::generate_cpp_api_for_version(
-                api_data,
-                version,
-                CppVersion::Cpp14,
-            ),
-            cpp17: codegen::cpp_api::generate_cpp_api_for_version(
-                api_data,
-                version,
-                CppVersion::Cpp17,
-            ),
-            cpp20: codegen::cpp_api::generate_cpp_api_for_version(
-                api_data,
-                version,
-                CppVersion::Cpp20,
-            ),
-            cpp23: codegen::cpp_api::generate_cpp_api_for_version(
-                api_data,
-                version,
-                CppVersion::Cpp23,
-            ),
+            cpp03: codegen::generate_cpp_header(api_data, CppStandard::Cpp03)?,
+            cpp11: codegen::generate_cpp_header(api_data, CppStandard::Cpp11)?,
+            cpp14: codegen::generate_cpp_header(api_data, CppStandard::Cpp14)?,
+            cpp17: codegen::generate_cpp_header(api_data, CppStandard::Cpp17)?,
+            cpp20: codegen::generate_cpp_header(api_data, CppStandard::Cpp20)?,
+            cpp23: codegen::generate_cpp_header(api_data, CppStandard::Cpp23)?,
         };
 
         // Write individual C++ header files

@@ -146,7 +146,7 @@ log_success "DLL compiled: $DLL_PATH"
 # Step 2: Check headers are present
 log_step 2 "Checking headers..."
 
-HEADER_PATH="$ROOT_DIR/target/codegen/v2/azul.h"
+HEADER_PATH="$ROOT_DIR/target/codegen/azul.h"
 if [ ! -f "$HEADER_PATH" ]; then
     log_error "Header not found: $HEADER_PATH"
     log_info "Run codegen first or check the path"

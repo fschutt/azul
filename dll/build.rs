@@ -154,11 +154,11 @@ fn check_ios_deploy() {
 fn check_generated_files() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
-    let codegen_v2_dir = workspace_root.join("target/codegen/v2");
+    let codegen_dir = workspace_root.join("target/codegen");
 
     // Check for build-dll feature (needs dll_api_build.rs)
     if env::var("CARGO_FEATURE_BUILD_DLL").is_ok() {
-        let dll_api_build_path = codegen_v2_dir.join("dll_api_build.rs");
+        let dll_api_build_path = codegen_dir.join("dll_api_build.rs");
         if !dll_api_build_path.exists() {
             panic!(
                 "\n\
@@ -171,7 +171,7 @@ fn check_generated_files() {
                 ║                                                                              ║\n\
                 ║   cd doc && cargo run --release -- codegen all                               ║\n\
                 ║                                                                              ║\n\
-                ║ Expected file: target/codegen/v2/dll_api_build.rs                            ║\n\
+                ║ Expected file: target/codegen/dll_api_build.rs                            ║\n\
                 ╚══════════════════════════════════════════════════════════════════════════════╝\n"
             );
         }
@@ -180,7 +180,7 @@ fn check_generated_files() {
 
     // Check for link-static feature (needs dll_api_static.rs)
     if env::var("CARGO_FEATURE_LINK_STATIC").is_ok() {
-        let dll_api_static_path = codegen_v2_dir.join("dll_api_static.rs");
+        let dll_api_static_path = codegen_dir.join("dll_api_static.rs");
         if !dll_api_static_path.exists() {
             panic!(
                 "\n\
@@ -193,7 +193,7 @@ fn check_generated_files() {
                 ║                                                                              ║\n\
                 ║   cd doc && cargo run --release -- codegen all                               ║\n\
                 ║                                                                              ║\n\
-                ║ Expected file: target/codegen/v2/dll_api_static.rs                           ║\n\
+                ║ Expected file: target/codegen/dll_api_static.rs                           ║\n\
                 ╚══════════════════════════════════════════════════════════════════════════════╝\n"
             );
         }
@@ -202,7 +202,7 @@ fn check_generated_files() {
 
     // Check for link-dynamic feature (needs dll_api_dynamic.rs)
     if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
-        let dll_api_dynamic_path = codegen_v2_dir.join("dll_api_dynamic.rs");
+        let dll_api_dynamic_path = codegen_dir.join("dll_api_dynamic.rs");
         if !dll_api_dynamic_path.exists() {
             panic!(
                 "\n\
@@ -215,7 +215,7 @@ fn check_generated_files() {
                 ║                                                                              ║\n\
                 ║   cd doc && cargo run --release -- codegen all                               ║\n\
                 ║                                                                              ║\n\
-                ║ Expected file: target/codegen/v2/dll_api_dynamic.rs                          ║\n\
+                ║ Expected file: target/codegen/dll_api_dynamic.rs                          ║\n\
                 ╚══════════════════════════════════════════════════════════════════════════════╝\n"
             );
         }
@@ -227,7 +227,7 @@ fn check_generated_files() {
         || env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok()
         || env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
     {
-        let reexports_path = codegen_v2_dir.join("reexports.rs");
+        let reexports_path = codegen_dir.join("reexports.rs");
         if !reexports_path.exists() {
             panic!(
                 "\n\
@@ -240,7 +240,7 @@ fn check_generated_files() {
                 ║                                                                              ║\n\
                 ║   cd doc && cargo run --release -- codegen all                               ║\n\
                 ║                                                                              ║\n\
-                ║ Expected file: target/codegen/v2/reexports.rs                                ║\n\
+                ║ Expected file: target/codegen/reexports.rs                                ║\n\
                 ╚══════════════════════════════════════════════════════════════════════════════╝\n"
             );
         }
@@ -249,7 +249,7 @@ fn check_generated_files() {
 
     // Check for python-extension feature
     if env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok() {
-        let python_api_path = codegen_v2_dir.join("python_api.rs");
+        let python_api_path = codegen_dir.join("python_api.rs");
         if !python_api_path.exists() {
             panic!(
                 "\n\
@@ -262,7 +262,7 @@ fn check_generated_files() {
                 ║                                                                              ║\n\
                 ║   cd doc && cargo run --release -- codegen all                               ║\n\
                 ║                                                                              ║\n\
-                ║ Expected file: target/codegen/v2/python_api.rs                               ║\n\
+                ║ Expected file: target/codegen/python_api.rs                               ║\n\
                 ╚══════════════════════════════════════════════════════════════════════════════╝\n"
             );
         }

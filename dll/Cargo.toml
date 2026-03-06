@@ -187,7 +187,7 @@ build-dll = [
 # -----------------------------------------------------------------------------
 
 # Static linking: Include transmute-based implementations
-# Uses: target/codegen/v2/dll_api_static.rs
+# Uses: target/codegen/dll_api_static.rs
 # Requires the full azul stack to be compiled in
 link-static = [
     "std",
@@ -219,7 +219,7 @@ link-static = [
 ]
 
 # Dynamic linking: Include extern "C" declarations
-# Uses: target/codegen/v2/dll_api_dynamic.rs
+# Uses: target/codegen/dll_api_dynamic.rs
 # Requires libazul.dylib/so/dll to be available at runtime
 # Set AZUL_LINK_PATH environment variable to the directory containing libazul
 # NOTE: Does NOT require azul-core or other internal crates

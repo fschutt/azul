@@ -46,7 +46,7 @@ echo ""
 
 # Build
 echo -e "${YELLOW}Building text_area...${NC}"
-cc text_area.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o text_area -Wl,-rpath,../../target/release 2>&1
+cc text_area.c -I../../target/codegen/ -L../../target/release/ -lazul -o text_area -Wl,-rpath,../../target/release 2>&1
 if [ $? -ne 0 ]; then
     echo -e "${RED}Build failed${NC}"
     exit 1

@@ -33,7 +33,7 @@ echo "================================================"
 
 # Build
 echo -e "${YELLOW}Building drag_select_scroll...${NC}"
-cc drag_select_scroll.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o drag_select_scroll -Wl,-rpath,../../target/release 2>&1
+cc drag_select_scroll.c -I../../target/codegen/ -L../../target/release/ -lazul -o drag_select_scroll -Wl,-rpath,../../target/release 2>&1
 if [ $? -ne 0 ]; then
     echo -e "${RED}Build failed${NC}"
     exit 1

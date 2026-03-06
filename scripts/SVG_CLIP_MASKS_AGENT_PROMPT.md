@@ -150,7 +150,7 @@ Create a C example that demonstrates:
 
 The example should work with:
 ```bash
-cp target/codegen/v2/azul.h examples/c/azul.h
+cp target/codegen/azul.h examples/c/azul.h
 cd examples/c
 cc -o chart chart.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
 DYLD_LIBRARY_PATH=../../target/release ./chart
@@ -225,7 +225,7 @@ DYLD_LIBRARY_PATH=../../target/release ./chart
 cargo build -p azul-dll --features build-dll --release
 
 # Build example
-cp target/codegen/v2/azul.h examples/c/azul.h
+cp target/codegen/azul.h examples/c/azul.h
 cd examples/c
 cc -o chart chart.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
 

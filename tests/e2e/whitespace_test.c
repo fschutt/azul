@@ -7,7 +7,7 @@
  * 3. white-space: normal - should wrap at word boundaries
  * 
  * Compile:
- *   cd tests/e2e && cc whitespace_test.c -I../../target/codegen/v2/ -L../../target/release/ -lazul -o whitespace_test -Wl,-rpath,../../target/release
+ *   cd tests/e2e && cc whitespace_test.c -I../../target/codegen/ -L../../target/release/ -lazul -o whitespace_test -Wl,-rpath,../../target/release
  * 
  * Run with: AZUL_DEBUG=8765 ./whitespace_test
  */

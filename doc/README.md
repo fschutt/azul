@@ -71,7 +71,7 @@ Only writes if content actually changed. Always produces the same output on subs
 ### `codegen` — Generate Language Bindings
 
 Reads `api.json` and generates FFI bindings for all target languages.
-Output goes to `target/codegen/v2/`.
+Output goes to `target/codegen/`.
 
 ```bash
 azul-doc codegen all      # Generate all targets (recommended)
@@ -88,7 +88,7 @@ and memory layout tests.
 #### How `codegen` Output Is Used
 
 `dll/src/lib.rs` pulls in generated code via `include!()` macros pointing at
-`target/codegen/v2/`. Which files are included depends on the active cargo
+`target/codegen/`. Which files are included depends on the active cargo
 feature:
 
 | `azul-dll` feature | Generated code | File contains |
@@ -392,7 +392,7 @@ in two modes: **ci** (on push/PR) and **deploy** (manual trigger).
    on Linux, macOS, and Windows.
 3. **Reftests** — `codegen all` + `reftest` with Chrome screenshot caching.
 4. **C/C++ Examples** — copies `azul.h` and C++ headers from
-   `target/codegen/v2/`, compiles all example files with clang/clang++.
+   `target/codegen/`, compiles all example files with clang/clang++.
 5. **Website Build** — `codegen all` + `nfpm` + `deploy` (production).
 6. **OS Packaging** — uses nfpm config to build `.deb` and `.rpm` packages.
 
@@ -408,7 +408,7 @@ doc/src/
 ├── main.rs             # CLI entry point and command dispatch
 ├── api.rs              # normalize (type canonicalization)
 ├── autofix/            # api.json ↔ workspace synchronization
-├── codegen/            # Language binding generators (v1 legacy, v2 current)
+├── codegen/            # Language binding generators
 │   └── v2/             # IR builder → Rust/C/C++/Python generators
 ├── patch/              # dedup, api.json patch application
 ├── reftest/            # Pixel-comparison layout tests + LLM debugging

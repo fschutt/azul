@@ -556,7 +556,7 @@ doc/src/codegen/experimental/erlang_api.rs:
   337:         erl.push_str(&format!(",\n    {}/TODO_ARITY", name)); // Real generator must calc arity
   338      }
 
-doc/src/codegen/v2/ir_builder.rs:
+doc/src/codegen/ir_builder.rs:
    714      fn build_type_lookups(&mut self) -> Result<()> {
    715:         // TODO: Iterate through all modules and classes
    716:         // TODO: Build type_to_module map
@@ -583,7 +583,7 @@ doc/src/codegen/v2/ir_builder.rs:
   1578:         // TODO: For each struct/enum with relevant traits, generate:
   1579          //   - _delete if has custom drop or !Copy
 
-doc/src/codegen/v2/lang_python.rs:
+doc/src/codegen/lang_python.rs:
   1299                              // For now, skip these - callbacks in Option<Callback> require more complex handling
   1300:                             builder.line("    // TODO: callback type conversion");
   1301                              builder.line(&format!(
