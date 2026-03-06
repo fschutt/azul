@@ -1008,13 +1008,38 @@ get_css_property!(
     compact = get_direction
 );
 
-get_css_property!(
-    get_vertical_align_property,
-    get_vertical_align,
-    StyleVerticalAlign,
-    azul_css::props::property::CssPropertyType::VerticalAlign,
-    compact = get_vertical_align
-);
+// NOTE: vertical-align does NOT use the compact cache because the compact cache
+// only stores keyword variants (3 bits = 8 values) and silently drops
+// Percentage/Length values by mapping them to Baseline. Always use the slow path.
+pub fn get_vertical_align_property(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<StyleVerticalAlign> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    let author_css = styled_dom
+        .css_property_cache
+        .ptr
+        .get_vertical_align(node_data, &node_id, node_state);
+
+    if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+        return MultiValue::Exact(val);
+    }
+
+    let ua_css = azul_core::ua_css::get_ua_property(
+        &node_data.node_type,
+        azul_css::props::property::CssPropertyType::VerticalAlign,
+    );
+
+    if let Some(ua_prop) = ua_css {
+        if let Some(val) = extract_property_value::<StyleVerticalAlign>(ua_prop) {
+            return MultiValue::Exact(val);
+        }
+    }
+
+    MultiValue::Auto
+}
 // Complex Property Getters
 
 /// Get border radius for all four corners (raw CSS property values)
