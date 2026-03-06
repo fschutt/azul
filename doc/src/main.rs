@@ -1354,14 +1354,19 @@ fn main() -> anyhow::Result<()> {
             println!("\nAll language bindings generated successfully.");
             return Ok(());
         }
-        ["deploy"] | ["deploy", ..] => {
-            // Check for debug mode: "deploy debug" uses external CSS, "deploy" inlines CSS
-            let is_debug = args.len() > 2 && args[2] == "debug";
+        ["deploy"] | ["deploy", ..] | ["fast-deploy-with-reftests"] | ["fast-deploy-with-reftests", ..] => {
+            // Modes: "deploy" (production), "deploy debug" (fast, external CSS),
+            // "deploy with-reftests" (debug + run reftests), "fast-deploy-with-reftests" (legacy alias)
+            let is_debug = args.len() > 2 && (args[2] == "debug" || args[2] == "with-reftests");
+            let run_reftests = (args.len() > 2 && args[2] == "with-reftests")
+                || args[1] == "fast-deploy-with-reftests";
 
-            if is_debug {
-                println!("Starting Azul Fast Deploy (debug mode - external CSS)...");
+            if run_reftests {
+                println!("Starting Azul Deploy with Reftests (external CSS)...");
+            } else if is_debug {
+                println!("Starting Azul Deploy (debug mode - external CSS)...");
             } else {
-                println!("Starting Azul Build and Deploy System (production - inline CSS)...");
+                println!("Starting Azul Deploy (production - inline CSS)...");
             }
 
             let api_data = load_api_json(&api_path)?;
@@ -1385,13 +1390,8 @@ fn main() -> anyhow::Result<()> {
             fs::create_dir_all(&releases_dir)?;
 
             // Generate documentation (API docs, guide, etc.)
-            // In debug mode, use external stylesheet and relative paths. In production, inline CSS and absolute URLs.
             let inline_css = !is_debug;
-            let image_url = if is_debug {
-                "./images"
-            } else {
-                "https://azul.rs/images"
-            };
+            let image_url = if is_debug { "./images" } else { "https://azul.rs/images" };
             println!("Generating documentation (inline_css={})...", inline_css);
             for (path, html) in
                 docgen::generate_docs(&api_data, &image_path, image_url, inline_css)?
@@ -1433,129 +1433,55 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            // Generate reftest page (without running tests)
-            println!("Generating reftest page...");
-            let reftest_output_dir = output_dir.join("reftest");
-            let test_dir = PathBuf::from(manifest_dir).join("working");
-            match reftest::generate_reftest_page(&reftest_output_dir, Some(&test_dir)) {
-                Ok(_) => {
-                    // Copy to reftest.html in deploy root
-                    if reftest_output_dir.join("index.html").exists() {
-                        fs::copy(
-                            reftest_output_dir.join("index.html"),
-                            output_dir.join("reftest.html"),
-                        )?;
-                        println!("  [OK] Generated: reftest.html");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("  [WARN] Failed to generate reftest page: {}", e);
-                }
-            }
-
             // Copy static assets
             dllgen::deploy::copy_static_assets(&output_dir)?;
 
-            println!(
-                "\nWebsite generated successfully in: {}",
-                output_dir.display()
-            );
-            return Ok(());
-        }
-        ["fast-deploy-with-reftests"] | ["fast-deploy-with-reftests", ..] => {
-            println!("Starting Azul Fast Deploy with Reftests...");
-            let api_data = load_api_json(&api_path)?;
-            let config = Config::from_args();
-            println!("CONFIG={}", config.print());
-
-            // Create output directory structure
-            let output_dir = project_root.join("doc").join("target").join("deploy");
-
-            // Remove stale deploy folder before generating new content
-            if output_dir.exists() {
-                println!("Removing stale deploy folder...");
-                fs::remove_dir_all(&output_dir)?;
-            }
-
-            let image_path = output_dir.join("images");
-            let releases_dir = output_dir.join("release");
-
-            fs::create_dir_all(&output_dir)?;
-            fs::create_dir_all(&image_path)?;
-            fs::create_dir_all(&releases_dir)?;
-
-            // Generate documentation (API docs, guide, etc.)
-            // Fast deploy uses external stylesheet (no inline CSS) and relative image paths
-            println!("Generating documentation (external CSS for fast deploy)...");
-            for (path, html) in docgen::generate_docs(&api_data, &image_path, "./images", false)? {
-                let path_real = output_dir.join(&path);
-                if let Some(parent) = path_real.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                fs::write(&path_real, &html)?;
-                println!("  [OK] Generated: {}", path);
-            }
-
-            // Verify all example files exist before proceeding
-            let examples_dir = project_root.join("examples");
-            println!("Verifying example files...");
-            let strict_examples = config.deploy_mode == dllgen::deploy::DeployMode::Strict;
-            dllgen::deploy::verify_examples(&api_data, &examples_dir, strict_examples)?;
-
-            // Generate releases pages with api.json and examples.zip
-            println!("Generating releases pages...");
-            generate_release_pages(&api_data, &releases_dir, config.deploy_mode, &examples_dir)?;
-
-            // Generate releases index page
-            let versions = api_data.get_sorted_versions();
-            let releases_index = dllgen::deploy::generate_releases_index(&versions);
-            fs::write(output_dir.join("releases.html"), &releases_index)?;
-            println!("  [OK] Generated: releases.html");
-
-            // Generate donation page
-            println!("Generating donation page...");
-            let funding_yaml_bytes = include_str!("../../.github/FUNDING.yml");
-            match docgen::donate::generate_donation_page(funding_yaml_bytes) {
-                Ok(donation_html) => {
-                    fs::write(output_dir.join("donate.html"), &donation_html)?;
-                    println!("  [OK] Generated: donate.html");
-                }
-                Err(e) => {
-                    eprintln!("  [WARN] Failed to generate donation page: {}", e);
-                }
-            }
-
-            // Copy static assets
-            dllgen::deploy::copy_static_assets(&output_dir)?;
-
-            // Run reftests and generate reftest.html
-            println!("\nRunning reftests...");
+            // Reftests: either run them live or generate a placeholder page
             let reftest_output_dir = output_dir.join("reftest");
-            fs::create_dir_all(&reftest_output_dir)?;
+            if run_reftests {
+                println!("\nRunning reftests...");
+                fs::create_dir_all(&reftest_output_dir)?;
 
-            let reftest_config = RunRefTestsConfig {
-                test_dir: PathBuf::from(manifest_dir).join("working"),
-                output_dir: reftest_output_dir.clone(),
-                output_filename: "index.html",
-            };
+                let reftest_config = RunRefTestsConfig {
+                    test_dir: PathBuf::from(manifest_dir).join("working"),
+                    output_dir: reftest_output_dir.clone(),
+                    output_filename: "index.html",
+                };
 
-            match reftest::run_reftests(reftest_config) {
-                Ok(_) => {
-                    println!("  [OK] Reftests completed");
-                    // Copy reftest results to deploy folder
-                    let reftest_html = reftest_output_dir.join("index.html");
-                    if reftest_html.exists() {
-                        fs::copy(&reftest_html, output_dir.join("reftest.html"))?;
-                        println!("  [OK] Copied reftest.html to deploy folder");
+                match reftest::run_reftests(reftest_config) {
+                    Ok(_) => {
+                        println!("  [OK] Reftests completed");
+                        let reftest_html = reftest_output_dir.join("index.html");
+                        if reftest_html.exists() {
+                            fs::copy(&reftest_html, output_dir.join("reftest.html"))?;
+                            println!("  [OK] Copied reftest.html to deploy folder");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("  [WARN] Reftests failed: {}", e);
                     }
                 }
-                Err(e) => {
-                    eprintln!("  [WARN] Reftests failed: {}", e);
+            } else {
+                println!("Generating reftest page (placeholder, no live tests)...");
+                let test_dir = PathBuf::from(manifest_dir).join("working");
+                match reftest::generate_reftest_page(&reftest_output_dir, Some(&test_dir)) {
+                    Ok(_) => {
+                        if reftest_output_dir.join("index.html").exists() {
+                            fs::copy(
+                                reftest_output_dir.join("index.html"),
+                                output_dir.join("reftest.html"),
+                            )?;
+                            println!("  [OK] Generated: reftest.html");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("  [WARN] Failed to generate reftest page: {}", e);
+                    }
                 }
             }
 
             println!(
-                "\nWebsite with reftests generated successfully in: {}",
+                "\nWebsite generated successfully in: {}",
                 output_dir.display()
             );
             return Ok(());
