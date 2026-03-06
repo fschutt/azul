@@ -636,16 +636,10 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             .map(|l| l.bounds().width)
             .unwrap_or(0.0);
 
-        // CSS Intrinsic & Extrinsic Sizing Module Level 3:
-        // min-content height is the height when content is laid out at min-content width
-        // max-content height is the height when content is laid out at max-content width
-        // These can differ when text wraps differently at different widths.
-        let min_content_height = min_layout
-            .fragment_layouts
-            .get("min")
-            .map(|l| l.bounds().height)
-            .unwrap_or(0.0);
-
+        // +spec:inline-block-p049 - css-sizing-3 §2.1: for block containers (including
+        // IFC roots), the min-content block size equals the max-content block size.
+        // We use the max-content layout height (height with no wrapping constraints)
+        // as the canonical block size for both min and max content contributions.
         let max_content_height = max_layout
             .fragment_layouts
             .get("max")
@@ -656,7 +650,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             min_content_width: min_width,
             max_content_width: max_width,
             preferred_width: None,
-            min_content_height,
+            min_content_height: max_content_height,
             max_content_height,
             preferred_height: None,
         })
@@ -1300,7 +1294,10 @@ pub fn calculate_used_size_for_node(
                 }
                 // +spec:width-calculation-p001 - §10.3.9: inline-block non-replaced with auto width uses shrink-to-fit width
                 // +spec:display-property-p047 - inline-grid in IFC is sized as atomic inline-level box (CSS Grid 5.2)
-                LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid => {
+                // +spec:inline-block-p018 - inline-grid in IFC sized as atomic inline-level box (like inline-block) per CSS Grid 5.2
+                // +spec:inline-block-p020 - inline-level grid/flex containers sized as atomic inline-level box per CSS Grid §5.2
+                // +spec:inline-block-p043 - §10.3.9: inline-block non-replaced auto width uses shrink-to-fit
+                LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
                     // CSS 2.2 §10.3.9: If 'width' is 'auto', the used value is the
                     // shrink-to-fit width as for floating elements.
                     // shrink-to-fit = min(max(preferred_minimum, available), preferred)
@@ -1397,6 +1394,8 @@ pub fn calculate_used_size_for_node(
             // For block containers, this will be updated later in the layout process
             // after the children's heights are known.
             // +spec:display-property-p047 - grid container's auto block size is its max-content size (CSS Grid 5.2)
+            // +spec:inline-block-p018 - grid container auto block size is its max-content size (CSS Grid 5.2)
+            // +spec:inline-block-p020 - grid container auto block size is max-content size in both inline and block contexts (CSS Grid §5.2)
             intrinsic.max_content_height
         }
         LayoutHeight::Px(px) => {
