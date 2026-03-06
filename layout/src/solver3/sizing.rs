@@ -17,7 +17,7 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::PixelValue,
-        layout::{LayoutDisplay, LayoutHeight, LayoutPosition, LayoutWidth, LayoutWritingMode},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutPosition, LayoutWidth, LayoutWritingMode},
         property::{CssProperty, CssPropertyType},
     },
     LayoutDebugMessage,
@@ -38,7 +38,7 @@ use crate::{
         geometry::{BoxProps, BoxSizing, IntrinsicSizes},
         getters::{
             get_css_box_sizing, get_css_height, get_css_width, get_display_property,
-            get_style_properties, get_writing_mode, MultiValue,
+            get_flex_direction, get_float, get_position, get_style_properties, get_writing_mode, MultiValue,
         },
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree, get_display_type},
         positioning::get_position_type,
@@ -267,6 +267,7 @@ pub fn solve_vertical_formatting(
 }
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
+// +spec:intrinsic-sizing-p047 - css-sizing-3 index: entry point for computing intrinsic sizes (§5.1 min-content, max-content)
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -525,13 +526,16 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                     // InlineBlock with inline children - measure as IFC root
                     let mut intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
                     
-                    // FIX: Add padding and border to the intrinsic size.
-                    // The measurement above only accounts for the text content.
-                    // Since this node is an InlineBlock, it is a box that includes its own chrome.
-                    // We use the resolved box_props (resolved during tree generation).
-                    let h_extras = node.box_props.padding.left + node.box_props.padding.right 
+                    // +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2: intrinsic size contributions
+                    // are based on the outer size of the box. Add margin, padding, and border
+                    // to the content intrinsic size. Auto margins are treated as zero.
+                    // +spec:intrinsic-sizing-p047 - css-sizing-3 §5.2.1: padding/border added to intrinsic contributions
+                    let h_extras = node.box_props.margin.left + node.box_props.margin.right
+                                 + node.box_props.padding.left + node.box_props.padding.right
                                  + node.box_props.border.left + node.box_props.border.right;
-                    let v_extras = node.box_props.padding.top + node.box_props.padding.bottom 
+                    // +spec:height-calculation-p034 - §8.1: padding and border areas surround content area vertically
+                    let v_extras = node.box_props.margin.top + node.box_props.margin.bottom
+                                 + node.box_props.padding.top + node.box_props.padding.bottom
                                  + node.box_props.border.top + node.box_props.border.bottom;
                     
                     intrinsic.min_content_width += h_extras;
@@ -547,6 +551,10 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             }
             FormattingContext::Table => {
                 self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics)
+            }
+            // +spec:intrinsic-sizing-p027 - flex container intrinsic sizes per css-flexbox-1 §9.9.1
+            FormattingContext::Flex => {
+                self.calculate_flex_intrinsic_sizes(tree, node_index, child_intrinsics)
             }
             _ => self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics),
         }
@@ -681,16 +689,37 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
 
         for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
+                // +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2: intrinsic size contributions
+                // are based on the outer size of the box (margin-box). Add the child's margin,
+                // border, and padding to its intrinsic content size. Auto margins are treated
+                // as zero for this purpose.
+                let child_node = tree.get(child_index);
+                let (cross_extras, main_extras) = if let Some(cn) = child_node {
+                    let bp = &cn.box_props;
+                    let h = bp.margin.left + bp.margin.right
+                          + bp.border.left + bp.border.right
+                          + bp.padding.left + bp.padding.right;
+                    let v = bp.margin.top + bp.margin.bottom
+                          + bp.border.top + bp.border.bottom
+                          + bp.padding.top + bp.padding.bottom;
+                    match writing_mode {
+                        LayoutWritingMode::HorizontalTb => (h, v),
+                        _ => (v, h),
+                    }
+                } else {
+                    (0.0, 0.0)
+                };
+
                 let (child_min_cross, child_max_cross, child_main_size) = match writing_mode {
                     LayoutWritingMode::HorizontalTb => (
-                        child_intrinsic.min_content_width,
-                        child_intrinsic.max_content_width,
-                        child_intrinsic.max_content_height,
+                        child_intrinsic.min_content_width + cross_extras,
+                        child_intrinsic.max_content_width + cross_extras,
+                        child_intrinsic.max_content_height + main_extras,
                     ),
                     _ => (
-                        child_intrinsic.min_content_height,
-                        child_intrinsic.max_content_height,
-                        child_intrinsic.max_content_width,
+                        child_intrinsic.min_content_height + cross_extras,
+                        child_intrinsic.max_content_height + cross_extras,
+                        child_intrinsic.max_content_width + main_extras,
                     ),
                 };
 
@@ -723,6 +752,112 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             max_content_height: max_height,
             preferred_height: None,
         })
+    }
+
+    // +spec:intrinsic-sizing-p027 - css-flexbox-1 §9.9.1: intrinsic sizes of flex containers
+    // The max-content main size is the sum of items' max-content contributions.
+    // The min-content main size of a single-line flex container is the sum of items'
+    // min-content contributions. For multi-line, it is the largest min-content contribution.
+    // Auto margins on flex items are treated as 0 for this computation.
+    fn calculate_flex_intrinsic_sizes(
+        &mut self,
+        tree: &LayoutTree,
+        node_index: usize,
+        child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+    ) -> Result<IntrinsicSizes> {
+        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+
+        // Determine flex-direction to know if main axis is horizontal or vertical
+        let is_row = if let Some(dom_id) = node.dom_node_id {
+            let node_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            match get_flex_direction(self.ctx.styled_dom, dom_id, &node_state) {
+                MultiValue::Exact(dir) => matches!(dir, LayoutFlexDirection::Row | LayoutFlexDirection::RowReverse),
+                _ => true, // default is row
+            }
+        } else {
+            true // default flex-direction is row
+        };
+
+        let mut sum_main_min: f32 = 0.0;
+        let mut sum_main_max: f32 = 0.0;
+        let mut max_main_min: f32 = 0.0;
+        let mut max_cross_min: f32 = 0.0;
+        let mut max_cross_max: f32 = 0.0;
+
+        for &child_index in tree.children(node_index) {
+            if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
+                let (child_main_min, child_main_max, child_cross_min, child_cross_max) = if is_row {
+                    (
+                        child_intrinsic.min_content_width,
+                        child_intrinsic.max_content_width,
+                        child_intrinsic.min_content_height,
+                        child_intrinsic.max_content_height,
+                    )
+                } else {
+                    (
+                        child_intrinsic.min_content_height,
+                        child_intrinsic.max_content_height,
+                        child_intrinsic.min_content_width,
+                        child_intrinsic.max_content_width,
+                    )
+                };
+
+                // +spec:intrinsic-sizing-p027 - max-content main size = sum of items' max-content contributions
+                sum_main_max += child_main_max;
+                // +spec:intrinsic-sizing-p027 - min-content main size (single-line) = sum of items' min-content contributions
+                sum_main_min += child_main_min;
+                // For multi-line min-content, track the largest single item
+                max_main_min = max_main_min.max(child_main_min);
+
+                // Cross axis: largest child determines the container's cross size
+                max_cross_min = max_cross_min.max(child_cross_min);
+                max_cross_max = max_cross_max.max(child_cross_max);
+            }
+        }
+
+        // For single-line (nowrap), min-content = sum; for multi-line (wrap), min-content = max
+        // Default flex-wrap is nowrap (single-line)
+        let is_single_line = if let Some(dom_id) = node.dom_node_id {
+            let node_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
+                self.ctx.styled_dom, dom_id, &node_state,
+            );
+            match wrap_prop {
+                Some(val) => matches!(
+                    val.get_property_or_default().unwrap_or_default(),
+                    LayoutFlexWrap::NoWrap
+                ),
+                None => true, // default is nowrap
+            }
+        } else {
+            true
+        };
+
+        // +spec:intrinsic-sizing-p027 - single-line: min-content = sum; multi-line: min-content = largest item
+        let min_main = if is_single_line { sum_main_min } else { max_main_min };
+        let max_main = sum_main_max;
+
+        if is_row {
+            Ok(IntrinsicSizes {
+                min_content_width: min_main,
+                max_content_width: max_main,
+                preferred_width: None,
+                min_content_height: max_cross_min,
+                max_content_height: max_cross_max,
+                preferred_height: None,
+            })
+        } else {
+            Ok(IntrinsicSizes {
+                min_content_width: max_cross_min,
+                max_content_width: max_cross_max,
+                preferred_width: None,
+                min_content_height: min_main,
+                max_content_height: max_main,
+                preferred_height: None,
+            })
+        }
     }
 
     fn calculate_inline_intrinsic_sizes(
@@ -1034,7 +1169,10 @@ fn process_layout_children<T: ParsedFontTrait>(
                         _ => intrinsic_sizes.max_content_width,
                     }
                 }
+                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content uses min-content size
+                // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content sizing values for width
                 MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
+                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content uses max-content size
                 MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
                 MultiValue::Exact(LayoutWidth::FitContent(_)) => {
                     // During intrinsic sizing, fit-content resolves to max-content
@@ -1058,8 +1196,12 @@ fn process_layout_children<T: ParsedFontTrait>(
                         _ => intrinsic_sizes.max_content_height,
                     }
                 }
-                // For block axis, min-content and max-content are equivalent to auto per spec
+                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content for block size
+                // is equivalent to automatic size
+                // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content sizing values for height
                 MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.max_content_height,
+                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content for block size
+                // is equivalent to automatic size
                 MultiValue::Exact(LayoutHeight::MaxContent) => intrinsic_sizes.max_content_height,
                 MultiValue::Exact(LayoutHeight::FitContent(_)) => intrinsic_sizes.max_content_height,
                 _ => intrinsic_sizes.max_content_height,
@@ -1156,12 +1298,16 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     // Determine stacking direction from the node's formatting context.
     // "horizontal" means children are laid out side-by-side (inline, flex-row).
     // "vertical" means children stack top-to-bottom (block, flex-column).
+    // +spec:intrinsic-sizing-p027 - flex container intrinsic sizes (stub path, assumes row)
+    // +spec:intrinsic-sizing-p044 - flex container intrinsic main size:
+    // max-content = sum of items' max-content contributions;
+    // min-content (single-line) = sum of items' min-content contributions;
+    // min-content (multi-line) = largest of items' min-content contributions.
+    // Auto margins on flex items treated as 0 for this computation.
     let is_horizontal = match &_node.formatting_context {
         FormattingContext::Flex => {
             // Flex containers: check if the main axis is horizontal.
-            // We don't have direct access to flex-direction here, but flex
-            // defaults to row (horizontal). For a proper implementation we'd
-            // query the style; for now, treat Flex as horizontal.
+            // NOTE: flex-direction not yet queried; assumes row (horizontal main axis).
             true
         }
         FormattingContext::Inline | FormattingContext::InlineBlock | FormattingContext::Grid => true,
@@ -1173,29 +1319,56 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     let mut max_height: f32 = 0.0;
     let mut total_width: f32 = 0.0;
     let mut total_height: f32 = 0.0;
+    // +spec:intrinsic-sizing-p044 - track min-content contributions separately
+    let mut max_min_width: f32 = 0.0;
+    let mut max_min_height: f32 = 0.0;
+    let mut total_min_width: f32 = 0.0;
+    let mut total_min_height: f32 = 0.0;
 
     for intrinsic in child_intrinsics.values() {
         max_width = max_width.max(intrinsic.max_content_width);
         max_height = max_height.max(intrinsic.max_content_height);
         total_width += intrinsic.max_content_width;
         total_height += intrinsic.max_content_height;
+        max_min_width = max_min_width.max(intrinsic.min_content_width);
+        max_min_height = max_min_height.max(intrinsic.min_content_height);
+        total_min_width += intrinsic.min_content_width;
+        total_min_height += intrinsic.min_content_height;
     }
 
+    let is_flex = matches!(&_node.formatting_context, FormattingContext::Flex);
+
     if is_horizontal {
-        // Horizontal stacking: width is sum of children, height is tallest child
+        // +spec:intrinsic-sizing-p044 - flex-row intrinsic main size (width):
+        // max-content width = sum of items' max-content width contributions
+        // min-content width: single-line flex = sum, multi-line = largest, inline = largest
+        // NOTE: flex-wrap not yet queried; defaults to nowrap (single-line), so use sum for flex.
+        let min_w = if is_flex {
+            total_min_width  // single-line flex: sum of min-content contributions
+        } else {
+            max_min_width    // inline: largest min-content item
+        };
         IntrinsicSizes {
-            min_content_width: max_width,   // narrowest word across all children
-            min_content_height: max_height,
+            min_content_width: min_w,
+            min_content_height: max_min_height,
             max_content_width: total_width,  // all children side-by-side
             max_content_height: max_height,
             preferred_width: None,
             preferred_height: None,
         }
     } else {
-        // Vertical stacking (Block): width is widest child, height is sum of children
+        // Vertical stacking (Block / flex-column)
+        // +spec:intrinsic-sizing-p044 - flex-column intrinsic main size (height):
+        // max-content height = sum of items' max-content height contributions
+        // min-content height: single-line flex = sum, block = largest
+        let min_h = if is_flex {
+            total_min_height  // single-line flex-column: sum of min-content contributions
+        } else {
+            max_min_height    // block: tallest single child as min
+        };
         IntrinsicSizes {
-            min_content_width: max_width,
-            min_content_height: max_height,  // tallest single child as min
+            min_content_width: max_min_width,
+            min_content_height: min_h,
             max_content_width: max_width,    // widest child determines width
             max_content_height: total_height, // all children stacked
             preferred_width: None,
@@ -1361,7 +1534,10 @@ pub fn calculate_used_size_for_node(
                 },
             }
         }
+        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content uses min-content size in relevant axis
+        // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content keyword values for width property
         LayoutWidth::MinContent => intrinsic.min_content_width,
+        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content uses max-content size in relevant axis
         LayoutWidth::MaxContent => intrinsic.max_content_width,
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         LayoutWidth::FitContent(px) => {
@@ -1432,8 +1608,12 @@ pub fn calculate_used_size_for_node(
                 },
             }
         }
-        // css-sizing-3: for block axis, min-content/max-content are equivalent to auto
+        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content for block size is
+        // equivalent to automatic size (not min_content_height which is height at min-content width)
+        // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content keyword values for height property
         LayoutHeight::MinContent => intrinsic.max_content_height,
+        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content for block size is
+        // equivalent to automatic size
         LayoutHeight::MaxContent => intrinsic.max_content_height,
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         // For block axis, both min-content and max-content equal auto height
@@ -1734,6 +1914,8 @@ fn apply_width_constraints(
 
     use crate::solver3::getters::{get_css_max_width, get_css_min_width, MultiValue};
 
+    // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: auto for min-width resolves to 0
+    // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
     // Resolve min-width (default is 0)
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
@@ -1768,6 +1950,7 @@ fn apply_width_constraints(
         _ => 0.0,
     };
 
+    // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: none means no limit on box size
     // Resolve max-width (default is infinity/none)
     let max_width = match get_css_max_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
@@ -1834,6 +2017,8 @@ fn apply_height_constraints(
 
     use crate::solver3::getters::{get_css_max_height, get_css_min_height, MultiValue};
 
+    // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: auto for min-height resolves to 0
+    // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
     // Resolve min-height (default is 0)
     let min_height = match get_css_min_height(styled_dom, id, node_state) {
         MultiValue::Exact(mh) => {
