@@ -3592,6 +3592,8 @@ fn get_border_info<T: ParsedFontTrait>(
     (top, right, bottom, left)
 }
 
+// +spec:width-calculation-p018 - §17.5.2: table-layout: auto | fixed | inherit
+// +spec:width-calculation-p019 - §17.5.2: table-layout property (auto | fixed), initial auto
 /// Get the table-layout property for a table node
 fn get_table_layout_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
@@ -3903,6 +3905,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
 
+    // +spec:width-calculation-p018 - §17.5.2: table-layout property selects fixed vs auto algorithm
+    // +spec:width-calculation-p019 - §17.5.2: dispatch fixed vs auto table layout algorithm
     // Phase 2: Read CSS properties and determine layout algorithm
     let table_layout = get_table_layout_property(ctx, &table_node);
     table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed);
@@ -3927,7 +3931,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             "FIXED layout: table_content_box_width={:.2}",
             table_content_box_width
         );
-        calculate_column_widths_fixed(ctx, &mut table_ctx, table_content_box_width);
+        // +spec:width-calculation-p019 - §17.5.2.1/§17.5.2.2: dispatch fixed vs auto table layout
+        calculate_column_widths_fixed(ctx, tree, &mut table_ctx, table_content_box_width);
     } else {
         // Pass table_content_box_width for column distribution in auto layout
         calculate_column_widths_auto_with_width(
@@ -4304,15 +4309,20 @@ fn analyze_table_row<T: ParsedFontTrait>(
     Ok(())
 }
 
+// +spec:width-calculation-p019 - §17.5.2.1: fixed table layout column width algorithm
 /// Calculate column widths using the fixed table layout algorithm
 ///
-/// CSS 2.2 Section 17.5.2.1: In fixed table layout, the table width is
-/// not dependent on cell contents
+/// CSS 2.2 Section 17.5.2.1: In fixed table layout, the horizontal layout
+/// does not depend on cell contents. Column widths are determined by:
+/// 1. Column elements with explicit (non-auto) width
+/// 2. First-row cells with explicit (non-auto) width
+/// 3. Remaining columns equally divide remaining horizontal space
 ///
 /// CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded
 /// from width calculations
 fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
     table_ctx: &mut TableLayoutContext,
     available_width: f32,
 ) {
@@ -4323,31 +4333,125 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         available_width
     );
 
-    // Fixed layout: distribute width equally among non-collapsed columns
-    // TODO: Respect column width properties and first-row cell widths
     let num_cols = table_ctx.columns.len();
     if num_cols == 0 {
         return;
     }
 
     // +spec:margin-collapsing-p008 - collapsed track treated as fixed 0px sizing function
-    // Count non-collapsed columns
     let num_visible_cols = num_cols - table_ctx.collapsed_columns.len();
     if num_visible_cols == 0 {
-        // All columns collapsed - set all to zero width
         for col in &mut table_ctx.columns {
             col.computed_width = Some(0.0);
         }
         return;
     }
 
-    // Distribute width only among visible columns
-    let col_width = available_width / num_visible_cols as f32;
+    // +spec:width-calculation-p019 - §17.5.2.1 step 2: first-row cells with non-auto width set column width
+    // Step 1 (column elements) is skipped because column elements don't store
+    // explicit widths in the current table structure analysis.
+    // Step 2: Check first-row cells for explicit width properties.
+    let mut col_has_width = vec![false; num_cols];
+
+    for cell_info in &table_ctx.cells {
+        if cell_info.row != 0 {
+            continue; // Only consider cells in the first row
+        }
+        if table_ctx.collapsed_columns.contains(&cell_info.column) {
+            continue;
+        }
+
+        // Look up the cell's CSS width via its dom_node_id
+        let dom_id = match tree.get(cell_info.node_index).and_then(|n| n.dom_node_id) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        let css_width = get_css_width(ctx.styled_dom, dom_id, &node_state);
+
+        let explicit_px = match css_width.unwrap_or_default() {
+            LayoutWidth::Px(px) => {
+                resolve_size_metric(
+                    px.metric,
+                    px.number.get(),
+                    available_width,
+                    ctx.viewport_size,
+                )
+            }
+            LayoutWidth::Auto | LayoutWidth::MinContent | LayoutWidth::MaxContent
+            | LayoutWidth::Calc(_) | LayoutWidth::FitContent(_) => continue,
+        };
+
+        if cell_info.colspan == 1 {
+            table_ctx.columns[cell_info.column].computed_width = Some(explicit_px);
+            col_has_width[cell_info.column] = true;
+        } else {
+            // +spec:width-calculation-p020 - §17.5.2.1: multi-column cell width divided over columns
+            let mut visible_span_count = 0;
+            for offset in 0..cell_info.colspan {
+                let col_idx = cell_info.column + offset;
+                if col_idx < num_cols && !table_ctx.collapsed_columns.contains(&col_idx) {
+                    visible_span_count += 1;
+                }
+            }
+            if visible_span_count > 0 {
+                let per_col = explicit_px / visible_span_count as f32;
+                for offset in 0..cell_info.colspan {
+                    let col_idx = cell_info.column + offset;
+                    if col_idx < num_cols
+                        && !table_ctx.collapsed_columns.contains(&col_idx)
+                        && !col_has_width[col_idx]
+                    {
+                        table_ctx.columns[col_idx].computed_width = Some(per_col);
+                        col_has_width[col_idx] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // +spec:width-calculation-p019 - §17.5.2.1 step 3: remaining columns equally divide remaining space
+    let used_width: f32 = table_ctx.columns.iter().enumerate()
+        .filter(|(idx, _)| col_has_width[*idx] && !table_ctx.collapsed_columns.contains(idx))
+        .filter_map(|(_, c)| c.computed_width)
+        .sum();
+    let remaining_width = (available_width - used_width).max(0.0);
+    let num_remaining = table_ctx.columns.iter().enumerate()
+        .filter(|(idx, _)| !col_has_width[*idx] && !table_ctx.collapsed_columns.contains(idx))
+        .count();
+
+    if num_remaining > 0 {
+        let width_per_remaining = remaining_width / num_remaining as f32;
+        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+            if table_ctx.collapsed_columns.contains(&col_idx) {
+                col.computed_width = Some(0.0);
+            } else if !col_has_width[col_idx] {
+                col.computed_width = Some(width_per_remaining);
+            }
+        }
+    }
+
+    // Set collapsed columns to zero width
     for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
         if table_ctx.collapsed_columns.contains(&col_idx) {
             col.computed_width = Some(0.0);
-        } else {
-            col.computed_width = Some(col_width);
+        }
+    }
+
+    // +spec:width-calculation-p019 - §17.5.2.1: if table wider than columns, distribute extra space
+    let total_col_width: f32 = table_ctx.columns.iter()
+        .filter_map(|c| c.computed_width)
+        .sum();
+    if available_width > total_col_width && num_visible_cols > 0 {
+        let extra = available_width - total_col_width;
+        let extra_per_col = extra / num_visible_cols as f32;
+        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+            if !table_ctx.collapsed_columns.contains(&col_idx) {
+                if let Some(ref mut w) = col.computed_width {
+                    *w += extra_per_col;
+                }
+            }
         }
     }
 }
@@ -4478,6 +4582,8 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
     Ok(max_width)
 }
 
+// +spec:width-calculation-p019 - §17.5.2.2: automatic table layout algorithm (UA may use any algorithm)
+// +spec:width-calculation-p020 - §17.5.2.2: automatic table layout algorithm
 /// Calculate column widths using the auto table layout algorithm
 fn calculate_column_widths_auto<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
