@@ -4278,6 +4278,7 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         return;
     }
 
+    // +spec:margin-collapsing-p008 - collapsed track treated as fixed 0px sizing function
     // Count non-collapsed columns
     let num_visible_cols = num_cols - table_ctx.collapsed_columns.len();
     if num_visible_cols == 0 {
@@ -4899,6 +4900,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
     // +spec:line-height-p018 - §17.5.3: initialize row baselines for baseline alignment
     table_ctx.row_baselines = vec![0.0; table_ctx.num_rows];
 
+    // +spec:margin-collapsing-p008 - collapsed track treated as fixed 0px sizing function
     // CSS 2.2 Section 17.6: Set collapsed rows to height 0
     for &row_idx in &table_ctx.collapsed_rows {
         if row_idx < table_ctx.row_heights.len() {
@@ -5132,22 +5134,34 @@ fn position_table_cells<T: ParsedFontTrait>(
         v_spacing
     );
 
+    // +spec:margin-collapsing-p008 - collapsed track treated as 0px, gutters on either side collapse
     // Calculate cumulative column positions (x-offsets) with spacing
     let mut col_positions = vec![0.0; table_ctx.columns.len()];
     let mut x_offset = h_spacing; // Start with spacing on the left
     for (i, col) in table_ctx.columns.iter().enumerate() {
         col_positions[i] = x_offset;
         if let Some(width) = col.computed_width {
-            x_offset += width + h_spacing; // Add spacing between columns
+            // Collapsed columns: gutters on either side collapse (width is 0, skip spacing)
+            if table_ctx.collapsed_columns.contains(&i) {
+                // No width, no gutter added
+            } else {
+                x_offset += width + h_spacing; // Add spacing between columns
+            }
         }
     }
 
+    // +spec:margin-collapsing-p008 - collapsed track treated as 0px, gutters on either side collapse
     // Calculate cumulative row positions (y-offsets) with spacing
     let mut row_positions = vec![0.0; table_ctx.num_rows];
     let mut y_offset = v_spacing; // Start with spacing on the top
     for (i, &height) in table_ctx.row_heights.iter().enumerate() {
         row_positions[i] = y_offset;
-        y_offset += height + v_spacing; // Add spacing between rows
+        // Collapsed rows: gutters on either side collapse (height is 0, skip spacing)
+        if table_ctx.collapsed_rows.contains(&i) {
+            // No height, no gutter added
+        } else {
+            y_offset += height + v_spacing; // Add spacing between rows
+        }
     }
 
     // Position each cell
