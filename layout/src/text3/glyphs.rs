@@ -13,7 +13,7 @@ use azul_css::props::style::StyleBackgroundContent;
 
 // +spec:line-height-p032 - vertical-align term from CSS-INLINE-3 used here via vertical metrics for baseline positioning
 use crate::text3::cache::{
-    get_item_vertical_metrics, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
+    get_item_vertical_metrics_approx, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
     PositionedItem, ShapedGlyph, ShapedItem, UnifiedLayout,
 };
 
@@ -79,7 +79,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
 
     for item in &layout.items {
         // +spec:line-height-p032 - baseline derived from ascent (vertical-align baseline alignment)
-        let (item_ascent, _) = get_item_vertical_metrics(&item.item);
+        let (item_ascent, _) = get_item_vertical_metrics_approx(&item.item);
         let baseline_y = item.position.y + item_ascent;
 
         let mut process_glyphs =
@@ -231,7 +231,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
 
     for item in &layout.items {
         // +spec:line-height-p012 - §10.8.1: baseline recovered from item position + ascent (includes half-leading)
-        let (item_ascent, _) = get_item_vertical_metrics(&item.item);
+        let (item_ascent, _) = get_item_vertical_metrics_approx(&item.item);
         let baseline_y = item.position.y + item_ascent;
 
         let mut process_glyphs =
@@ -420,7 +420,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
         }
 
         // Calculate the baseline position for this cluster
-        let (item_ascent, _) = get_item_vertical_metrics(&positioned_item.item);
+        let (item_ascent, _) = get_item_vertical_metrics_approx(&positioned_item.item);
         let baseline_y = positioned_item.position.y + item_ascent;
 
         // Process each glyph in the cluster
@@ -575,7 +575,7 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
 
     for item in &layout.items {
         // +spec:line-height-p012 - §10.8.1: baseline recovered from item position + ascent (includes half-leading)
-        let (item_ascent, _) = get_item_vertical_metrics(&item.item);
+        let (item_ascent, _) = get_item_vertical_metrics_approx(&item.item);
         let baseline_y = item.position.y + item_ascent;
 
         let mut process_glyphs = |positioned_glyphs: &[ShapedGlyph], item_origin_x: f32| {

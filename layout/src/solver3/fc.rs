@@ -3217,6 +3217,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // +spec:inline-formatting-context-p050 - §10.8.1: uniform line-height ensures baselines are exactly line-height apart
         // +spec:line-height-p012 - §10.8.1: resolve line-height to absolute px (number/percentage × font-size)
         line_height: line_height_value.inner.normalized() * font_size,
+        // +spec:inline-formatting-context-p003 - §10.8.1: strut ascent/descent from block
+        // container's first available font. Approximated as 80%/20% of font_size (typical
+        // for Latin fonts). TODO: resolve actual font and use its OS/2 metrics.
+        strut_ascent: font_size * 0.8,
+        strut_descent: font_size * 0.2,
         // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
         // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property (initial: baseline, applies to inline-level elements)
         vertical_align,
@@ -5053,7 +5058,7 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
         let inline_result = &cached_layout.layout;
         // The baseline is the ascent of the first item from the top of the cell
         if let Some(first_item) = inline_result.items.first() {
-            let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics(&first_item.item);
+            let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&first_item.item);
             let padding_top = cell_node.box_props.padding.top;
             let border_top = cell_node.box_props.border.top;
             return padding_top + border_top + first_item.position.y + item_ascent;

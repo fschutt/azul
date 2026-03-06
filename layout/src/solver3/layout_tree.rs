@@ -262,11 +262,11 @@ impl CachedInlineLayout {
     /// cached advance widths, line assignments, and break information
     /// for each positioned item.
     fn extract_item_metrics(layout: &UnifiedLayout) -> Vec<InlineItemMetrics> {
-        use crate::text3::cache::{ShapedItem, get_item_vertical_metrics};
+        use crate::text3::cache::{ShapedItem, get_item_vertical_metrics_approx};
 
         layout.items.iter().map(|positioned_item| {
             let bounds = positioned_item.item.bounds();
-            let (ascent, descent) = get_item_vertical_metrics(&positioned_item.item);
+            let (ascent, descent) = get_item_vertical_metrics_approx(&positioned_item.item);
 
             let source_node_id = match &positioned_item.item {
                 ShapedItem::Cluster(c) => c.source_node_id,

@@ -704,6 +704,10 @@ pub struct UnifiedConstraints {
     pub text_justify: JustifyContent,
     pub line_height: f32,
     pub vertical_align: VerticalAlign,
+    // +spec:inline-formatting-context-p003 - §10.8.1: strut ascent/descent from
+    // block container's first available font, used for minimum line box height
+    pub strut_ascent: f32,
+    pub strut_descent: f32,
 
     // Overflow handling
     pub overflow: OverflowBehavior,
@@ -760,6 +764,8 @@ impl Default for UnifiedConstraints {
             text_justify: JustifyContent::default(),
             line_height: 16.0, // A more sensible default
             vertical_align: VerticalAlign::default(),
+            strut_ascent: 12.8, // 80% of default line-height (typical ratio)
+            strut_descent: 3.2, // 20% of default line-height
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
             text_combine_upright: None,
@@ -800,6 +806,8 @@ impl Hash for UnifiedConstraints {
         self.text_justify.hash(state);
         (self.line_height.round() as usize).hash(state);
         self.vertical_align.hash(state);
+        (self.strut_ascent.round() as usize).hash(state);
+        (self.strut_descent.round() as usize).hash(state);
         self.overflow.hash(state);
         self.text_combine_upright.hash(state);
         (self.exclusion_margin.round() as usize).hash(state);
@@ -835,6 +843,8 @@ impl PartialEq for UnifiedConstraints {
             && self.text_justify == other.text_justify
             && round_eq(self.line_height, other.line_height)
             && self.vertical_align == other.vertical_align
+            && round_eq(self.strut_ascent, other.strut_ascent)
+            && round_eq(self.strut_descent, other.strut_descent)
             && self.overflow == other.overflow
             && self.text_combine_upright == other.text_combine_upright
             && round_eq(self.exclusion_margin, other.exclusion_margin)
@@ -3261,7 +3271,7 @@ impl ShapedItem {
                 // The height is the sum of its ascent and descent, which defines its line box.
                 // We use the existing helper function which correctly calculates this from font
                 // metrics.
-                let (ascent, descent) = get_item_vertical_metrics(self);
+                let (ascent, descent) = get_item_vertical_metrics_approx(self);
                 let height = ascent + descent;
 
                 Rect {
@@ -6115,6 +6125,43 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
     }
 }
 
+/// Approximate version of get_item_vertical_metrics for use without constraints (e.g. bounds()).
+/// Uses 80/20 ascent/descent ratio as fallback for empty-glyph strut case.
+pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
+    // For non-empty clusters, delegate to the font-metrics-based calculation
+    if let ShapedItem::Cluster(c) = item {
+        if !c.glyphs.is_empty() {
+            // Reuse the glyph-based calculation (same as get_item_vertical_metrics)
+            let (asc, desc) = c.glyphs
+                .iter()
+                .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
+                    let metrics = &glyph.font_metrics;
+                    if metrics.units_per_em == 0 {
+                        return (max_asc, max_desc);
+                    }
+                    let scale = glyph.style.font_size_px / metrics.units_per_em as f32;
+                    let font_ascent = metrics.ascent * scale;
+                    let font_descent = (-metrics.descent * scale).max(0.0);
+                    let ad = font_ascent + font_descent;
+                    let half_leading = (c.style.line_height - ad) / 2.0;
+                    (max_asc.max(font_ascent + half_leading), max_desc.max(font_descent + half_leading))
+                });
+            return (asc, desc);
+        }
+    }
+    // Fallback for empty glyphs or non-cluster items
+    match item {
+        ShapedItem::Cluster(c) => {
+            let lh = c.style.line_height;
+            (lh * 0.8, lh * 0.2)
+        }
+        ShapedItem::CombinedBlock { bounds, .. } => (bounds.height * 0.8, bounds.height * 0.2),
+        ShapedItem::Object { bounds, .. } => (bounds.height, 0.0),
+        ShapedItem::Tab { bounds, .. } => (bounds.height * 0.8, bounds.height * 0.2),
+        ShapedItem::Break { .. } => (0.0, 0.0),
+    }
+}
+
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
 // +spec:line-height - §10.8.1: half-leading applied per glyph: L = line-height - AD, A' = A + L/2, D' = D + L/2
@@ -6123,7 +6170,7 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 // +spec:line-height-p021 - §10.8.1: on a non-replaced inline element, line-height specifies the height used in line box height calculation
 // +spec:inline-formatting-context-p003 - §10.8.1: half-leading applied to inline boxes; L = line-height - AD, A' = A + L/2, D' = D + L/2
 // +spec:inline-formatting-context-p028 - §10.8.1: for inline non-replaced elements, alignment box is line-height box; for all other elements, alignment box is margin box
-pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
+pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstraints) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
@@ -6131,10 +6178,10 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
                 // +spec:inline-formatting-context-p003 - §10.8.1: strut: inline box with no glyphs uses A and D of element's first available font
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
-                // Without actual font metrics here, approximate by splitting line_height
-                // using a typical 80/20 ascent/descent ratio.
-                let lh = c.style.line_height;
-                return (lh * 0.8, lh * 0.2);
+                // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
+                let ad = constraints.strut_ascent + constraints.strut_descent;
+                let half_leading = (c.style.line_height - ad) / 2.0;
+                return (constraints.strut_ascent + half_leading, constraints.strut_descent + half_leading);
             }
             // §10.8.1: for each glyph determine A, D from font metrics,
             // then L = line-height - (A + D), and adjust: A' = A + L/2, D' = D + L/2.
@@ -6199,6 +6246,7 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
 fn calculate_line_metrics(
     items: &[ShapedItem],
     default_vertical_align: VerticalAlign,
+    constraints: &UnifiedConstraints,
 ) -> (f32, f32) {
     // +spec:inline-formatting-context-p004 - §10.8: pass 1 - line box from baseline-aligned items
     // Pass 1: Compute ascent/descent from baseline-aligned items only
@@ -6214,7 +6262,7 @@ fn calculate_line_metrics(
                     (max_asc, max_desc)
                 }
                 _ => {
-                    let (item_asc, item_desc) = get_item_vertical_metrics(item);
+                    let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
                     (max_asc.max(item_asc), max_desc.max(item_desc))
                 }
             }
@@ -6230,7 +6278,7 @@ fn calculate_line_metrics(
             .unwrap_or(default_vertical_align);
         match effective_align {
             VerticalAlign::Top | VerticalAlign::Bottom => {
-                let (item_asc, item_desc) = get_item_vertical_metrics(item);
+                let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
                 let item_height = item_asc + item_desc;
                 if item_height > baseline_line_height {
                     // To minimize height, expand in the direction the item is aligned to
@@ -7122,16 +7170,18 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
-    let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align);
+    let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align, constraints);
 
     // +spec:line-height-p015 - §10.8: line box height includes the strut: an imaginary zero-width
-    // inline box with the block container's font and line-height. The strut's half-leading
-    // is distributed equally above and below the content area, ensuring the line box height
-    // is at least constraints.line_height (the parent element's computed line-height).
-    let strut_height = constraints.line_height;
-    let strut_half = strut_height / 2.0;
-    let line_ascent = content_ascent.max(strut_half);
-    let line_descent = content_descent.max(strut_half);
+    // inline box with the block container's font and line-height. The strut has A (ascent) and
+    // D (descent) from the block container's first available font. Half-leading L/2 is applied:
+    // L = line-height - (A + D), strut_above = A + L/2, strut_below = D + L/2.
+    let strut_ad = constraints.strut_ascent + constraints.strut_descent;
+    let strut_leading_half = (constraints.line_height - strut_ad) / 2.0;
+    let strut_above = constraints.strut_ascent + strut_leading_half;
+    let strut_below = constraints.strut_descent + strut_leading_half;
+    let line_ascent = content_ascent.max(strut_above);
+    let line_descent = content_descent.max(strut_below);
     // +spec:line-height-p015 - line box height = distance from uppermost box top to lowermost box bottom
     let line_box_height = line_ascent + line_descent;
 
@@ -7332,7 +7382,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         //
         // Reference: https://www.w3.org/TR/css-inline-3/#baseline-alignment
         for item in justified_segment_items {
-            let (item_ascent, item_descent) = get_item_vertical_metrics(&item);
+            let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
                 .unwrap_or(constraints.vertical_align);
@@ -7355,11 +7405,11 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // super: raise baseline to proper superscript position (~0.4em)
                 VerticalAlign::Super => line_baseline_y - line_ascent * 0.4,
                 // text-top: align top of box with top of parent's content area (§10.6.1)
-                // Parent's content area top ≈ baseline - strut_half (font ascent approximation)
-                VerticalAlign::TextTop => (line_baseline_y - strut_half) + item_ascent,
+                // Parent's content area top = baseline - strut_ascent
+                VerticalAlign::TextTop => (line_baseline_y - constraints.strut_ascent) + item_ascent,
                 // text-bottom: align bottom of box with bottom of parent's content area (§10.6.1)
-                // Parent's content area bottom ≈ baseline + strut_half (font descent approximation)
-                VerticalAlign::TextBottom => (line_baseline_y + strut_half) - item_descent,
+                // Parent's content area bottom = baseline + strut_descent
+                VerticalAlign::TextBottom => (line_baseline_y + constraints.strut_descent) - item_descent,
                 // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
                 // +spec:inline-formatting-context-p028 - §10.8.1: 0 means same as baseline; percentage refers to element's own line-height
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
