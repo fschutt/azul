@@ -2864,7 +2864,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let writing_mode = get_writing_mode(styled_dom, id, node_state).unwrap_or_default();
 
     // +spec:inline-formatting-context-p015 - §9.4.2: text-align property controls horizontal distribution of inline boxes within line box
-    // +spec:inline-formatting-context-p032 - §17.5.4: text-align on cell controls horizontal alignment of inline-level content
+    // +spec:table-layout-p032 - §17.5.4: text-align on cell controls horizontal alignment of inline-level content
     let text_align = get_text_align(styled_dom, id, node_state).unwrap_or_default();
 
     let text_justify = styled_dom
@@ -3259,15 +3259,15 @@ struct TableLayoutContext {
     // +spec:line-height-p018 - §17.5.3: row baseline = max top-to-baseline distance among baseline-aligned cells
     /// Computed baseline offset for each row (distance from row top to row baseline)
     row_baselines: Vec<f32>,
-    // +spec:inline-formatting-context-p032 - §17.6: border-collapse property (separate|collapse|inherit)
+    // +spec:table-layout-p032 - §17.6: border-collapse property (separate|collapse|inherit)
     /// Border collapse mode
     border_collapse: StyleBorderCollapse,
-    // +spec:inline-formatting-context-p032 - §17.6.1: border-spacing in separated borders model
+    // +spec:table-layout-p032 - §17.6.1: border-spacing in separated borders model
     /// Border spacing (only used when border_collapse is Separate)
     border_spacing: LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
     caption_index: Option<usize>,
-    // +spec:inline-formatting-context-p032 - §17.5.5: visibility:collapse removes rows/columns
+    // +spec:table-layout-p032 - §17.5.5: visibility:collapse removes rows/columns
     //   from display without forcing table re-layout
     /// CSS 2.2 Section 17.6: Rows with visibility:collapse (dynamic effects)
     /// Set of row indices that have visibility:collapse
@@ -3770,7 +3770,7 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     StyleCaptionSide::Top // Default per CSS 2.2
 }
 
-// +spec:inline-formatting-context-p032 - §17.5.5: visibility:collapse on row/column/row-group/column-group
+// +spec:table-layout-p032 - §17.5.5: visibility:collapse on row/column/row-group/column-group
 //   removes entire row or column from display; space made available for other content;
 //   spanned content clipped; does not otherwise affect table layout
 /// CSS 2.2 Section 17.6 - Dynamic row and column effects:
@@ -4014,8 +4014,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         .iter()
         .filter_map(|col| col.computed_width)
         .sum();
-    // +spec:inline-formatting-context-p033 - §17.5.3: table height = sum of row heights (+ spacing/borders)
-    // +spec:inline-formatting-context-p037 - §17.5.3: 'auto' means sum of row heights; other value is minimum height
+    // +spec:table-layout-p033 - §17.5.3: table height = sum of row heights (+ spacing/borders)
+    // +spec:table-layout-p037 - §17.5.3: 'auto' means sum of row heights; other value is minimum height
     let mut table_height: f32 = table_ctx.row_heights.iter().sum();
 
     debug_table_layout!(
@@ -4160,7 +4160,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:inline-formatting-context-p033 - §17.5.3: total table height includes caption
+    // +spec:table-layout-p033 - §17.5.3: total table height includes caption
     let total_height = table_height + caption_height;
 
     debug_table_layout!(ctx, "Final table dimensions:");
@@ -4178,7 +4178,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         },
         // Cell positions calculated in position_table_cells
         positions: cell_positions,
-        // +spec:inline-formatting-context-p033 - §17.5.3: baseline of cell = baseline of first in-flow
+        // +spec:table-layout-p033 - §17.5.3: baseline of cell = baseline of first in-flow
         // line box or first in-flow table-row; if none, bottom of content edge
         // TODO: implement proper table baseline propagation
         baseline: None,
@@ -4893,8 +4893,8 @@ fn distribute_cell_width_across_columns(
 }
 
 /// Layout a cell with its computed column width to determine its content height
-/// +spec:inline-formatting-context-p033 - §17.5.3: cell box height is the minimum height required by content
-/// +spec:inline-formatting-context-p037 - §17.5.3: cell's 'height' property can influence row height but does not increase cell box height
+/// +spec:table-layout-p033 - §17.5.3: cell box height is the minimum height required by content
+/// +spec:table-layout-p037 - §17.5.3: cell's 'height' property can influence row height but does not increase cell box height
 fn layout_cell_for_height<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -5078,8 +5078,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 }
 
 /// Calculate row heights based on cell content after column widths are determined
-/// +spec:inline-formatting-context-p033 - §17.5.3: row height = max(row's height, cells' heights, MIN from content)
-/// +spec:inline-formatting-context-p037 - §17.5.3: 'auto' height for table-row means MIN; MIN depends on cell box heights and alignment
+/// +spec:table-layout-p033 - §17.5.3: row height = max(row's height, cells' heights, MIN from content)
+/// +spec:table-layout-p037 - §17.5.3: 'auto' height for table-row means MIN; MIN depends on cell box heights and alignment
 fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -5107,7 +5107,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:inline-formatting-context-p013 - §17.5.3: cell box height is minimum height
+    // +spec:table-layout-p013 - §17.5.3: cell box height is minimum height
     // required by content; 'height' property can influence row height but does not
     // increase cell box height
     // First pass: Calculate heights for cells that don't span multiple rows
@@ -5153,7 +5153,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             cell_height
         );
 
-        // +spec:inline-formatting-context-p035 - §17.5.3: cell height is min height required by content;
+        // +spec:table-layout-p035 - §17.5.3: cell height is min height required by content;
         //   row height = max of all single-span cell heights in the row
         // +spec:line-height-p018 - §17.5.3: row height = max of row's computed height and cell MIN heights
         if cell_info.rowspan == 1 {
@@ -5171,7 +5171,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:inline-formatting-context-p013 - §17.5.3: rowspan cells - sum of row heights
+    // +spec:table-layout-p013 - §17.5.3: rowspan cells - sum of row heights
     // involved must be great enough to encompass the cell spanning the rows
     // Second pass: Handle cells that span multiple rows (rowspan > 1)
     for cell_info in &table_ctx.cells {
@@ -5466,9 +5466,9 @@ fn position_table_cells<T: ParsedFontTrait>(
             table_ctx.row_heights
         );
 
-        // +spec:inline-formatting-context-p013 - §17.5.3: cells smaller than row height
+        // +spec:table-layout-p013 - §17.5.3: cells smaller than row height
         // receive extra top or bottom padding; vertical-align determines alignment
-        // +spec:inline-formatting-context-p033 - §17.5.3: vertical-align determines cell alignment within row
+        // +spec:table-layout-p033 - §17.5.3: vertical-align determines cell alignment within row
         // Apply vertical-align to cell content if it has inline layout
         if let Some(ref cached_layout) = cell_node.inline_layout_result {
             let inline_result = &cached_layout.layout;
