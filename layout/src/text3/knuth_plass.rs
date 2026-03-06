@@ -104,6 +104,12 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
     let mut item_iter = items.iter().peekable();
 
     while let Some(item) = item_iter.next() {
+        // NOTE: word-break property is not yet threaded through to kp_layout.
+        // Currently uses normal break behavior (spaces are break opportunities).
+        // To fully support break-all/keep-all, UnifiedConstraints.word_break
+        // would need to be passed here and used to insert additional Penalty
+        // nodes between CJK clusters (normal) or between all clusters (break-all),
+        // or suppress CJK inter-character penalties (keep-all).
         match item {
             item if is_word_separator(item) => {
                 let width = get_item_measure(item, is_vertical);

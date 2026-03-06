@@ -2951,6 +2951,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
         line_height: line_height_value.inner.normalized() * font_size, /* Resolve line-height relative to font-size */
         vertical_align, // CSS vertical-align property (defaults to Baseline)
+        word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
     }
 }
 

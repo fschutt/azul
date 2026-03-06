@@ -723,6 +723,8 @@ pub struct UnifiedConstraints {
     pub columns: u32,
     pub column_gap: f32,
     pub hanging_punctuation: bool,
+    // §5.2 word-break property on constraints
+    pub word_break: WordBreak,
 }
 
 impl Default for UnifiedConstraints {
@@ -759,6 +761,7 @@ impl Default for UnifiedConstraints {
             initial_letter: None,
             line_clamp: None,
             text_wrap: TextWrap::default(),
+            word_break: WordBreak::default(),
         }
     }
 }
@@ -787,6 +790,7 @@ impl Hash for UnifiedConstraints {
         self.columns.hash(state);
         (self.column_gap.round() as usize).hash(state);
         self.hanging_punctuation.hash(state);
+        self.word_break.hash(state);
     }
 }
 
@@ -815,6 +819,7 @@ impl PartialEq for UnifiedConstraints {
             && self.columns == other.columns
             && round_eq(self.column_gap, other.column_gap)
             && self.hanging_punctuation == other.hanging_punctuation
+            && self.word_break == other.word_break
     }
 }
 
@@ -1070,6 +1075,20 @@ pub enum TextWrap {
     Wrap,
     Balance,
     NoWrap,
+}
+
+// §5.2 word-break property: normal, break-all, keep-all
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum WordBreak {
+    /// Normal break rules: CJK characters break between each other,
+    /// non-CJK text only breaks at spaces/hyphens.
+    #[default]
+    Normal,
+    /// Allow breaks between any two characters, including within Latin words.
+    BreakAll,
+    /// Suppress breaks between CJK characters (treat them like Latin words,
+    /// only breaking at spaces). Sequences of CJK characters do not break.
+    KeepAll,
 }
 
 // initial-letter
@@ -4689,7 +4708,8 @@ impl LayoutCache {
         // --- Stage 5: The Flow Loop ---
         let mut fragment_layouts = HashMap::new();
         // The cursor now manages the stream of items for the entire flow.
-        let mut cursor = BreakCursor::new(&oriented_items);
+        // §5.2 word-break: pass word_break from constraints to cursor
+        let mut cursor = BreakCursor::with_word_break(&oriented_items, first_constraints.word_break);
 
         for fragment in flow_chain {
             // Perform layout for this single fragment, consuming items from the cursor.
@@ -6333,7 +6353,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// - This is "overflow-wrap: break-word" behavior
 ///
 /// # Missing Features:
-/// - \u274c word-break property (normal, break-all, keep-all)
+/// - word-break property (normal, break-all, keep-all) - IMPLEMENTED via BreakCursor.word_break
 /// - \u274c line-break property (auto, loose, normal, strict, anywhere)
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
 /// - \u274c white-space: break-spaces handling
@@ -7655,8 +7675,41 @@ fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
     Err(LayoutError::HyphenationError("Hyphenation feature not enabled".to_string()))
 }
 
-fn is_break_opportunity(item: &ShapedItem) -> bool {
-    // Break after spaces or explicit break items.
+// §5.2 word-break: determines if a character is CJK ideograph/kana
+fn is_cjk_character(ch: char) -> bool {
+    let cp = ch as u32;
+    matches!(cp,
+        // CJK Unified Ideographs
+        0x4E00..=0x9FFF |
+        // CJK Unified Ideographs Extension A
+        0x3400..=0x4DBF |
+        // CJK Unified Ideographs Extension B
+        0x20000..=0x2A6DF |
+        // CJK Compatibility Ideographs
+        0xF900..=0xFAFF |
+        // Hiragana
+        0x3040..=0x309F |
+        // Katakana
+        0x30A0..=0x30FF |
+        // Katakana Phonetic Extensions
+        0x31F0..=0x31FF |
+        // CJK Symbols and Punctuation
+        0x3000..=0x303F |
+        // Halfwidth and Fullwidth Forms
+        0xFF00..=0xFFEF |
+        // Hangul Syllables
+        0xAC00..=0xD7AF
+    )
+}
+
+// §5.2 word-break: checks if a cluster contains CJK characters
+fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
+    cluster.text.chars().any(is_cjk_character)
+}
+
+// §5.2 word-break property: break opportunity logic
+fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak) -> bool {
+    // Break after spaces or explicit break items (always, regardless of word-break).
     if is_word_separator(item) {
         return true;
     }
@@ -7669,7 +7722,34 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
             return true;
         }
     }
-    false
+
+    match word_break {
+        WordBreak::Normal => {
+            // CJK characters are implicit break opportunities in normal mode.
+            if let ShapedItem::Cluster(c) = item {
+                if is_cjk_cluster(c) {
+                    return true;
+                }
+            }
+            false
+        }
+        WordBreak::BreakAll => {
+            // Every typographic letter unit is a break opportunity.
+            if let ShapedItem::Cluster(_) = item {
+                return true;
+            }
+            false
+        }
+        WordBreak::KeepAll => {
+            // Suppress breaks between CJK characters.
+            // Only break at spaces/hyphens (already handled above).
+            false
+        }
+    }
+}
+
+fn is_break_opportunity(item: &ShapedItem) -> bool {
+    is_break_opportunity_with_word_break(item, WordBreak::Normal)
 }
 
 // A cursor to manage the state of the line breaking process.
@@ -7682,6 +7762,8 @@ pub struct BreakCursor<'a> {
     /// The remainder of an item that was split by hyphenation on the previous line.
     /// This will be the very first piece of content considered for the next line.
     pub partial_remainder: Vec<ShapedItem>,
+    // §5.2 word-break property stored on cursor
+    pub word_break: WordBreak,
 }
 
 impl<'a> BreakCursor<'a> {
@@ -7690,6 +7772,16 @@ impl<'a> BreakCursor<'a> {
             items,
             next_item_index: 0,
             partial_remainder: Vec::new(),
+            word_break: WordBreak::Normal,
+        }
+    }
+
+    pub fn with_word_break(items: &'a [ShapedItem], word_break: WordBreak) -> Self {
+        Self {
+            items,
+            next_item_index: 0,
+            partial_remainder: Vec::new(),
+            word_break,
         }
     }
 
@@ -7734,6 +7826,7 @@ impl<'a> BreakCursor<'a> {
     /// Looks ahead and returns the next "unbreakable" unit of content.
     /// This is typically a word (a series of non-space clusters) followed by a
     /// space, or just a single space if that's next.
+    /// The definition of "unbreakable unit" depends on the word-break property.
     pub fn peek_next_unit(&self) -> Vec<ShapedItem> {
         let mut unit = Vec::new();
         let mut source_items = self.partial_remainder.clone();
@@ -7744,17 +7837,27 @@ impl<'a> BreakCursor<'a> {
         }
 
         // If the first item is a break opportunity (like a space), it's a unit on its own.
-        if is_break_opportunity(&source_items[0]) {
+        if is_break_opportunity_with_word_break(&source_items[0], self.word_break) {
             unit.push(source_items[0].clone());
             return unit;
         }
 
         // Otherwise, collect all items until the next break opportunity.
-        for item in source_items {
-            if is_break_opportunity(&item) {
+        // For break-all: each cluster is its own unit.
+        // For keep-all: CJK sequences are NOT break opportunities.
+        // For normal: CJK characters are individual break opportunities.
+        for (i, item) in source_items.iter().enumerate() {
+            if i > 0 && is_break_opportunity_with_word_break(item, self.word_break) {
                 break;
             }
             unit.push(item.clone());
+
+            // For break-all, each non-space cluster is a unit on its own
+            if self.word_break == WordBreak::BreakAll {
+                if let ShapedItem::Cluster(_) = item {
+                    break;
+                }
+            }
         }
         unit
     }
