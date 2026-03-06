@@ -870,6 +870,10 @@ fn process_layout_children<T: ParsedFontTrait>(
                 }
                 MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
                 MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
+                MultiValue::Exact(LayoutWidth::FitContent(_)) => {
+                    // During intrinsic sizing, fit-content resolves to max-content
+                    intrinsic_sizes.max_content_width
+                }
                 // For Auto or other values, use intrinsic size
                 _ => intrinsic_sizes.max_content_width,
             };
@@ -888,8 +892,10 @@ fn process_layout_children<T: ParsedFontTrait>(
                         _ => intrinsic_sizes.max_content_height,
                     }
                 }
-                MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.min_content_height,
+                // For block axis, min-content and max-content are equivalent to auto per spec
+                MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.max_content_height,
                 MultiValue::Exact(LayoutHeight::MaxContent) => intrinsic_sizes.max_content_height,
+                MultiValue::Exact(LayoutHeight::FitContent(_)) => intrinsic_sizes.max_content_height,
                 _ => intrinsic_sizes.max_content_height,
             };
 
@@ -1151,8 +1157,28 @@ pub fn calculate_used_size_for_node(
         }
         LayoutWidth::MinContent => intrinsic.min_content_width,
         LayoutWidth::MaxContent => intrinsic.max_content_width,
+        // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
+        LayoutWidth::FitContent(px) => {
+            use azul_css::props::basic::{pixel::{DEFAULT_FONT_SIZE, PT_TO_PX}, SizeMetric};
+            let arg = match px.metric {
+                SizeMetric::Px => px.number.get(),
+                SizeMetric::Pt => px.number.get() * PT_TO_PX,
+                SizeMetric::In => px.number.get() * 96.0,
+                SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
+                SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
+                SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
+                SizeMetric::Percent => px.to_percent().map(|p| p.get() * containing_block_size.width).unwrap_or(0.0),
+                SizeMetric::Vw => px.number.get() / 100.0 * viewport_size.width,
+                SizeMetric::Vh => px.number.get() / 100.0 * viewport_size.height,
+                SizeMetric::Vmin => px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height),
+                SizeMetric::Vmax => px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height),
+            };
+            intrinsic.max_content_width.min(intrinsic.min_content_width.max(arg))
+        }
         LayoutWidth::Calc(_) => intrinsic.max_content_width, // TODO: resolve calc
     };
+    // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
+    let resolved_width = resolved_width.max(0.0);
 
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
     // Percentage values for `height` are resolved against the containing block's height.
@@ -1197,10 +1223,35 @@ pub fn calculate_used_size_for_node(
                 },
             }
         }
-        LayoutHeight::MinContent => intrinsic.min_content_height,
+        // css-sizing-3: for block axis, min-content/max-content are equivalent to auto
+        LayoutHeight::MinContent => intrinsic.max_content_height,
         LayoutHeight::MaxContent => intrinsic.max_content_height,
+        // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
+        // For block axis, both min-content and max-content equal auto height
+        LayoutHeight::FitContent(px) => {
+            use azul_css::props::basic::{pixel::{DEFAULT_FONT_SIZE, PT_TO_PX}, SizeMetric};
+            let arg = match px.metric {
+                SizeMetric::Px => px.number.get(),
+                SizeMetric::Pt => px.number.get() * PT_TO_PX,
+                SizeMetric::In => px.number.get() * 96.0,
+                SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
+                SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
+                SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
+                SizeMetric::Percent => {
+                    px.to_percent().map(|p| p.get() * containing_block_size.height).unwrap_or(0.0)
+                }
+                SizeMetric::Vw => px.number.get() / 100.0 * viewport_size.width,
+                SizeMetric::Vh => px.number.get() / 100.0 * viewport_size.height,
+                SizeMetric::Vmin => px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height),
+                SizeMetric::Vmax => px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height),
+            };
+            let auto_height = intrinsic.max_content_height;
+            auto_height.min(auto_height.max(arg))
+        }
         LayoutHeight::Calc(_) => intrinsic.max_content_height, // TODO: resolve calc
     };
+    // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
+    let resolved_height = resolved_height.max(0.0);
 
     // Step 3: Apply min/max constraints (CSS 2.2 § 10.4 and § 10.7)
     // "The tentative used width is calculated (without 'min-width' and 'max-width')
