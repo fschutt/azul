@@ -1189,6 +1189,46 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
         .unwrap_or(0)
 }
 
+// +spec:positioning-p014 - §9.9.1: z-index:auto does NOT establish stacking context (except for fixed/root);
+// z-index:<integer> ALWAYS establishes new stacking context on positioned elements
+/// Returns true if z-index is `auto` (the initial value), false if it's an explicit `<integer>`.
+/// This distinction matters for stacking context creation per §9.9.1.
+pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool {
+    use azul_css::props::layout::position::LayoutZIndex;
+
+    let node_id = match node_id {
+        Some(id) => id,
+        None => return true,
+    };
+
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+
+    // FAST PATH: compact cache for normal state
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let raw = cc.get_z_index(node_id.index());
+            if raw == azul_css::compact_cache::I16_AUTO {
+                return true;
+            }
+            if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
+                return false; // explicit integer
+            }
+            // I16_SENTINEL → fall through to slow path
+        }
+    }
+
+    // SLOW PATH
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_z_index(node_data, &node_id, &node_state)
+        .and_then(|v| v.get_property())
+        .map(|z| matches!(z, LayoutZIndex::Auto))
+        .unwrap_or(true) // no value = auto
+}
+
 // Rendering Property Getters
 
 /// Information about background color for a node
