@@ -4876,6 +4876,7 @@ impl LayoutCache {
         // §5.2 word-break: pass word_break from constraints to cursor
         let mut cursor = BreakCursor::with_word_break(&oriented_items, first_constraints.word_break);
         cursor.hyphens = first_constraints.hyphenation;
+        cursor.line_break = first_constraints.line_break;
 
         for fragment in flow_chain {
             // Perform layout for this single fragment, consuming items from the cursor.
@@ -6676,7 +6677,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// # Missing Features:
 /// - word-break property (normal, break-all, keep-all) - IMPLEMENTED via BreakCursor.word_break
 /// - \u26a0\ufe0f line-break property: anywhere implemented; loose/normal/strict CJK strictness
-///   filtering not yet integrated (§5.3)
+///   filtering added via `is_cjk_break_allowed_by_strictness` (§5.3)
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
 /// - \u2705 white-space: break-spaces handling
 // +spec:white-space-processing-p029 - §5.3 line-break: anywhere creates soft wrap opportunity
@@ -8310,6 +8311,79 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
 
 // +spec:white-space-processing-p028 - line-break strictness filtering for CJK break opportunities
 // CSS Text Level 3 §5.3: Determines whether a break opportunity before a character is
+// allowed based on the line-break strictness level. The spec defines:
+// - strict: forbids breaks before small kana (class CJ), CJK hyphens, and certain punctuation
+// - normal: allows breaks before small kana (CJ); allows CJK hyphen breaks for CJK writing systems
+// - loose: additionally allows breaks before hyphens U+2010/U+2013 after ID-class chars
+// - anywhere: allows soft wrap around every typographic character unit
+fn is_cjk_break_allowed_by_strictness(
+    ch: char,
+    _prev_ch: Option<char>,
+    strictness: LineBreakStrictness,
+) -> bool {
+    match strictness {
+        LineBreakStrictness::Anywhere => true,
+        LineBreakStrictness::Loose => {
+            // Loose allows breaks before hyphens U+2010, U+2013 when preceded by ID-class chars
+            // Also allows breaks before small kana (CJ class) and CJK hyphens
+            true
+        }
+        LineBreakStrictness::Normal | LineBreakStrictness::Auto => {
+            // Normal forbids breaks before hyphens U+2010/U+2013 for non-CJK text
+            // but allows breaks before small kana (CJ) and CJK hyphen-like chars
+            // (〜 U+301C, ゠ U+30A0) for CJK writing systems
+            match ch {
+                '\u{2010}' | '\u{2013}' => false, // hyphens forbidden in normal
+                _ => true,
+            }
+        }
+        LineBreakStrictness::Strict => {
+            // Strict forbids breaks before:
+            // - Small kana and prolonged sound mark (Unicode line break class CJ)
+            // - CJK hyphen-like characters: 〜 U+301C, ゠ U+30A0
+            // - Hyphens: ‐ U+2010, – U+2013
+            match ch {
+                '\u{301C}' | '\u{30A0}' => false, // CJK hyphen-like
+                '\u{2010}' | '\u{2013}' => false,  // hyphens
+                c if is_small_kana(c) => false,
+                _ => true,
+            }
+        }
+    }
+}
+
+/// Returns true if the character is a Japanese small kana or Katakana-Hiragana prolonged sound mark
+/// (Unicode line break class CJ). These are forbidden break points in strict line breaking.
+fn is_small_kana(ch: char) -> bool {
+    matches!(ch,
+        '\u{3041}' | // ぁ HIRAGANA LETTER SMALL A
+        '\u{3043}' | // ぃ HIRAGANA LETTER SMALL I
+        '\u{3045}' | // ぅ HIRAGANA LETTER SMALL U
+        '\u{3047}' | // ぇ HIRAGANA LETTER SMALL E
+        '\u{3049}' | // ぉ HIRAGANA LETTER SMALL O
+        '\u{3063}' | // っ HIRAGANA LETTER SMALL TU
+        '\u{3083}' | // ゃ HIRAGANA LETTER SMALL YA
+        '\u{3085}' | // ゅ HIRAGANA LETTER SMALL YU
+        '\u{3087}' | // ょ HIRAGANA LETTER SMALL YO
+        '\u{308E}' | // ゎ HIRAGANA LETTER SMALL WA
+        '\u{3095}' | // ゕ HIRAGANA LETTER SMALL KA
+        '\u{3096}' | // ゖ HIRAGANA LETTER SMALL KE
+        '\u{30A1}' | // ァ KATAKANA LETTER SMALL A
+        '\u{30A3}' | // ィ KATAKANA LETTER SMALL I
+        '\u{30A5}' | // ゥ KATAKANA LETTER SMALL U
+        '\u{30A7}' | // ェ KATAKANA LETTER SMALL E
+        '\u{30A9}' | // ォ KATAKANA LETTER SMALL O
+        '\u{30C3}' | // ッ KATAKANA LETTER SMALL TU
+        '\u{30E3}' | // ャ KATAKANA LETTER SMALL YA
+        '\u{30E5}' | // ュ KATAKANA LETTER SMALL YU
+        '\u{30E7}' | // ョ KATAKANA LETTER SMALL YO
+        '\u{30EE}' | // ヮ KATAKANA LETTER SMALL WA
+        '\u{30F5}' | // ヵ KATAKANA LETTER SMALL KA
+        '\u{30F6}' | // ヶ KATAKANA LETTER SMALL KE
+        '\u{30FC}'   // ー KATAKANA-HIRAGANA PROLONGED SOUND MARK
+    )
+}
+
 // +spec:white-space-processing-p029 - §5.3 line-break: anywhere would make this return true
 // for every typographic character unit, disregarding GL/WJ/ZWJ line breaking classes
 // +spec:line-breaking-p007 - §5.1: soft wrap opportunity before and after each
@@ -8363,6 +8437,8 @@ pub struct BreakCursor<'a> {
     pub word_break: WordBreak,
     // +spec:line-breaking-p045 - §5.4 hyphens property stored on cursor
     pub hyphens: Hyphens,
+    // +spec:white-space-processing-p028 - §5.3 line-break strictness for CJK filtering
+    pub line_break: LineBreakStrictness,
 }
 
 impl<'a> BreakCursor<'a> {
@@ -8373,6 +8449,7 @@ impl<'a> BreakCursor<'a> {
             partial_remainder: Vec::new(),
             word_break: WordBreak::Normal,
             hyphens: Hyphens::default(),
+            line_break: LineBreakStrictness::default(),
         }
     }
 
@@ -8383,6 +8460,7 @@ impl<'a> BreakCursor<'a> {
             partial_remainder: Vec::new(),
             word_break,
             hyphens: Hyphens::default(),
+            line_break: LineBreakStrictness::default(),
         }
     }
 
@@ -8462,7 +8540,16 @@ impl<'a> BreakCursor<'a> {
             } else {
                 false
             };
-            if i > 0 && !suppress_next_break && !starts_with_suppress && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
+            // +spec:white-space-processing-p028 - §5.3 line-break strictness filtering
+            // If the item is a CJK cluster, check if the break is allowed by strictness
+            let cjk_strictness_suppressed = if let ShapedItem::Cluster(c) = item {
+                c.text.chars().next().map_or(false, |ch| {
+                    !is_cjk_break_allowed_by_strictness(ch, None, self.line_break)
+                })
+            } else {
+                false
+            };
+            if i > 0 && !suppress_next_break && !starts_with_suppress && !cjk_strictness_suppressed && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
                 break;
             }
             suppress_next_break = false;
