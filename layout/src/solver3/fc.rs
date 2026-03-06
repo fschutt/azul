@@ -287,6 +287,7 @@ impl FloatingContext {
         (available_cross_start, available_cross_end)
     }
 
+    // +spec:floats-p006 - §9.5.2: clear property values (left/right/both/none) require top border edge below bottom outer edge of relevant floats
     /// Returns the main-axis offset needed to be clear of floats of the given type.
     pub fn clearance_offset(
         &self,
@@ -981,10 +982,15 @@ fn layout_bfc<T: ParsedFontTrait>(
                 let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
                 let float_margin = &child_node.box_props.margin;
 
-                // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
-                // If there's a previous in-flow element with a bottom margin, we must
-                // include it in the Y position calculation for this float.
-                let float_y = main_pen + last_margin_bottom;
+                // +spec:floats-p004 - §9.5: margins of floating boxes never collapse with margins of adjacent boxes
+                // +spec:floats-p006 - §9.5.2: clear on floated elements requires top outer edge below earlier floats of cleared type
+                let float_clear = get_clear_property(ctx.styled_dom, Some(node_id));
+                let float_y = if float_clear != LayoutClear::None {
+                    float_context.clearance_offset(float_clear, main_pen + last_margin_bottom, writing_mode)
+                } else {
+                    // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
+                    main_pen + last_margin_bottom
+                };
 
                 debug_info!(
                     ctx,
@@ -1825,13 +1831,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         // Update last margin for next sibling
         // CSS 2.2 § 8.3.1: The bottom margin of this box will collapse with the top margin
         // of the next sibling (if no clearance or blockers intervene)
-        // CSS 2.2 § 9.5.2: If clearance was applied, margin collapsing is inhibited
-        if clearance_applied {
-            // Clearance inhibits collapse - next sibling starts fresh
-            last_margin_bottom = 0.0;
-        } else {
-            last_margin_bottom = child_margin_bottom;
-        }
+        // +spec:floats-p006 - §9.5.2: clearance only inhibits margin collapsing ABOVE the cleared
+        // element (between prev sibling's bottom and this element's top margin). The cleared
+        // element's bottom margin is still available for normal collapsing with the next sibling.
+        // CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing and acts as spacing above
+        // the margin-top of an element."
+        last_margin_bottom = child_margin_bottom;
 
         debug_info!(
             ctx,
