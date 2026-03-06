@@ -750,93 +750,10 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["unused"] => {
-            println!("[SEARCH] Finding unused types in api.json (recursive analysis)...\n");
-            let api_data = load_api_json(&api_path)?;
-            let unused_types = api::find_all_unused_types_recursive(&api_data);
-
-            if unused_types.is_empty() {
-                println!(
-                    "[OK] No unused types found. All types are reachable from the public API."
-                );
-            } else {
-                println!("[WARN] Found {} unused types:\n", unused_types.len());
-
-                // Group by module for better readability
-                let mut by_module: std::collections::BTreeMap<String, Vec<String>> =
-                    std::collections::BTreeMap::new();
-                for info in &unused_types {
-                    by_module
-                        .entry(info.module_name.clone())
-                        .or_default()
-                        .push(info.type_name.clone());
-                }
-
-                for (module, types) in &by_module {
-                    println!("  Module `{}`:", module);
-                    for type_name in types {
-                        println!("    - {}", type_name);
-                    }
-                    println!();
-                }
-
-                println!("To generate removal patches, run: azul-doc unused patch");
-            }
-            return Ok(());
-        }
-        ["unused", "patch"] => {
-            println!("[SEARCH] Generating patches to remove unused types (recursive)...\n");
-            let api_data = load_api_json(&api_path)?;
-            let unused_types = api::find_all_unused_types_recursive(&api_data);
-
-            if unused_types.is_empty() {
-                println!("[OK] No unused types found. Nothing to patch.");
-                return Ok(());
-            }
-
-            let patches_dir = project_root.join("target").join("unused_types_patches");
-
-            // Clean existing patches directory
-            if patches_dir.exists() {
-                fs::remove_dir_all(&patches_dir)?;
-            }
-            fs::create_dir_all(&patches_dir)?;
-
-            // Generate removal patches using the new API function
-            let patches = api::generate_removal_patches(&unused_types);
-
-            // Write each patch to a file (one per module)
-            for (idx, patch) in patches.iter().enumerate() {
-                // Extract module name from the patch for the filename
-                let (module_name, type_count) = patch
-                    .versions
-                    .values()
-                    .flat_map(|v| v.modules.iter())
-                    .next()
-                    .map(|(m, mp)| (m.clone(), mp.classes.len()))
-                    .unwrap_or_else(|| (format!("patch_{}", idx), 0));
-
-                let patch_filename = format!("{:03}_remove_{}.patch.json", idx, module_name);
-                let patch_path = patches_dir.join(&patch_filename);
-
-                let json = serde_json::to_string_pretty(&patch)?;
-                fs::write(&patch_path, json)?;
-
-                println!("  [PATCH] {} ({} types)", patch_filename, type_count);
-            }
-
-            println!(
-                "\n[OK] Generated {} removal patch files for {} types in:",
-                patches.len(),
-                unused_types.len()
-            );
-            println!("     {}", patches_dir.display());
-            println!("\nTo review a patch:");
-            println!("  cat {}/*.patch.json", patches_dir.display());
-            println!("\nTo apply the patches:");
-            println!("  cargo run -- autofix apply {}", patches_dir.display());
-
-            return Ok(());
+        ["unused"] | ["unused", ..] => {
+            println!("The 'unused' command has been removed.");
+            println!("Use 'autofix' instead — it includes reachability analysis.");
+            std::process::exit(1);
         }
         ["autofix", "apply", "safe", patch_dir] | ["patch", "safe", patch_dir] => {
             println!("[FIX] Applying safe (path-only) patches to api.json...\n");
@@ -1015,7 +932,6 @@ fn main() -> anyhow::Result<()> {
                 // autofix adds types that are transitively reachable from functions
                 // in the workspace index, but find_unused_types may not see them as
                 // reachable because the api.json type definitions may be incomplete.
-                // Use "azul-doc unused" to manually check/remove unused types.
 
                 // Remove empty modules after patching
                 let api_json_str = fs::read_to_string(&api_path)?;
