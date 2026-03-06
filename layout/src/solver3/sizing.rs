@@ -361,12 +361,26 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 });
             }
             
-            // +spec:width-calculation-p010 - §10.3.8/§10.3.2: abs-pos replaced image width from intrinsic size (same rules as inline replaced)
-            // Images are replaced elements - get intrinsic size from the ImageRef
+            // +spec:containing-block-p031 - §5.1 css-sizing-3: replaced element with aspect ratio
+            // but no intrinsic size uses initial CB inline size
+            // +spec:width-calculation-p010 - §10.3.8/§10.3.2: abs-pos replaced image width from intrinsic size
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
                 let size = image_ref.get_size();
-                let width = if size.width > 0.0 { size.width } else { 100.0 };
-                let height = if size.height > 0.0 { size.height } else { 100.0 };
+                // Per css-sizing-3 §5.1: "use an inline size matching the corresponding dimension
+                // of the initial containing block and calculate the other dimension using the aspect ratio"
+                let (width, height) = if size.width > 0.0 && size.height > 0.0 {
+                    (size.width, size.height)
+                } else if size.width > 0.0 {
+                    // Has intrinsic width but no height — use 2:1 fallback ratio
+                    (size.width, size.width / 2.0)
+                } else if size.height > 0.0 {
+                    // Has intrinsic height but no width — use initial CB inline dimension
+                    (self.ctx.viewport_size.width, size.height)
+                } else {
+                    // No intrinsic dimensions — cap at 300x150 per CSS 2.2 §10.3.2
+                    let w = self.ctx.viewport_size.width.min(300.0);
+                    (w, w / 2.0)
+                };
                 return Ok(IntrinsicSizes {
                     min_content_width: width,
                     max_content_width: width,
