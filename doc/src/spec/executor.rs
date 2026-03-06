@@ -1182,32 +1182,73 @@ pub fn cmd_agent_apply(
 
     println!("Loaded {} merge groups from {}", groups.len(), groups_path.display());
 
+    // Progress tracking: record group outcomes in a status file.
+    // Original .patch files are NEVER moved or deleted — we use
+    // groups.json + source code +spec: markers to track progress.
+    let status_path = patch_dir.join("agent-apply-status.json");
+    let mut group_results: Vec<AgentApplyGroupResult> = Vec::new();
+
+    // Load existing status to support resuming
+    if status_path.exists() {
+        if let Ok(content) = fs::read_to_string(&status_path) {
+            if let Ok(existing) = serde_json::from_str::<Vec<AgentApplyGroupResult>>(&content) {
+                group_results = existing;
+            }
+        }
+    }
+
     let mut applied = 0usize;
     let mut skipped = 0usize;
     let mut failed = 0usize;
 
+    // Get HEAD before we start so we can count commits per group
+    let head_before_all = get_git_head(workspace_root);
+
     for group in &groups {
+        // Skip groups we already processed in a previous run
+        if group_results.iter().any(|r| r.group_id == group.group_id) {
+            let prev = group_results.iter().find(|r| r.group_id == group.group_id).unwrap();
+            match prev.outcome.as_str() {
+                "applied" => applied += prev.patch_count,
+                "skipped" => skipped += prev.patch_count,
+                "failed" => failed += prev.patch_count,
+                _ => {}
+            }
+            println!("  [group {}] already {} (previous run)", group.group_id, prev.outcome);
+            continue;
+        }
+
         match group.action.as_str() {
             "SKIP" => {
                 println!("  [group {}] SKIP: {}", group.group_id,
                     group.patches.join(", "));
                 skipped += group.patches.len();
-                // Move patches to a .skipped dir
-                let skip_dir = patch_dir.join("skipped");
-                let _ = fs::create_dir_all(&skip_dir);
-                for p in &group.patches {
-                    let src = patch_dir.join(p);
-                    let dst = skip_dir.join(p);
-                    if src.exists() {
-                        let _ = fs::rename(&src, &dst);
-                    }
-                }
+                group_results.push(AgentApplyGroupResult {
+                    group_id: group.group_id,
+                    action: "SKIP".to_string(),
+                    patches: group.patches.clone(),
+                    patch_count: group.patches.len(),
+                    outcome: "skipped".to_string(),
+                    commits: 0,
+                    reason: Some("SKIP action in groups.json".to_string()),
+                });
+                save_status(&status_path, &group_results);
                 continue;
             }
             "APPLY" | "PICK_ONE" | "MERGE" => {}
             other => {
                 eprintln!("  [group {}] Unknown action '{}', skipping", group.group_id, other);
                 skipped += group.patches.len();
+                group_results.push(AgentApplyGroupResult {
+                    group_id: group.group_id,
+                    action: other.to_string(),
+                    patches: group.patches.clone(),
+                    patch_count: group.patches.len(),
+                    outcome: "skipped".to_string(),
+                    commits: 0,
+                    reason: Some(format!("Unknown action '{}'", other)),
+                });
+                save_status(&status_path, &group_results);
                 continue;
             }
         }
@@ -1238,6 +1279,16 @@ pub fn cmd_agent_apply(
         }
         if missing {
             failed += active_patches.len();
+            group_results.push(AgentApplyGroupResult {
+                group_id: group.group_id,
+                action: group.action.clone(),
+                patches: group.patches.clone(),
+                patch_count: active_patches.len(),
+                outcome: "failed".to_string(),
+                commits: 0,
+                reason: Some("Missing patch file(s)".to_string()),
+            });
+            save_status(&status_path, &group_results);
             continue;
         }
 
@@ -1247,6 +1298,9 @@ pub fn cmd_agent_apply(
             active_patches.len(),
             active_patches.join(", "),
         );
+
+        // Record HEAD before this group so we can count new commits
+        let head_before = get_git_head(workspace_root);
 
         // Build agent prompt
         let prompt = build_apply_prompt(
@@ -1259,49 +1313,49 @@ pub fn cmd_agent_apply(
         );
 
         // Run agent
-        let result = run_apply_agent(&prompt, workspace_root, group.group_id)?;
+        let agent_ok = run_apply_agent(&prompt, workspace_root, group.group_id)?;
 
-        if result {
+        // Count commits made by the agent
+        let commit_count = count_commits_since(workspace_root, &head_before);
+
+        if agent_ok && commit_count > 0 {
             applied += active_patches.len();
-            // Move applied patches out of the dir
-            let done_dir = patch_dir.join("applied");
-            let _ = fs::create_dir_all(&done_dir);
-            for p in &group.patches {
-                let src = patch_dir.join(p);
-                let dst = done_dir.join(p);
-                if src.exists() {
-                    let _ = fs::rename(&src, &dst);
-                }
-            }
+            println!("    -> {} new commit(s)", commit_count);
+            group_results.push(AgentApplyGroupResult {
+                group_id: group.group_id,
+                action: group.action.clone(),
+                patches: group.patches.clone(),
+                patch_count: active_patches.len(),
+                outcome: "applied".to_string(),
+                commits: commit_count,
+                reason: None,
+            });
         } else {
             failed += active_patches.len();
-            // Move to failed dir
-            let fail_dir = patch_dir.join("failed");
-            let _ = fs::create_dir_all(&fail_dir);
-            for p in &active_patches {
-                let src = patch_dir.join(p);
-                let dst = fail_dir.join(p);
-                if src.exists() {
-                    let _ = fs::rename(&src, &dst);
-                }
-            }
+            let reason = if commit_count == 0 {
+                "Agent exited without making any commits".to_string()
+            } else {
+                format!("Agent failed (exit code) but made {} commit(s)", commit_count)
+            };
+            println!("    -> FAILED: {}", reason);
+            group_results.push(AgentApplyGroupResult {
+                group_id: group.group_id,
+                action: group.action.clone(),
+                patches: group.patches.clone(),
+                patch_count: active_patches.len(),
+                outcome: "failed".to_string(),
+                commits: commit_count,
+                reason: Some(reason),
+            });
         }
+        save_status(&status_path, &group_results);
     }
 
     println!("\nAgent apply complete:");
     println!("  Applied: {}", applied);
     println!("  Skipped: {}", skipped);
     println!("  Failed:  {}", failed);
-
-    // Check if any patches remain in dir
-    let remaining = fs::read_dir(&patch_dir)
-        .map(|rd| rd.filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|x| x == "patch").unwrap_or(false))
-            .count())
-        .unwrap_or(0);
-    if remaining > 0 {
-        println!("  Remaining (not in any group): {}", remaining);
-    }
+    println!("  Status:  {}", status_path.display());
 
     Ok(())
 }
@@ -1318,6 +1372,55 @@ struct MergeGroup {
     agent_context: Option<String>,
     /// Legacy field — kept for backward compat with older plans
     notes: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AgentApplyGroupResult {
+    group_id: usize,
+    action: String,
+    patches: Vec<String>,
+    patch_count: usize,
+    outcome: String, // "applied", "skipped", "failed"
+    commits: usize,
+    reason: Option<String>,
+}
+
+fn save_status(path: &Path, results: &[AgentApplyGroupResult]) {
+    if let Ok(json) = serde_json::to_string_pretty(results) {
+        let _ = fs::write(path, json);
+    }
+}
+
+fn get_git_head(workspace_root: &Path) -> String {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(workspace_root)
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() {
+            String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+        } else {
+            None
+        })
+        .unwrap_or_default()
+}
+
+fn count_commits_since(workspace_root: &Path, since_ref: &str) -> usize {
+    if since_ref.is_empty() {
+        return 0;
+    }
+    Command::new("git")
+        .args(["rev-list", "--count", &format!("{}..HEAD", since_ref)])
+        .current_dir(workspace_root)
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() {
+            String::from_utf8(o.stdout).ok()
+                .and_then(|s| s.trim().parse::<usize>().ok())
+        } else {
+            None
+        })
+        .unwrap_or(0)
 }
 
 fn extract_json_from_plan(content: &str) -> Result<String, String> {
@@ -1386,38 +1489,46 @@ fn build_apply_prompt(
     prompt.push_str("3. Compile with: `cargo check -p azul-dll --features build-dll`\n");
     prompt.push_str("   This is the ONLY valid compilation check. Do NOT use `cargo check -p azul-layout`.\n");
     prompt.push_str("4. If compilation fails, fix the errors. Do NOT leave broken code.\n");
-    prompt.push_str("5. Create CLEAN, SEMANTIC commits. The goal is ~2-5 well-structured commits per group,\n");
-    prompt.push_str("   NOT one commit per patch. Group related changes logically.\n");
-    prompt.push_str("6. Commit messages should follow: `spec(<feature>): <what it does>`\n");
+    prompt.push_str("5. Commit messages should follow: `spec(<feature>): <what it does>`\n");
     prompt.push_str("   Example: `spec(line-breaking): implement word-break and line-break CSS properties`\n\n");
 
-    // ── 4-Phase Workflow ───────────────────────────────────────────────
-    prompt.push_str("## Workflow (4 phases, in order)\n\n");
+    // ── 5-Phase Workflow ───────────────────────────────────────────────
+    prompt.push_str("## Workflow (5 phases, in order)\n\n");
 
     prompt.push_str("### Phase 1: Refactoring Groundwork\n\n");
     prompt.push_str("Before touching the patches, perform any refactoring needed to prepare the codebase.\n");
     prompt.push_str("This ensures patches plug into clean abstractions rather than scattering ad-hoc logic.\n");
-    prompt.push_str("Commit refactoring changes separately with message like:\n");
-    prompt.push_str("  `refactor(<area>): <what was restructured and why>`\n\n");
+    prompt.push_str("Do NOT commit yet — all committing happens in Phase 5.\n\n");
 
     prompt.push_str("### Phase 2: Apply Patches (LLM-apply)\n\n");
     prompt.push_str("Read each patch diff below. Understand the semantic intent. Apply the changes to the\n");
     prompt.push_str("current codebase, adapting line numbers, function signatures, and context as needed.\n");
     prompt.push_str("For MERGE groups: combine the best parts of all patches into one coherent implementation.\n");
     prompt.push_str("For PICK_ONE groups: apply the preferred patch, verify nothing unique is lost from others.\n");
-    prompt.push_str("Commit with: `spec(<feature>): <semantic description>`\n\n");
+    prompt.push_str("Do NOT commit yet.\n\n");
 
     prompt.push_str("### Phase 3: Compile Check\n\n");
     prompt.push_str("Run: `cargo check -p azul-dll --features build-dll`\n");
-    prompt.push_str("Fix ALL compilation errors. Commit fixes if needed.\n\n");
+    prompt.push_str("Fix ALL compilation errors. Do NOT commit yet.\n\n");
 
     prompt.push_str("### Phase 4: Review Against Spec\n\n");
     prompt.push_str("Re-read the patch diffs and the agent_context. Verify:\n");
     prompt.push_str("- The implementation matches the referenced W3C spec section\n");
     prompt.push_str("- No logic was lost or incorrectly adapted\n");
     prompt.push_str("- Edge cases mentioned in agent_context are handled\n");
-    prompt.push_str("If you find issues, fix them and commit. Then compile again:\n");
+    prompt.push_str("If you find issues, fix them. Then compile again:\n");
     prompt.push_str("  `cargo check -p azul-dll --features build-dll`\n\n");
+
+    prompt.push_str("### Phase 5: Commit (semantic, by hunk)\n\n");
+    prompt.push_str("Now that all changes are made and compiling, create CLEAN SEMANTIC commits.\n");
+    prompt.push_str("Use `git add -p` (patch mode) to stage hunks selectively, creating multiple\n");
+    prompt.push_str("smaller commits that each represent one logical change. The goal is ~2-5\n");
+    prompt.push_str("well-structured commits per group, NOT one giant commit.\n\n");
+    prompt.push_str("For example:\n");
+    prompt.push_str("  1. `refactor(fc): extract float overlap check into helper` (if Phase 1 refactored)\n");
+    prompt.push_str("  2. `spec(block-formatting-context): implement BFC float clearance per §9.5.2`\n");
+    prompt.push_str("  3. `spec(block-formatting-context): annotate float positioning rules`\n\n");
+    prompt.push_str("Each commit must compile on its own. Use `git stash` to verify if needed.\n\n");
 
     // ── Task type ──────────────────────────────────────────────────────
     match group.action.as_str() {
