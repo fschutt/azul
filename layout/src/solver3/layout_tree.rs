@@ -1539,6 +1539,7 @@ impl LayoutTreeBuilder {
     }
 }
 
+// +spec:display-property-p027 - block-level elements per CSS Display 3 §2.1
 pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
         get_display_type(styled_dom, node_id),
@@ -1550,10 +1551,13 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::TableCaption
             | LayoutDisplay::TableRow
             | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
             | LayoutDisplay::ListItem
     )
 }
 
+// +spec:display-property-p027 - inline-level elements per CSS Display 3 §2.1
 /// Checks if a node is inline-level (including text nodes).
 /// According to CSS spec, inline-level content includes:
 ///
@@ -2113,8 +2117,7 @@ fn needs_table_parent_wrapper(
             _ => Some(AnonymousBoxType::TableWrapper),
         }
     }
-    // "A row group box, 'table-column-group' box, or 'table-caption' box is
-    // misparented if its parent is neither a 'table' box nor an 'inline-table' box."
+    // +spec:display-property-p016 - row group, table-column-group, table-caption misparented if parent is neither table nor inline-table (CSS 2.2 §17.2.1)
     else if matches!(
         child_display,
         LayoutDisplay::TableRowGroup
