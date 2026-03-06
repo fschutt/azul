@@ -328,6 +328,7 @@ macro_rules! impl_from {
 ///     Baz(i) => format!("{}", i)
 /// }}
 /// ```
+#[macro_export]
 macro_rules! impl_display {
     // For a type with a lifetime
     ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
@@ -364,6 +365,7 @@ macro_rules! impl_display {
 
 /// Implements `Debug` to use `Display` instead - assumes the that the type has implemented
 /// `Display`
+#[macro_export]
 macro_rules! impl_debug_as_display {
     // For a type with a lifetime
     ($enum:ident < $lt:lifetime >) => {

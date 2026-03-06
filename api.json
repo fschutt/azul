@@ -15847,6 +15847,12 @@
                                 "LineBreak": {
                                     "type": "StyleLineBreakValue"
                                 },
+                                "ObjectFit": {
+                                    "type": "StyleObjectFitValue"
+                                },
+                                "TextOrientation": {
+                                    "type": "StyleTextOrientationValue"
+                                },
                                 "TextAlignLast": {
                                     "type": "StyleTextAlignLastValue"
                                 },
@@ -20369,70 +20375,29 @@
                         ],
                         "enum_fields": [
                             {
-                                "None": {}
-                            },
-                            {
-                                "Block": {}
-                            },
-                            {
-                                "Inline": {}
-                            },
-                            {
-                                "InlineBlock": {}
-                            },
-                            {
-                                "Flex": {}
-                            },
-                            {
-                                "InlineFlex": {}
-                            },
-                            {
-                                "Table": {}
-                            },
-                            {
-                                "InlineTable": {}
-                            },
-                            {
-                                "TableRowGroup": {}
-                            },
-                            {
-                                "TableHeaderGroup": {}
-                            },
-                            {
-                                "TableFooterGroup": {}
-                            },
-                            {
-                                "TableRow": {}
-                            },
-                            {
-                                "TableColumnGroup": {}
-                            },
-                            {
-                                "TableColumn": {}
-                            },
-                            {
-                                "TableCell": {}
-                            },
-                            {
-                                "TableCaption": {}
-                            },
-                            {
-                                "FlowRoot": {}
-                            },
-                            {
-                                "ListItem": {}
-                            },
-                            {
-                                "RunIn": {}
-                            },
-                            {
-                                "Marker": {}
-                            },
-                            {
-                                "Grid": {}
-                            },
-                            {
-                                "InlineGrid": {}
+                                "None": {},
+                                "Block": {},
+                                "Inline": {},
+                                "InlineBlock": {},
+                                "Flex": {},
+                                "InlineFlex": {},
+                                "Table": {},
+                                "InlineTable": {},
+                                "TableRowGroup": {},
+                                "TableHeaderGroup": {},
+                                "TableFooterGroup": {},
+                                "TableRow": {},
+                                "TableColumnGroup": {},
+                                "TableColumn": {},
+                                "TableCell": {},
+                                "TableCaption": {},
+                                "FlowRoot": {},
+                                "ListItem": {},
+                                "RunIn": {},
+                                "Marker": {},
+                                "Grid": {},
+                                "InlineGrid": {},
+                                "Contents": {}
                             }
                         ],
                         "repr": "C"
@@ -28478,6 +28443,8 @@
                                 "WordBreak": {},
                                 "OverflowWrap": {},
                                 "LineBreak": {},
+                                "ObjectFit": {},
+                                "TextOrientation": {},
                                 "TextAlignLast": {},
                                 "Direction": {},
                                 "UserSelect": {},
@@ -33050,6 +33017,108 @@
                                 "Normal": {},
                                 "BreakAll": {},
                                 "KeepAll": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextOrientationValue": {
+                        "external": "azul_css::props::property::StyleTextOrientationValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextOrientation"
+                            ]
+                        }
+                    },
+                    "StyleTextOrientationParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::StyleTextOrientationParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleObjectFitParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::StyleObjectFitParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleObjectFitValue": {
+                        "external": "azul_css::props::property::StyleObjectFitValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleObjectFit"
+                            ]
+                        }
+                    },
+                    "StyleTextOrientation": {
+                        "external": "azul_css::props::style::effects::StyleTextOrientation",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Mixed": {},
+                                "Upright": {},
+                                "Sideways": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleObjectFit": {
+                        "external": "azul_css::props::style::effects::StyleObjectFit",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Fill": {},
+                                "Contain": {},
+                                "Cover": {},
+                                "None": {},
+                                "ScaleDown": {}
                             }
                         ],
                         "repr": "C"
@@ -76309,6 +76378,12 @@
                                 },
                                 "LineBreak": {
                                     "type": "StyleLineBreakParseErrorOwned"
+                                },
+                                "ObjectFit": {
+                                    "type": "StyleObjectFitParseErrorOwned"
+                                },
+                                "TextOrientation": {
+                                    "type": "StyleTextOrientationParseErrorOwned"
                                 },
                                 "TextAlignLast": {
                                     "type": "StyleTextAlignLastParseErrorOwned"
