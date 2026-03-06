@@ -137,7 +137,23 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
         let position_type = get_position_type(ctx.styled_dom, Some(dom_id));
 
+        // +spec:containing-block-p023 - §9.3: position:absolute/fixed boxes are out of normal flow, no impact on later siblings
+        // +spec:containing-block-p013 - §9.6.1: fixed positioning is a subcategory of absolute positioning
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
+            // +spec:positioning-p011 - CSS Grid §9.1: abspos elements whose containing block
+            // is a grid container have their CB determined by grid-placement properties;
+            // Taffy already handles this during grid layout, so skip re-positioning here.
+            // Same applies to flex containers (Flexbox §4.1).
+            {
+                use azul_core::dom::FormattingContext;
+                let parent_is_flex_or_grid = node.parent.and_then(|p| tree.get(p)).map_or(false, |pn| {
+                    matches!(pn.formatting_context, FormattingContext::Flex | FormattingContext::Grid)
+                });
+                if parent_is_flex_or_grid {
+                    continue;
+                }
+            }
+
             // Get parent info before any mutable borrows
             let parent_info: Option<(usize, LogicalPosition, f32, f32, f32, f32)> = {
                 let node = &tree.nodes[node_index];
