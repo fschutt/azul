@@ -72,7 +72,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 162] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 164] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -94,6 +94,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 162] = [
     (CssPropertyType::OverflowWrap, "overflow-wrap"),
     (CssPropertyType::OverflowWrap, "word-wrap"),
     (CssPropertyType::LineBreak, "line-break"),
+    (CssPropertyType::ObjectFit, "object-fit"),
+    (CssPropertyType::TextOrientation, "text-orientation"),
     (CssPropertyType::TextAlignLast, "text-align-last"),
     (CssPropertyType::Direction, "direction"),
     (CssPropertyType::UserSelect, "user-select"),
@@ -327,6 +329,8 @@ pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
 pub type StyleWordBreakValue = CssPropertyValue<StyleWordBreak>;
 pub type StyleOverflowWrapValue = CssPropertyValue<StyleOverflowWrap>;
 pub type StyleLineBreakValue = CssPropertyValue<StyleLineBreak>;
+pub type StyleObjectFitValue = CssPropertyValue<StyleObjectFit>;
+pub type StyleTextOrientationValue = CssPropertyValue<StyleTextOrientation>;
 pub type StyleTextAlignLastValue = CssPropertyValue<StyleTextAlignLast>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
 pub type StyleUserSelectValue = CssPropertyValue<StyleUserSelect>;
@@ -546,6 +550,8 @@ pub enum CssProperty {
     WordBreak(StyleWordBreakValue),
     OverflowWrap(StyleOverflowWrapValue),
     LineBreak(StyleLineBreakValue),
+    ObjectFit(StyleObjectFitValue),
+    TextOrientation(StyleTextOrientationValue),
     TextAlignLast(StyleTextAlignLastValue),
     Direction(StyleDirectionValue),
     UserSelect(StyleUserSelectValue),
@@ -779,6 +785,8 @@ pub enum CssPropertyType {
     WordBreak,
     OverflowWrap,
     LineBreak,
+    ObjectFit,
+    TextOrientation,
     TextAlignLast,
     Direction,
     UserSelect,
@@ -1080,6 +1088,8 @@ impl CssPropertyType {
             CssPropertyType::WordBreak => "word-break",
             CssPropertyType::OverflowWrap => "overflow-wrap",
             CssPropertyType::LineBreak => "line-break",
+            CssPropertyType::ObjectFit => "object-fit",
+            CssPropertyType::TextOrientation => "text-orientation",
             CssPropertyType::TextAlignLast => "text-align-last",
             CssPropertyType::Direction => "direction",
             CssPropertyType::UserSelect => "user-select",
@@ -1131,6 +1141,7 @@ impl CssPropertyType {
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
             WordBreak | OverflowWrap | LineBreak | TextAlignLast |
+            TextOrientation |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
 
             // List properties
@@ -1266,7 +1277,7 @@ impl CssPropertyType {
             | BackfaceVisibility | MixBlendMode | Filter | BackdropFilter
             | TextShadow | SelectionBackgroundColor | SelectionColor
             | SelectionRadius | CaretColor | CaretAnimationDuration
-            | CaretWidth => RelayoutScope::None,
+            | CaretWidth | ObjectFit => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
@@ -1274,7 +1285,7 @@ impl CssPropertyType {
             FontFamily | FontSize | FontWeight | FontStyle
             | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify
             | TextIndent | WhiteSpace | TabSize | Hyphens
-            | WordBreak | OverflowWrap | LineBreak | TextAlignLast
+            | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration
             | HangingPunctuation | InitialLetter | LineClamp
             | Direction | VerticalAlign => {
@@ -1365,6 +1376,8 @@ pub enum CssParsingError<'a> {
     WordBreak(StyleWordBreakParseError<'a>),
     OverflowWrap(StyleOverflowWrapParseError<'a>),
     LineBreak(StyleLineBreakParseError<'a>),
+    ObjectFit(StyleObjectFitParseError<'a>),
+    TextOrientation(StyleTextOrientationParseError<'a>),
     TextAlignLast(StyleTextAlignLastParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
     UserSelect(StyleUserSelectParseError<'a>),
@@ -1521,6 +1534,8 @@ pub enum CssParsingErrorOwned {
     WordBreak(StyleWordBreakParseErrorOwned),
     OverflowWrap(StyleOverflowWrapParseErrorOwned),
     LineBreak(StyleLineBreakParseErrorOwned),
+    ObjectFit(StyleObjectFitParseErrorOwned),
+    TextOrientation(StyleTextOrientationParseErrorOwned),
     TextAlignLast(StyleTextAlignLastParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
     UserSelect(StyleUserSelectParseErrorOwned),
@@ -1712,6 +1727,8 @@ impl_display! { CssParsingError<'a>, {
     WordBreak(e) => format!("Invalid word-break: {}", e),
     OverflowWrap(e) => format!("Invalid overflow-wrap: {}", e),
     LineBreak(e) => format!("Invalid line-break: {}", e),
+    ObjectFit(e) => format!("Invalid object-fit: {}", e),
+    TextOrientation(e) => format!("Invalid text-orientation: {}", e),
     TextAlignLast(e) => format!("Invalid text-align-last: {}", e),
     Direction(e) => format!("Invalid direction: {}", e),
     UserSelect(e) => format!("Invalid user-select: {}", e),
@@ -1944,6 +1961,8 @@ impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
 impl_from!(StyleWordBreakParseError<'a>, CssParsingError::WordBreak);
 impl_from!(StyleOverflowWrapParseError<'a>, CssParsingError::OverflowWrap);
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
+impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
+impl_from!(StyleTextOrientationParseError<'a>, CssParsingError::TextOrientation);
 impl_from!(StyleTextAlignLastParseError<'a>, CssParsingError::TextAlignLast);
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
 impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
@@ -2193,6 +2212,8 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::WordBreak(e) => CssParsingErrorOwned::WordBreak(e.to_contained()),
             CssParsingError::OverflowWrap(e) => CssParsingErrorOwned::OverflowWrap(e.to_contained()),
             CssParsingError::LineBreak(e) => CssParsingErrorOwned::LineBreak(e.to_contained()),
+            CssParsingError::ObjectFit(e) => CssParsingErrorOwned::ObjectFit(e.to_contained()),
+            CssParsingError::TextOrientation(e) => CssParsingErrorOwned::TextOrientation(e.to_contained()),
             CssParsingError::TextAlignLast(e) => CssParsingErrorOwned::TextAlignLast(e.to_contained()),
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
             CssParsingError::UserSelect(e) => CssParsingErrorOwned::UserSelect(e.to_contained()),
@@ -2395,6 +2416,8 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::WordBreak(e) => CssParsingError::WordBreak(e.to_shared()),
             CssParsingErrorOwned::OverflowWrap(e) => CssParsingError::OverflowWrap(e.to_shared()),
             CssParsingErrorOwned::LineBreak(e) => CssParsingError::LineBreak(e.to_shared()),
+            CssParsingErrorOwned::ObjectFit(e) => CssParsingError::ObjectFit(e.to_shared()),
+            CssParsingErrorOwned::TextOrientation(e) => CssParsingError::TextOrientation(e.to_shared()),
             CssParsingErrorOwned::TextAlignLast(e) => CssParsingError::TextAlignLast(e.to_shared()),
             CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
             CssParsingErrorOwned::UserSelect(e) => CssParsingError::UserSelect(e.to_shared()),
@@ -2474,7 +2497,8 @@ pub fn parse_css_property<'a>(
         CssPropertyType::Display |      // display: none means LayoutDisplay::None
         CssPropertyType::UserSelect |
         CssPropertyType::Float |        // float: none means LayoutFloat::None
-        CssPropertyType::TextDecoration // text-decoration: none is a typed value
+        CssPropertyType::TextDecoration | // text-decoration: none is a typed value
+        CssPropertyType::ObjectFit      // object-fit: none means StyleObjectFit::None
     );
 
     Ok(match value {
@@ -2522,6 +2546,8 @@ pub fn parse_css_property<'a>(
             CssPropertyType::WordBreak => parse_style_word_break(value)?.into(),
             CssPropertyType::OverflowWrap => parse_style_overflow_wrap(value)?.into(),
             CssPropertyType::LineBreak => parse_style_line_break(value)?.into(),
+            CssPropertyType::ObjectFit => parse_style_object_fit(value)?.into(),
+            CssPropertyType::TextOrientation => parse_style_text_orientation(value)?.into(),
             CssPropertyType::TextAlignLast => parse_style_text_align_last(value)?.into(),
             CssPropertyType::Direction => parse_style_direction(value)?.into(),
             CssPropertyType::UserSelect => parse_style_user_select(value)?.into(),
@@ -3651,6 +3677,8 @@ impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
 impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
 impl_from_css_prop!(StyleOverflowWrap, CssProperty::OverflowWrap);
 impl_from_css_prop!(StyleLineBreak, CssProperty::LineBreak);
+impl_from_css_prop!(StyleObjectFit, CssProperty::ObjectFit);
+impl_from_css_prop!(StyleTextOrientation, CssProperty::TextOrientation);
 impl_from_css_prop!(StyleTextAlignLast, CssProperty::TextAlignLast);
 impl_from_css_prop!(StyleDirection, CssProperty::Direction);
 impl_from_css_prop!(StyleWhiteSpace, CssProperty::WhiteSpace);
@@ -3817,6 +3845,8 @@ impl CssProperty {
             CssProperty::WordBreak(v) => v.get_css_value_fmt(),
             CssProperty::OverflowWrap(v) => v.get_css_value_fmt(),
             CssProperty::LineBreak(v) => v.get_css_value_fmt(),
+            CssProperty::ObjectFit(v) => v.get_css_value_fmt(),
+            CssProperty::TextOrientation(v) => v.get_css_value_fmt(),
             CssProperty::TextAlignLast(v) => v.get_css_value_fmt(),
             CssProperty::Direction(v) => v.get_css_value_fmt(),
             CssProperty::UserSelect(v) => v.get_css_value_fmt(),
@@ -4277,6 +4307,8 @@ impl CssProperty {
             CssProperty::WordBreak(_) => CssPropertyType::WordBreak,
             CssProperty::OverflowWrap(_) => CssPropertyType::OverflowWrap,
             CssProperty::LineBreak(_) => CssPropertyType::LineBreak,
+            CssProperty::ObjectFit(_) => CssPropertyType::ObjectFit,
+            CssProperty::TextOrientation(_) => CssPropertyType::TextOrientation,
             CssProperty::TextAlignLast(_) => CssPropertyType::TextAlignLast,
             CssProperty::Direction(_) => CssPropertyType::Direction,
             CssProperty::UserSelect(_) => CssPropertyType::UserSelect,
@@ -5422,6 +5454,18 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_object_fit(&self) -> Option<&StyleObjectFitValue> {
+        match self {
+            CssProperty::ObjectFit(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_orientation(&self) -> Option<&StyleTextOrientationValue> {
+        match self {
+            CssProperty::TextOrientation(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_text_align_last(&self) -> Option<&StyleTextAlignLastValue> {
         match self {
             CssProperty::TextAlignLast(f) => Some(f),
@@ -5823,6 +5867,8 @@ impl CssProperty {
             WordBreak(c) => c.is_initial(),
             OverflowWrap(c) => c.is_initial(),
             LineBreak(c) => c.is_initial(),
+            ObjectFit(c) => c.is_initial(),
+            TextOrientation(c) => c.is_initial(),
             TextAlignLast(c) => c.is_initial(),
             BreakBefore(c) => c.is_initial(),
             BreakAfter(c) => c.is_initial(),
@@ -6611,6 +6657,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::LineBreak(p) => format!(
             "CssProperty::LineBreak({})",
             print_css_property_value(p, tabs, "StyleLineBreak")
+        ),
+        CssProperty::ObjectFit(p) => format!(
+            "CssProperty::ObjectFit({})",
+            print_css_property_value(p, tabs, "StyleObjectFit")
+        ),
+        CssProperty::TextOrientation(p) => format!(
+            "CssProperty::TextOrientation({})",
+            print_css_property_value(p, tabs, "StyleTextOrientation")
         ),
         CssProperty::TextAlignLast(p) => format!(
             "CssProperty::TextAlignLast({})",

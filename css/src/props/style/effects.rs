@@ -536,3 +536,173 @@ mod tests {
         assert!(parse_style_cursor("hand").is_err()); // "hand" is a legacy IE value
     }
 }
+
+// -- StyleObjectFit --
+
+/// CSS object-fit property: how replaced element content is fitted to its box.
+/// CSS Images Level 3 §5.5
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleObjectFit {
+    Fill,
+    Contain,
+    Cover,
+    None,
+    ScaleDown,
+}
+
+impl Default for StyleObjectFit {
+    fn default() -> Self {
+        StyleObjectFit::Fill
+    }
+}
+
+crate::impl_option!(StyleObjectFit, OptionStyleObjectFit, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+impl PrintAsCssValue for StyleObjectFit {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleObjectFit::Fill => "fill",
+            StyleObjectFit::Contain => "contain",
+            StyleObjectFit::Cover => "cover",
+            StyleObjectFit::None => "none",
+            StyleObjectFit::ScaleDown => "scale-down",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleObjectFitParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+crate::impl_debug_as_display!(StyleObjectFitParseError<'a>);
+
+#[cfg(feature = "parser")]
+crate::impl_display! { StyleObjectFitParseError<'a>, {
+    InvalidValue(val) => format!("Invalid object-fit value: \"{}\"", val),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleObjectFitParseErrorOwned {
+    InvalidValue(crate::AzString),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleObjectFitParseError<'a> {
+    pub fn to_contained(&self) -> StyleObjectFitParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleObjectFitParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleObjectFitParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleObjectFitParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleObjectFitParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_object_fit<'a>(
+    input: &'a str,
+) -> Result<StyleObjectFit, StyleObjectFitParseError<'a>> {
+    let input = input.trim();
+    match input {
+        "fill" => Ok(StyleObjectFit::Fill),
+        "contain" => Ok(StyleObjectFit::Contain),
+        "cover" => Ok(StyleObjectFit::Cover),
+        "none" => Ok(StyleObjectFit::None),
+        "scale-down" => Ok(StyleObjectFit::ScaleDown),
+        _ => Err(StyleObjectFitParseError::InvalidValue(input)),
+    }
+}
+
+// -- StyleTextOrientation --
+
+/// CSS text-orientation property for vertical writing modes.
+/// CSS Writing Modes Level 4 §5.1
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextOrientation {
+    Mixed,
+    Upright,
+    Sideways,
+}
+
+impl Default for StyleTextOrientation {
+    fn default() -> Self {
+        StyleTextOrientation::Mixed
+    }
+}
+
+crate::impl_option!(StyleTextOrientation, OptionStyleTextOrientation, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+impl PrintAsCssValue for StyleTextOrientation {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleTextOrientation::Mixed => "mixed",
+            StyleTextOrientation::Upright => "upright",
+            StyleTextOrientation::Sideways => "sideways",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextOrientationParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+crate::impl_debug_as_display!(StyleTextOrientationParseError<'a>);
+
+#[cfg(feature = "parser")]
+crate::impl_display! { StyleTextOrientationParseError<'a>, {
+    InvalidValue(val) => format!("Invalid text-orientation value: \"{}\"", val),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleTextOrientationParseErrorOwned {
+    InvalidValue(crate::AzString),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextOrientationParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextOrientationParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleTextOrientationParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextOrientationParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextOrientationParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleTextOrientationParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_orientation<'a>(
+    input: &'a str,
+) -> Result<StyleTextOrientation, StyleTextOrientationParseError<'a>> {
+    let input = input.trim();
+    match input {
+        "mixed" => Ok(StyleTextOrientation::Mixed),
+        "upright" => Ok(StyleTextOrientation::Upright),
+        "sideways" => Ok(StyleTextOrientation::Sideways),
+        _ => Err(StyleTextOrientationParseError::InvalidValue(input)),
+    }
+}

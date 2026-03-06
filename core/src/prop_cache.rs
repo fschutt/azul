@@ -90,8 +90,9 @@ use azul_css::{
             StyleHyphenationLanguageValue, StyleHyphensValue, StyleInitialLetterValue,
             StyleLetterSpacingValue, StyleLineBreakValue, StyleLineClampValue, StyleLineHeightValue,
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
-            StyleOpacityValue, StylePerspectiveOriginValue, StyleScrollbarColorValue,
-            StyleOverflowWrapValue, StyleTabSizeValue, StyleTextAlignLastValue,
+            StyleObjectFitValue, StyleOpacityValue, StylePerspectiveOriginValue,
+            StyleScrollbarColorValue, StyleOverflowWrapValue, StyleTabSizeValue,
+            StyleTextAlignLastValue, StyleTextOrientationValue,
             StyleTextAlignValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
@@ -1962,6 +1963,28 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleTextAlignLastValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlignLast)
             .and_then(|p| p.as_text_align_last())
+    }
+
+    // Method for getting object-fit property
+    pub fn get_object_fit<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleObjectFitValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ObjectFit)
+            .and_then(|p| p.as_object_fit())
+    }
+
+    // Method for getting text-orientation property
+    pub fn get_text_orientation<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextOrientationValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextOrientation)
+            .and_then(|p| p.as_text_orientation())
     }
 
     // Method for getting direction property

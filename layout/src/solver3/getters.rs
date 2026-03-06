@@ -3683,6 +3683,8 @@ use azul_css::props::style::text::StyleOverflowWrap;
 use azul_css::props::style::text::StyleLineBreak;
 use azul_css::props::style::text::StyleTextAlignLast;
 use azul_css::props::style::effects::StyleCursor;
+use azul_css::props::style::effects::StyleObjectFit;
+use azul_css::props::style::effects::StyleTextOrientation;
 
 impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
     fn extract(&self) -> Option<LayoutTextJustify> {
@@ -3733,6 +3735,24 @@ impl ExtractPropertyValue<StyleTextAlignLast> for CssProperty {
     fn extract(&self) -> Option<StyleTextAlignLast> {
         match self {
             Self::TextAlignLast(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleObjectFit> for CssProperty {
+    fn extract(&self) -> Option<StyleObjectFit> {
+        match self {
+            Self::ObjectFit(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleTextOrientation> for CssProperty {
+    fn extract(&self) -> Option<StyleTextOrientation> {
+        match self {
+            Self::TextOrientation(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }
