@@ -7345,10 +7345,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Sub => line_baseline_y + line_ascent * 0.3,
                 // super: raise baseline to proper superscript position (~0.4em)
                 VerticalAlign::Super => line_baseline_y - line_ascent * 0.4,
-                // text-top: align top of box with top of parent's content area
-                VerticalAlign::TextTop => line_top_y + item_ascent,
-                // text-bottom: align bottom of box with bottom of parent's content area
-                VerticalAlign::TextBottom => line_top_y + line_box_height - item_descent,
+                // text-top: align top of box with top of parent's content area (§10.6.1)
+                // Parent's content area top ≈ baseline - strut_half (font ascent approximation)
+                VerticalAlign::TextTop => (line_baseline_y - strut_half) + item_ascent,
+                // text-bottom: align bottom of box with bottom of parent's content area (§10.6.1)
+                // Parent's content area bottom ≈ baseline + strut_half (font descent approximation)
+                VerticalAlign::TextBottom => (line_baseline_y + strut_half) - item_descent,
                 // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
                 // +spec:inline-formatting-context-p028 - §10.8.1: 0 means same as baseline; percentage refers to element's own line-height
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
