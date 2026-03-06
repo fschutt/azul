@@ -286,6 +286,50 @@ impl PrintAsCssValue for StyleHyphens {
     }
 }
 
+// -- StyleLineBreak --
+
+// +spec:white-space-processing-p029 - §5.3 line-break property: strictness levels for line breaking rules
+/// Controls the strictness of line breaking rules.
+///
+/// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#line-break-property
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleLineBreak {
+    /// The browser determines the set of line-breaking restrictions to use.
+    Auto,
+    /// Breaks text using the least restrictive set of line-breaking rules.
+    Loose,
+    /// Breaks text using the most common set of line-breaking rules.
+    Normal,
+    /// Breaks text using the most stringent set of line-breaking rules.
+    Strict,
+    /// There is a soft wrap opportunity around every typographic character unit,
+    /// including around any punctuation character or preserved white spaces,
+    /// or in the middle of words, disregarding any prohibition against line breaks.
+    Anywhere,
+}
+impl Default for StyleLineBreak {
+    fn default() -> Self {
+        StyleLineBreak::Auto
+    }
+}
+impl_option!(
+    StyleLineBreak,
+    OptionStyleLineBreak,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleLineBreak {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleLineBreak::Auto => "auto",
+            StyleLineBreak::Loose => "loose",
+            StyleLineBreak::Normal => "normal",
+            StyleLineBreak::Strict => "strict",
+            StyleLineBreak::Anywhere => "anywhere",
+        })
+    }
+}
+
 // -- StyleDirection --
 
 /// Text direction.
