@@ -1,17 +1,15 @@
 //! W3C Specification Verification System
 //!
-//! This module provides tools for systematically verifying the CSS layout
-//! implementation against W3C specifications.
+//! Semi-automated pipeline for verifying CSS layout compliance against W3C specs.
+//! See `doc/README.md` for the full pipeline documentation.
 //!
-//! ## Workflow
+//! ## Pipeline
 //!
-//! 1. `spec download` - Download W3C specs locally
-//! 2. `spec tree` - View the skill tree of CSS features
-//! 3. `spec extract <feature>` - Extract relevant spec paragraphs
-//! 4. `spec review <feature>` - Generate review prompt for Gemini
-//! 5. `spec send <feature>` - Send to Gemini API
-//! 6. `spec status` - View verification progress
-//! 7. `spec holistic` - Generate holistic analysis from all results
+//! 1. `spec download` + `spec build-all` — fetch specs, build per-paragraph prompts
+//! 2. `spec claude-exec` — run parallel agents to generate patches
+//! 3. `spec review-md` — generate Gemini review prompt from patches
+//! 4. `spec review-arch` — generate Gemini merge-group prompt
+//! 5. `spec agent-apply` — apply patches via Claude agents (4-phase workflow)
 
 use std::path::PathBuf;
 
@@ -101,36 +99,20 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
         return Ok(());
     }
     
+    // Handle --help for any subcommand
+    if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
+        return print_subcommand_help(&args[0]);
+    }
+
     match args[0].as_str() {
+        "--help" | "-h" => { print_spec_help(); Ok(()) }
         "download" => cmd_download(&config),
         "tree" => cmd_tree(&config),
         "extract" => {
             if args.len() < 2 {
-                return Err("Usage: spec extract <feature-id>".to_string());
+                return print_subcommand_help("extract");
             }
             cmd_extract(&config, &args[1], workspace_root)
-        }
-        "review" => {
-            if args.len() < 2 {
-                return Err("Usage: spec review <feature-id> [--stage=arch|impl]".to_string());
-            }
-            let stage = if args.iter().any(|a| a.contains("impl")) {
-                ReviewStage::Implementation
-            } else {
-                ReviewStage::Architecture
-            };
-            cmd_review(&config, &args[1], stage, workspace_root)
-        }
-        "send" => {
-            if args.len() < 2 {
-                return Err("Usage: spec send <feature-id> [--stage=arch|impl]".to_string());
-            }
-            let stage = if args.iter().any(|a| a.contains("impl")) {
-                ReviewStage::Implementation
-            } else {
-                ReviewStage::Architecture
-            };
-            cmd_send(&config, &args[1], stage, workspace_root)
         }
         "build-all" => cmd_build_all(&config, workspace_root),
         "claude-exec" => {
@@ -138,22 +120,16 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             executor::run_executor(&config, workspace_root, &rest)
         }
         "status" => cmd_status(&config, workspace_root),
-        "holistic" => cmd_holistic(&config),
-        "next" => cmd_next(&config),
         "paragraphs" => cmd_paragraphs(),
         "annotations" => cmd_annotations(workspace_root),
         "review-md" => {
             if args.len() < 2 {
-                return Err("Usage: spec review-md [--no-src] [--no-spec] <commit-hash|dir>\n\
-                    If argument is a directory, concatenates all .patch files in it.\n\
-                    If argument is a commit hash, generates review from <hash>..HEAD.\n\
-                    --no-src: omit source file appendix.\n\
-                    --no-spec: omit W3C spec paragraphs (included by default for dir mode).".to_string());
+                return print_subcommand_help("review-md");
             }
             let no_src = args[1..].iter().any(|a| a == "--no-src");
             let no_spec = args[1..].iter().any(|a| a == "--no-spec");
             let target = args[1..].iter().find(|a| !a.starts_with("--"))
-                .ok_or("Missing <commit-hash|dir> argument".to_string())?;
+                .ok_or("Missing <dir|hash> argument. Run: spec review-md --help".to_string())?;
             executor::cmd_review_md(target, workspace_root, no_src, no_spec)
         }
         "review-arch" => {
@@ -162,74 +138,228 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
                 .filter(|a| !a.starts_with("--"))
                 .collect();
             if positional.len() < 2 {
-                return Err("Usage: spec review-arch [--no-src] <patch-dir> <review-md-output>\n\
-                    Generates an architecture review prompt for Gemini.\n\
-                    <patch-dir>: directory containing .patch files\n\
-                    <review-md-output>: path to the review-md output file".to_string());
+                return print_subcommand_help("review-arch");
             }
             executor::cmd_review_arch(positional[0], positional[1], workspace_root, no_src)
         }
         "agent-apply" => {
-            let positional: Vec<&String> = args[1..].iter()
-                .filter(|a| !a.starts_with("--"))
+            let sub_args = &args[1..];
+            let parse_flag = |flag: &str| -> Option<String> {
+                // Try --flag value
+                if let Some(pos) = sub_args.iter().position(|a| a == flag) {
+                    return sub_args.get(pos + 1).cloned();
+                }
+                // Try --flag=value
+                let prefix = format!("{}=", flag);
+                for a in sub_args {
+                    if a.starts_with(&prefix) {
+                        return Some(a[prefix.len()..].to_string());
+                    }
+                }
+                None
+            };
+            let refactor_md = parse_flag("--refactor-md");
+            let review_md = parse_flag("--review-md");
+            let arch_md = parse_flag("--arch-md");
+            let groups_json = parse_flag("--groups-json");
+            // The only positional arg is the patch dir
+            let flag_values: std::collections::HashSet<&str> = {
+                let mut set = std::collections::HashSet::new();
+                for flag in &["--refactor-md", "--review-md", "--arch-md", "--groups-json"] {
+                    if let Some(pos) = sub_args.iter().position(|a| a == flag) {
+                        if let Some(val) = sub_args.get(pos + 1) {
+                            set.insert(val.as_str());
+                        }
+                    }
+                }
+                set
+            };
+            let positional: Vec<&str> = sub_args.iter()
+                .filter(|a| !a.starts_with("--") && !flag_values.contains(a.as_str()))
+                .map(|s| s.as_str())
                 .collect();
-            if positional.len() < 2 {
-                return Err("Usage: spec agent-apply <patch-dir> <arch-plan-json>\n\
-                    Applies patches sequentially using AI agents, guided by the arch plan.\n\
-                    <patch-dir>: directory containing .patch files\n\
-                    <arch-plan-json>: JSON file with merge groups from review-arch".to_string());
+            let groups_json = groups_json.or_else(|| positional.get(1).map(|s| s.to_string()));
+            let patch_dir = positional.first().map(|s| s.to_string());
+            if patch_dir.is_none() || groups_json.is_none() {
+                return print_subcommand_help("agent-apply");
             }
-            executor::cmd_agent_apply(positional[0], positional[1], workspace_root)
+            let apply_args = executor::AgentApplyArgs {
+                patch_dir: patch_dir.unwrap(),
+                groups_json: groups_json.unwrap(),
+                refactor_md,
+                review_md,
+                arch_md,
+            };
+            executor::cmd_agent_apply(&apply_args, workspace_root)
         }
         _ => {
             print_spec_help();
-            Err(format!("Unknown spec command: {}", args[0]))
+            Err(format!("Unknown spec command: '{}'. Run: azul-doc spec --help", args[0]))
         }
     }
 }
 
+fn print_subcommand_help(cmd: &str) -> Result<(), String> {
+    match cmd {
+        "download" => {
+            println!("azul-doc spec download");
+            println!();
+            println!("Download all registered W3C spec HTML files to doc/target/w3c_specs/.");
+            println!("Sources: css-display-3, css22 (visuren, visudet, box, tables), css-text-3.");
+        }
+        "tree" => {
+            println!("azul-doc spec tree");
+            println!();
+            println!("Display the 16-feature CSS skill tree with dependency tiers and status.");
+        }
+        "extract" => {
+            println!("azul-doc spec extract <feature-id>");
+            println!();
+            println!("Extract and display spec paragraphs matched by a feature's keywords.");
+            println!("Useful for inspecting which W3C text maps to a feature before building prompts.");
+            println!();
+            println!("Example: azul-doc spec extract block-formatting-context");
+        }
+        "build-all" => {
+            println!("azul-doc spec build-all");
+            println!();
+            println!("Build one prompt file per spec paragraph per feature.");
+            println!("Output: doc/target/skill_tree/prompts/<feature>_<NNN>.md");
+            println!("Each prompt is self-contained: feature context + spec paragraph + instructions.");
+        }
+        "claude-exec" => {
+            println!("azul-doc spec claude-exec [options]");
+            println!();
+            println!("Run parallel Claude agents. Each agent picks an unprocessed prompt,");
+            println!("reads the layout source code, and generates a patch.");
+            println!();
+            println!("Options:");
+            println!("  --agents=N        Number of parallel agents (default: 12)");
+            println!("  --timeout=S       Per-agent timeout in seconds (default: 480)");
+            println!("  --retry-failed    Re-queue previously failed/timed-out prompts");
+            println!("  --status          Show done/failed/pending counts and exit");
+            println!("  --cleanup         Remove all agent worktrees");
+            println!("  --force-api       Allow running with ANTHROPIC_API_KEY set");
+        }
+        "status" => {
+            println!("azul-doc spec status");
+            println!();
+            println!("Scan source code for +spec: annotation markers and show per-feature");
+            println!("verification coverage as a progress bar.");
+        }
+        "paragraphs" => {
+            println!("azul-doc spec paragraphs");
+            println!();
+            println!("List all known spec paragraph IDs from the paragraph registry.");
+        }
+        "annotations" => {
+            println!("azul-doc spec annotations");
+            println!();
+            println!("Scan layout source files for // +spec: comments and report coverage.");
+        }
+        "review-md" => {
+            println!("azul-doc spec review-md [options] <dir|commit-hash>");
+            println!();
+            println!("Generate a Gemini review prompt from patches or commits.");
+            println!("Categorizes each patch as CODE (functional) or ANNOT (comment-only).");
+            println!();
+            println!("Arguments:");
+            println!("  <dir>             Directory of .patch files");
+            println!("  <commit-hash>     Generate review from <hash>..HEAD");
+            println!();
+            println!("Options:");
+            println!("  --no-src          Omit source file appendix (saves tokens)");
+            println!("  --no-spec         Omit W3C spec paragraph context");
+            println!();
+            println!("Output: /tmp/agent-run-review-prompt.md (feed to Gemini)");
+        }
+        "review-arch" => {
+            println!("azul-doc spec review-arch [options] <patch-dir> <review.md>");
+            println!();
+            println!("Generate an architecture review prompt for Gemini.");
+            println!("Takes the patch directory + the review-md output, produces a prompt");
+            println!("that asks Gemini to sort patches into ordered merge groups (JSON).");
+            println!();
+            println!("Arguments:");
+            println!("  <patch-dir>       Directory containing .patch files");
+            println!("  <review.md>       Path to the review-md output (e.g. scripts/RUN2.md)");
+            println!();
+            println!("Options:");
+            println!("  --no-src          Omit source file appendix");
+            println!();
+            println!("Output: /tmp/agent-arch-review-prompt.md (feed to Gemini)");
+        }
+        "agent-apply" => {
+            println!("azul-doc spec agent-apply [flags] <patch-dir>");
+            println!();
+            println!("Apply patches sequentially using Claude agents, guided by merge groups.");
+            println!("Each agent processes one merge group through 4 phases:");
+            println!("  1. Refactoring   — implement groundwork relevant to this group");
+            println!("  2. LLM-apply     — apply patch semantic intent to current code");
+            println!("  3. Compile       — cargo check -p azul-dll --features build-dll");
+            println!("  4. Review        — verify against W3C spec, fix, compile again");
+            println!();
+            println!("Arguments:");
+            println!("  <patch-dir>               Directory containing .patch files");
+            println!();
+            println!("Required flags:");
+            println!("  --groups-json <path>      Merge groups JSON (from Gemini via review-arch)");
+            println!();
+            println!("Optional flags:");
+            println!("  --refactor-md <path>      Groundwork/refactoring plan (e.g. GROUNDWORK.md)");
+            println!("  --review-md <path>        Patch quality review (output of review-md / Gemini)");
+            println!("  --arch-md <path>          Architecture review (Gemini's analysis before grouping)");
+            println!();
+            println!("Example:");
+            println!("  azul-doc spec agent-apply \\");
+            println!("    --groups-json scripts/run2.json \\");
+            println!("    --refactor-md scripts/GROUNDWORK.md \\");
+            println!("    --review-md scripts/RUN2.md \\");
+            println!("    --arch-md scripts/ARCH_REVIEW.md \\");
+            println!("    doc/target/skill_tree/all_patches/run2_patches");
+            println!();
+            println!("Patches are moved to applied/, skipped/, or failed/ as they're processed.");
+        }
+        _ => {
+            println!("No help available for '{}'.", cmd);
+        }
+    }
+    Ok(())
+}
+
 fn print_spec_help() {
-    println!("W3C Spec Verification System");
-    println!("============================");
+    println!("azul-doc spec — W3C Spec Verification Pipeline");
     println!();
-    println!("Commands:");
-    println!("  download            Download all W3C specs locally");
-    println!("  tree                Display the CSS feature skill tree");
-    println!("  extract <feature>   Extract relevant spec paragraphs for a feature");
-    println!("  review <feature>    Generate a review prompt (saves to file)");
-    println!("  send <feature>      Send review prompt to Gemini API");
-    println!("  build-all           Build all prompts for all features");
-    println!("  claude-exec         Run parallel Claude agents on prompts");
-    println!("    --agents=N          Number of parallel agents (default: 12)");
-    println!("    --timeout=S         Per-agent timeout in seconds (default: 480)");
-    println!("    --retry-failed      Re-queue previously failed prompts");
-    println!("    --status            Show done/taken/failed/pending counts");
-    println!("    --collect           Cherry-pick agent commits to current branch");
-    println!("    --cleanup           Remove all agent worktrees");
-    println!("    --force-api         Allow running with ANTHROPIC_API_KEY set");
-    println!("  status              Show verification status for all features");
-    println!("  holistic            Generate holistic analysis from all results");
-    println!("  next                Show the next feature to verify");
-    println!("  paragraphs          List all known spec paragraph IDs for annotations");
-    println!("  annotations         Scan source for +spec: annotations");
-    println!("  review-md [--no-src] <hash|dir>  Generate Gemini review prompt from commits or patch dir");
-    println!("  review-arch [--no-src] <dir> <review>  Generate architecture review prompt");
-    println!("  agent-apply <dir> <arch-plan>   Apply patches sequentially using AI agents");
+    println!("Stage 1: Generate patches from spec paragraphs");
+    println!("  download              Download all W3C specs locally");
+    println!("  tree                  Display the CSS feature skill tree");
+    println!("  build-all             Build per-paragraph agent prompts for all features");
+    println!("  claude-exec           Run parallel Claude agents on prompts");
     println!();
-    println!("Options:");
-    println!("  --stage=arch        Architecture review (default)");
-    println!("  --stage=impl        Implementation review");
+    println!("Stage 2: Review patches (feed output to Gemini)");
+    println!("  review-md <dir>       Generate review prompt from patch directory");
     println!();
-    println!("Annotation format in source code:");
-    println!("  // +spec:css22-box-8.3.1-p1 - margin collapsing between siblings");
+    println!("Stage 3: Architecture plan (feed output to Gemini)");
+    println!("  review-arch <dir> <review.md>");
+    println!("                        Generate merge-group prompt from patches + review");
     println!();
-    println!("Example workflow:");
-    println!("  1. azul-doc spec download");
-    println!("  2. azul-doc spec tree");
-    println!("  3. azul-doc spec next");
-    println!("  4. azul-doc spec review box-model");
-    println!("  5. azul-doc spec send box-model");
-    println!("  6. azul-doc spec status");
+    println!("Stage 4: Apply patches via agents");
+    println!("  agent-apply [flags] <patch-dir>");
+    println!("                        Apply patches via Claude agents (see --help)");
+    println!();
+    println!("Utilities:");
+    println!("  status                Verification progress (scans +spec: markers)");
+    println!("  extract <feature>     Show spec paragraphs matched by a feature");
+    println!("  paragraphs            List all known spec paragraph IDs");
+    println!("  annotations           Scan source for +spec: annotation comments");
+    println!();
+    println!("Run 'azul-doc spec <command> --help' for detailed usage of any command.");
+    println!();
+    println!("Full pipeline:");
+    println!("  1. azul-doc spec claude-exec --agents=8              # generates patches");
+    println!("  2. azul-doc spec review-md --no-src <patch-dir>      # → feed to Gemini");
+    println!("  3. azul-doc spec review-arch <patch-dir> <review>    # → feed to Gemini");
+    println!("  4. azul-doc spec agent-apply --groups-json plan.json <patch-dir>");
 }
 
 /// Build one prompt file per deduplicated spec paragraph, per feature.
@@ -361,141 +491,6 @@ fn cmd_extract(config: &SpecConfig, feature_id: &str, _workspace_root: &std::pat
     Ok(())
 }
 
-fn cmd_review(
-    config: &SpecConfig, 
-    feature_id: &str, 
-    stage: ReviewStage,
-    workspace_root: &std::path::Path
-) -> Result<(), String> {
-    let mut tree = config.load_skill_tree();
-    
-    let node = tree.nodes.get(feature_id)
-        .ok_or_else(|| format!("Unknown feature: {}", feature_id))?
-        .clone();
-    
-    let stage_name = match stage {
-        ReviewStage::Architecture => "architecture",
-        ReviewStage::Implementation => "implementation",
-    };
-    
-    println!("Generating {} review prompt for: {}\n", stage_name, node.name);
-    
-    // Extract spec paragraphs
-    let paragraphs = extract_for_skill_node(&node, &config.spec_dir)?;
-    
-    // Read source files
-    let sources = read_source_files(&node, workspace_root);
-    
-    // Generate prompt
-    let prompt = generate_review_prompt(&node, stage, &paragraphs, &sources);
-    
-    // Save prompt to file
-    std::fs::create_dir_all(&config.skill_tree_dir)
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
-    
-    let prompt_path = config.skill_tree_dir.join(format!("{}_{}_prompt.md", feature_id, stage_name));
-    std::fs::write(&prompt_path, &prompt)
-        .map_err(|e| format!("Failed to write prompt: {}", e))?;
-    
-    // Update status to PromptBuilt
-    if let Some(n) = tree.nodes.get_mut(feature_id) {
-        if n.status == VerificationStatus::NotStarted {
-            n.status = VerificationStatus::PromptBuilt;
-            config.save_skill_tree(&tree)
-                .map_err(|e| format!("Failed to save tree: {}", e))?;
-            println!("[STATUS] Updated to: PromptBuilt");
-        }
-    }
-    
-    println!("Prompt saved to: {}", prompt_path.display());
-    println!("\nPrompt length: {} chars ({} tokens approx)", 
-        prompt.len(), 
-        prompt.len() / 4
-    );
-    
-    Ok(())
-}
-
-fn cmd_send(
-    config: &SpecConfig,
-    feature_id: &str,
-    stage: ReviewStage,
-    workspace_root: &std::path::Path,
-) -> Result<(), String> {
-    if config.api_key.is_empty() {
-        return Err("No API key configured. Place API key in GEMINI_API_KEY.txt in azul root".to_string());
-    }
-    
-    let mut tree = config.load_skill_tree();
-    
-    let node = tree.nodes.get(feature_id)
-        .ok_or_else(|| format!("Unknown feature: {}", feature_id))?
-        .clone();
-    
-    let stage_name = match stage {
-        ReviewStage::Architecture => "architecture",
-        ReviewStage::Implementation => "implementation",
-    };
-    
-    println!("Sending {} review to Gemini for: {}\n", stage_name, node.name);
-    
-    // Extract spec paragraphs
-    let paragraphs = extract_for_skill_node(&node, &config.spec_dir)?;
-    
-    // Read source files
-    let sources = read_source_files(&node, workspace_root);
-    
-    // Generate prompt
-    let prompt = generate_review_prompt(&node, stage, &paragraphs, &sources);
-    
-    println!("Sending {} chars to Gemini...", prompt.len());
-    
-    // Call Gemini API
-    let response = call_gemini_api(&config.api_key, &prompt)?;
-    
-    // Parse verdict
-    let (needs_changes, issues) = parse_verdict(&response);
-    
-    // Create result
-    let result = ReviewResult {
-        node_id: feature_id.to_string(),
-        stage: stage_name.to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        prompt,
-        response: response.clone(),
-        needs_changes,
-        issues: issues.clone(),
-    };
-    
-    // Save result
-    let results_dir = config.results_dir();
-    save_review_result(&result, &results_dir)
-        .map_err(|e| format!("Failed to save result: {}", e))?;
-    
-    // Update tree status
-    update_node_status(&mut tree, &result);
-    config.save_skill_tree(&tree)
-        .map_err(|e| format!("Failed to save tree: {}", e))?;
-    
-    // Print summary
-    println!("\n{}", "=".repeat(60));
-    println!("REVIEW COMPLETE: {}", node.name);
-    println!("{}", "=".repeat(60));
-    
-    if needs_changes {
-        println!("\n⚠️  NEEDS CHANGES\n");
-        for issue in &issues {
-            println!("  - {}", issue);
-        }
-    } else {
-        println!("\n✅ PASS\n");
-    }
-    
-    println!("\nFull response saved to: {}/{}_{}.md", 
-        results_dir.display(), feature_id, stage_name);
-    
-    Ok(())
-}
 
 fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(), String> {
     let tree = config.load_skill_tree();
@@ -608,134 +603,6 @@ fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(
     Ok(())
 }
 
-fn cmd_holistic(config: &SpecConfig) -> Result<(), String> {
-    let tree = config.load_skill_tree();
-    
-    let prompt = generate_holistic_prompt(&tree, &config.results_dir());
-    
-    let output_path = config.skill_tree_dir.join("holistic_prompt.md");
-    std::fs::write(&output_path, &prompt)
-        .map_err(|e| format!("Failed to write: {}", e))?;
-    
-    println!("Holistic analysis prompt saved to: {}", output_path.display());
-    println!("\nLength: {} chars ({} tokens approx)", prompt.len(), prompt.len() / 4);
-    
-    Ok(())
-}
-
-fn cmd_next(config: &SpecConfig) -> Result<(), String> {
-    let tree = config.load_skill_tree();
-    
-    if let Some(node) = tree.get_next_unverified() {
-        println!("Next feature to verify:");
-        println!();
-        println!("  ID:          {}", node.id);
-        println!("  Name:        {}", node.name);
-        println!("  Description: {}", node.description);
-        println!("  Difficulty:  {}/5", node.difficulty);
-        println!();
-        println!("Dependencies (verified):");
-        for dep in &node.depends_on {
-            println!("  ✓ {}", dep);
-        }
-        println!();
-        println!("To review, run:");
-        println!("  azul-doc spec review {}", node.id);
-    } else {
-        // Check if all are verified or if there are blockers
-        let unverified: Vec<_> = tree.nodes.values()
-            .filter(|n| n.status != VerificationStatus::Verified)
-            .collect();
-        
-        if unverified.is_empty() {
-            println!("🎉 All features verified!");
-        } else {
-            println!("No features are ready for verification.");
-            println!("The following have unmet dependencies:\n");
-            for node in unverified {
-                let missing_deps: Vec<_> = node.depends_on.iter()
-                    .filter(|d| {
-                        tree.nodes.get(*d)
-                            .map(|n| n.status != VerificationStatus::Verified)
-                            .unwrap_or(false)
-                    })
-                    .collect();
-                if !missing_deps.is_empty() {
-                    println!("  {} - needs: {}", node.id, missing_deps.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
-                }
-            }
-        }
-    }
-    
-    Ok(())
-}
-
-/// Call Gemini API with the prompt
-fn call_gemini_api(api_key: &str, prompt: &str) -> Result<String, String> {
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-05-06:generateContent?key={}",
-        api_key
-    );
-    
-    let request_body = serde_json::json!({
-        "contents": [{
-            "parts": [{
-                "text": prompt
-            }]
-        }],
-        "generationConfig": {
-            "thinkingConfig": {
-                "thinkingBudget": 32768
-            }
-        }
-    });
-    
-    // Write request to temp file
-    let temp_request = std::env::temp_dir().join("spec_review_request.json");
-    std::fs::write(&temp_request, serde_json::to_string(&request_body).unwrap())
-        .map_err(|e| format!("Failed to write request: {}", e))?;
-    
-    // Call curl
-    let output = std::process::Command::new("curl")
-        .args([
-            "-s",
-            "-X", "POST",
-            "-H", "Content-Type: application/json",
-            "-d", &format!("@{}", temp_request.display()),
-            "--max-time", "600",
-            &url,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to call API: {}", e))?;
-    
-    if !output.status.success() {
-        return Err(format!(
-            "API call failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    
-    let response_text = String::from_utf8_lossy(&output.stdout);
-    
-    // Parse response
-    let response: serde_json::Value = serde_json::from_str(&response_text)
-        .map_err(|e| format!("Failed to parse response: {}\n\nRaw: {}", e, response_text))?;
-    
-    // Extract text from response
-    let text = response["candidates"][0]["content"]["parts"]
-        .as_array()
-        .ok_or("No parts in response")?
-        .iter()
-        .filter_map(|p| p["text"].as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    
-    if text.is_empty() {
-        Err(format!("Empty response from API: {}", response_text))
-    } else {
-        Ok(text)
-    }
-}
 
 fn cmd_paragraphs() -> Result<(), String> {
     let registry = ParagraphRegistry::new();
