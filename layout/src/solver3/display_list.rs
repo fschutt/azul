@@ -3701,6 +3701,7 @@ where
         Ok(())
     }
 
+    // +spec:positioning-p014 - §9.9.1: z-index determines stacking context creation for positioned elements
     /// Determines if a node establishes a new stacking context based on CSS rules.
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
@@ -3711,12 +3712,21 @@ where
         };
 
         let position = get_position_type(self.ctx.styled_dom, Some(dom_id));
-        if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
+        let z_auto = crate::solver3::getters::is_z_index_auto(self.ctx.styled_dom, Some(dom_id));
+
+        // +spec:positioning-p014 - §9.9.1: z-index:auto on position:fixed always establishes stacking context
+        if position == LayoutPosition::Fixed {
             return true;
         }
 
-        let z_index = get_z_index(self.ctx.styled_dom, Some(dom_id));
-        if position == LayoutPosition::Relative && z_index != 0 {
+        // +spec:positioning-p014 - §9.9.1: z-index:<integer> on positioned element establishes new stacking context
+        // z-index:auto on position:absolute does NOT establish stacking context
+        if position == LayoutPosition::Absolute {
+            return !z_auto;
+        }
+
+        // position:relative with explicit z-index integer establishes stacking context
+        if position == LayoutPosition::Relative && !z_auto {
             return true;
         }
 
