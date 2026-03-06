@@ -1543,6 +1543,7 @@ impl Ord for ImageSource {
     }
 }
 
+// +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property values
 // CSS 2.2 §10.8.1 vertical-align property values
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum VerticalAlign {
@@ -6001,11 +6002,14 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
 // +spec:line-height - §10.8.1: half-leading applied per glyph: L = line-height - AD, A' = A + L/2, D' = D + L/2
+// +spec:inline-formatting-context-p003 - §10.8.1: half-leading applied to inline boxes; L = line-height - AD, A' = A + L/2, D' = D + L/2
+// +spec:inline-formatting-context-p028 - §10.8.1: for inline non-replaced elements, alignment box is line-height box; for all other elements, alignment box is margin box
 pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
             if c.glyphs.is_empty() {
+                // +spec:inline-formatting-context-p003 - §10.8.1: strut: inline box with no glyphs uses A and D of element's first available font
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
                 // Without actual font metrics here, approximate by splitting line_height
@@ -6063,38 +6067,61 @@ pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
 /// Calculates the maximum ascent and descent for an entire line of items.
 /// This determines the "line box" used for vertical alignment.
 ///
-/// Per CSS 2.2 §10.8, top/bottom aligned boxes must minimize line box height.
-/// Two-pass algorithm:
-/// 1) Compute baseline-relative line box from non-top/non-bottom items
-/// 2) Expand if needed to fit top/bottom aligned items
-fn calculate_line_metrics(items: &[ShapedItem]) -> (f32, f32) {
+// +spec:inline-formatting-context-p004 - §10.8: two-pass line box height calculation
+/// Per CSS 2.2 §10.8: Inline-level boxes aligned 'top' or 'bottom' must be aligned
+/// so as to minimize the line box height. The algorithm is:
+/// 1. First pass: compute line box height from baseline-aligned items only
+///    (baseline, sub, super, middle, text-top, text-bottom, offset).
+/// 2. Second pass: check if any top/bottom-aligned items are taller than the
+///    line box from pass 1, and expand if necessary.
+fn calculate_line_metrics(
+    items: &[ShapedItem],
+    default_vertical_align: VerticalAlign,
+) -> (f32, f32) {
+    // +spec:inline-formatting-context-p004 - §10.8: pass 1 - line box from baseline-aligned items
     // Pass 1: Compute ascent/descent from baseline-aligned items only
     // (i.e., items that are NOT vertical-align: top or bottom).
     let (mut max_asc, mut max_desc) = items
         .iter()
-        .filter(|item| {
-            let align = get_item_vertical_align(item);
-            !matches!(align, Some(VerticalAlign::Top) | Some(VerticalAlign::Bottom))
-        })
         .fold((0.0f32, 0.0f32), |(max_asc, max_desc), item| {
-            let (item_asc, item_desc) = get_item_vertical_metrics(item);
-            (max_asc.max(item_asc), max_desc.max(item_desc))
+            let effective_align = get_item_vertical_align(item)
+                .unwrap_or(default_vertical_align);
+            match effective_align {
+                VerticalAlign::Top | VerticalAlign::Bottom => {
+                    // Skip top/bottom items in first pass
+                    (max_asc, max_desc)
+                }
+                _ => {
+                    let (item_asc, item_desc) = get_item_vertical_metrics(item);
+                    (max_asc.max(item_asc), max_desc.max(item_desc))
+                }
+            }
         });
 
     let baseline_line_height = max_asc + max_desc;
 
+    // +spec:inline-formatting-context-p004 - §10.8: pass 2 - expand for top/bottom aligned items to minimize height
     // Pass 2: Check top/bottom aligned items. If any of them is taller
     // than the current line box, expand the line box to fit.
     for item in items {
-        let align = get_item_vertical_align(item);
-        if matches!(align, Some(VerticalAlign::Top) | Some(VerticalAlign::Bottom)) {
-            let (item_asc, item_desc) = get_item_vertical_metrics(item);
-            let item_height = item_asc + item_desc;
-            if item_height > baseline_line_height {
-                let excess = item_height - baseline_line_height;
-                max_asc += excess / 2.0;
-                max_desc += excess / 2.0;
+        let effective_align = get_item_vertical_align(item)
+            .unwrap_or(default_vertical_align);
+        match effective_align {
+            VerticalAlign::Top | VerticalAlign::Bottom => {
+                let (item_asc, item_desc) = get_item_vertical_metrics(item);
+                let item_height = item_asc + item_desc;
+                if item_height > baseline_line_height {
+                    // To minimize height, expand in the direction the item is aligned to
+                    if effective_align == VerticalAlign::Top {
+                        // Top-aligned item extends downward from line top
+                        max_desc = max_desc.max(item_height - max_asc);
+                    } else {
+                        // Bottom-aligned item extends upward from line bottom
+                        max_asc = max_asc.max(item_height - max_desc);
+                    }
+                }
             }
+            _ => {} // Already handled in first pass
         }
     }
 
@@ -6904,8 +6931,11 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let mut positioned = Vec::new();
     let is_vertical = constraints.is_vertical();
 
+    // +spec:inline-formatting-context-p004 - §10.8: vertical alignment and line box height minimization
     // The line box is calculated once for all items on the line, regardless of segment.
-    let (line_ascent, line_descent) = calculate_line_metrics(&line_items);
+    // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
+    // minimize line box height; baseline-aligned items determine the initial height.
+    let (line_ascent, line_descent) = calculate_line_metrics(&line_items, constraints.vertical_align);
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.
@@ -6939,6 +6969,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             continue;
         }
 
+        // +spec:inline-formatting-context-p015 - §9.4.2: text-align:justify stretches spaces/words in inline boxes but not inline-table/inline-block
         // 2. Calculate justification spacing *for this segment only*.
         let (extra_word_spacing, extra_char_spacing) = if constraints.text_justify
             != JustifyContent::None
@@ -7014,6 +7045,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
         let effective_segment_width = final_segment_width - trailing_ws_width;
 
+        // +spec:inline-formatting-context-p015 - §9.4.2: when total inline-level box width < line box width, text-align determines horizontal distribution
         // +spec:containing-block-p037 - §6.1 text-align: alignment is w.r.t. line box start/end sides
         // 3. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - effective_segment_width;
@@ -7088,6 +7120,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             0.0
         };
 
+        // +spec:inline-formatting-context-p004 - §10.8: inline-level boxes aligned vertically per vertical-align property
+        // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align positioning within line box
         // 4. Position the items belonging to this segment.
         //
         // Vertical alignment positioning (CSS vertical-align)
@@ -7105,6 +7139,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
                 .unwrap_or(constraints.vertical_align);
+            // +spec:inline-formatting-context-p028 - §10.8.1: all vertical-align values (baseline/sub/super/top/text-top/middle/bottom/text-bottom/percentage/length)
+            // +spec:inline-formatting-context-p004 - §10.8: top/bottom aligned to minimize line box height; baseline undefined if tall enough
             // §10.8.1 vertical-align positioning
             let item_baseline_pos = match effective_align {
                 // top: align top of aligned subtree with top of line box
@@ -7126,8 +7162,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // text-bottom: align bottom of box with bottom of parent's content area
                 VerticalAlign::TextBottom => line_top_y + line_box_height - item_descent,
                 // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
+                // +spec:inline-formatting-context-p028 - §10.8.1: 0 means same as baseline; percentage refers to element's own line-height
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
                 // baseline: align baseline of box with baseline of parent box
+                // +spec:inline-formatting-context-p028 - §10.8.1: if box does not have a baseline, align bottom margin edge with parent's baseline
                 VerticalAlign::Baseline => line_baseline_y,
             };
 
@@ -7584,6 +7622,7 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
     }
 }
 
+// +spec:inline-formatting-context-p015 - §9.4.2: justify stretches spaces/words in inline boxes, not inline-table/inline-block
 /// Helper to identify if space can be added after an item.
 fn can_justify_after(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
@@ -7591,8 +7630,10 @@ fn can_justify_after(item: &ShapedItem) -> bool {
             !g.is_whitespace() && classify_character(g as u32) != CharacterClass::Combining
         })
     } else {
-        // Can generally justify after inline objects unless they are followed by a break.
-        !matches!(item, ShapedItem::Break { .. })
+        // Per CSS 2.2 §9.4.2, justification must NOT stretch inline-table and
+        // inline-block boxes. Object items represent these atomic inline-level
+        // boxes, so we return false to prevent adding justification space after them.
+        false
     }
 }
 

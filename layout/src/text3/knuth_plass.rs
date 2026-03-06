@@ -517,6 +517,7 @@ fn position_lines_from_breaks(
             }
         }
 
+        // +spec:inline-formatting-context-p050 - §10.8.1: when all inline boxes share the same line-height and font, baselines of successive lines are exactly line-height apart
         cross_axis_pen += constraints.line_height;
         start_node = end_node;
     }
