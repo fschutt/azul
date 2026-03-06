@@ -525,7 +525,7 @@ impl_enum_fmt!(
     Luminosity
 );
 
-impl_enum_fmt!(StyleHyphens, Auto, None);
+impl_enum_fmt!(StyleHyphens, None, Manual, Auto);
 
 impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 

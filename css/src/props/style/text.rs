@@ -250,16 +250,25 @@ impl PrintAsCssValue for StyleWhiteSpace {
 
 // -- StyleHyphens --
 
+// +spec:line-breaking-p041 - §5.4 hyphens property: none | manual | auto (initial: manual)
 /// Hyphenation rules.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleHyphens {
-    Auto,
+    /// No hyphenation: words are not broken at hyphenation opportunities.
     None,
+    /// Manual hyphenation: words are only broken at explicit soft hyphens (U+00AD)
+    /// or unconditional hyphens (U+2010).
+    Manual,
+    /// Automatic hyphenation: words may be broken at automatic hyphenation
+    /// opportunities determined by a language-appropriate hyphenation resource,
+    /// in addition to explicit opportunities.
+    Auto,
 }
 impl Default for StyleHyphens {
+    // +spec:line-breaking-p041 - §5.4 initial value of hyphens is "manual"
     fn default() -> Self {
-        StyleHyphens::None
+        StyleHyphens::Manual
     }
 }
 impl_option!(
@@ -270,8 +279,9 @@ impl_option!(
 impl PrintAsCssValue for StyleHyphens {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleHyphens::Auto => "auto",
             StyleHyphens::None => "none",
+            StyleHyphens::Manual => "manual",
+            StyleHyphens::Auto => "auto",
         })
     }
 }
@@ -1469,10 +1479,12 @@ impl StyleHyphensParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+// +spec:line-breaking-p041 - §5.4 hyphens property parsing: none | manual | auto
 pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensParseError> {
     match input.trim() {
-        "auto" => Ok(StyleHyphens::Auto),
         "none" => Ok(StyleHyphens::None),
+        "manual" => Ok(StyleHyphens::Manual),
+        "auto" => Ok(StyleHyphens::Auto),
         other => Err(StyleHyphensParseError::InvalidValue(InvalidValueErr(other))),
     }
 }
