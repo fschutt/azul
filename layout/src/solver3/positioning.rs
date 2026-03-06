@@ -187,6 +187,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             } else {
                 // Element hasn't been sized yet - calculate it now using containing block
                 let intrinsic = node.intrinsic_sizes.unwrap_or_default();
+                // +spec:height-calculation-p009 - §10.6.4: abs-pos CB height is always definite (independent of element content)
                 let size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
@@ -299,7 +300,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if height_is_auto && !top_is_auto && !bottom_is_auto {
-                // Rule 5: auto margins to 0, solve for height
+                // +spec:height-calculation-p016 - §10.6.4 rule 5: height auto, top and bottom not auto
+                // solve for height from constraint equation:
+                // height = cb_height - top - margin_top - margin_bottom - bottom
                 let top_val = offsets.top.unwrap();
                 let bottom_val = offsets.bottom.unwrap();
                 used_height = (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val).max(0.0);
