@@ -2417,7 +2417,7 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
 
         // +spec:table-layout-p019 - display:table-column is not rendered (as if display:none) but may carry style (§17.2)
         // table-column elements are used only for column styling, not for generating boxes
-        LayoutDisplay::TableColumn => FormattingContext::TableColumnGroup,
+        LayoutDisplay::TableColumn => FormattingContext::None,
         // These less common display types default to block behavior
         LayoutDisplay::RunIn | LayoutDisplay::Marker => {
             FormattingContext::Block {
