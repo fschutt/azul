@@ -8447,7 +8447,14 @@ impl<'a> BreakCursor<'a> {
         // the next item cannot be separated from it.
         let mut suppress_next_break = false;
         for (i, item) in source_items.iter().enumerate() {
-            if i > 0 && !suppress_next_break && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
+            // Also suppress break if this item starts with a break-suppressing control
+            // (WJ/ZWJ/ZWNBSP suppress breaks on both sides per Unicode line breaking)
+            let starts_with_suppress = if let ShapedItem::Cluster(c) = item {
+                c.text.chars().next().map_or(false, |ch| is_break_suppressing_control(ch))
+            } else {
+                false
+            };
+            if i > 0 && !suppress_next_break && !starts_with_suppress && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
                 break;
             }
             suppress_next_break = false;
