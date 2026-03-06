@@ -1591,6 +1591,16 @@ pub struct InlineBorderInfo {
     pub padding_right: f32,
     pub padding_bottom: f32,
     pub padding_left: f32,
+    /// CSS 2.2 §9.4.2 / §8.6: when an inline box is split across line boxes,
+    /// margins, borders, and padding have no visible effect at the split points.
+    /// True if this is the first fragment of the inline box.
+    pub is_first_fragment: bool,
+    /// True if this is the last fragment of the inline box.
+    pub is_last_fragment: bool,
+    /// CSS 2.2 §8.6: direction flag for visual-order rendering in bidi context.
+    /// LTR: first fragment gets left edge, last gets right edge.
+    /// RTL: first fragment gets right edge, last gets left edge.
+    pub is_rtl: bool,
 }
 
 impl Default for InlineBorderInfo {
@@ -1609,6 +1619,9 @@ impl Default for InlineBorderInfo {
             padding_right: 0.0,
             padding_bottom: 0.0,
             padding_left: 0.0,
+            is_first_fragment: true,
+            is_last_fragment: true,
+            is_rtl: false,
         }
     }
 }
@@ -1628,10 +1641,18 @@ impl InlineBorderInfo {
             || self.padding_left > 0.0
     }
 
-    /// Total left inset (border + padding)
-    pub fn left_inset(&self) -> f32 { self.left + self.padding_left }
-    /// Total right inset (border + padding)
-    pub fn right_inset(&self) -> f32 { self.right + self.padding_right }
+    /// Total left inset (border + padding), suppressed at split points per §8.6.
+    /// In LTR: left edge drawn on first fragment. In RTL: left edge drawn on last fragment.
+    pub fn left_inset(&self) -> f32 {
+        let show = if self.is_rtl { self.is_last_fragment } else { self.is_first_fragment };
+        if show { self.left + self.padding_left } else { 0.0 }
+    }
+    /// Total right inset (border + padding), suppressed at split points per §8.6.
+    /// In LTR: right edge drawn on last fragment. In RTL: right edge drawn on first fragment.
+    pub fn right_inset(&self) -> f32 {
+        let show = if self.is_rtl { self.is_first_fragment } else { self.is_last_fragment };
+        if show { self.right + self.padding_right } else { 0.0 }
+    }
     /// Total top inset (border + padding)
     pub fn top_inset(&self) -> f32 { self.top + self.padding_top }
     /// Total bottom inset (border + padding)

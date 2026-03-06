@@ -1742,6 +1742,12 @@ pub fn get_inline_border_info(
         return None;
     }
 
+    // CSS 2.2 §8.6: detect direction for visual-order border/padding rendering in bidi
+    let is_rtl = matches!(
+        get_direction_property(styled_dom, node_id, node_state),
+        MultiValue::Exact(StyleDirection::Rtl)
+    );
+
     Some(InlineBorderInfo {
         top,
         right,
@@ -1756,6 +1762,9 @@ pub fn get_inline_border_info(
         padding_right: p_right,
         padding_bottom: p_bottom,
         padding_left: p_left,
+        is_first_fragment: true,
+        is_last_fragment: true,
+        is_rtl,
     })
 }
 

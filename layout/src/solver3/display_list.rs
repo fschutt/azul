@@ -996,20 +996,23 @@ impl DisplayListBuilder {
         }
 
         // Paint border if present
+        // CSS 2.2 §8.6: suppress left/right borders at split points, respecting direction
         if let Some(border) = border {
-            if border.top > 0.0 || border.right > 0.0 || border.bottom > 0.0 || border.left > 0.0 {
+            let effective_left = if border.left_inset() > 0.0 { border.left } else { 0.0 };
+            let effective_right = if border.right_inset() > 0.0 { border.right } else { 0.0 };
+            if border.top > 0.0 || effective_right > 0.0 || border.bottom > 0.0 || effective_left > 0.0 {
                 let border_widths = StyleBorderWidths {
                     top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth {
                         inner: PixelValue::px(border.top),
                     })),
                     right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth {
-                        inner: PixelValue::px(border.right),
+                        inner: PixelValue::px(effective_right),
                     })),
                     bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth {
                         inner: PixelValue::px(border.bottom),
                     })),
                     left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth {
-                        inner: PixelValue::px(border.left),
+                        inner: PixelValue::px(effective_left),
                     })),
                 };
                 let border_colors = StyleBorderColors {

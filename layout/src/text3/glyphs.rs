@@ -170,6 +170,45 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
         runs.push(run);
     }
 
+    // CSS 2.2 §9.4.2: When an inline box is split across lines, margins, borders,
+    // and padding have no visible effect at the split points.
+    // Post-process: for runs from the same source_node_id that have borders,
+    // mark intermediate fragments so left_inset()/right_inset() suppress edges.
+    if runs.len() > 1 {
+        let mut i = 0;
+        while i < runs.len() {
+            if let Some(node_id) = runs[i].source_node_id {
+                if runs[i].border.is_some() {
+                    let start = i;
+                    let mut end = i + 1;
+                    while end < runs.len()
+                        && runs[end].source_node_id == Some(node_id)
+                        && runs[end].border.is_some()
+                    {
+                        end += 1;
+                    }
+                    if end - start > 1 {
+                        if let Some(ref mut b) = runs[start].border {
+                            b.is_last_fragment = false;
+                        }
+                        for j in (start + 1)..(end - 1) {
+                            if let Some(ref mut b) = runs[j].border {
+                                b.is_first_fragment = false;
+                                b.is_last_fragment = false;
+                            }
+                        }
+                        if let Some(ref mut b) = runs[end - 1].border {
+                            b.is_first_fragment = false;
+                        }
+                    }
+                    i = end;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+
     runs
 }
 
