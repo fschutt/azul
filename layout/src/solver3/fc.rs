@@ -3068,7 +3068,17 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         line_height: line_height_value.inner.normalized() * font_size, /* Resolve line-height relative to font-size */
         vertical_align, // CSS vertical-align property (defaults to Baseline)
         word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
-        line_break: text3::cache::LineBreakStrictness::Normal, // TODO: wire up CSS line-break property
+        // +spec:white-space-processing-p028 - white-space interaction with line-break strictness
+        // CSS Text Level 3 §5.3: The line-break property affects preserved white space behavior:
+        // - normal/pre-line: preserved white space at end/start of line is discarded
+        // - nowrap/pre: wrapping is forbidden altogether
+        // - pre-wrap: preserved white space hangs
+        // - break-spaces: allows breaking before first space of a sequence
+        // +spec:white-space-processing-p029 - §5.3 line-break: anywhere interaction with white-space:
+        // break-spaces allows wrapping preserved spaces to next line; for other white-space values,
+        // preserved spaces at line ends are either discarded (normal, pre-line), wrapping is
+        // forbidden (nowrap, pre), or they hang (pre-wrap).
+        line_break: text3::cache::LineBreakStrictness::Auto, // TODO: wire up CSS line-break property
     }
 }
 
