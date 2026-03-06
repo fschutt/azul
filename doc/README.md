@@ -65,21 +65,25 @@ Each command generates a prompt file. Feed it to Gemini, save the output.
 ```bash
 # 2a. Patch quality review (CODE/ANNOT categorization, conflict clusters)
 azul-doc spec review-md --no-src <patch-dir>
-# Output: /tmp/agent-run-review-prompt.md → feed to Gemini → save as REVIEW.md
+# → feed prompt to Gemini → save Gemini output as REVIEW.md
 
 # 2b. Architecture review — solves the "tunnel vision" problem:
 #   Each claude-exec agent only saw one spec paragraph. This prompt gives
 #   Gemini all patches + original paragraphs to find cross-cutting concerns.
 azul-doc spec review-arch --review-md <REVIEW.md> <patch-dir>
-# Output: /tmp/agent-review-arch-prompt.md → feed to Gemini → save as ARCH.md
+# → feed prompt to Gemini → save Gemini output as ARCH.md
 
 # 2c. Refactoring plan (groundwork abstractions before applying patches)
-azul-doc spec refactor-md --review-md <REVIEW.md> <patch-dir>
-# Output: /tmp/agent-refactor-prompt.md → feed to Gemini → save as REFACTOR.md
+azul-doc spec refactor-md --review-md <REVIEW.md> --review-arch <ARCH.md> <patch-dir>
+# → feed prompt to Gemini → save Gemini output as REFACTOR.md
 
-# 2d. Merge groups (ordered JSON with APPLY/MERGE/PICK_ONE/SKIP actions)
-azul-doc spec groups-json --review-md <REVIEW.md> <patch-dir>
-# Output: /tmp/agent-groups-json-prompt.md → feed to Gemini → save as GROUPS.json
+# 2d. Merge groups — receives ALL prior analysis for well-informed grouping
+azul-doc spec groups-json \
+  --review-md <REVIEW.md> \
+  --review-arch <ARCH.md> \
+  --refactor-md <REFACTOR.md> \
+  <patch-dir>
+# → feed prompt to Gemini → save JSON output as GROUPS.json
 ```
 
 #### Stage 3: Apply Patches via Agents

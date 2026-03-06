@@ -799,11 +799,14 @@ pub fn cmd_refactor_md(
 
 /// Generate a Gemini merge-group prompt.
 ///
-/// Takes the output of `review-md` (patch review) plus the patch directory
-/// and asks Gemini to produce merge groups with application ordering (JSON).
+/// Takes the patch directory plus outputs from previous pipeline steps
+/// (review-md, review-arch, refactor-md) and asks Gemini to produce
+/// merge groups with application ordering (JSON).
 pub fn cmd_groups_json(
     patch_dir: &str,
     review_path: &str,
+    arch_path: Option<&str>,
+    refactor_path: Option<&str>,
     workspace_root: &Path,
     no_src: bool,
 ) -> Result<(), String> {
@@ -827,6 +830,24 @@ pub fn cmd_groups_json(
     };
     let review_content = fs::read_to_string(&review_path)
         .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+
+    // Read optional context files from previous pipeline steps
+    let resolve = |path: &str| -> PathBuf {
+        let p = PathBuf::from(path);
+        if p.is_file() { p } else { workspace_root.join(path) }
+    };
+    let arch_content = if let Some(ap) = arch_path {
+        Some(fs::read_to_string(&resolve(ap))
+            .map_err(|e| format!("Failed to read --review-arch {}: {}", ap, e))?)
+    } else {
+        None
+    };
+    let refactor_content = if let Some(rp) = refactor_path {
+        Some(fs::read_to_string(&resolve(rp))
+            .map_err(|e| format!("Failed to read --refactor-md {}: {}", rp, e))?)
+    } else {
+        None
+    };
 
     // Scan all patches, extract metadata
     let mut patches: Vec<PathBuf> = fs::read_dir(&patch_dir)
@@ -1015,11 +1036,30 @@ pub fn cmd_groups_json(
     }
     writeln!(f, "```\n").unwrap();
 
-    // Include the prior review
+    // Include prior analysis from previous pipeline steps
+    let mut appendix = b'A';
     writeln!(f, "---\n").unwrap();
-    writeln!(f, "## APPENDIX A: Patch Review (from review-md)\n").unwrap();
+    writeln!(f, "## APPENDIX {}: Patch Review (from review-md)\n", appendix as char).unwrap();
     writeln!(f, "This review was produced by a prior analysis pass. Use it to inform your grouping.\n").unwrap();
     writeln!(f, "{}\n", review_content).unwrap();
+    appendix += 1;
+
+    if let Some(arch) = &arch_content {
+        writeln!(f, "---\n").unwrap();
+        writeln!(f, "## APPENDIX {}: Architecture Review (from review-arch)\n", appendix as char).unwrap();
+        writeln!(f, "Cross-patch analysis identifying tunnel-vision issues and architectural concerns.\n").unwrap();
+        writeln!(f, "{}\n", arch).unwrap();
+        appendix += 1;
+    }
+
+    if let Some(refactor) = &refactor_content {
+        writeln!(f, "---\n").unwrap();
+        writeln!(f, "## APPENDIX {}: Refactoring Plan (from refactor-md)\n", appendix as char).unwrap();
+        writeln!(f, "Groundwork abstractions to implement before applying patches.\n").unwrap();
+        writeln!(f, "{}\n", refactor).unwrap();
+        appendix += 1;
+    }
+    let _ = appendix; // suppress unused warning
 
     // Include source if requested
     if !no_src {
