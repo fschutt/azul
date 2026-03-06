@@ -1563,6 +1563,18 @@ fn build_apply_prompt(
             prompt.push_str("## Task Type: APPLY\n\n");
             prompt.push_str("Apply the following patch(es) to the codebase. These are independent patches\n");
             prompt.push_str("that don't conflict with each other.\n\n");
+            if patch_contents.len() > 15 {
+                prompt.push_str("### Large group: sub-batch by feature\n\n");
+                prompt.push_str("This group has many patches. Process them in sub-batches grouped by feature\n");
+                prompt.push_str("(the prefix before `_` in the patch name, e.g. `width-calculation_002` → `width-calculation`).\n");
+                prompt.push_str("For each feature sub-batch:\n");
+                prompt.push_str("1. Read all patches for that feature\n");
+                prompt.push_str("2. Read the target source file(s)\n");
+                prompt.push_str("3. Apply all patches for that feature\n");
+                prompt.push_str("4. Compile check: `cargo check -p azul-dll --features build-dll`\n");
+                prompt.push_str("5. Commit the feature sub-batch: `spec(<feature>): <summary>`\n\n");
+                prompt.push_str("This prevents context overload and ensures each commit compiles.\n\n");
+            }
         }
         "PICK_ONE" => {
             prompt.push_str("## Task Type: PICK_ONE\n\n");
@@ -1599,31 +1611,89 @@ fn build_apply_prompt(
         prompt.push_str("of the code and avoid reverting recent improvements.\n\n");
     }
 
+    // ── Collect feature names for this group (for filtering context) ──
+    let group_features: Vec<String> = group.patches.iter()
+        .filter_map(|p| {
+            // "line-breaking_040.md.done.001.patch" → "line-breaking"
+            p.find('_').map(|i| p[..i].to_string())
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    // ── Filter helper: keep only lines/sections mentioning group features ──
+    let filter_by_relevance = |full_text: &str| -> String {
+        // For small groups (≤10 patches), filter context to relevant sections.
+        // For large groups (like group 17 with 117 patches), include everything
+        // since filtering would remove too much.
+        if group_features.len() > 8 {
+            return full_text.to_string();
+        }
+
+        let mut result = String::new();
+        let mut include_section = false;
+        for line in full_text.lines() {
+            // Section headers (## or ###) reset the inclusion decision
+            if line.starts_with("## ") || line.starts_with("### ") {
+                include_section = group_features.iter().any(|f| {
+                    line.to_lowercase().contains(&f.replace('-', " "))
+                        || line.to_lowercase().contains(&f.replace('-', "-"))
+                }) || line.contains("Cluster") && group_features.iter().any(|f| {
+                    // Also match if the section body mentions our patches
+                    true // will be refined by patch name matching below
+                });
+                // Always include top-level headings for structure
+                if line.starts_with("## ") && !line.starts_with("### ") {
+                    result.push_str(line);
+                    result.push('\n');
+                    continue;
+                }
+            }
+            // Also include lines that directly mention any of our patch names
+            if !include_section {
+                let dominated_by_patch = group.patches.iter().any(|p| {
+                    let stem = p.split('.').next().unwrap_or(p);
+                    line.contains(stem)
+                });
+                if dominated_by_patch {
+                    include_section = true;
+                }
+            }
+            if include_section {
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+        if result.trim().is_empty() {
+            // Fallback: include everything if filtering removed all content
+            full_text.to_string()
+        } else {
+            result
+        }
+    };
+
     // ── Refactoring groundwork (from --refactor-md) ──────────────────
     if let Some(refactor) = refactor_content {
         prompt.push_str("## Refactoring Plan (Phase 1 reference)\n\n");
-        prompt.push_str("The following is the full refactoring groundwork plan. Identify which sections\n");
-        prompt.push_str("are relevant to THIS group's patches and implement them in Phase 1.\n");
-        prompt.push_str("Not all sections will be relevant — only implement what this group needs.\n\n");
-        prompt.push_str(refactor);
+        prompt.push_str("Only sections relevant to this group's features are shown.\n\n");
+        let filtered = filter_by_relevance(refactor);
+        prompt.push_str(&filtered);
         prompt.push_str("\n\n");
     }
 
     // ── Patch review summary (from --review-md) ────────────────────────
     if let Some(review) = review_content {
-        prompt.push_str("## Patch Review Summary\n\n");
-        prompt.push_str("The following is a quality review of all patches. Use it to understand which\n");
-        prompt.push_str("patches are CODE vs ANNOT, known conflict clusters, and skip recommendations.\n\n");
-        prompt.push_str(review);
+        prompt.push_str("## Patch Review Summary (filtered to relevant features)\n\n");
+        let filtered = filter_by_relevance(review);
+        prompt.push_str(&filtered);
         prompt.push_str("\n\n");
     }
 
     // ── Architecture review (from --review-arch) ────────────────────────
     if let Some(arch) = arch_content {
-        prompt.push_str("## Architecture Review\n\n");
-        prompt.push_str("The following is a cross-patch architecture review that identifies tunnel-vision\n");
-        prompt.push_str("issues, contradictions between patches, and structural changes needed.\n\n");
-        prompt.push_str(arch);
+        prompt.push_str("## Architecture Review (filtered to relevant sections)\n\n");
+        let filtered = filter_by_relevance(arch);
+        prompt.push_str(&filtered);
         prompt.push_str("\n\n");
     }
 
@@ -1637,6 +1707,29 @@ fn build_apply_prompt(
     } else if let Some(notes) = &group.notes {
         prompt.push_str(&format!("## Reviewer Notes\n\n{}\n\n", notes));
     }
+
+    // ── Load spec paragraphs from original prompt files ────────────────
+    let prompts_dir = workspace_root.join("doc/target/skill_tree/prompts");
+    let extract_spec_paragraph = |patch_name: &str| -> Option<String> {
+        // "line-breaking_040.md.done.001.patch" → "line-breaking_040.md"
+        let prompt_stem = patch_name
+            .strip_suffix(".patch")
+            .and_then(|s| s.find(".md.done").map(|i| &s[..i + 3]))?;
+        let prompt_path = prompts_dir.join(prompt_stem);
+        let content = fs::read_to_string(&prompt_path).ok()?;
+        // Extract text between "## Spec Paragraph to Verify" and "## Instructions"
+        let start = content.find("## Spec Paragraph to Verify")?;
+        let after = &content[start..];
+        let end = after.find("## Instructions").unwrap_or(after.len());
+        let section = &after[..end];
+        // Skip the heading line itself
+        let body: String = section.lines()
+            .skip(1)
+            .collect::<Vec<&str>>()
+            .join("\n");
+        let trimmed = body.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    };
 
     // ── Patch diffs ────────────────────────────────────────────────────
     if is_annot_only {
@@ -1652,6 +1745,15 @@ fn build_apply_prompt(
     } else {
         for (name, content) in patch_contents {
             prompt.push_str(&format!("## Patch: {}\n\n", name));
+
+            // Include the original W3C spec paragraph for sanity-checking
+            if let Some(spec_para) = extract_spec_paragraph(name) {
+                prompt.push_str("### W3C Spec Paragraph (verify implementation against this)\n\n");
+                prompt.push_str(&spec_para);
+                prompt.push_str("\n\n");
+            }
+
+            prompt.push_str("### Diff\n\n");
             prompt.push_str("```diff\n");
             let mut in_diff = false;
             for line in content.lines() {
