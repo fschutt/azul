@@ -6107,6 +6107,62 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         span_dom_children.len()
     );
 
+    // +spec:box-model-p023 - §10.8: empty inline elements still have margins, padding,
+    // borders and a line height, and thus influence inline layout calculations
+    if span_dom_children.is_empty() {
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[span_dom_id].styled_node_state;
+        let font_size = get_element_font_size(ctx.styled_dom, span_dom_id, node_state);
+
+        let line_height_value = crate::solver3::getters::get_line_height_value(
+            ctx.styled_dom, span_dom_id, &node_state
+        );
+        let line_height = line_height_value
+            .map(|v| v.inner.normalized() * font_size)
+            .unwrap_or(font_size * 1.2);
+
+        let padding_top = crate::solver3::getters::get_css_padding_top(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let padding_bottom = crate::solver3::getters::get_css_padding_bottom(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let padding_left = crate::solver3::getters::get_css_padding_left(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let padding_right = crate::solver3::getters::get_css_padding_right(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let border_top = crate::solver3::getters::get_css_border_top_width(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let border_bottom = crate::solver3::getters::get_css_border_bottom_width(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let border_left = crate::solver3::getters::get_css_border_left_width(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let border_right = crate::solver3::getters::get_css_border_right_width(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let margin_left = crate::solver3::getters::get_css_margin_left(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+        let margin_right = crate::solver3::getters::get_css_margin_right(ctx.styled_dom, span_dom_id, &node_state)
+            .exact().map(|pv| pv.to_pixels_internal(0.0, font_size)).unwrap_or(0.0);
+
+        let total_height = line_height + padding_top + padding_bottom + border_top + border_bottom;
+        let total_width = margin_left + padding_left + border_left
+            + border_right + padding_right + margin_right;
+
+        content.push(InlineContent::Shape(InlineShape {
+            shape_def: ShapeDefinition::Rectangle {
+                size: crate::text3::cache::Size {
+                    width: total_width,
+                    height: total_height,
+                },
+                corner_radius: None,
+            },
+            fill: None,
+            stroke: None,
+            baseline_offset: 0.0,
+            alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, span_dom_id),
+            source_node_id: Some(span_dom_id),
+        }));
+
+        return Ok(());
+    }
+
     for &child_dom_id in &span_dom_children {
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
 
