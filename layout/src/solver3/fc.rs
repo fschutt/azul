@@ -3729,7 +3729,7 @@ fn get_empty_cells_property<T: ParsedFontTrait>(
     };
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = StyledNodeState::default();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
     ctx.styled_dom
         .css_property_cache
