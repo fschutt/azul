@@ -7923,6 +7923,27 @@ fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
     Err(LayoutError::HyphenationError("Hyphenation feature not enabled".to_string()))
 }
 
+// +spec:inline-block-p048 - non-tailorable Unicode line breaking controls other than NBSP
+// take precedence over atomic inline rules (CSS-TEXT-3 recent changes, issue 8972)
+
+// +spec:inline-block-p048 - checks if a Unicode line breaking control suppresses breaks
+fn is_break_suppressing_control(ch: char) -> bool {
+    matches!(ch,
+        '\u{200D}' | // ZERO WIDTH JOINER
+        '\u{2060}' | // WORD JOINER
+        '\u{FEFF}'   // ZERO WIDTH NO-BREAK SPACE
+    )
+}
+
+// +spec:inline-block-p048 - checks if a Unicode line breaking control forces a break
+fn is_break_forcing_control(ch: char) -> bool {
+    matches!(ch,
+        '\u{200B}' | // ZERO WIDTH SPACE (already handled but included for completeness)
+        '\u{2028}' | // LINE SEPARATOR
+        '\u{2029}'   // PARAGRAPH SEPARATOR
+    )
+}
+
 // §5.2 word-break: determines if a character is CJK ideograph/kana
 fn is_cjk_character(ch: char) -> bool {
     let cp = ch as u32;
@@ -8078,9 +8099,17 @@ fn is_small_kana(ch: char) -> bool {
 // for every typographic character unit, disregarding GL/WJ/ZWJ line breaking classes
 fn is_break_opportunity(item: &ShapedItem) -> bool {
     // +spec:white-space-processing-p024 - §5.1: WJ, ZW, GL, ZWJ line breaking classes honored
+    // +spec:inline-block-p048 - non-tailorable Unicode line breaking controls take precedence
+    // over atomic inline rules: break-forcing controls (ZWSP, LS, PS) create break opportunities
+    // even adjacent to atomic inlines, while break-suppressing controls (WJ, ZWJ, ZWNBSP)
+    // prevent breaks
     if let ShapedItem::Cluster(c) = item {
         // ZW (zero-width space U+200B) is always a break opportunity
         if c.text.contains('\u{200B}') {
+            return true;
+        }
+        // Break-forcing Unicode controls (LS, PS) create break opportunities
+        if c.text.chars().any(|ch| is_break_forcing_control(ch)) {
             return true;
         }
         // WJ (word joiner U+2060), ZWJ (U+200D), and GL (NBSP U+00A0) suppress breaks
@@ -8192,11 +8221,25 @@ impl<'a> BreakCursor<'a> {
         // For break-all: each cluster is its own unit.
         // For keep-all: CJK sequences are NOT break opportunities.
         // For normal: CJK characters are individual break opportunities.
+        // +spec:inline-block-p048 - break-suppressing Unicode controls (WJ, ZWJ, ZWNBSP)
+        // glue items together: if the last cluster ends with a break-suppressing control,
+        // the next item cannot be separated from it.
+        let mut suppress_next_break = false;
         for (i, item) in source_items.iter().enumerate() {
-            if i > 0 && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
+            if i > 0 && !suppress_next_break && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
                 break;
             }
+            suppress_next_break = false;
             unit.push(item.clone());
+
+            // Check if this item ends with a break-suppressing control character
+            if let ShapedItem::Cluster(c) = item {
+                if let Some(last_ch) = c.text.chars().last() {
+                    if is_break_suppressing_control(last_ch) {
+                        suppress_next_break = true;
+                    }
+                }
+            }
 
             // For break-all, each non-space cluster is a unit on its own
             if self.word_break == WordBreak::BreakAll {
