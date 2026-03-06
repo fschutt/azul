@@ -126,7 +126,72 @@ impl SpecRegistry {
                 },
             ],
         });
-        
+
+        // CSS 2.2 Visual Effects (overflow, visibility, clipping)
+        specs.insert("css22-visufx".to_string(), SpecInfo {
+            id: "css22-visufx".to_string(),
+            name: "CSS 2.2 Visual Effects".to_string(),
+            urls: vec![
+                SpecUrl {
+                    section: "Visual Effects".to_string(),
+                    url: "https://www.w3.org/TR/CSS22/visufx.html".to_string(),
+                    local_filename: "css22-visufx.html".to_string(),
+                },
+            ],
+        });
+
+        // CSS Overflow Level 3
+        specs.insert("css-overflow-3".to_string(), SpecInfo {
+            id: "css-overflow-3".to_string(),
+            name: "CSS Overflow Module Level 3".to_string(),
+            urls: vec![
+                SpecUrl {
+                    section: "Full Spec".to_string(),
+                    url: "https://www.w3.org/TR/css-overflow-3/".to_string(),
+                    local_filename: "css-overflow-3.html".to_string(),
+                },
+            ],
+        });
+
+        // CSS Positioned Layout Level 3 (position: sticky)
+        specs.insert("css-position-3".to_string(), SpecInfo {
+            id: "css-position-3".to_string(),
+            name: "CSS Positioned Layout Module Level 3".to_string(),
+            urls: vec![
+                SpecUrl {
+                    section: "Full Spec".to_string(),
+                    url: "https://www.w3.org/TR/css-position-3/".to_string(),
+                    local_filename: "css-position-3.html".to_string(),
+                },
+            ],
+        });
+
+        // CSS Inline Layout Level 3 (font metrics, baselines)
+        specs.insert("css-inline-3".to_string(), SpecInfo {
+            id: "css-inline-3".to_string(),
+            name: "CSS Inline Layout Module Level 3".to_string(),
+            urls: vec![
+                SpecUrl {
+                    section: "Full Spec".to_string(),
+                    url: "https://www.w3.org/TR/css-inline-3/".to_string(),
+                    local_filename: "css-inline-3.html".to_string(),
+                },
+            ],
+        });
+
+        // CSS Writing Modes Level 4
+        specs.insert("css-writing-modes-4".to_string(), SpecInfo {
+            id: "css-writing-modes-4".to_string(),
+            name: "CSS Writing Modes Level 4".to_string(),
+            urls: vec![
+                SpecUrl {
+                    section: "Full Spec".to_string(),
+                    url: "https://www.w3.org/TR/css-writing-modes-4/".to_string(),
+                    local_filename: "css-writing-modes-4.html".to_string(),
+                },
+            ],
+        });
+
         Self { specs }
     }
     

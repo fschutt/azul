@@ -513,8 +513,296 @@ impl SkillTree {
             found_annotations: vec![],
         });
         
+        // ============================================================
+        // TIER 2 (continued): Overflow, Min/Max Sizing, Box-Sizing
+        // ============================================================
+
+        nodes.insert("overflow".to_string(), SkillNode {
+            id: "overflow".to_string(),
+            name: "Overflow".to_string(),
+            description: "Overflow clipping, scrolling, and BFC establishment".to_string(),
+            difficulty: 2,
+            depends_on: vec![
+                "block-formatting-context".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/CSS22/visufx.html".to_string(),
+                "https://www.w3.org/TR/css-overflow-3/".to_string(),
+            ],
+            keywords: vec![
+                "overflow", "visible", "hidden", "scroll", "auto",
+                "clip", "scrollbar", "clipping",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/fc.rs".to_string(),
+                "layout/src/solver3/getters.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        nodes.insert("min-max-sizing".to_string(), SkillNode {
+            id: "min-max-sizing".to_string(),
+            name: "Min/Max Width & Height".to_string(),
+            description: "min-width, max-width, min-height, max-height constraints".to_string(),
+            difficulty: 2,
+            depends_on: vec![
+                "width-calculation".to_string(),
+                "height-calculation".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/CSS22/visudet.html#min-max-widths".to_string(),
+                "https://www.w3.org/TR/CSS22/visudet.html#min-max-heights".to_string(),
+            ],
+            keywords: vec![
+                "min-width", "max-width", "min-height", "max-height",
+                "constraint", "tentative", "percentage height",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/sizing.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec!["10.4".to_string(), "10.7".to_string()],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        nodes.insert("box-sizing".to_string(), SkillNode {
+            id: "box-sizing".to_string(),
+            name: "Box Sizing".to_string(),
+            description: "box-sizing: border-box vs content-box width/height interpretation".to_string(),
+            difficulty: 1,
+            depends_on: vec![
+                "box-model".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/css-sizing-3/#box-sizing".to_string(),
+            ],
+            keywords: vec![
+                "box-sizing", "border-box", "content-box",
+                "padding", "border", "width", "height",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/sizing.rs".to_string(),
+                "layout/src/solver3/getters.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        // ============================================================
+        // TIER 3 (continued): Replaced Elements, Font Metrics, Text
+        // ============================================================
+
+        nodes.insert("replaced-elements".to_string(), SkillNode {
+            id: "replaced-elements".to_string(),
+            name: "Replaced Elements".to_string(),
+            description: "Intrinsic ratio sizing for images, video, canvas".to_string(),
+            difficulty: 3,
+            depends_on: vec![
+                "width-calculation".to_string(),
+                "height-calculation".to_string(),
+                "intrinsic-sizing".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/CSS22/visudet.html#inline-replaced-width".to_string(),
+                "https://www.w3.org/TR/CSS22/visudet.html#inline-replaced-height".to_string(),
+            ],
+            keywords: vec![
+                "replaced element", "intrinsic ratio", "intrinsic width",
+                "intrinsic height", "object-fit", "object-position",
+                "inline replaced", "block-level replaced",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/sizing.rs".to_string(),
+                "layout/src/solver3/fc.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec!["10.3.2".to_string(), "10.6.2".to_string()],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        nodes.insert("font-metrics".to_string(), SkillNode {
+            id: "font-metrics".to_string(),
+            name: "Font Metrics".to_string(),
+            description: "Ascender, descender, cap-height, x-height for baseline calculations".to_string(),
+            difficulty: 3,
+            depends_on: vec![
+                "inline-formatting-context".to_string(),
+                "line-height".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/css-inline-3/".to_string(),
+            ],
+            keywords: vec![
+                "ascent", "descent", "cap-height", "x-height", "baseline",
+                "font metric", "strut", "half-leading", "em square",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/text3/cache.rs".to_string(),
+                "layout/src/text3/glyphs.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: true,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        nodes.insert("text-alignment-spacing".to_string(), SkillNode {
+            id: "text-alignment-spacing".to_string(),
+            name: "Text Alignment & Spacing".to_string(),
+            description: "text-align, letter-spacing, word-spacing in inline layout".to_string(),
+            difficulty: 3,
+            depends_on: vec![
+                "inline-formatting-context".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/css-text-3/#text-align-property".to_string(),
+                "https://www.w3.org/TR/css-text-3/#letter-spacing-property".to_string(),
+                "https://www.w3.org/TR/css-text-3/#word-spacing-property".to_string(),
+            ],
+            keywords: vec![
+                "text-align", "letter-spacing", "word-spacing",
+                "justify", "start", "end", "center",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/text3/cache.rs".to_string(),
+                "layout/src/solver3/fc.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: true,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        // ============================================================
+        // TIER 4 (continued): Stacking Contexts, Sticky, Display Contents
+        // ============================================================
+
+        nodes.insert("stacking-contexts".to_string(), SkillNode {
+            id: "stacking-contexts".to_string(),
+            name: "Stacking Contexts & Z-Index".to_string(),
+            description: "Painting order, z-index, stacking context establishment".to_string(),
+            difficulty: 4,
+            depends_on: vec![
+                "positioning".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/CSS22/visuren.html#z-index".to_string(),
+                "https://www.w3.org/TR/CSS22/zindex.html".to_string(),
+            ],
+            keywords: vec![
+                "stacking context", "z-index", "painting order",
+                "stack level", "auto", "opacity", "transform",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/mod.rs".to_string(),
+                "layout/src/solver3/fc.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        nodes.insert("position-sticky".to_string(), SkillNode {
+            id: "position-sticky".to_string(),
+            name: "Sticky Positioning".to_string(),
+            description: "position: sticky constraint box and scroll-based offset".to_string(),
+            difficulty: 4,
+            depends_on: vec![
+                "positioning".to_string(),
+                "overflow".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/css-position-3/#sticky-pos".to_string(),
+            ],
+            keywords: vec![
+                "sticky", "position: sticky", "constraint rectangle",
+                "scroll container", "inset", "sticky-constraint",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/fc.rs".to_string(),
+                "layout/src/solver3/mod.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        nodes.insert("display-contents".to_string(), SkillNode {
+            id: "display-contents".to_string(),
+            name: "Display Contents".to_string(),
+            description: "display: contents — element generates no box, children promoted".to_string(),
+            difficulty: 3,
+            depends_on: vec![
+                "display-property".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/css-display-3/#valdef-display-contents".to_string(),
+            ],
+            keywords: vec![
+                "display: contents", "no box", "replaced element",
+                "promoted children", "box generation",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/layout_tree.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: false,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
+        // ============================================================
+        // TIER 5 (lower priority): Writing Modes
+        // ============================================================
+
+        nodes.insert("writing-modes".to_string(), SkillNode {
+            id: "writing-modes".to_string(),
+            name: "Writing Modes".to_string(),
+            description: "Block/inline axis mapping, direction, writing-mode".to_string(),
+            difficulty: 5,
+            depends_on: vec![
+                "block-formatting-context".to_string(),
+                "inline-formatting-context".to_string(),
+            ],
+            spec_urls: vec![
+                "https://www.w3.org/TR/css-writing-modes-4/".to_string(),
+            ],
+            keywords: vec![
+                "writing-mode", "direction", "text-orientation",
+                "block axis", "inline axis", "logical properties",
+                "horizontal-tb", "vertical-rl", "vertical-lr",
+            ].into_iter().map(String::from).collect(),
+            source_files: vec![
+                "layout/src/solver3/fc.rs".to_string(),
+                "layout/src/solver3/geometry.rs".to_string(),
+            ],
+            source_functions: vec![],
+            needs_text_engine: true,
+            spec_sections: vec![],
+            status: VerificationStatus::NotStarted,
+            found_annotations: vec![],
+        });
+
         // NOTE: Flexbox and Grid are excluded - handled by taffy library (well-tested)
-        
+
         // ============================================================
         // TIER 5: Tables (difficulty 5)
         // ============================================================
@@ -527,6 +815,7 @@ impl SkillTree {
             depends_on: vec![
                 "block-formatting-context".to_string(),
                 "intrinsic-sizing".to_string(),
+                "width-calculation".to_string(),
             ],
             spec_urls: vec![
                 "https://www.w3.org/TR/CSS22/tables.html".to_string(),
