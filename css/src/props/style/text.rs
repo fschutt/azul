@@ -157,6 +157,7 @@ impl PrintAsCssValue for StyleWordSpacing {
 pub struct StyleLineHeight {
     pub inner: PercentageValue,
 }
+// +spec:inline-block-p033 - §10.8.1: 'normal' line-height defaults to 1.2 (within recommended 1.0-1.2 range)
 impl Default for StyleLineHeight {
     fn default() -> Self {
         Self {

@@ -736,6 +736,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 }
 
 // +spec:containing-block-p001 - static/relative: CB is content edge of nearest block container ancestor
+// +spec:inline-block-p035 - §10.1: inline-block is a block container so it qualifies as a containing block for descendants
 fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,

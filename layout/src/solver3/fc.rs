@@ -5957,6 +5957,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 run_index: content.len() as u32,
                 item_index: 0,
             };
+            // +spec:inline-block-p036 - §10.8.1: "For all other elements [non inline non-replaced],
+            // the box used for alignment is the margin box" - using margin_box_width/height here
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
                     size: crate::text3::cache::Size {

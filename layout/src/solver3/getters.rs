@@ -1999,6 +1999,7 @@ pub fn get_computed_display(
 
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
+// +spec:inline-block-p036 - §10.8.1: vertical-align conversion (keyword values only; <percentage>/<length> not yet supported)
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -2185,7 +2186,7 @@ pub fn get_style_properties(
                 .get_line_height(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| v.inner.normalized() * font_size)
-                .unwrap_or(font_size * 1.2)
+                .unwrap_or(font_size * 1.2) // +spec:inline-block-p033 - §10.8.1: 'normal' line-height recommended 1.0-1.2
         })
     };
 
