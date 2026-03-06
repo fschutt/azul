@@ -982,6 +982,12 @@ pub fn cmd_groups_json(
     writeln!(f, "- Are completely superseded by another patch in the same group").unwrap();
     writeln!(f, "- Have hallucinated APIs or fundamentally wrong logic\n").unwrap();
 
+    writeln!(f, "### Task 5: Size limits").unwrap();
+    writeln!(f, "- No group should contain more than 15 CODE patches.").unwrap();
+    writeln!(f, "- If >15 independent CODE patches remain, split them by feature prefix").unwrap();
+    writeln!(f, "  (e.g. all `width-calculation_*` in one group, all `line-breaking_*` in another).").unwrap();
+    writeln!(f, "- ANNOT-only groups may be arbitrarily large (they use a fast-path).\n").unwrap();
+
     // Stats
     writeln!(f, "## Patch Inventory\n").unwrap();
     writeln!(f, "- Total patches: {}", patches.len()).unwrap();
@@ -1208,16 +1214,25 @@ pub fn cmd_agent_apply(
 
     for group in &groups {
         // Skip groups we already processed in a previous run
-        if group_results.iter().any(|r| r.group_id == group.group_id) {
-            let prev = group_results.iter().find(|r| r.group_id == group.group_id).unwrap();
+        if let Some(prev) = group_results.iter().find(|r| r.group_id == group.group_id) {
             match prev.outcome.as_str() {
-                "applied" => applied += prev.patch_count,
-                "skipped" => skipped += prev.patch_count,
-                "failed" => failed += prev.patch_count,
-                _ => {}
+                "applied" | "skipped" | "failed" => {
+                    match prev.outcome.as_str() {
+                        "applied" => applied += prev.patch_count,
+                        "skipped" => skipped += prev.patch_count,
+                        "failed" => failed += prev.patch_count,
+                        _ => {}
+                    }
+                    println!("  [group {}] already {} (previous run)", group.group_id, prev.outcome);
+                    continue;
+                }
+                // "partial" or "in_progress" — remove stale entry and re-process
+                // (sub-group tags handle fine-grained resume)
+                other => {
+                    println!("  [group {}] previous run was '{}', re-processing...", group.group_id, other);
+                    group_results.retain(|r| r.group_id != group.group_id);
+                }
             }
-            println!("  [group {}] already {} (previous run)", group.group_id, prev.outcome);
-            continue;
         }
 
         match group.action.as_str() {
@@ -1233,6 +1248,7 @@ pub fn cmd_agent_apply(
                     outcome: "skipped".to_string(),
                     commits: 0,
                     reason: Some("SKIP action in groups.json".to_string()),
+                    sub_results: None,
                 });
                 save_status(&status_path, &group_results);
                 continue;
@@ -1249,6 +1265,7 @@ pub fn cmd_agent_apply(
                     outcome: "skipped".to_string(),
                     commits: 0,
                     reason: Some(format!("Unknown action '{}'", other)),
+                    sub_results: None,
                 });
                 save_status(&status_path, &group_results);
                 continue;
@@ -1289,11 +1306,216 @@ pub fn cmd_agent_apply(
                 outcome: "failed".to_string(),
                 commits: 0,
                 reason: Some("Missing patch file(s)".to_string()),
+                sub_results: None,
             });
             save_status(&status_path, &group_results);
             continue;
         }
 
+        // Detect annotation-only group (same logic as build_apply_prompt)
+        let is_annot_only = group.agent_context.as_deref()
+            .map(|ctx| ctx.contains("annotation comment") || ctx.contains("// +spec:"))
+            .unwrap_or(false)
+            && group.action == "APPLY"
+            && patch_contents.len() > 10;
+
+        // ── Large-group splitting by feature prefix ──────────────────
+        if group.action == "APPLY" && patch_contents.len() > 15 && !is_annot_only {
+            use std::collections::BTreeMap;
+
+            println!("  [group {}] APPLY {} patches (splitting by feature prefix)",
+                group.group_id, patch_contents.len());
+
+            // Group patches by feature prefix
+            let mut by_feature: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+            for (name, content) in &patch_contents {
+                let feature = name.find('_')
+                    .map(|i| name[..i].to_string())
+                    .unwrap_or_else(|| "misc".to_string());
+                by_feature.entry(feature).or_default().push((name.clone(), content.clone()));
+            }
+
+            let feature_names: Vec<String> = by_feature.keys().cloned().collect();
+            println!("    -> {} sub-groups: {}", feature_names.len(),
+                feature_names.iter().map(|f| format!("{}({})", f, by_feature[f].len()))
+                    .collect::<Vec<_>>().join(", "));
+
+            // Run refactoring prep agent first (if refactor content is available)
+            let refactor_tag = format!("agent-apply/group-{}-refactor", group.group_id);
+            let refactor_done = {
+                let output = Command::new("git")
+                    .args(["tag", "-l", &refactor_tag])
+                    .current_dir(workspace_root)
+                    .output();
+                matches!(output, Ok(o) if !o.stdout.is_empty())
+            };
+
+            if refactor_content.is_some() && !refactor_done {
+                println!("    -> running refactoring prep sub-agent...");
+                let refactor_prompt = build_refactor_prep_prompt(
+                    &feature_names,
+                    refactor_content.as_deref(),
+                    workspace_root,
+                );
+                let head_before_refactor = get_git_head(workspace_root);
+                let refactor_ok = run_apply_agent(
+                    &refactor_prompt, workspace_root, group.group_id,
+                )?;
+                let refactor_commits = count_commits_since(workspace_root, &head_before_refactor);
+                if refactor_ok && refactor_commits > 0 {
+                    let _ = Command::new("git")
+                        .args(["tag", &refactor_tag])
+                        .current_dir(workspace_root)
+                        .output();
+                    println!("    -> refactor prep: {} commit(s), tagged as {}", refactor_commits, refactor_tag);
+                } else {
+                    println!("    -> refactor prep: no commits (ok, continuing with feature sub-groups)");
+                }
+            } else if refactor_done {
+                println!("    -> refactor prep already done (tag exists)");
+            }
+
+            // Process each feature sub-group
+            let mut sub_results: Vec<SubGroupResult> = Vec::new();
+            let mut total_sub_commits = 0usize;
+            let mut total_sub_applied = 0usize;
+            let mut total_sub_failed = 0usize;
+
+            for (feature, sub_patches) in &by_feature {
+                // Check if already done (resume support)
+                if is_sub_group_done(workspace_root, group.group_id, feature) {
+                    println!("    [sub:{}] already done (tag exists), skipping", feature);
+                    total_sub_applied += sub_patches.len();
+                    sub_results.push(SubGroupResult {
+                        feature: feature.clone(),
+                        patches: sub_patches.iter().map(|(n, _)| n.clone()).collect(),
+                        outcome: "applied".to_string(),
+                        commits: 0, // unknown from previous run
+                        tag: Some(format!("agent-apply/group-{}-{}", group.group_id, feature)),
+                        reason: Some("resumed: tag already existed".to_string()),
+                    });
+                    continue;
+                }
+
+                println!("    [sub:{}] applying {} patches...", feature, sub_patches.len());
+
+                let head_before_sub = get_git_head(workspace_root);
+
+                // Build a synthetic MergeGroup for this sub-group
+                let sub_group = MergeGroup {
+                    group_id: group.group_id,
+                    action: "APPLY".to_string(),
+                    patches: sub_patches.iter().map(|(n, _)| n.clone()).collect(),
+                    preferred: None,
+                    agent_context: group.agent_context.clone(),
+                    notes: group.notes.clone(),
+                };
+
+                let sub_prompt = build_apply_prompt(
+                    &sub_group,
+                    sub_patches,
+                    refactor_content.as_deref(),
+                    review_content.as_deref(),
+                    arch_content.as_deref(),
+                    workspace_root,
+                );
+
+                let sub_ok = run_apply_agent(&sub_prompt, workspace_root, group.group_id)?;
+                let sub_commit_count = count_commits_since(workspace_root, &head_before_sub);
+
+                let sub_tag_name = format!("agent-apply/group-{}-{}", group.group_id, feature);
+
+                if sub_ok && sub_commit_count > 0 {
+                    total_sub_applied += sub_patches.len();
+                    total_sub_commits += sub_commit_count;
+
+                    let _ = Command::new("git")
+                        .args(["tag", &sub_tag_name])
+                        .current_dir(workspace_root)
+                        .output();
+                    println!("    [sub:{}] -> {} commit(s), tagged {}", feature, sub_commit_count, sub_tag_name);
+
+                    sub_results.push(SubGroupResult {
+                        feature: feature.clone(),
+                        patches: sub_patches.iter().map(|(n, _)| n.clone()).collect(),
+                        outcome: "applied".to_string(),
+                        commits: sub_commit_count,
+                        tag: Some(sub_tag_name),
+                        reason: None,
+                    });
+                } else {
+                    // Check for partial success or token exhaustion
+                    let reason = if sub_commit_count > 0 {
+                        total_sub_applied += sub_patches.len(); // partial counts as progress
+                        total_sub_commits += sub_commit_count;
+                        let _ = Command::new("git")
+                            .args(["tag", &sub_tag_name])
+                            .current_dir(workspace_root)
+                            .output();
+                        format!("partial: agent failed but made {} commit(s)", sub_commit_count)
+                    } else {
+                        total_sub_failed += sub_patches.len();
+                        "Agent exited without making any commits".to_string()
+                    };
+                    println!("    [sub:{}] -> FAILED: {}", feature, reason);
+
+                    sub_results.push(SubGroupResult {
+                        feature: feature.clone(),
+                        patches: sub_patches.iter().map(|(n, _)| n.clone()).collect(),
+                        outcome: if sub_commit_count > 0 { "partial".to_string() } else { "failed".to_string() },
+                        commits: sub_commit_count,
+                        tag: if sub_commit_count > 0 { Some(sub_tag_name) } else { None },
+                        reason: Some(reason),
+                    });
+                }
+
+                // Save status after each sub-group for resume support
+                // We save a temporary group result that gets replaced at the end
+                let temp_result = AgentApplyGroupResult {
+                    group_id: group.group_id,
+                    action: group.action.clone(),
+                    patches: group.patches.clone(),
+                    patch_count: active_patches.len(),
+                    outcome: "in_progress".to_string(),
+                    commits: total_sub_commits,
+                    reason: None,
+                    sub_results: Some(sub_results.clone()),
+                };
+                let mut temp_results = group_results.clone();
+                temp_results.push(temp_result);
+                save_status(&status_path, &temp_results);
+            }
+
+            // Final group result for the split group
+            let overall_outcome = if total_sub_failed == 0 {
+                "applied"
+            } else if total_sub_applied > 0 {
+                "partial"
+            } else {
+                "failed"
+            };
+
+            applied += total_sub_applied;
+            failed += total_sub_failed;
+
+            println!("    [group {}] split complete: {} applied, {} failed, {} total commits",
+                group.group_id, total_sub_applied, total_sub_failed, total_sub_commits);
+
+            group_results.push(AgentApplyGroupResult {
+                group_id: group.group_id,
+                action: group.action.clone(),
+                patches: group.patches.clone(),
+                patch_count: active_patches.len(),
+                outcome: overall_outcome.to_string(),
+                commits: total_sub_commits,
+                reason: None,
+                sub_results: Some(sub_results),
+            });
+            save_status(&status_path, &group_results);
+            continue;
+        }
+
+        // ── Normal (non-split) path ──────────────────────────────────
         println!("  [group {}] {} {} patches: {}",
             group.group_id,
             group.action,
@@ -1323,6 +1545,22 @@ pub fn cmd_agent_apply(
         if agent_ok && commit_count > 0 {
             applied += active_patches.len();
             println!("    -> {} new commit(s)", commit_count);
+
+            // Tag HEAD so we can trace which commits belong to this group
+            let tag_name = format!("agent-apply/group-{}", group.group_id);
+            let tag_result = Command::new("git")
+                .args(["tag", &tag_name])
+                .current_dir(workspace_root)
+                .output();
+            match tag_result {
+                Ok(o) if o.status.success() => {
+                    println!("    -> tagged as {}", tag_name);
+                }
+                _ => {
+                    eprintln!("    -> warning: failed to create tag {}", tag_name);
+                }
+            }
+
             group_results.push(AgentApplyGroupResult {
                 group_id: group.group_id,
                 action: group.action.clone(),
@@ -1331,6 +1569,7 @@ pub fn cmd_agent_apply(
                 outcome: "applied".to_string(),
                 commits: commit_count,
                 reason: None,
+                sub_results: None,
             });
         } else {
             failed += active_patches.len();
@@ -1345,9 +1584,10 @@ pub fn cmd_agent_apply(
                 action: group.action.clone(),
                 patches: group.patches.clone(),
                 patch_count: active_patches.len(),
-                outcome: "failed".to_string(),
+                outcome: if commit_count > 0 { "partial".to_string() } else { "failed".to_string() },
                 commits: commit_count,
                 reason: Some(reason),
+                sub_results: None,
             });
         }
         save_status(&status_path, &group_results);
@@ -1376,14 +1616,28 @@ struct MergeGroup {
     notes: Option<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct AgentApplyGroupResult {
     group_id: usize,
     action: String,
     patches: Vec<String>,
     patch_count: usize,
+    outcome: String, // "applied", "skipped", "failed", "partial"
+    commits: usize,
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sub_results: Option<Vec<SubGroupResult>>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct SubGroupResult {
+    feature: String,
+    patches: Vec<String>,
     outcome: String, // "applied", "skipped", "failed"
     commits: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
 }
 
@@ -1423,6 +1677,73 @@ fn count_commits_since(workspace_root: &Path, since_ref: &str) -> usize {
             None
         })
         .unwrap_or(0)
+}
+
+fn is_sub_group_done(workspace_root: &Path, group_id: usize, feature: &str) -> bool {
+    let tag = format!("agent-apply/group-{}-{}", group_id, feature);
+    let output = Command::new("git")
+        .args(["tag", "-l", &tag])
+        .current_dir(workspace_root)
+        .output();
+    matches!(output, Ok(o) if !o.stdout.is_empty())
+}
+
+fn detect_failure_reason(stdout: &str) -> Option<String> {
+    let token_patterns = [
+        "token limit",
+        "context window",
+        "rate limit",
+        "maximum output length",
+    ];
+    for pat in &token_patterns {
+        if stdout.to_lowercase().contains(pat) {
+            return Some(format!("token_exhaustion (matched: '{}')", pat));
+        }
+    }
+    None
+}
+
+fn build_refactor_prep_prompt(
+    features: &[String],
+    refactor_content: Option<&str>,
+    workspace_root: &Path,
+) -> String {
+    let mut prompt = String::new();
+    prompt.push_str("You are preparing a CSS layout engine (Rust) for a batch of spec patches.\n");
+    prompt.push_str(&format!("Working directory: {}\n\n", workspace_root.display()));
+
+    prompt.push_str("## CRITICAL RULES\n\n");
+    prompt.push_str("1. DO NOT cd TO ANY OTHER DIRECTORY. Stay in the working directory.\n");
+    prompt.push_str("2. Compile with: `cargo check -p azul-dll --features build-dll`\n");
+    prompt.push_str("3. Commit messages: `refactor(<area>): <what it does>`\n\n");
+
+    prompt.push_str("## Task\n\n");
+    prompt.push_str("Perform structural refactoring to prepare the codebase for the following features:\n\n");
+    for f in features {
+        prompt.push_str(&format!("- `{}`\n", f));
+    }
+    prompt.push_str("\n");
+
+    prompt.push_str("This is a **prep-only** step. Do NOT implement any spec features.\n");
+    prompt.push_str("Focus on:\n");
+    prompt.push_str("- Extracting helpers that multiple features will need\n");
+    prompt.push_str("- Adding enums or types that patches will reference\n");
+    prompt.push_str("- Cleaning up code regions that will be modified\n\n");
+
+    if let Some(refactor) = refactor_content {
+        prompt.push_str("## Refactoring Plan\n\n");
+        prompt.push_str(refactor);
+        prompt.push_str("\n\n");
+    }
+
+    prompt.push_str("## Workflow\n\n");
+    prompt.push_str("1. Read the refactoring plan above\n");
+    prompt.push_str("2. Read the current source files in `layout/src/solver3/`\n");
+    prompt.push_str("3. Make targeted structural changes\n");
+    prompt.push_str("4. Compile: `cargo check -p azul-dll --features build-dll`\n");
+    prompt.push_str("5. Commit: `refactor: prep for <features>`\n\n");
+
+    prompt
 }
 
 fn extract_json_from_plan(content: &str) -> Result<String, String> {
@@ -1563,18 +1884,6 @@ fn build_apply_prompt(
             prompt.push_str("## Task Type: APPLY\n\n");
             prompt.push_str("Apply the following patch(es) to the codebase. These are independent patches\n");
             prompt.push_str("that don't conflict with each other.\n\n");
-            if patch_contents.len() > 15 {
-                prompt.push_str("### Large group: sub-batch by feature\n\n");
-                prompt.push_str("This group has many patches. Process them in sub-batches grouped by feature\n");
-                prompt.push_str("(the prefix before `_` in the patch name, e.g. `width-calculation_002` → `width-calculation`).\n");
-                prompt.push_str("For each feature sub-batch:\n");
-                prompt.push_str("1. Read all patches for that feature\n");
-                prompt.push_str("2. Read the target source file(s)\n");
-                prompt.push_str("3. Apply all patches for that feature\n");
-                prompt.push_str("4. Compile check: `cargo check -p azul-dll --features build-dll`\n");
-                prompt.push_str("5. Commit the feature sub-batch: `spec(<feature>): <summary>`\n\n");
-                prompt.push_str("This prevents context overload and ensures each commit compiles.\n\n");
-            }
         }
         "PICK_ONE" => {
             prompt.push_str("## Task Type: PICK_ONE\n\n");
@@ -1812,8 +2121,8 @@ fn run_apply_agent(
         let _ = stdin.write_all(prompt.as_bytes());
     }
 
-    // Wait with timeout (10 minutes)
-    let timeout = Duration::from_secs(600);
+    // Wait with timeout (60 minutes)
+    let timeout = Duration::from_secs(3600);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -1827,6 +2136,11 @@ fn run_apply_agent(
                     .unwrap_or_default();
 
                 let _ = fs::write(&result_path, &stdout);
+
+                // Detect token exhaustion or rate limits in output
+                if let Some(failure_reason) = detect_failure_reason(&stdout) {
+                    println!("    -> DETECTED: {} ({}s)", failure_reason, elapsed);
+                }
 
                 if status.success() {
                     println!("    -> OK ({}s)", elapsed);
