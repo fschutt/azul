@@ -47,7 +47,7 @@ use azul_css::{
             ColumnCount, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
             LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
             LayoutTextJustify, LayoutWidth, LayoutWritingMode, ShapeInside, ShapeOutside,
-            StyleBorderCollapse, StyleCaptionSide,
+            StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
         },
         property::CssProperty,
         style::{
@@ -3552,6 +3552,28 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
     LayoutBorderSpacing::default() // Default: 0
 }
 
+// +spec:box-model-p012 - §17.6.1.1: empty-cells property getter (show|hide, default show, inherited)
+/// Get the empty-cells property for a table-cell node.
+/// Returns Show (default) or Hide.
+fn get_empty_cells_property<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
+) -> StyleEmptyCells {
+    let Some(dom_id) = node.dom_node_id else {
+        return StyleEmptyCells::Show;
+    };
+
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = StyledNodeState::default();
+
+    ctx.styled_dom
+        .css_property_cache
+        .ptr
+        .get_empty_cells(node_data, &dom_id, &node_state)
+        .and_then(|prop| prop.get_property().copied())
+        .unwrap_or(StyleEmptyCells::Show)
+}
+
 /// CSS 2.2 Section 17.4 - Tables in the visual formatting model:
 ///
 /// "The caption box is a block box that retains its own content, padding,
@@ -3608,6 +3630,8 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
     false
 }
 
+// +spec:box-model-p010 - §17.6.1.1: empty-cells controls rendering in separated border model
+// +spec:box-model-p012 - §17.6.1.1: empty-cells show|hide; 'show' draws borders/bg, 'hide' draws nothing
 /// CSS 2.2 Section 17.6.1.1 - Borders and Backgrounds around empty cells
 ///
 /// In the separated borders model, the 'empty-cells' property controls the rendering of
@@ -3619,6 +3643,8 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 /// This is used by the rendering pipeline to decide whether to paint borders/backgrounds
 /// when empty-cells: hide is set in separated border model.
 ///
+// +spec:box-model-p012 - §17.6.1.1: cell is empty unless it contains floating content,
+//   in-flow content (including empty elements) other than collapsed whitespace
 /// A cell is considered empty if:
 ///
 /// - It has no children, OR
@@ -3909,7 +3935,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         )?;
         caption_height = caption_result.output.overflow_size.height;
 
-        // Position caption based on caption-side property
+        // +spec:box-model-p019 - §17.4.1: caption-side top positions caption above table box, bottom positions below
         let caption_position = match caption_side {
             StyleCaptionSide::Top => {
                 // Caption on top: position at y=0, table starts below caption
@@ -4865,6 +4891,38 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         }
     }
 
+    // +spec:box-model-p012 - §17.6.1.1: if all cells in a row have empty-cells:hide and no
+    //   visible content, the row has zero height and v-spacing on only one side
+    if table_ctx.border_collapse == StyleBorderCollapse::Separate {
+        for row_idx in 0..table_ctx.num_rows {
+            if table_ctx.collapsed_rows.contains(&row_idx) {
+                continue;
+            }
+            // Collect cells in this row
+            let row_cells: Vec<usize> = table_ctx
+                .cells
+                .iter()
+                .filter(|c| c.row == row_idx && c.rowspan == 1)
+                .map(|c| c.node_index)
+                .collect();
+            if row_cells.is_empty() {
+                continue;
+            }
+            // Check if ALL cells in this row have empty-cells:hide and are empty
+            let all_hidden_empty = row_cells.iter().all(|&cell_idx| {
+                if let Some(cell_node) = tree.get(cell_idx) {
+                    let ec = get_empty_cells_property(ctx, cell_node);
+                    ec == StyleEmptyCells::Hide && is_cell_empty(tree, cell_idx)
+                } else {
+                    true
+                }
+            });
+            if all_hidden_empty {
+                table_ctx.row_heights[row_idx] = 0.0;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -4880,6 +4938,12 @@ fn position_table_cells<T: ParsedFontTrait>(
 
     let mut positions = BTreeMap::new();
 
+    // +spec:box-model-p012 - §17.6.1: in separated model, each cell has individual border;
+    //   rows, columns, row groups, column groups cannot have borders (UA must ignore border props);
+    //   row/column/rowgroup/colgroup backgrounds are invisible in border-spacing area (table bg shows through);
+    //   distance from table edge to edge-cell border = table padding + border-spacing
+    //   (table padding is already accounted for by the containing block; h_spacing is the border-spacing)
+    // +spec:box-model-p013 - §17.6.1: distance from table border to edge cells = padding + border-spacing
     // Get border spacing values if border-collapse is separate
     let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
         let styled_dom = ctx.styled_dom;
