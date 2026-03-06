@@ -166,6 +166,8 @@ pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
     }
 }
 
+// +spec:positioning-p011 - CSS Grid §9.1: abspos grid items use grid-placement properties
+// to determine their CB; Taffy's Position::Absolute handles this for both flex and grid
 pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutPosition::Absolute => taffy::Position::Absolute,
@@ -246,9 +248,10 @@ pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignIt
     }
 }
 
+// +spec:positioning-p044 - Flexbox change: align-self auto on abspos elements computes to itself (not inherited from parent's align-items); Taffy handles this internally
 pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items
+        LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items (for non-abspos; abspos auto computes to itself per spec)
         LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
         LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
         LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center), // +spec:box-model-p041 - §8.3 center: margin box centered in cross axis
@@ -463,6 +466,7 @@ fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto
     }
 }
 
+// +spec:positioning-p044 - Flexbox change: percentage margins/paddings on flex items resolved against own axis or inline axis (implementation-defined; Taffy resolves against inline axis)
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto for margins
 // CSS spec: margin initial value is 0, but `auto` has special centering meaning in flexbox
 fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
@@ -1044,6 +1048,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             });
+        // +spec:positioning-p044 - Flexbox change: justify-self auto on abspos elements computes to itself (Taffy handles abspos case internally)
         taffy_style.justify_self = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
             .and_then(|p| {

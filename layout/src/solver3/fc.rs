@@ -409,6 +409,10 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
 }
 
 // Flex / grid layout (taffy Bridge)
+// +spec:positioning-p011 - CSS Grid §9/§9.1: abspos elements in a grid container have their
+// containing block determined by grid-placement properties; Taffy handles this internally
+// (grid auto-placement §8.5 and abspos grid items use grid-area CB, not just padding box)
+// +spec:positioning-p044 - Flexbox substantive changes: min/max constraints handled in flex item sizing; available space from definite container size or by subtracting margin/border/padding
 
 /// Lays out a Flex or Grid formatting context using the Taffy layout engine.
 ///
@@ -429,6 +433,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<BfcLayoutResult> {
+    // +spec:positioning-p044 - Flexbox §9.2: determine available main/cross space — definite container content-box used directly; otherwise subtract container margin/border/padding from available space
     // Available space comes directly from constraints - margins are handled by Taffy
     let available_space = TaffySize {
         width: AvailableSpace::Definite(constraints.available_size.width),
