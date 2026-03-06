@@ -1687,19 +1687,18 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // +spec:width-calculation-p033 - §10.3.3: over-constrained case (no auto values);
                 // in LTR, margin-right is ignored (element positioned at margin-left);
                 // in RTL, margin-left is ignored (element positioned from right edge)
-                let is_rtl = child_dom_id_for_debug.map_or(false, |dom_id| {
-                    let parent_dom_id = tree.get(node_index)
-                        .and_then(|n| n.dom_node_id);
-                    let containing_block_dom_id = parent_dom_id.unwrap_or(dom_id);
-                    let node_state = ctx.styled_dom.styled_nodes.as_container()
-                        .get(containing_block_dom_id)
-                        .map(|s| s.styled_node_state.clone())
-                        .unwrap_or_default();
-                    matches!(
-                        get_direction_property(ctx.styled_dom, containing_block_dom_id, &node_state),
-                        MultiValue::Exact(StyleDirection::Rtl)
-                    )
-                });
+                let is_rtl = tree.get(node_index)
+                    .and_then(|n| n.dom_node_id)
+                    .map_or(false, |cb_dom_id| {
+                        let node_state = ctx.styled_dom.styled_nodes.as_container()
+                            .get(cb_dom_id)
+                            .map(|s| s.styled_node_state.clone())
+                            .unwrap_or_default();
+                        matches!(
+                            get_direction_property(ctx.styled_dom, cb_dom_id, &node_state),
+                            MultiValue::Exact(StyleDirection::Rtl)
+                        )
+                    });
                 let cross_pos = if is_rtl {
                     // RTL: ignore margin-left, position from right edge
                     available_cross - child_cross_size - child_margin.cross_end(writing_mode)
