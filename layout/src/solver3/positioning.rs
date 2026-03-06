@@ -319,6 +319,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             }
 
             // +spec:width-calculation-p036 - §10.3.7: horizontal constraint for abspos non-replaced elements
+            // +spec:width-calculation-p002 - §10.3.7: horizontal constraint equation for absolutely positioned, non-replaced elements
+            // +spec:width-calculation-p001 - §10.3.7/§10.3.8: horizontal constraint for abs-pos elements
+            // +spec:width-calculation-p010 - §10.3.8: abs-pos replaced elements use inline replaced width; auto margins resolved by horizontal constraint
+            // +spec:width-calculation-p032 - §10.3.8: abs-pos replaced elements with both margins auto, solve with equal values
+            // +spec:width-calculation-p050 - §10.3.7: horizontal constraint for absolutely positioned, non-replaced elements
             // Constraint: left + margin-left + border-left + padding-left + width +
             //   padding-right + border-right + margin-right + right = CB width
             // Since element_size.width is border-box (border + padding + content),
