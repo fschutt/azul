@@ -379,9 +379,9 @@ impl PrintAsCssValue for StyleTextDecoration {
 
 // -- StyleVerticalAlign --
 
-/// Vertical text alignment enum (top, center, bottom) - default: `Top`
+/// CSS 2.2 §10.8.1 vertical-align property values
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum StyleVerticalAlign {
     /// CSS default - align baselines
     Baseline,
@@ -399,6 +399,10 @@ pub enum StyleVerticalAlign {
     TextTop,
     /// Align bottom with bottom of parent's font
     TextBottom,
+    /// <percentage> refers to line-height of the element itself
+    Percentage(PercentageValue),
+    /// <length> offset from baseline
+    Length(PixelValue),
 }
 
 impl_option!(
@@ -414,32 +418,35 @@ impl Default for StyleVerticalAlign {
 }
 impl PrintAsCssValue for StyleVerticalAlign {
     fn print_as_css_value(&self) -> String {
-        String::from(match self {
-            StyleVerticalAlign::Baseline => "baseline",
-            StyleVerticalAlign::Top => "top",
-            StyleVerticalAlign::Middle => "middle",
-            StyleVerticalAlign::Bottom => "bottom",
-            StyleVerticalAlign::Sub => "sub",
-            StyleVerticalAlign::Superscript => "super",
-            StyleVerticalAlign::TextTop => "text-top",
-            StyleVerticalAlign::TextBottom => "text-bottom",
-        })
+        match self {
+            StyleVerticalAlign::Baseline => String::from("baseline"),
+            StyleVerticalAlign::Top => String::from("top"),
+            StyleVerticalAlign::Middle => String::from("middle"),
+            StyleVerticalAlign::Bottom => String::from("bottom"),
+            StyleVerticalAlign::Sub => String::from("sub"),
+            StyleVerticalAlign::Superscript => String::from("super"),
+            StyleVerticalAlign::TextTop => String::from("text-top"),
+            StyleVerticalAlign::TextBottom => String::from("text-bottom"),
+            StyleVerticalAlign::Percentage(p) => format!("{}%", p.normalized() * 100.0),
+            StyleVerticalAlign::Length(l) => l.print_as_css_value(),
+        }
     }
 }
 
 impl crate::format_rust_code::FormatAsRustCode for StyleVerticalAlign {
-    fn format_as_rust_code(&self, _: usize) -> String {
+    fn format_as_rust_code(&self, indent: usize) -> String {
         match self {
-            StyleVerticalAlign::Baseline => "StyleVerticalAlign::Baseline",
-            StyleVerticalAlign::Top => "StyleVerticalAlign::Top",
-            StyleVerticalAlign::Middle => "StyleVerticalAlign::Middle",
-            StyleVerticalAlign::Bottom => "StyleVerticalAlign::Bottom",
-            StyleVerticalAlign::Sub => "StyleVerticalAlign::Sub",
-            StyleVerticalAlign::Superscript => "StyleVerticalAlign::Superscript",
-            StyleVerticalAlign::TextTop => "StyleVerticalAlign::TextTop",
-            StyleVerticalAlign::TextBottom => "StyleVerticalAlign::TextBottom",
+            StyleVerticalAlign::Baseline => "StyleVerticalAlign::Baseline".to_string(),
+            StyleVerticalAlign::Top => "StyleVerticalAlign::Top".to_string(),
+            StyleVerticalAlign::Middle => "StyleVerticalAlign::Middle".to_string(),
+            StyleVerticalAlign::Bottom => "StyleVerticalAlign::Bottom".to_string(),
+            StyleVerticalAlign::Sub => "StyleVerticalAlign::Sub".to_string(),
+            StyleVerticalAlign::Superscript => "StyleVerticalAlign::Superscript".to_string(),
+            StyleVerticalAlign::TextTop => "StyleVerticalAlign::TextTop".to_string(),
+            StyleVerticalAlign::TextBottom => "StyleVerticalAlign::TextBottom".to_string(),
+            StyleVerticalAlign::Percentage(p) => format!("StyleVerticalAlign::Percentage(PercentageValue::new({}))", p.normalized() * 100.0),
+            StyleVerticalAlign::Length(l) => format!("StyleVerticalAlign::Length({})", l),
         }
-        .to_string()
     }
 }
 
@@ -1595,9 +1602,19 @@ pub fn parse_style_vertical_align(
         "super" => Ok(StyleVerticalAlign::Superscript),
         "text-top" => Ok(StyleVerticalAlign::TextTop),
         "text-bottom" => Ok(StyleVerticalAlign::TextBottom),
-        other => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
-            other,
-        ))),
+        other if other.ends_with('%') => {
+            let num_str = other.trim_end_matches('%').trim();
+            match num_str.parse::<f32>() {
+                Ok(val) => Ok(StyleVerticalAlign::Percentage(PercentageValue::new(val))),
+                Err(_) => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
+            }
+        }
+        other => match crate::props::basic::pixel::parse_pixel_value(other) {
+            Ok(pv) => Ok(StyleVerticalAlign::Length(pv)),
+            Err(_) => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
+                other,
+            ))),
+        },
     }
 }
 

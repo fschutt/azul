@@ -2799,6 +2799,22 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         StyleVerticalAlign::Superscript => text3::cache::VerticalAlign::Super,
         StyleVerticalAlign::TextTop => text3::cache::VerticalAlign::TextTop,
         StyleVerticalAlign::TextBottom => text3::cache::VerticalAlign::TextBottom,
+        // §10.8.1: <percentage> refers to line-height of the element itself
+        StyleVerticalAlign::Percentage(p) => {
+            let offset = p.normalized() * line_height_value.inner.normalized() * font_size;
+            text3::cache::VerticalAlign::Offset(offset)
+        }
+        // §10.8.1: <length> is absolute offset from baseline
+        StyleVerticalAlign::Length(l) => {
+            use azul_css::props::basic::SizeMetric;
+            let offset = match l.metric {
+                SizeMetric::Px => l.number.get(),
+                SizeMetric::Pt => l.number.get() * 1.333333,
+                SizeMetric::Em | SizeMetric::Rem => l.number.get() * font_size,
+                _ => 0.0,
+            };
+            text3::cache::VerticalAlign::Offset(offset)
+        }
     };
     let text_orientation = text3::cache::TextOrientation::default();
 
@@ -5053,7 +5069,9 @@ fn position_table_cells<T: ParsedFontTrait>(
                 | StyleVerticalAlign::Sub
                 | StyleVerticalAlign::Superscript
                 | StyleVerticalAlign::TextTop
-                | StyleVerticalAlign::TextBottom => 0.5,
+                | StyleVerticalAlign::TextBottom
+                | StyleVerticalAlign::Percentage(_)
+                | StyleVerticalAlign::Length(_) => 0.5,
             };
             let y_offset = (content_box_height - content_height) * align_factor;
 

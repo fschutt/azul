@@ -1970,6 +1970,26 @@ pub fn get_vertical_align_for_node(
         StyleVerticalAlign::Superscript => crate::text3::cache::VerticalAlign::Super,
         StyleVerticalAlign::TextTop => crate::text3::cache::VerticalAlign::TextTop,
         StyleVerticalAlign::TextBottom => crate::text3::cache::VerticalAlign::TextBottom,
+        // §10.8.1: <percentage> refers to line-height of the element itself
+        StyleVerticalAlign::Percentage(p) => {
+            let font_size = get_element_font_size(styled_dom, dom_id, node_state);
+            let line_height = get_line_height_value(styled_dom, dom_id, node_state)
+                .map(|lh| lh.inner.normalized() * font_size)
+                .unwrap_or(font_size * 1.2);
+            crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
+        }
+        // §10.8.1: <length> is absolute offset from baseline
+        StyleVerticalAlign::Length(l) => {
+            use azul_css::props::basic::SizeMetric;
+            let font_size = get_element_font_size(styled_dom, dom_id, node_state);
+            let px = match l.metric {
+                SizeMetric::Px => l.number.get(),
+                SizeMetric::Pt => l.number.get() * 1.333333,
+                SizeMetric::Em | SizeMetric::Rem => l.number.get() * font_size,
+                _ => 0.0,
+            };
+            crate::text3::cache::VerticalAlign::Offset(px)
+        }
     }
 }
 

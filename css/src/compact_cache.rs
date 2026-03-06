@@ -616,6 +616,8 @@ pub fn style_vertical_align_to_u8(v: StyleVerticalAlign) -> u8 {
         StyleVerticalAlign::Superscript => 5,
         StyleVerticalAlign::TextTop => 6,
         StyleVerticalAlign::TextBottom => 7,
+        // Percentage/Length cannot be stored in compact cache; fall back to 0 (Baseline)
+        StyleVerticalAlign::Percentage(_) | StyleVerticalAlign::Length(_) => 0,
     }
 }
 
