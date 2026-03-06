@@ -1818,6 +1818,23 @@ fn collect_box_props(
         left: to_pixel_value(padding_left_mv),
     };
 
+    // +spec:box-model-p018 - §17.5: "These boxes have content and borders and cells have padding as well."
+    // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
+    let unresolved_padding = match get_display_type(styled_dom, dom_id) {
+        LayoutDisplay::TableRow
+        | LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::TableColumnGroup => UnresolvedEdge {
+            top: PixelValue::const_px(0),
+            right: PixelValue::const_px(0),
+            bottom: PixelValue::const_px(0),
+            left: PixelValue::const_px(0),
+        },
+        _ => unresolved_padding,
+    };
+
     // Read border values
     let border_top_mv = get_css_border_top_width(styled_dom, dom_id, &node_state);
     let border_right_mv = get_css_border_right_width(styled_dom, dom_id, &node_state);
@@ -1830,6 +1847,26 @@ fn collect_box_props(
         right: to_pixel_value(border_right_mv),
         bottom: to_pixel_value(border_bottom_mv),
         left: to_pixel_value(border_left_mv),
+    };
+
+    // +spec:box-model-p019 - §17.5: internal table elements do not have margins
+    // "These boxes have content and borders and cells have padding as well.
+    //  Internal table elements do not have margins."
+    let display_type = get_display_type(styled_dom, dom_id);
+    let unresolved_margin = match display_type {
+        LayoutDisplay::TableRow
+        | LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup
+        | LayoutDisplay::TableCell
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::TableColumnGroup => UnresolvedEdge {
+            top: UnresolvedMargin::Zero,
+            right: UnresolvedMargin::Zero,
+            bottom: UnresolvedMargin::Zero,
+            left: UnresolvedMargin::Zero,
+        },
+        _ => unresolved_margin,
     };
 
     // Build the UnresolvedBoxProps
