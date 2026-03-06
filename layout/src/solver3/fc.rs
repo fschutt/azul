@@ -3912,14 +3912,17 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             viewport_size: PhysicalSize::new(0.0, 0.0),
         };
 
+        // +spec:box-model-p013 - §17.6.1: border-spacing lengths may not be negative
         let h_spacing = table_ctx
             .border_spacing
             .horizontal
-            .resolve_with_context(&spacing_context, PropertyContext::Other);
+            .resolve_with_context(&spacing_context, PropertyContext::Other)
+            .max(0.0);
         let v_spacing = table_ctx
             .border_spacing
             .vertical
-            .resolve_with_context(&spacing_context, PropertyContext::Other);
+            .resolve_with_context(&spacing_context, PropertyContext::Other)
+            .max(0.0);
 
         // Add spacing: left + (n-1 between columns) + right = n+1 spacings
         let num_cols = table_ctx.columns.len();
@@ -4997,15 +5000,18 @@ fn position_table_cells<T: ParsedFontTrait>(
             viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Get actual DPI scale from ctx
         };
 
+        // +spec:box-model-p013 - §17.6.1: border-spacing lengths may not be negative
         let h = table_ctx
             .border_spacing
             .horizontal
-            .resolve_with_context(&spacing_context, PropertyContext::Other);
+            .resolve_with_context(&spacing_context, PropertyContext::Other)
+            .max(0.0);
 
         let v = table_ctx
             .border_spacing
             .vertical
-            .resolve_with_context(&spacing_context, PropertyContext::Other);
+            .resolve_with_context(&spacing_context, PropertyContext::Other)
+            .max(0.0);
 
         (h, v)
     } else {
