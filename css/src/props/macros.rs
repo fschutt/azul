@@ -544,6 +544,10 @@ macro_rules! css_property_from_type {
             CssPropertyType::TextShadow => CssProperty::TextShadow(CssPropertyValue::$content_type),
             CssPropertyType::Direction => CssProperty::Direction(CssPropertyValue::$content_type),
             CssPropertyType::Hyphens => CssProperty::Hyphens(CssPropertyValue::$content_type),
+            CssPropertyType::WordBreak => CssProperty::WordBreak(CssPropertyValue::$content_type),
+            CssPropertyType::OverflowWrap => CssProperty::OverflowWrap(CssPropertyValue::$content_type),
+            CssPropertyType::LineBreak => CssProperty::LineBreak(CssPropertyValue::$content_type),
+            CssPropertyType::TextAlignLast => CssProperty::TextAlignLast(CssPropertyValue::$content_type),
             CssPropertyType::WhiteSpace => CssProperty::WhiteSpace(CssPropertyValue::$content_type),
             CssPropertyType::UserSelect => CssProperty::UserSelect(CssPropertyValue::$content_type),
             CssPropertyType::TextDecoration => {

@@ -331,6 +331,127 @@ impl PrintAsCssValue for StyleLineBreak {
     }
 }
 
+// -- StyleWordBreak --
+
+/// Controls line breaking rules within words.
+///
+/// CSS Text Level 3 §5.2: https://www.w3.org/TR/css-text-3/#word-break-property
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleWordBreak {
+    /// Use default line break rules.
+    Normal,
+    /// Allow break opportunities between any two characters (CJK and non-CJK).
+    BreakAll,
+    /// Forbid break opportunities within CJK character sequences.
+    KeepAll,
+}
+impl Default for StyleWordBreak {
+    fn default() -> Self {
+        StyleWordBreak::Normal
+    }
+}
+impl_option!(
+    StyleWordBreak,
+    OptionStyleWordBreak,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleWordBreak {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleWordBreak::Normal => "normal",
+            StyleWordBreak::BreakAll => "break-all",
+            StyleWordBreak::KeepAll => "keep-all",
+        })
+    }
+}
+
+// -- StyleOverflowWrap --
+
+/// Controls whether the browser may break at otherwise disallowed points
+/// to prevent overflow.
+///
+/// CSS Text Level 3 §3.3: https://www.w3.org/TR/css-text-3/#overflow-wrap-property
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleOverflowWrap {
+    /// Lines may only break at allowed break points.
+    Normal,
+    /// An otherwise unbreakable sequence may be broken at an arbitrary point
+    /// if there are no otherwise acceptable break points.
+    Anywhere,
+    /// Same as `anywhere` but soft wrap opportunities introduced are not
+    /// considered when calculating min-content intrinsic sizes.
+    BreakWord,
+}
+impl Default for StyleOverflowWrap {
+    fn default() -> Self {
+        StyleOverflowWrap::Normal
+    }
+}
+impl_option!(
+    StyleOverflowWrap,
+    OptionStyleOverflowWrap,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleOverflowWrap {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleOverflowWrap::Normal => "normal",
+            StyleOverflowWrap::Anywhere => "anywhere",
+            StyleOverflowWrap::BreakWord => "break-word",
+        })
+    }
+}
+
+// -- StyleTextAlignLast --
+
+/// Controls alignment of the last line of a block or a line right before
+/// a forced line break.
+///
+/// CSS Text Level 3 §7.2: https://www.w3.org/TR/css-text-3/#text-align-last-property
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextAlignLast {
+    /// Alignment of the last line is determined by text-align (or start if justify).
+    Auto,
+    /// Align to the start edge of the line box.
+    Start,
+    /// Align to the end edge of the line box.
+    End,
+    /// Align to the line left.
+    Left,
+    /// Align to the line right.
+    Right,
+    /// Center the content.
+    Center,
+    /// Justify the content.
+    Justify,
+}
+impl Default for StyleTextAlignLast {
+    fn default() -> Self {
+        StyleTextAlignLast::Auto
+    }
+}
+impl_option!(
+    StyleTextAlignLast,
+    OptionStyleTextAlignLast,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleTextAlignLast {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleTextAlignLast::Auto => "auto",
+            StyleTextAlignLast::Start => "start",
+            StyleTextAlignLast::End => "end",
+            StyleTextAlignLast::Left => "left",
+            StyleTextAlignLast::Right => "right",
+            StyleTextAlignLast::Center => "center",
+            StyleTextAlignLast::Justify => "justify",
+        })
+    }
+}
+
 // -- StyleDirection --
 
 /// Text direction.
@@ -1531,6 +1652,216 @@ pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensPars
         "manual" => Ok(StyleHyphens::Manual),
         "auto" => Ok(StyleHyphens::Auto),
         other => Err(StyleHyphensParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleLineBreak parse --
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleLineBreakParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleLineBreakParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleLineBreakParseError<'a>, {
+    InvalidValue(e) => format!("Invalid line-break value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleLineBreakParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleLineBreakParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleLineBreakParseError<'a> {
+    pub fn to_contained(&self) -> StyleLineBreakParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleLineBreakParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleLineBreakParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleLineBreakParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleLineBreakParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_line_break(input: &str) -> Result<StyleLineBreak, StyleLineBreakParseError> {
+    match input.trim() {
+        "auto" => Ok(StyleLineBreak::Auto),
+        "loose" => Ok(StyleLineBreak::Loose),
+        "normal" => Ok(StyleLineBreak::Normal),
+        "strict" => Ok(StyleLineBreak::Strict),
+        "anywhere" => Ok(StyleLineBreak::Anywhere),
+        other => Err(StyleLineBreakParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleWordBreak parse --
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleWordBreakParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleWordBreakParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleWordBreakParseError<'a>, {
+    InvalidValue(e) => format!("Invalid word-break value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleWordBreakParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleWordBreakParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleWordBreakParseError<'a> {
+    pub fn to_contained(&self) -> StyleWordBreakParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleWordBreakParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleWordBreakParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleWordBreakParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleWordBreakParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBreakParseError> {
+    match input.trim() {
+        "normal" => Ok(StyleWordBreak::Normal),
+        "break-all" => Ok(StyleWordBreak::BreakAll),
+        "keep-all" => Ok(StyleWordBreak::KeepAll),
+        other => Err(StyleWordBreakParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleOverflowWrap parse --
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleOverflowWrapParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleOverflowWrapParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleOverflowWrapParseError<'a>, {
+    InvalidValue(e) => format!("Invalid overflow-wrap value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleOverflowWrapParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleOverflowWrapParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleOverflowWrapParseError<'a> {
+    pub fn to_contained(&self) -> StyleOverflowWrapParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleOverflowWrapParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleOverflowWrapParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleOverflowWrapParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleOverflowWrapParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_overflow_wrap(input: &str) -> Result<StyleOverflowWrap, StyleOverflowWrapParseError> {
+    match input.trim() {
+        "normal" => Ok(StyleOverflowWrap::Normal),
+        "anywhere" => Ok(StyleOverflowWrap::Anywhere),
+        "break-word" => Ok(StyleOverflowWrap::BreakWord),
+        other => Err(StyleOverflowWrapParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleTextAlignLast parse --
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextAlignLastParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextAlignLastParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextAlignLastParseError<'a>, {
+    InvalidValue(e) => format!("Invalid text-align-last value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleTextAlignLastParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleTextAlignLastParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextAlignLastParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextAlignLastParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleTextAlignLastParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextAlignLastParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextAlignLastParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleTextAlignLastParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, StyleTextAlignLastParseError> {
+    match input.trim() {
+        "auto" => Ok(StyleTextAlignLast::Auto),
+        "start" => Ok(StyleTextAlignLast::Start),
+        "end" => Ok(StyleTextAlignLast::End),
+        "left" => Ok(StyleTextAlignLast::Left),
+        "right" => Ok(StyleTextAlignLast::Right),
+        "center" => Ok(StyleTextAlignLast::Center),
+        "justify" => Ok(StyleTextAlignLast::Justify),
+        other => Err(StyleTextAlignLastParseError::InvalidValue(InvalidValueErr(other))),
     }
 }
 

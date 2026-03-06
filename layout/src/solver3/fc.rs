@@ -51,9 +51,10 @@ use azul_css::{
         },
         property::CssProperty,
         style::{
-            BorderStyle, StyleDirection, StyleHyphens, StyleListStylePosition, StyleListStyleType,
-            StyleTextAlign, StyleTextCombineUpright, StyleVerticalAlign, StyleVisibility,
-            StyleWhiteSpace,
+            BorderStyle, StyleDirection, StyleHyphens, StyleLineBreak, StyleListStylePosition,
+            StyleListStyleType, StyleOverflowWrap, StyleTextAlign, StyleTextAlignLast,
+            StyleTextCombineUpright, StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
+            StyleWordBreak,
         },
     },
 };
@@ -2892,6 +2893,34 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .and_then(|s| s.get_property().copied())
         .unwrap_or_default();
 
+    let word_break_css = styled_dom
+        .css_property_cache
+        .ptr
+        .get_word_break(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let overflow_wrap_css = styled_dom
+        .css_property_cache
+        .ptr
+        .get_overflow_wrap(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let line_break_css = styled_dom
+        .css_property_cache
+        .ptr
+        .get_line_break(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let text_align_last_css = styled_dom
+        .css_property_cache
+        .ptr
+        .get_text_align_last(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
     let overflow_behaviour = get_overflow_x(styled_dom, id, node_state).unwrap_or_default();
 
     // Get vertical-align from CSS property cache (defaults to Baseline per CSS spec)
@@ -3191,9 +3220,24 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
         // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property (initial: baseline, applies to inline-level elements)
         vertical_align,
-        overflow_wrap: text3::cache::OverflowWrap::Normal, // TODO: wire up CSS overflow-wrap property
-        text_align_last: text3::cache::TextAlign::default(), // TODO: wire up CSS text-align-last property
-        word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
+        overflow_wrap: match overflow_wrap_css {
+            StyleOverflowWrap::Normal => text3::cache::OverflowWrap::Normal,
+            StyleOverflowWrap::Anywhere | StyleOverflowWrap::BreakWord => text3::cache::OverflowWrap::Anywhere,
+        },
+        text_align_last: match text_align_last_css {
+            StyleTextAlignLast::Auto => text3::cache::TextAlign::default(),
+            StyleTextAlignLast::Start => text3::cache::TextAlign::Start,
+            StyleTextAlignLast::End => text3::cache::TextAlign::End,
+            StyleTextAlignLast::Left => text3::cache::TextAlign::Left,
+            StyleTextAlignLast::Right => text3::cache::TextAlign::Right,
+            StyleTextAlignLast::Center => text3::cache::TextAlign::Center,
+            StyleTextAlignLast::Justify => text3::cache::TextAlign::Justify,
+        },
+        word_break: match word_break_css {
+            StyleWordBreak::Normal => text3::cache::WordBreak::Normal,
+            StyleWordBreak::BreakAll => text3::cache::WordBreak::BreakAll,
+            StyleWordBreak::KeepAll => text3::cache::WordBreak::KeepAll,
+        },
         // +spec:white-space-processing-p028 - white-space interaction with line-break strictness
         // CSS Text Level 3 §5.3: The line-break property affects preserved white space behavior:
         // - normal/pre-line: preserved white space at end/start of line is discarded
@@ -3204,7 +3248,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // break-spaces allows wrapping preserved spaces to next line; for other white-space values,
         // preserved spaces at line ends are either discarded (normal, pre-line), wrapping is
         // forbidden (nowrap, pre), or they hang (pre-wrap).
-        line_break: text3::cache::LineBreakStrictness::Auto, // TODO: wire up CSS line-break property
+        line_break: match line_break_css {
+            StyleLineBreak::Auto => text3::cache::LineBreakStrictness::Auto,
+            StyleLineBreak::Loose => text3::cache::LineBreakStrictness::Loose,
+            StyleLineBreak::Normal => text3::cache::LineBreakStrictness::Normal,
+            StyleLineBreak::Strict => text3::cache::LineBreakStrictness::Strict,
+            StyleLineBreak::Anywhere => text3::cache::LineBreakStrictness::Anywhere,
+        },
     }
 }
 

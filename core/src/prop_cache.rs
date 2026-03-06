@@ -88,14 +88,15 @@ use azul_css::{
             StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleFontStyleValue,
             StyleFontValue, StyleFontWeightValue, StyleHangingPunctuationValue,
             StyleHyphenationLanguageValue, StyleHyphensValue, StyleInitialLetterValue,
-            StyleLetterSpacingValue, StyleLineClampValue, StyleLineHeightValue,
+            StyleLetterSpacingValue, StyleLineBreakValue, StyleLineClampValue, StyleLineHeightValue,
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
             StyleOpacityValue, StylePerspectiveOriginValue, StyleScrollbarColorValue,
-            StyleTabSizeValue, StyleTextAlignValue, StyleTextColorValue,
+            StyleOverflowWrapValue, StyleTabSizeValue, StyleTextAlignLastValue,
+            StyleTextAlignValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
-            StyleWordSpacingValue, WidowsValue,
+            StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -1917,6 +1918,50 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleHyphensValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::Hyphens)
             .and_then(|p| p.as_hyphens())
+    }
+
+    // Method for getting word-break property
+    pub fn get_word_break<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleWordBreakValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::WordBreak)
+            .and_then(|p| p.as_word_break())
+    }
+
+    // Method for getting overflow-wrap property
+    pub fn get_overflow_wrap<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleOverflowWrapValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowWrap)
+            .and_then(|p| p.as_overflow_wrap())
+    }
+
+    // Method for getting line-break property
+    pub fn get_line_break<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleLineBreakValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::LineBreak)
+            .and_then(|p| p.as_line_break())
+    }
+
+    // Method for getting text-align-last property
+    pub fn get_text_align_last<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextAlignLastValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlignLast)
+            .and_then(|p| p.as_text_align_last())
     }
 
     // Method for getting direction property

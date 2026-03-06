@@ -72,7 +72,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 157] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 162] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -90,6 +90,11 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 157] = [
     (CssPropertyType::TabSize, "tab-size"),
     (CssPropertyType::WhiteSpace, "white-space"),
     (CssPropertyType::Hyphens, "hyphens"),
+    (CssPropertyType::WordBreak, "word-break"),
+    (CssPropertyType::OverflowWrap, "overflow-wrap"),
+    (CssPropertyType::OverflowWrap, "word-wrap"),
+    (CssPropertyType::LineBreak, "line-break"),
+    (CssPropertyType::TextAlignLast, "text-align-last"),
     (CssPropertyType::Direction, "direction"),
     (CssPropertyType::UserSelect, "user-select"),
     (CssPropertyType::TextDecoration, "text-decoration"),
@@ -319,6 +324,10 @@ pub type ScrollbarFadeDelayValue = CssPropertyValue<ScrollbarFadeDelay>;
 pub type ScrollbarFadeDurationValue = CssPropertyValue<ScrollbarFadeDuration>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
 pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
+pub type StyleWordBreakValue = CssPropertyValue<StyleWordBreak>;
+pub type StyleOverflowWrapValue = CssPropertyValue<StyleOverflowWrap>;
+pub type StyleLineBreakValue = CssPropertyValue<StyleLineBreak>;
+pub type StyleTextAlignLastValue = CssPropertyValue<StyleTextAlignLast>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
 pub type StyleUserSelectValue = CssPropertyValue<StyleUserSelect>;
 pub type StyleTextDecorationValue = CssPropertyValue<StyleTextDecoration>;
@@ -534,6 +543,10 @@ pub enum CssProperty {
     TabSize(StyleTabSizeValue),
     WhiteSpace(StyleWhiteSpaceValue),
     Hyphens(StyleHyphensValue),
+    WordBreak(StyleWordBreakValue),
+    OverflowWrap(StyleOverflowWrapValue),
+    LineBreak(StyleLineBreakValue),
+    TextAlignLast(StyleTextAlignLastValue),
     Direction(StyleDirectionValue),
     UserSelect(StyleUserSelectValue),
     TextDecoration(StyleTextDecorationValue),
@@ -763,6 +776,10 @@ pub enum CssPropertyType {
     TabSize,
     WhiteSpace,
     Hyphens,
+    WordBreak,
+    OverflowWrap,
+    LineBreak,
+    TextAlignLast,
     Direction,
     UserSelect,
     TextDecoration,
@@ -1060,6 +1077,10 @@ impl CssPropertyType {
             CssPropertyType::TextShadow => "text-shadow",
             CssPropertyType::WhiteSpace => "white-space",
             CssPropertyType::Hyphens => "hyphens",
+            CssPropertyType::WordBreak => "word-break",
+            CssPropertyType::OverflowWrap => "overflow-wrap",
+            CssPropertyType::LineBreak => "line-break",
+            CssPropertyType::TextAlignLast => "text-align-last",
             CssPropertyType::Direction => "direction",
             CssPropertyType::UserSelect => "user-select",
             CssPropertyType::TextDecoration => "text-decoration",
@@ -1109,6 +1130,7 @@ impl CssPropertyType {
 
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
+            WordBreak | OverflowWrap | LineBreak | TextAlignLast |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
 
             // List properties
@@ -1252,6 +1274,7 @@ impl CssPropertyType {
             FontFamily | FontSize | FontWeight | FontStyle
             | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify
             | TextIndent | WhiteSpace | TabSize | Hyphens
+            | WordBreak | OverflowWrap | LineBreak | TextAlignLast
             | HyphenationLanguage | TextCombineUpright | TextDecoration
             | HangingPunctuation | InitialLetter | LineClamp
             | Direction | VerticalAlign => {
@@ -1339,6 +1362,10 @@ pub enum CssParsingError<'a> {
     TabSize(StyleTabSizeParseError<'a>),
     WhiteSpace(StyleWhiteSpaceParseError<'a>),
     Hyphens(StyleHyphensParseError<'a>),
+    WordBreak(StyleWordBreakParseError<'a>),
+    OverflowWrap(StyleOverflowWrapParseError<'a>),
+    LineBreak(StyleLineBreakParseError<'a>),
+    TextAlignLast(StyleTextAlignLastParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
     UserSelect(StyleUserSelectParseError<'a>),
     TextDecoration(StyleTextDecorationParseError<'a>),
@@ -1491,6 +1518,10 @@ pub enum CssParsingErrorOwned {
     TabSize(StyleTabSizeParseErrorOwned),
     WhiteSpace(StyleWhiteSpaceParseErrorOwned),
     Hyphens(StyleHyphensParseErrorOwned),
+    WordBreak(StyleWordBreakParseErrorOwned),
+    OverflowWrap(StyleOverflowWrapParseErrorOwned),
+    LineBreak(StyleLineBreakParseErrorOwned),
+    TextAlignLast(StyleTextAlignLastParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
     UserSelect(StyleUserSelectParseErrorOwned),
     TextDecoration(StyleTextDecorationParseErrorOwned),
@@ -1678,6 +1709,10 @@ impl_display! { CssParsingError<'a>, {
     TabSize(e) => format!("Invalid tab-size: {}", e),
     WhiteSpace(e) => format!("Invalid white-space: {}", e),
     Hyphens(e) => format!("Invalid hyphens: {}", e),
+    WordBreak(e) => format!("Invalid word-break: {}", e),
+    OverflowWrap(e) => format!("Invalid overflow-wrap: {}", e),
+    LineBreak(e) => format!("Invalid line-break: {}", e),
+    TextAlignLast(e) => format!("Invalid text-align-last: {}", e),
     Direction(e) => format!("Invalid direction: {}", e),
     UserSelect(e) => format!("Invalid user-select: {}", e),
     TextDecoration(e) => format!("Invalid text-decoration: {}", e),
@@ -1906,6 +1941,10 @@ impl_from!(StyleWordSpacingParseError<'a>, CssParsingError::WordSpacing);
 impl_from!(StyleTabSizeParseError<'a>, CssParsingError::TabSize);
 impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
 impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
+impl_from!(StyleWordBreakParseError<'a>, CssParsingError::WordBreak);
+impl_from!(StyleOverflowWrapParseError<'a>, CssParsingError::OverflowWrap);
+impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
+impl_from!(StyleTextAlignLastParseError<'a>, CssParsingError::TextAlignLast);
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
 impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
 impl_from!(
@@ -2151,6 +2190,10 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::TabSize(e) => CssParsingErrorOwned::TabSize(e.to_contained()),
             CssParsingError::WhiteSpace(e) => CssParsingErrorOwned::WhiteSpace(e.to_contained()),
             CssParsingError::Hyphens(e) => CssParsingErrorOwned::Hyphens(e.to_contained()),
+            CssParsingError::WordBreak(e) => CssParsingErrorOwned::WordBreak(e.to_contained()),
+            CssParsingError::OverflowWrap(e) => CssParsingErrorOwned::OverflowWrap(e.to_contained()),
+            CssParsingError::LineBreak(e) => CssParsingErrorOwned::LineBreak(e.to_contained()),
+            CssParsingError::TextAlignLast(e) => CssParsingErrorOwned::TextAlignLast(e.to_contained()),
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
             CssParsingError::UserSelect(e) => CssParsingErrorOwned::UserSelect(e.to_contained()),
             CssParsingError::TextDecoration(e) => {
@@ -2349,6 +2392,10 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::TabSize(e) => CssParsingError::TabSize(e.to_shared()),
             CssParsingErrorOwned::WhiteSpace(e) => CssParsingError::WhiteSpace(e.to_shared()),
             CssParsingErrorOwned::Hyphens(e) => CssParsingError::Hyphens(e.to_shared()),
+            CssParsingErrorOwned::WordBreak(e) => CssParsingError::WordBreak(e.to_shared()),
+            CssParsingErrorOwned::OverflowWrap(e) => CssParsingError::OverflowWrap(e.to_shared()),
+            CssParsingErrorOwned::LineBreak(e) => CssParsingError::LineBreak(e.to_shared()),
+            CssParsingErrorOwned::TextAlignLast(e) => CssParsingError::TextAlignLast(e.to_shared()),
             CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
             CssParsingErrorOwned::UserSelect(e) => CssParsingError::UserSelect(e.to_shared()),
             CssParsingErrorOwned::TextDecoration(e) => {
@@ -2414,6 +2461,8 @@ pub fn parse_css_property<'a>(
     let has_typed_auto = matches!(
         key,
         CssPropertyType::Hyphens |      // hyphens: auto means StyleHyphens::Auto
+        CssPropertyType::LineBreak |    // line-break: auto means StyleLineBreak::Auto
+        CssPropertyType::TextAlignLast | // text-align-last: auto means StyleTextAlignLast::Auto
         CssPropertyType::OverflowX |
         CssPropertyType::OverflowY |
         CssPropertyType::UserSelect // user-select: auto is a typed value
@@ -2470,6 +2519,10 @@ pub fn parse_css_property<'a>(
             CssPropertyType::TabSize => parse_style_tab_size(value)?.into(),
             CssPropertyType::WhiteSpace => parse_style_white_space(value)?.into(),
             CssPropertyType::Hyphens => parse_style_hyphens(value)?.into(),
+            CssPropertyType::WordBreak => parse_style_word_break(value)?.into(),
+            CssPropertyType::OverflowWrap => parse_style_overflow_wrap(value)?.into(),
+            CssPropertyType::LineBreak => parse_style_line_break(value)?.into(),
+            CssPropertyType::TextAlignLast => parse_style_text_align_last(value)?.into(),
             CssPropertyType::Direction => parse_style_direction(value)?.into(),
             CssPropertyType::UserSelect => parse_style_user_select(value)?.into(),
             CssPropertyType::TextDecoration => parse_style_text_decoration(value)?.into(),
@@ -3595,6 +3648,10 @@ impl_from_css_prop!(StylePerspectiveOrigin, CssProperty::PerspectiveOrigin);
 impl_from_css_prop!(StyleBackfaceVisibility, CssProperty::BackfaceVisibility);
 impl_from_css_prop!(StyleMixBlendMode, CssProperty::MixBlendMode);
 impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
+impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
+impl_from_css_prop!(StyleOverflowWrap, CssProperty::OverflowWrap);
+impl_from_css_prop!(StyleLineBreak, CssProperty::LineBreak);
+impl_from_css_prop!(StyleTextAlignLast, CssProperty::TextAlignLast);
 impl_from_css_prop!(StyleDirection, CssProperty::Direction);
 impl_from_css_prop!(StyleWhiteSpace, CssProperty::WhiteSpace);
 impl_from_css_prop!(PageBreak, CssProperty::BreakBefore);
@@ -3757,6 +3814,10 @@ impl CssProperty {
             CssProperty::BackdropFilter(v) => v.get_css_value_fmt(),
             CssProperty::TextShadow(v) => v.get_css_value_fmt(),
             CssProperty::Hyphens(v) => v.get_css_value_fmt(),
+            CssProperty::WordBreak(v) => v.get_css_value_fmt(),
+            CssProperty::OverflowWrap(v) => v.get_css_value_fmt(),
+            CssProperty::LineBreak(v) => v.get_css_value_fmt(),
+            CssProperty::TextAlignLast(v) => v.get_css_value_fmt(),
             CssProperty::Direction(v) => v.get_css_value_fmt(),
             CssProperty::UserSelect(v) => v.get_css_value_fmt(),
             CssProperty::TextDecoration(v) => v.get_css_value_fmt(),
@@ -4213,6 +4274,10 @@ impl CssProperty {
             CssProperty::TextShadow(_) => CssPropertyType::TextShadow,
             CssProperty::WhiteSpace(_) => CssPropertyType::WhiteSpace,
             CssProperty::Hyphens(_) => CssPropertyType::Hyphens,
+            CssProperty::WordBreak(_) => CssPropertyType::WordBreak,
+            CssProperty::OverflowWrap(_) => CssPropertyType::OverflowWrap,
+            CssProperty::LineBreak(_) => CssPropertyType::LineBreak,
+            CssProperty::TextAlignLast(_) => CssPropertyType::TextAlignLast,
             CssProperty::Direction(_) => CssPropertyType::Direction,
             CssProperty::UserSelect(_) => CssPropertyType::UserSelect,
             CssProperty::TextDecoration(_) => CssPropertyType::TextDecoration,
@@ -5339,6 +5404,30 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_word_break(&self) -> Option<&StyleWordBreakValue> {
+        match self {
+            CssProperty::WordBreak(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_overflow_wrap(&self) -> Option<&StyleOverflowWrapValue> {
+        match self {
+            CssProperty::OverflowWrap(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_line_break(&self) -> Option<&StyleLineBreakValue> {
+        match self {
+            CssProperty::LineBreak(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_align_last(&self) -> Option<&StyleTextAlignLastValue> {
+        match self {
+            CssProperty::TextAlignLast(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_white_space(&self) -> Option<&StyleWhiteSpaceValue> {
         match self {
             CssProperty::WhiteSpace(f) => Some(f),
@@ -5731,6 +5820,10 @@ impl CssProperty {
             UserSelect(c) => c.is_initial(),
             TextDecoration(c) => c.is_initial(),
             Hyphens(c) => c.is_initial(),
+            WordBreak(c) => c.is_initial(),
+            OverflowWrap(c) => c.is_initial(),
+            LineBreak(c) => c.is_initial(),
+            TextAlignLast(c) => c.is_initial(),
             BreakBefore(c) => c.is_initial(),
             BreakAfter(c) => c.is_initial(),
             BreakInside(c) => c.is_initial(),
@@ -6506,6 +6599,22 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::Hyphens(p) => format!(
             "CssProperty::Hyphens({})",
             print_css_property_value(p, tabs, "StyleHyphens")
+        ),
+        CssProperty::WordBreak(p) => format!(
+            "CssProperty::WordBreak({})",
+            print_css_property_value(p, tabs, "StyleWordBreak")
+        ),
+        CssProperty::OverflowWrap(p) => format!(
+            "CssProperty::OverflowWrap({})",
+            print_css_property_value(p, tabs, "StyleOverflowWrap")
+        ),
+        CssProperty::LineBreak(p) => format!(
+            "CssProperty::LineBreak({})",
+            print_css_property_value(p, tabs, "StyleLineBreak")
+        ),
+        CssProperty::TextAlignLast(p) => format!(
+            "CssProperty::TextAlignLast({})",
+            print_css_property_value(p, tabs, "StyleTextAlignLast")
         ),
         CssProperty::Direction(p) => format!(
             "CssProperty::Direction({})",

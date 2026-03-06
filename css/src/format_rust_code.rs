@@ -526,6 +526,10 @@ impl_enum_fmt!(
 );
 
 impl_enum_fmt!(StyleHyphens, None, Manual, Auto);
+impl_enum_fmt!(StyleWordBreak, Normal, BreakAll, KeepAll);
+impl_enum_fmt!(StyleOverflowWrap, Normal, Anywhere, BreakWord);
+impl_enum_fmt!(StyleLineBreak, Auto, Loose, Normal, Strict, Anywhere);
+impl_enum_fmt!(StyleTextAlignLast, Auto, Start, End, Left, Right, Center, Justify);
 
 impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 

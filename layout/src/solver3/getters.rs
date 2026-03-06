@@ -3678,6 +3678,10 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
 use azul_css::props::layout::text::LayoutTextJustify;
 use azul_css::props::layout::table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells};
 use azul_css::props::style::text::StyleHyphens;
+use azul_css::props::style::text::StyleWordBreak;
+use azul_css::props::style::text::StyleOverflowWrap;
+use azul_css::props::style::text::StyleLineBreak;
+use azul_css::props::style::text::StyleTextAlignLast;
 use azul_css::props::style::effects::StyleCursor;
 
 impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
@@ -3693,6 +3697,42 @@ impl ExtractPropertyValue<StyleHyphens> for CssProperty {
     fn extract(&self) -> Option<StyleHyphens> {
         match self {
             Self::Hyphens(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleWordBreak> for CssProperty {
+    fn extract(&self) -> Option<StyleWordBreak> {
+        match self {
+            Self::WordBreak(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleOverflowWrap> for CssProperty {
+    fn extract(&self) -> Option<StyleOverflowWrap> {
+        match self {
+            Self::OverflowWrap(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleLineBreak> for CssProperty {
+    fn extract(&self) -> Option<StyleLineBreak> {
+        match self {
+            Self::LineBreak(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleTextAlignLast> for CssProperty {
+    fn extract(&self) -> Option<StyleTextAlignLast> {
+        match self {
+            Self::TextAlignLast(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }
@@ -3760,6 +3800,34 @@ get_css_property!(
     get_hyphens,
     StyleHyphens,
     CssPropertyType::Hyphens
+);
+
+get_css_property!(
+    get_word_break,
+    get_word_break,
+    StyleWordBreak,
+    CssPropertyType::WordBreak
+);
+
+get_css_property!(
+    get_overflow_wrap,
+    get_overflow_wrap,
+    StyleOverflowWrap,
+    CssPropertyType::OverflowWrap
+);
+
+get_css_property!(
+    get_line_break,
+    get_line_break,
+    StyleLineBreak,
+    CssPropertyType::LineBreak
+);
+
+get_css_property!(
+    get_text_align_last,
+    get_text_align_last,
+    StyleTextAlignLast,
+    CssPropertyType::TextAlignLast
 );
 
 get_css_property!(
