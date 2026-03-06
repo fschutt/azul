@@ -27,6 +27,7 @@ use crate::{
         getters::{
             get_direction_property, get_writing_mode, get_position, MultiValue,
             get_css_top, get_css_bottom, get_css_left, get_css_right,
+            get_css_height, get_css_width,
         },
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
@@ -230,26 +231,220 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
             let mut final_pos = LogicalPosition::zero();
 
-            // Vertical Positioning
-            if let Some(top) = offsets.top {
-                final_pos.y = containing_block_rect.origin.y + top;
-            } else if let Some(bottom) = offsets.bottom {
-                final_pos.y = containing_block_rect.origin.y + containing_block_rect.size.height
-                    - element_size.height
-                    - bottom;
+            // +spec:containing-block-p028 - §10.6.4: constraint equation for abspos vertical dimensions
+            // top + margin-top + border-top + padding-top + height + padding-bottom +
+            // border-bottom + margin-bottom + bottom = containing block height
+            let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+
+            // Extract all box_props values upfront to avoid borrow conflicts with tree.get_mut()
+            let (margin_top_val, margin_bottom_val, margin_auto,
+                 margin_left_val, margin_right_val, margin_left_auto_flag, margin_right_auto_flag) = {
+                let node = &tree.nodes[node_index];
+                (node.box_props.margin.top, node.box_props.margin.bottom,
+                 node.box_props.margin_auto,
+                 node.box_props.margin.left, node.box_props.margin.right,
+                 node.box_props.margin_auto.left, node.box_props.margin_auto.right)
+            };
+            let cb_height = containing_block_rect.size.height;
+
+            let css_height = get_css_height(ctx.styled_dom, dom_id, node_state);
+            let height_is_auto = css_height.is_auto();
+            let top_is_auto = offsets.top.is_none();
+            let bottom_is_auto = offsets.bottom.is_none();
+
+            // element_size is border-box (includes border + padding + content).
+            // The constraint equation is:
+            //   top + margin-top + border-box-height + margin-bottom + bottom = CB height
+            // (border-top, padding-top, content-height, padding-bottom, border-bottom
+            //  are all inside border-box-height)
+            let mut used_height = element_size.height;
+            let mut used_margin_top = if margin_auto.top { 0.0 } else { margin_top_val };
+            let mut used_margin_bottom = if margin_auto.bottom { 0.0 } else { margin_bottom_val };
+
+            if top_is_auto && height_is_auto && bottom_is_auto {
+                // All three auto: set top to static position, height from content, solve for bottom
+                final_pos.y = static_pos.y;
+            } else if !top_is_auto && !height_is_auto && !bottom_is_auto {
+                // None are auto: over-constrained case
+                let top_val = offsets.top.unwrap();
+                let bottom_val = offsets.bottom.unwrap();
+                if margin_auto.top && margin_auto.bottom {
+                    let available = cb_height - top_val - used_height - bottom_val;
+                    let each = available / 2.0;
+                    used_margin_top = each;
+                    used_margin_bottom = each;
+                } else if margin_auto.top {
+                    used_margin_top = cb_height - top_val - used_height - used_margin_bottom - bottom_val;
+                } else if margin_auto.bottom {
+                    used_margin_bottom = cb_height - top_val - used_height - used_margin_top - bottom_val;
+                }
+                // else: over-constrained, ignore bottom
+                final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
+            } else if top_is_auto && height_is_auto && !bottom_is_auto {
+                // Rule 1: height from content, auto margins to 0, solve for top
+                let bottom_val = offsets.bottom.unwrap();
+                let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
+                final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
+            } else if top_is_auto && bottom_is_auto && !height_is_auto {
+                // Rule 2: set top to static position, auto margins to 0, solve for bottom
+                final_pos.y = static_pos.y;
+            } else if height_is_auto && bottom_is_auto && !top_is_auto {
+                // Rule 3: height from content, auto margins to 0, solve for bottom
+                let top_val = offsets.top.unwrap();
+                final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
+            } else if top_is_auto && !height_is_auto && !bottom_is_auto {
+                // Rule 4: auto margins to 0, solve for top
+                let bottom_val = offsets.bottom.unwrap();
+                let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
+                final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
+            } else if height_is_auto && !top_is_auto && !bottom_is_auto {
+                // Rule 5: auto margins to 0, solve for height
+                let top_val = offsets.top.unwrap();
+                let bottom_val = offsets.bottom.unwrap();
+                used_height = (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val).max(0.0);
+                final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
+                // Update the element size with the resolved height
+                if let Some(node_mut) = tree.get_mut(node_index) {
+                    if let Some(ref mut size) = node_mut.used_size {
+                        size.height = used_height;
+                    }
+                }
+            } else if bottom_is_auto && !top_is_auto && !height_is_auto {
+                // Rule 6: auto margins to 0, solve for bottom
+                let top_val = offsets.top.unwrap();
+                final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else {
+                // Fallback to static position
                 final_pos.y = static_pos.y;
             }
 
-            // Horizontal Positioning
-            if let Some(left) = offsets.left {
-                final_pos.x = containing_block_rect.origin.x + left;
-            } else if let Some(right) = offsets.right {
-                final_pos.x = containing_block_rect.origin.x + containing_block_rect.size.width
-                    - element_size.width
-                    - right;
-            } else {
-                final_pos.x = static_pos.x;
+            // +spec:width-calculation-p036 - §10.3.7: horizontal constraint for abspos non-replaced elements
+            // Constraint: left + margin-left + border-left + padding-left + width +
+            //   padding-right + border-right + margin-right + right = CB width
+            // Since element_size.width is border-box (border + padding + content),
+            // simplifies to: left + margin-left + border_box_width + margin-right + right = CB width
+            {
+                let margin_left = margin_left_val;
+                let margin_right = margin_right_val;
+                let margin_left_auto = margin_left_auto_flag;
+                let margin_right_auto = margin_right_auto_flag;
+                let cb_width = containing_block_rect.size.width;
+                let border_box_width = element_size.width;
+                let left_val = offsets.left;
+                let right_val = offsets.right;
+                let left_is_auto = left_val.is_none();
+                let right_is_auto = right_val.is_none();
+
+                // Get direction of containing block for over-constrained resolution
+                use azul_css::props::style::StyleDirection;
+                let cb_direction = {
+                    let cb_dom_id = if position_type == LayoutPosition::Fixed {
+                        None // viewport CB, default LTR
+                    } else {
+                        let mut parent = tree.nodes[node_index].parent;
+                        let mut found = None;
+                        while let Some(pidx) = parent {
+                            if let Some(pnode) = tree.get(pidx) {
+                                if get_position_type(ctx.styled_dom, pnode.dom_node_id) != LayoutPosition::Static {
+                                    found = pnode.dom_node_id;
+                                    break;
+                                }
+                                parent = pnode.parent;
+                            } else {
+                                break;
+                            }
+                        }
+                        found
+                    };
+                    match cb_dom_id {
+                        Some(cb_id) => {
+                            let cb_ns = &ctx.styled_dom.styled_nodes.as_container()[cb_id].styled_node_state;
+                            match get_direction_property(ctx.styled_dom, cb_id, cb_ns) {
+                                MultiValue::Exact(v) => v,
+                                _ => StyleDirection::Ltr,
+                            }
+                        }
+                        None => StyleDirection::Ltr,
+                    }
+                };
+
+                let width_is_auto = get_css_width(ctx.styled_dom, dom_id, node_state).is_auto();
+
+                if !left_is_auto && !width_is_auto && !right_is_auto {
+                    // None of left/width/right are auto — solve for margins or handle over-constrained
+                    let left = left_val.unwrap();
+                    let right = right_val.unwrap();
+                    let remaining = cb_width - left - border_box_width - right;
+
+                    if margin_left_auto && margin_right_auto {
+                        // Both margins auto: equal values unless negative
+                        let each_margin = remaining / 2.0;
+                        if each_margin < 0.0 {
+                            match cb_direction {
+                                StyleDirection::Ltr => {
+                                    final_pos.x = containing_block_rect.origin.x + left;
+                                }
+                                StyleDirection::Rtl => {
+                                    final_pos.x = containing_block_rect.origin.x + left + remaining;
+                                }
+                            }
+                        } else {
+                            final_pos.x = containing_block_rect.origin.x + left + each_margin;
+                        }
+                    } else if margin_left_auto {
+                        let solved_margin_left = remaining - margin_right;
+                        final_pos.x = containing_block_rect.origin.x + left + solved_margin_left;
+                    } else if margin_right_auto {
+                        final_pos.x = containing_block_rect.origin.x + left + margin_left;
+                    } else {
+                        // Over-constrained: ignore right (LTR) or left (RTL)
+                        match cb_direction {
+                            StyleDirection::Ltr => {
+                                final_pos.x = containing_block_rect.origin.x + left + margin_left;
+                            }
+                            StyleDirection::Rtl => {
+                                let solved_left = cb_width - margin_left - border_box_width - margin_right - right;
+                                final_pos.x = containing_block_rect.origin.x + solved_left + margin_left;
+                            }
+                        }
+                    }
+                } else {
+                    // Set auto margins to 0, apply six rules
+                    let m_left = if margin_left_auto { 0.0 } else { margin_left };
+                    let m_right = if margin_right_auto { 0.0 } else { margin_right };
+
+                    if left_is_auto && width_is_auto && right_is_auto {
+                        // All three auto: use static position
+                        final_pos.x = static_pos.x;
+                    } else if left_is_auto && width_is_auto && !right_is_auto {
+                        // left+width auto, right not auto: width from content, solve for left
+                        let right = right_val.unwrap();
+                        let solved_left = cb_width - m_left - border_box_width - m_right - right;
+                        final_pos.x = containing_block_rect.origin.x + solved_left + m_left;
+                    } else if left_is_auto && !width_is_auto && right_is_auto {
+                        // left+right auto: set left to static position (LTR)
+                        final_pos.x = static_pos.x;
+                    } else if !left_is_auto && width_is_auto && right_is_auto {
+                        // width+right auto: position from left
+                        let left = left_val.unwrap();
+                        final_pos.x = containing_block_rect.origin.x + left + m_left;
+                    } else if left_is_auto && !width_is_auto && !right_is_auto {
+                        // left auto: solve for left
+                        let right = right_val.unwrap();
+                        let solved_left = cb_width - m_left - border_box_width - m_right - right;
+                        final_pos.x = containing_block_rect.origin.x + solved_left + m_left;
+                    } else if !left_is_auto && width_is_auto && !right_is_auto {
+                        // width auto: position from left (width already resolved from content)
+                        let left = left_val.unwrap();
+                        final_pos.x = containing_block_rect.origin.x + left + m_left;
+                    } else if !left_is_auto && !width_is_auto && right_is_auto {
+                        // right auto: position from left
+                        let left = left_val.unwrap();
+                        final_pos.x = containing_block_rect.origin.x + left + m_left;
+                    } else {
+                        final_pos.x = static_pos.x;
+                    }
+                }
             }
 
             calculated_positions.insert(node_index, final_pos);
@@ -368,6 +563,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// +spec:containing-block-p028 - §10.6.4: containing block for abspos is padding box of nearest positioned ancestor
 /// Helper to find the containing block for an absolutely positioned element.
 /// CSS 2.1 Section 10.1: The containing block for absolutely positioned elements
 /// is the padding box of the nearest positioned ancestor.
