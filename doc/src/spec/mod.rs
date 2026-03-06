@@ -151,9 +151,9 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             let sub_args = &args[1..];
             let no_src = sub_args.iter().any(|a| a == "--no-src");
             let review_md = parse_named_flag(sub_args, "--review-md");
-            let arch_md = parse_named_flag(sub_args, "--arch-md");
+            let review_arch = parse_named_flag(sub_args, "--review-arch");
             let positional: Vec<&str> = sub_args.iter()
-                .filter(|a| !a.starts_with("--") && !is_flag_value(sub_args, a, &["--review-md", "--arch-md"]))
+                .filter(|a| !a.starts_with("--") && !is_flag_value(sub_args, a, &["--review-md", "--review-arch"]))
                 .map(|s| s.as_str())
                 .collect();
             let patch_dir = positional.first().map(|s| *s);
@@ -163,7 +163,7 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             executor::cmd_refactor_md(
                 patch_dir.unwrap(),
                 &review_md.unwrap(),
-                arch_md.as_deref(),
+                review_arch.as_deref(),
                 workspace_root,
                 no_src,
             )
@@ -184,10 +184,10 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
         }
         "agent-apply" => {
             let sub_args = &args[1..];
-            let flags = &["--refactor-md", "--review-md", "--arch-md", "--groups-json"];
+            let flags = &["--refactor-md", "--review-md", "--review-arch", "--groups-json"];
             let refactor_md = parse_named_flag(sub_args, "--refactor-md");
             let review_md = parse_named_flag(sub_args, "--review-md");
-            let arch_md = parse_named_flag(sub_args, "--arch-md");
+            let review_arch = parse_named_flag(sub_args, "--review-arch");
             let groups_json = parse_named_flag(sub_args, "--groups-json");
             let positional: Vec<&str> = sub_args.iter()
                 .filter(|a| !a.starts_with("--") && !is_flag_value(sub_args, a, flags))
@@ -202,7 +202,7 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
                 groups_json: groups_json.unwrap(),
                 refactor_md,
                 review_md,
-                arch_md,
+                review_arch,
             };
             executor::cmd_agent_apply(&apply_args, workspace_root)
         }
@@ -318,27 +318,32 @@ fn print_subcommand_help(cmd: &str) -> Result<(), String> {
             println!("Output: /tmp/agent-run-review-prompt.md (feed to Gemini)");
         }
         "review-arch" => {
-            println!("azul-doc spec review-arch --review-md <path> [options] <patch-dir>");
+            println!("azul-doc spec review-arch --review-md <REVIEW.md> [options] <patch-dir>");
             println!();
             println!("Generate an architecture review prompt for Gemini.");
-            println!("Asks Gemini to analyze how patches fit into the codebase architecture,");
-            println!("identify refactoring needs, ABI concerns, and ordering constraints.");
+            println!();
+            println!("Solves the 'tunnel vision' problem: each claude-exec agent only sees");
+            println!("one spec paragraph. This prompt gives Gemini all patches + original");
+            println!("spec paragraphs together, so it can identify cross-cutting concerns:");
+            println!("  - Patches that contradict each other or duplicate work");
+            println!("  - Architectural changes needed to support multiple patches cleanly");
+            println!("  - ABI concerns (#[repr(C)] struct changes)");
+            println!("  - Ordering constraints between patches");
             println!();
             println!("Arguments:");
             println!("  <patch-dir>              Directory containing .patch files");
             println!();
             println!("Required flags:");
-            println!("  --review-md <path>       Path to the review-md output (e.g. scripts/RUN2.md)");
+            println!("  --review-md <REVIEW.md>  Gemini output from the review-md step");
             println!();
             println!("Options:");
             println!("  --no-src                 Omit source file appendix");
             println!();
-            println!("Output: /tmp/agent-arch-review-prompt.md");
-            println!("Feed output to Gemini, save as e.g. scripts/ARCH_REVIEW.md");
-            println!("Then pass to agent-apply via: --arch-md scripts/ARCH_REVIEW.md");
+            println!("Output: /tmp/agent-review-arch-prompt.md");
+            println!("Feed to Gemini, save output, pass to agent-apply via --review-arch");
         }
         "refactor-md" => {
-            println!("azul-doc spec refactor-md --review-md <path> [options] <patch-dir>");
+            println!("azul-doc spec refactor-md --review-md <REVIEW.md> [options] <patch-dir>");
             println!();
             println!("Generate a refactoring plan prompt for Gemini.");
             println!("Asks Gemini to identify abstractions and helpers needed before");
@@ -348,20 +353,19 @@ fn print_subcommand_help(cmd: &str) -> Result<(), String> {
             println!("  <patch-dir>              Directory containing .patch files");
             println!();
             println!("Required flags:");
-            println!("  --review-md <path>       Path to the review-md output (e.g. scripts/RUN2.md)");
+            println!("  --review-md <REVIEW.md>  Gemini output from the review-md step");
             println!();
             println!("Optional flags:");
-            println!("  --arch-md <path>         Architecture review (from review-arch / Gemini)");
+            println!("  --review-arch <ARCH.md>  Gemini output from the review-arch step");
             println!();
             println!("Options:");
             println!("  --no-src                 Omit source file appendix");
             println!();
             println!("Output: /tmp/agent-refactor-prompt.md");
-            println!("Feed output to Gemini, save as e.g. scripts/GROUNDWORK.md");
-            println!("Then pass to agent-apply via: --refactor-md scripts/GROUNDWORK.md");
+            println!("Feed to Gemini, save output, pass to agent-apply via --refactor-md");
         }
         "groups-json" => {
-            println!("azul-doc spec groups-json --review-md <path> [options] <patch-dir>");
+            println!("azul-doc spec groups-json --review-md <REVIEW.md> [options] <patch-dir>");
             println!();
             println!("Generate a merge-group prompt for Gemini.");
             println!("Asks Gemini to sort patches into ordered merge groups (JSON output)");
@@ -371,14 +375,13 @@ fn print_subcommand_help(cmd: &str) -> Result<(), String> {
             println!("  <patch-dir>              Directory containing .patch files");
             println!();
             println!("Required flags:");
-            println!("  --review-md <path>       Path to the review-md output (e.g. scripts/RUN2.md)");
+            println!("  --review-md <REVIEW.md>  Gemini output from the review-md step");
             println!();
             println!("Options:");
             println!("  --no-src                 Omit source file appendix");
             println!();
-            println!("Output: /tmp/agent-arch-review-prompt.md");
-            println!("Feed output to Gemini, save JSON as e.g. scripts/run2.json");
-            println!("Then pass to agent-apply via: --groups-json scripts/run2.json");
+            println!("Output: /tmp/agent-groups-json-prompt.md");
+            println!("Feed to Gemini, save JSON output, pass to agent-apply via --groups-json");
         }
         "agent-apply" => {
             println!("azul-doc spec agent-apply [flags] <patch-dir>");
@@ -394,20 +397,12 @@ fn print_subcommand_help(cmd: &str) -> Result<(), String> {
             println!("  <patch-dir>               Directory containing .patch files");
             println!();
             println!("Required flags:");
-            println!("  --groups-json <path>      Merge groups JSON (from Gemini via review-arch)");
+            println!("  --groups-json <path>      Merge groups JSON (from groups-json / Gemini)");
             println!();
             println!("Optional flags:");
-            println!("  --refactor-md <path>      Groundwork/refactoring plan (e.g. GROUNDWORK.md)");
-            println!("  --review-md <path>        Patch quality review (output of review-md / Gemini)");
-            println!("  --arch-md <path>          Architecture review (Gemini's analysis before grouping)");
-            println!();
-            println!("Example:");
-            println!("  azul-doc spec agent-apply \\");
-            println!("    --groups-json scripts/run2.json \\");
-            println!("    --refactor-md scripts/GROUNDWORK.md \\");
-            println!("    --review-md scripts/RUN2.md \\");
-            println!("    --arch-md scripts/ARCH_REVIEW.md \\");
-            println!("    doc/target/skill_tree/all_patches/run2_patches");
+            println!("  --refactor-md <path>      Refactoring plan (from refactor-md / Gemini)");
+            println!("  --review-md <path>        Patch quality review (from review-md / Gemini)");
+            println!("  --review-arch <path>      Architecture review (from review-arch / Gemini)");
             println!();
             println!("Patches are moved to applied/, skipped/, or failed/ as they're processed.");
         }
@@ -429,7 +424,7 @@ fn print_spec_help() {
     println!();
     println!("Stage 2: Analyze patches with Gemini (each generates a prompt → feed to Gemini)");
     println!("  review-md             Patch quality review (CODE/ANNOT, conflicts, skip list)");
-    println!("  review-arch           Architecture review (how patches fit the codebase)");
+    println!("  review-arch           Architecture review (cross-patch tunnel vision fix)");
     println!("  refactor-md           Refactoring plan (groundwork before applying patches)");
     println!("  groups-json           Merge groups (ordered JSON: APPLY/MERGE/PICK_ONE/SKIP)");
     println!();
@@ -444,23 +439,16 @@ fn print_spec_help() {
     println!();
     println!("Run 'azul-doc spec <command> --help' for detailed usage of any command.");
     println!();
-    println!("Full pipeline:");
-    println!("  DIR=doc/target/skill_tree/all_patches/run2_patches");
+    println!("Full pipeline (each step's output feeds into the next):");
     println!();
-    println!("  1. azul-doc spec claude-exec --agents=8                    # patches");
-    println!("  2. azul-doc spec review-md --no-src $DIR                   # → Gemini → scripts/RUN2.md");
-    println!("  3. azul-doc spec review-arch --review-md scripts/RUN2.md $DIR");
-    println!("                                                             # → Gemini → scripts/ARCH_REVIEW.md");
-    println!("  4. azul-doc spec refactor-md --review-md scripts/RUN2.md $DIR");
-    println!("                                                             # → Gemini → scripts/GROUNDWORK.md");
-    println!("  5. azul-doc spec groups-json --review-md scripts/RUN2.md $DIR");
-    println!("                                                             # → Gemini → scripts/run2.json");
-    println!("  6. azul-doc spec agent-apply \\");
-    println!("       --groups-json scripts/run2.json \\");
-    println!("       --refactor-md scripts/GROUNDWORK.md \\");
-    println!("       --review-md scripts/RUN2.md \\");
-    println!("       --arch-md scripts/ARCH_REVIEW.md \\");
-    println!("       $DIR");
+    println!("  1. claude-exec --agents=8                    # generate patches");
+    println!("  2. review-md --no-src <patch-dir>            # → Gemini → REVIEW.md");
+    println!("  3. review-arch --review-md REVIEW.md <dir>   # → Gemini → ARCH.md");
+    println!("  4. refactor-md --review-md REVIEW.md <dir>   # → Gemini → REFACTOR.md");
+    println!("  5. groups-json --review-md REVIEW.md <dir>   # → Gemini → GROUPS.json");
+    println!("  6. agent-apply --groups-json GROUPS.json \\");
+    println!("       --refactor-md REFACTOR.md --review-md REVIEW.md \\");
+    println!("       --review-arch ARCH.md <patch-dir>");
 }
 
 /// Build one prompt file per deduplicated spec paragraph, per feature.

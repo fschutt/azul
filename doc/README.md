@@ -28,7 +28,7 @@ process spec paragraphs.
 ### Full Pipeline (End-to-End)
 
 ```
-                            ┌─ review-arch ─→ --arch-md ──────┐
+                            ┌─ review-arch ─→ --review-arch ──┐
 claude-exec ──> review-md ──┤                                  ├──> agent-apply
  (patches)    (patch review) ├─ refactor-md ─→ --refactor-md ──┤    (Claude agents)
                             └─ groups-json ─→ --groups-json ──┘
@@ -37,12 +37,12 @@ claude-exec ──> review-md ──┤                                  ├─�
 Each stage generates a prompt that you feed to Gemini. Gemini's output becomes
 an input flag for `agent-apply`. The command names match the flag names:
 
-| Command | Gemini output | agent-apply flag |
-|---------|--------------|------------------|
-| `review-md` | Patch quality review | `--review-md` |
-| `review-arch` | Architecture analysis | `--arch-md` |
-| `refactor-md` | Refactoring plan | `--refactor-md` |
-| `groups-json` | Merge groups JSON | `--groups-json` |
+| Command | What it does | `agent-apply` flag |
+|---------|--------------|--------------------|
+| `review-md` | Patch quality review (CODE/ANNOT, conflicts) | `--review-md` |
+| `review-arch` | Cross-patch architecture review (tunnel vision fix) | `--review-arch` |
+| `refactor-md` | Refactoring plan (groundwork before applying) | `--refactor-md` |
+| `groups-json` | Merge groups JSON (APPLY/MERGE/PICK_ONE/SKIP) | `--groups-json` |
 
 #### Stage 1: Generate Patches
 
@@ -56,47 +56,45 @@ azul-doc spec claude-exec --status
 
 # Retry any that timed out or failed
 azul-doc spec claude-exec --retry-failed
-
-# Patches are saved as .patch files in doc/target/skill_tree/prompts/
 ```
 
 #### Stage 2: Analyze Patches with Gemini
 
-Each command below generates a prompt. Feed it to Gemini, save the output.
+Each command generates a prompt file. Feed it to Gemini, save the output.
 
 ```bash
-DIR=doc/target/skill_tree/all_patches/run2_patches
-
 # 2a. Patch quality review (CODE/ANNOT categorization, conflict clusters)
-azul-doc spec review-md --no-src $DIR
-# Output: /tmp/agent-run-review-prompt.md → Gemini → scripts/RUN2.md
+azul-doc spec review-md --no-src <patch-dir>
+# Output: /tmp/agent-run-review-prompt.md → feed to Gemini → save as REVIEW.md
 
-# 2b. Architecture review (how patches fit the codebase, ABI concerns)
-azul-doc spec review-arch --review-md scripts/RUN2.md $DIR
-# Output: /tmp/agent-arch-review-prompt.md → Gemini → scripts/ARCH_REVIEW.md
+# 2b. Architecture review — solves the "tunnel vision" problem:
+#   Each claude-exec agent only saw one spec paragraph. This prompt gives
+#   Gemini all patches + original paragraphs to find cross-cutting concerns.
+azul-doc spec review-arch --review-md <REVIEW.md> <patch-dir>
+# Output: /tmp/agent-review-arch-prompt.md → feed to Gemini → save as ARCH.md
 
 # 2c. Refactoring plan (groundwork abstractions before applying patches)
-azul-doc spec refactor-md --review-md scripts/RUN2.md $DIR
-# Output: /tmp/agent-refactor-prompt.md → Gemini → scripts/GROUNDWORK.md
+azul-doc spec refactor-md --review-md <REVIEW.md> <patch-dir>
+# Output: /tmp/agent-refactor-prompt.md → feed to Gemini → save as REFACTOR.md
 
 # 2d. Merge groups (ordered JSON with APPLY/MERGE/PICK_ONE/SKIP actions)
-azul-doc spec groups-json --review-md scripts/RUN2.md $DIR
-# Output: /tmp/agent-arch-review-prompt.md → Gemini → scripts/run2.json
+azul-doc spec groups-json --review-md <REVIEW.md> <patch-dir>
+# Output: /tmp/agent-groups-json-prompt.md → feed to Gemini → save as GROUPS.json
 ```
 
 #### Stage 3: Apply Patches via Agents
 
 ```bash
 azul-doc spec agent-apply \
-  --groups-json scripts/run2.json \
-  --refactor-md scripts/GROUNDWORK.md \
-  --review-md scripts/RUN2.md \
-  --arch-md scripts/ARCH_REVIEW.md \
-  doc/target/skill_tree/all_patches/run2_patches
+  --groups-json <GROUPS.json> \
+  --refactor-md <REFACTOR.md> \
+  --review-md <REVIEW.md> \
+  --review-arch <ARCH.md> \
+  <patch-dir>
 ```
 
 Each agent processes one merge group through 4 phases:
-1. **Refactoring** — implement groundwork from GROUNDWORK.md relevant to this group
+1. **Refactoring** — implement groundwork relevant to this group
 2. **LLM-apply** — apply patch semantic intent to current code (not literal diff)
 3. **Compile** — `cargo check -p azul-dll --features build-dll`
 4. **Review** — verify against W3C spec, fix issues, compile again
@@ -115,7 +113,7 @@ Patches are moved to subdirectories as they're processed:
 | `--groups-json <path>` | yes | Merge groups JSON (from `groups-json` / Gemini) |
 | `--refactor-md <path>` | no | Refactoring plan (from `refactor-md` / Gemini) |
 | `--review-md <path>` | no | Patch quality review (from `review-md` / Gemini) |
-| `--arch-md <path>` | no | Architecture review (from `review-arch` / Gemini) |
+| `--review-arch <path>` | no | Architecture review (from `review-arch` / Gemini) |
 
 ### Utility Commands
 
