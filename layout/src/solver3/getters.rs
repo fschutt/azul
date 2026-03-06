@@ -1747,7 +1747,7 @@ pub fn get_inline_border_info(
                 use azul_css::props::basic::SizeMetric;
                 match pv.metric {
                     SizeMetric::Px => pv.number.get(),
-                    SizeMetric::Pt => pv.number.get() * 1.333333,
+                    SizeMetric::Pt => pv.number.get() * PT_TO_PX,
                     SizeMetric::Em | SizeMetric::Rem => pv.number.get() * 16.0,
                     _ => 0.0,
                 }
@@ -2060,7 +2060,7 @@ pub fn get_vertical_align_for_node(
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
             let px = match l.metric {
                 SizeMetric::Px => l.number.get(),
-                SizeMetric::Pt => l.number.get() * 1.333333,
+                SizeMetric::Pt => l.number.get() * PT_TO_PX,
                 SizeMetric::Em | SizeMetric::Rem => l.number.get() * font_size,
                 _ => 0.0,
             };

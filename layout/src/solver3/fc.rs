@@ -2919,7 +2919,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             use azul_css::props::basic::SizeMetric;
             let offset = match l.metric {
                 SizeMetric::Px => l.number.get(),
-                SizeMetric::Pt => l.number.get() * 1.333333,
+                SizeMetric::Pt => l.number.get() * PT_TO_PX,
                 SizeMetric::Em | SizeMetric::Rem => l.number.get() * font_size,
                 _ => 0.0,
             };
@@ -7437,8 +7437,13 @@ pub fn split_text_for_whitespace(
     // (characters with the Bidi_Control property) as if they were not there"
     // Strip bidi control characters before white-space processing so they don't
     // interfere with collapsing (e.g. a bidi mark between two spaces).
-    let text: String = text.chars().filter(|c| !is_bidi_control(*c)).collect();
-    let text: &str = &text;
+    let text_owned;
+    let text: &str = if text.chars().any(|c| is_bidi_control(c)) {
+        text_owned = text.chars().filter(|c| !is_bidi_control(*c)).collect::<String>();
+        &text_owned
+    } else {
+        text
+    };
 
     // Get the white-space property - TEXT NODES inherit from parent!
     // We need to check the parent element's white-space, not the text node itself
@@ -7463,11 +7468,17 @@ pub fn split_text_for_whitespace(
     
     let mut result = Vec::new();
 
-    // +spec:margin-collapsing-p027 - normalize CR to LF per CSS Text 3 §4
+    // +spec:white-space-processing-p004 - normalize CR to LF per CSS Text 3 §4
     // HTML parsers convert \r to \n during preprocessing, but \r can survive
     // via escape sequences (e.g. &#x0d;). Any remaining U+000D must be
     // treated identically to U+000A (line feed).
-    let text = &text.replace("\r\n", "\n").replace('\r', "\n");
+    let text_cr;
+    let text: &str = if text.contains('\r') {
+        text_cr = text.replace("\r\n", "\n").replace('\r', "\n");
+        &text_cr
+    } else {
+        text
+    };
 
     // For `pre`, `pre-wrap`, `pre-line`, and `break-spaces`, newlines must be preserved as forced breaks
     // CSS Text Level 3: "Newlines in the source will be honored as forced line breaks."
