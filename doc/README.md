@@ -22,15 +22,27 @@ azul-doc reftest          # Run reference tests
 
 The `spec` subcommand provides a semi-automated pipeline for verifying and
 improving CSS layout compliance against W3C specifications. The pipeline uses
-AI agents (Gemini for review, Claude for code changes) to systematically
+AI agents (Gemini for analysis, Claude for code changes) to systematically
 process spec paragraphs.
 
 ### Full Pipeline (End-to-End)
 
 ```
-claude-exec ──> review-md ──> review-arch ──> agent-apply ──> clean branch
- (patches)    (Gemini review)  (Gemini plan)  (Claude agents)
+                            ┌─ review-arch ─→ --arch-md ──────┐
+claude-exec ──> review-md ──┤                                  ├──> agent-apply
+ (patches)    (patch review) ├─ refactor-md ─→ --refactor-md ──┤    (Claude agents)
+                            └─ groups-json ─→ --groups-json ──┘
 ```
+
+Each stage generates a prompt that you feed to Gemini. Gemini's output becomes
+an input flag for `agent-apply`. The command names match the flag names:
+
+| Command | Gemini output | agent-apply flag |
+|---------|--------------|------------------|
+| `review-md` | Patch quality review | `--review-md` |
+| `review-arch` | Architecture analysis | `--arch-md` |
+| `refactor-md` | Refactoring plan | `--refactor-md` |
+| `groups-json` | Merge groups JSON | `--groups-json` |
 
 #### Stage 1: Generate Patches
 
@@ -48,30 +60,31 @@ azul-doc spec claude-exec --retry-failed
 # Patches are saved as .patch files in doc/target/skill_tree/prompts/
 ```
 
-#### Stage 2: Review Patches
+#### Stage 2: Analyze Patches with Gemini
+
+Each command below generates a prompt. Feed it to Gemini, save the output.
 
 ```bash
-# Generate a Gemini review prompt from a directory of .patch files
-# Categorizes each patch as CODE (functional changes) or ANNOT (comment-only)
-azul-doc spec review-md --no-src <patch-dir>
+DIR=doc/target/skill_tree/all_patches/run2_patches
 
-# Output: /tmp/agent-run-review-prompt.md
-# Feed this to Gemini → save output as scripts/RUN2.md
+# 2a. Patch quality review (CODE/ANNOT categorization, conflict clusters)
+azul-doc spec review-md --no-src $DIR
+# Output: /tmp/agent-run-review-prompt.md → Gemini → scripts/RUN2.md
+
+# 2b. Architecture review (how patches fit the codebase, ABI concerns)
+azul-doc spec review-arch --review-md scripts/RUN2.md $DIR
+# Output: /tmp/agent-arch-review-prompt.md → Gemini → scripts/ARCH_REVIEW.md
+
+# 2c. Refactoring plan (groundwork abstractions before applying patches)
+azul-doc spec refactor-md --review-md scripts/RUN2.md $DIR
+# Output: /tmp/agent-refactor-prompt.md → Gemini → scripts/GROUNDWORK.md
+
+# 2d. Merge groups (ordered JSON with APPLY/MERGE/PICK_ONE/SKIP actions)
+azul-doc spec groups-json --review-md scripts/RUN2.md $DIR
+# Output: /tmp/agent-arch-review-prompt.md → Gemini → scripts/run2.json
 ```
 
-#### Stage 3: Architecture Plan
-
-```bash
-# Generate an architecture/merge-group prompt for Gemini
-azul-doc spec review-arch <patch-dir> <review.md>
-
-# Output: /tmp/agent-arch-review-prompt.md
-# Feed this to Gemini → save JSON output as scripts/run2.json
-# The JSON contains merge groups with action (APPLY/MERGE/PICK_ONE/SKIP)
-# and agent_context instructions for each group
-```
-
-#### Stage 4: Apply Patches via Agents
+#### Stage 3: Apply Patches via Agents
 
 ```bash
 azul-doc spec agent-apply \
@@ -99,10 +112,10 @@ Patches are moved to subdirectories as they're processed:
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--groups-json <path>` | yes | Merge groups JSON (Gemini output from review-arch) |
-| `--refactor-md <path>` | no | Groundwork/refactoring plan |
-| `--review-md <path>` | no | Patch quality review (Gemini output from review-md) |
-| `--arch-md <path>` | no | Architecture review (Gemini's analysis) |
+| `--groups-json <path>` | yes | Merge groups JSON (from `groups-json` / Gemini) |
+| `--refactor-md <path>` | no | Refactoring plan (from `refactor-md` / Gemini) |
+| `--review-md <path>` | no | Patch quality review (from `review-md` / Gemini) |
+| `--arch-md <path>` | no | Architecture review (from `review-arch` / Gemini) |
 
 ### Utility Commands
 
@@ -151,7 +164,7 @@ The `spec status` command scans for these markers to track coverage.
 ```
 doc/src/spec/
 ├── mod.rs          # Command routing and CLI parsing
-├── executor.rs     # Agent execution, review-md, review-arch, agent-apply
+├── executor.rs     # Agent execution, all pipeline commands
 ├── skill_tree.rs   # 16-feature skill tree with dependency ordering
 ├── downloader.rs   # W3C spec HTML fetcher
 ├── extractor.rs    # Paragraph extraction from HTML specs

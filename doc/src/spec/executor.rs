@@ -523,9 +523,197 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
 
 /// Generate a Gemini architecture-review prompt.
 ///
-/// Takes the output of `review-md` (patch review) plus the patch directory
-/// and asks Gemini to produce merge groups with application ordering.
+/// Takes the patch directory and the review-md output, and asks Gemini
+/// to analyze the codebase architecture and how patches fit into it.
 pub fn cmd_review_arch(
+    patch_dir: &str,
+    review_path: &str,
+    workspace_root: &Path,
+    no_src: bool,
+) -> Result<(), String> {
+    use std::io::Write as _;
+
+    // Resolve patch dir
+    let patch_dir = {
+        let p = PathBuf::from(patch_dir);
+        if p.is_dir() { p } else {
+            let resolved = workspace_root.join(patch_dir);
+            if resolved.is_dir() { resolved } else {
+                return Err(format!("Patch directory not found: {}", patch_dir));
+            }
+        }
+    };
+
+    // Read review file
+    let review_path = {
+        let p = PathBuf::from(review_path);
+        if p.is_file() { p } else { workspace_root.join(review_path) }
+    };
+    let review_content = fs::read_to_string(&review_path)
+        .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+
+    // Scan patches for file list
+    let mut patches: Vec<PathBuf> = fs::read_dir(&patch_dir)
+        .map_err(|e| format!("Failed to read dir {}: {}", patch_dir.display(), e))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "patch").unwrap_or(false))
+        .collect();
+    patches.sort();
+
+    if patches.is_empty() {
+        return Err(format!("No .patch files found in {}", patch_dir.display()));
+    }
+
+    let out_path = PathBuf::from("/tmp/agent-arch-review-prompt.md");
+    let mut f = fs::File::create(&out_path)
+        .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
+
+    writeln!(f, "# Architecture Review\n").unwrap();
+    writeln!(f, "You are reviewing {} patches against a CSS layout engine (Rust).", patches.len()).unwrap();
+    writeln!(f, "A previous review (see appendix) categorized patches as CODE/ANNOT and identified conflicts.\n").unwrap();
+    writeln!(f, "Your job is to produce an **architecture review**: analyze how these patches fit into the").unwrap();
+    writeln!(f, "existing codebase architecture and identify structural changes needed before applying them.\n").unwrap();
+
+    writeln!(f, "## Your Tasks\n").unwrap();
+    writeln!(f, "1. **Identify refactoring groundwork**: What abstractions, helpers, or structural changes").unwrap();
+    writeln!(f, "   should be made BEFORE applying patches? (e.g., unified dimension solvers, box model helpers)").unwrap();
+    writeln!(f, "2. **Analyze architectural fit**: Which patches align well with the current architecture?").unwrap();
+    writeln!(f, "   Which ones fight against it and need adaptation?").unwrap();
+    writeln!(f, "3. **Flag ABI concerns**: Any patches that modify `#[repr(C)]` structs or public FFI types").unwrap();
+    writeln!(f, "4. **Suggest ordering constraints**: Which patches must come before others?").unwrap();
+    writeln!(f, "5. **Identify dead code or regressions**: Patches that replace better code with worse code\n").unwrap();
+
+    writeln!(f, "## Response Format\n").unwrap();
+    writeln!(f, "Produce a structured markdown document with sections for each area of analysis.").unwrap();
+    writeln!(f, "Be specific: reference file names, function names, and line numbers where relevant.\n").unwrap();
+
+    // Include review
+    writeln!(f, "---\n").unwrap();
+    writeln!(f, "## APPENDIX A: Patch Review (from review-md)\n").unwrap();
+    writeln!(f, "{}\n", review_content).unwrap();
+
+    // Include source if requested
+    if !no_src {
+        write_source_appendix(&mut f, workspace_root);
+    }
+
+    drop(f);
+
+    let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    let est_tokens = file_size / 4;
+
+    println!("Architecture review prompt generated: {}", out_path.display());
+    println!("  {} patches referenced", patches.len());
+    println!("  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+
+    Ok(())
+}
+
+// ── refactor-md command ──────────────────────────────────────────────
+
+/// Generate a Gemini refactoring-plan prompt.
+///
+/// Takes the patch directory, the review-md output, and optionally the
+/// arch-md output. Asks Gemini to produce a refactoring plan (GROUNDWORK.md).
+pub fn cmd_refactor_md(
+    patch_dir: &str,
+    review_path: &str,
+    arch_path: Option<&str>,
+    workspace_root: &Path,
+    no_src: bool,
+) -> Result<(), String> {
+    use std::io::Write as _;
+
+    // Resolve patch dir
+    let patch_dir = {
+        let p = PathBuf::from(patch_dir);
+        if p.is_dir() { p } else {
+            let resolved = workspace_root.join(patch_dir);
+            if resolved.is_dir() { resolved } else {
+                return Err(format!("Patch directory not found: {}", patch_dir));
+            }
+        }
+    };
+
+    // Read review file
+    let review_path = {
+        let p = PathBuf::from(review_path);
+        if p.is_file() { p } else { workspace_root.join(review_path) }
+    };
+    let review_content = fs::read_to_string(&review_path)
+        .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+
+    // Read optional arch file
+    let arch_content = if let Some(ap) = arch_path {
+        let p = PathBuf::from(ap);
+        let resolved = if p.is_file() { p } else { workspace_root.join(ap) };
+        Some(fs::read_to_string(&resolved)
+            .map_err(|e| format!("Failed to read arch file {}: {}", resolved.display(), e))?)
+    } else {
+        None
+    };
+
+    let out_path = PathBuf::from("/tmp/agent-refactor-prompt.md");
+    let mut f = fs::File::create(&out_path)
+        .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
+
+    writeln!(f, "# Refactoring Groundwork Plan\n").unwrap();
+    writeln!(f, "You are planning refactoring work needed before applying patches to a CSS layout engine (Rust).\n").unwrap();
+    writeln!(f, "A review of the patches identified conflict clusters and architectural issues.").unwrap();
+    writeln!(f, "Your job is to produce a **refactoring plan** (GROUNDWORK.md): a list of abstractions,").unwrap();
+    writeln!(f, "helpers, and structural changes that should be made BEFORE applying patches.\n").unwrap();
+
+    writeln!(f, "## Your Tasks\n").unwrap();
+    writeln!(f, "For each refactoring item, specify:").unwrap();
+    writeln!(f, "1. **What**: The abstraction/helper/refactor to create").unwrap();
+    writeln!(f, "2. **Why**: Why it's needed (which conflict clusters or patches benefit)").unwrap();
+    writeln!(f, "3. **Where**: Which files and functions to modify").unwrap();
+    writeln!(f, "4. **Needed for patches**: List specific patch names that depend on this groundwork\n").unwrap();
+
+    writeln!(f, "## Guidelines\n").unwrap();
+    writeln!(f, "- Focus on abstractions that prevent multiple patches from scattering ad-hoc logic").unwrap();
+    writeln!(f, "- Prioritize helpers that reduce merge conflicts between patches").unwrap();
+    writeln!(f, "- Keep it concrete: name specific functions, types, and files").unwrap();
+    writeln!(f, "- Number the items (## 1, ## 2, ...) for easy reference\n").unwrap();
+
+    // Include review
+    writeln!(f, "---\n").unwrap();
+    writeln!(f, "## APPENDIX A: Patch Review\n").unwrap();
+    writeln!(f, "{}\n", review_content).unwrap();
+
+    // Include arch review if available
+    if let Some(arch) = &arch_content {
+        writeln!(f, "---\n").unwrap();
+        writeln!(f, "## APPENDIX B: Architecture Review\n").unwrap();
+        writeln!(f, "{}\n", arch).unwrap();
+    }
+
+    // Include source if requested
+    if !no_src {
+        write_source_appendix(&mut f, workspace_root);
+    }
+
+    drop(f);
+
+    let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    let est_tokens = file_size / 4;
+
+    println!("Refactoring plan prompt generated: {}", out_path.display());
+    println!("  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+
+    Ok(())
+}
+
+// ── groups-json command ──────────────────────────────────────────────
+
+/// Generate a Gemini merge-group prompt.
+///
+/// Takes the output of `review-md` (patch review) plus the patch directory
+/// and asks Gemini to produce merge groups with application ordering (JSON).
+pub fn cmd_groups_json(
     patch_dir: &str,
     review_path: &str,
     workspace_root: &Path,
