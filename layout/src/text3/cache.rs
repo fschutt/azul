@@ -2578,6 +2578,9 @@ pub enum TextTransform {
     Uppercase,
     Lowercase,
     Capitalize,
+    // +spec:white-space-processing-p010 - full-width transforms U+0020 to U+3000
+    // only within preserved white space (non-preserved spaces already collapsed in Phase I)
+    FullWidth,
 }
 
 // Type alias for OpenType feature tags

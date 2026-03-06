@@ -7432,6 +7432,58 @@ pub fn split_text_for_whitespace(
             }
         }
     }
-    
+
+    // +spec:white-space-processing-p010 - text-transform applied after Phase I (collapsing)
+    // but before Phase II (trimming/positioning). This means full-width only transforms
+    // spaces (U+0020) to U+3000 IDEOGRAPHIC SPACE within preserved white space, because
+    // non-preserved spaces were already collapsed in Phase I above.
+    let text_transform = style.text_transform;
+    if text_transform != crate::text3::cache::TextTransform::None {
+        for item in result.iter_mut() {
+            if let InlineContent::Text(run) = item {
+                run.text = apply_text_transform(&run.text, text_transform);
+            }
+        }
+    }
+
     result
+}
+
+// +spec:white-space-processing-p010 - applies text-transform after Phase I collapsing
+fn apply_text_transform(text: &str, transform: crate::text3::cache::TextTransform) -> String {
+    use crate::text3::cache::TextTransform;
+    match transform {
+        TextTransform::None => text.to_string(),
+        TextTransform::Uppercase => text.to_uppercase(),
+        TextTransform::Lowercase => text.to_lowercase(),
+        TextTransform::Capitalize => {
+            let mut result = String::with_capacity(text.len());
+            let mut prev_is_word_boundary = true;
+            for c in text.chars() {
+                if prev_is_word_boundary && c.is_alphabetic() {
+                    for uc in c.to_uppercase() {
+                        result.push(uc);
+                    }
+                    prev_is_word_boundary = false;
+                } else {
+                    result.push(c);
+                    prev_is_word_boundary = c.is_whitespace() || c.is_ascii_punctuation();
+                }
+            }
+            result
+        }
+        TextTransform::FullWidth => {
+            // Full-width transforms ASCII characters to their full-width equivalents.
+            // Spaces (U+0020) become U+3000 IDEOGRAPHIC SPACE — but only those that
+            // survived Phase I collapsing (i.e. preserved white space).
+            text.chars().map(|c| match c {
+                ' ' => '\u{3000}',  // U+0020 SPACE -> U+3000 IDEOGRAPHIC SPACE
+                '!' ..= '~' => {
+                    // ASCII printable range U+0021..U+007E -> fullwidth U+FF01..U+FF5E
+                    char::from_u32(c as u32 - 0x0021 + 0xFF01).unwrap_or(c)
+                }
+                _ => c,
+            }).collect()
+        }
+    }
 }
