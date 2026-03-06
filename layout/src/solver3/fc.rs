@@ -375,6 +375,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         }
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
             .map(BfcLayoutResult::from_output),
+        // +spec:inline-block-p010 - §9.4.1: inline-blocks establish new BFC for their contents
         FormattingContext::InlineBlock => {
             // CSS 2.2 § 9.4.1: "inline-blocks... establish new block formatting contexts"
             // InlineBlock ALWAYS establishes a BFC for its contents.
@@ -2858,13 +2859,24 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     );
 
     // +spec:line-breaking-p038 - §8.1 text-indent: resolve value and extract each-line/hanging flags
+    // +spec:inline-block-p029 - text-indent inherits and applies to inline-block descendants since they are block containers (CSS Text 3 §8.1)
+    // +spec:inline-block-p029 - percentage text-indent treated as 0 for intrinsic size contributions (CSS Text 3 §8.1)
     let text_indent_prop = styled_dom
         .css_property_cache
         .ptr
         .get_text_indent(node_data, &id, node_state)
         .and_then(|s| s.get_property().cloned());
+    let is_intrinsic_sizing = matches!(
+        constraints.available_width_type,
+        Text3AvailableSpace::MinContent | Text3AvailableSpace::MaxContent
+    );
     let text_indent = text_indent_prop
         .map(|ti| {
+            // CSS Text 3 §8.1: "Percentages must be treated as 0 for the purpose
+            // of calculating intrinsic size contributions"
+            if is_intrinsic_sizing && ti.inner.to_percent().is_some() {
+                return 0.0;
+            }
             let context = ResolutionContext {
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
                 parent_font_size: get_parent_font_size(styled_dom, id, node_state),
@@ -3086,8 +3098,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
             LayoutTextJustify::Distribute => text3::cache::JustifyContent::Distribute,
         },
-        line_height: line_height_value.inner.normalized() * font_size, /* Resolve line-height relative to font-size */
-        vertical_align, // CSS vertical-align property (defaults to Baseline)
+        // +spec:inline-block-p033 - §10.8.1: line-height <number>/<percentage> computed as normalized × font-size
+        // +spec:inline-block-p036 - §10.8.1: line-height = normalized_value × font-size (handles number and percentage cases)
+        line_height: line_height_value.inner.normalized() * font_size,
+        // +spec:inline-block-p036 - §10.8.1: vertical-align property applied to inline-level elements
+        vertical_align,
         word_break: text3::cache::WordBreak::Normal, // TODO: wire up CSS word-break property
         // +spec:white-space-processing-p028 - white-space interaction with line-break strictness
         // CSS Text Level 3 §5.3: The line-break property affects preserved white space behavior:
@@ -5889,6 +5904,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Update the node in the tree with its now-known used size.
             tree.get_mut(child_index).unwrap().used_size = Some(final_size);
 
+            // +spec:inline-block-p036 - §10.8.1 baseline alignment: "If the box does not have a baseline,
+            // align the bottom margin edge with the parent's baseline"
             // CSS 2.2 § 10.8.1: For inline-block elements, the baseline is the baseline of the
             // last line box in the normal flow, unless it has no in-flow line boxes, in which
             // case the baseline is the bottom margin edge.
