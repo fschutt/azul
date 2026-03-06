@@ -110,6 +110,162 @@ pub fn resolve_percentage_with_box_model(
     (containing_block_dimension * percentage).max(0.0)
 }
 
+// ============================================================================
+// CSS 2.2 §10.3 / §10.6 DIMENSION EQUATION SOLVERS
+// ============================================================================
+
+/// Result of solving the horizontal formatting equation.
+/// CSS 2.2 §10.3.3: margin-left + border-left + padding-left + width +
+///                   padding-right + border-right + margin-right = containing block width
+#[derive(Debug, Clone, Copy)]
+pub struct HorizontalSolution {
+    pub margin_left: f32,
+    pub width: f32,
+    pub margin_right: f32,
+}
+
+/// Solves the CSS 2.2 §10.3 horizontal formatting constraint equation for
+/// non-replaced block-level elements in normal flow.
+///
+/// The constraint: margin_left + border_left + padding_left + width +
+///                 padding_right + border_right + margin_right = cb_width
+///
+/// `auto` values are represented as `None`. The solver fills in auto values
+/// according to §10.3.3 rules:
+/// - If width is auto: width = cb_width - (margins + borders + paddings)
+/// - If exactly one margin is auto: it gets the remaining space
+/// - If both margins are auto: they split remaining space equally (centering)
+/// - If over-constrained (no autos): margin_right is adjusted (for LTR)
+pub fn solve_horizontal_formatting(
+    cb_width: f32,
+    margin_left: Option<f32>,
+    margin_right: Option<f32>,
+    width: Option<f32>,
+    border_padding_left: f32,
+    border_padding_right: f32,
+    is_ltr: bool,
+) -> HorizontalSolution {
+    let bp_sum = border_padding_left + border_padding_right;
+
+    match (margin_left, width, margin_right) {
+        // All three specified: over-constrained
+        (Some(ml), Some(w), Some(_mr)) => {
+            // §10.3.3: If over-constrained, the specified margin-right value
+            // is treated as auto (for LTR; margin-left for RTL)
+            let remaining = cb_width - ml - w - bp_sum;
+            if is_ltr {
+                HorizontalSolution { margin_left: ml, width: w, margin_right: remaining }
+            } else {
+                HorizontalSolution { margin_left: remaining, width: w, margin_right: ml }
+            }
+        }
+        // Width auto: margins use their specified values, width fills remaining
+        (Some(ml), None, Some(mr)) => {
+            let w = (cb_width - ml - mr - bp_sum).max(0.0);
+            HorizontalSolution { margin_left: ml, width: w, margin_right: mr }
+        }
+        (None, None, Some(mr)) => {
+            let w = (cb_width - mr - bp_sum).max(0.0);
+            HorizontalSolution { margin_left: 0.0, width: w, margin_right: mr }
+        }
+        (Some(ml), None, None) => {
+            let w = (cb_width - ml - bp_sum).max(0.0);
+            HorizontalSolution { margin_left: ml, width: w, margin_right: 0.0 }
+        }
+        (None, None, None) => {
+            let w = (cb_width - bp_sum).max(0.0);
+            HorizontalSolution { margin_left: 0.0, width: w, margin_right: 0.0 }
+        }
+        // Width specified, one or both margins auto
+        (None, Some(w), Some(mr)) => {
+            let ml = (cb_width - w - mr - bp_sum).max(0.0);
+            HorizontalSolution { margin_left: ml, width: w, margin_right: mr }
+        }
+        (Some(ml), Some(w), None) => {
+            let mr = (cb_width - ml - w - bp_sum).max(0.0);
+            HorizontalSolution { margin_left: ml, width: w, margin_right: mr }
+        }
+        // Both margins auto: center
+        (None, Some(w), None) => {
+            let remaining = (cb_width - w - bp_sum).max(0.0);
+            let half = remaining / 2.0;
+            HorizontalSolution { margin_left: half, width: w, margin_right: half }
+        }
+    }
+}
+
+/// Result of solving the vertical formatting equation.
+#[derive(Debug, Clone, Copy)]
+pub struct VerticalSolution {
+    pub margin_top: f32,
+    pub height: f32,
+    pub margin_bottom: f32,
+}
+
+/// Solves the CSS 2.2 §10.6.4 vertical formatting constraint equation for
+/// absolutely positioned non-replaced elements.
+///
+/// The constraint: top + margin_top + border_top + padding_top + height +
+///                 padding_bottom + border_bottom + margin_bottom + bottom = cb_height
+///
+/// For normal-flow blocks, vertical auto margins resolve to 0 and height is
+/// determined by content. This solver is primarily useful for absolutely
+/// positioned elements where the vertical equation must be balanced.
+pub fn solve_vertical_formatting(
+    cb_height: f32,
+    top: Option<f32>,
+    bottom: Option<f32>,
+    margin_top: Option<f32>,
+    margin_bottom: Option<f32>,
+    height: Option<f32>,
+    border_padding_top: f32,
+    border_padding_bottom: f32,
+) -> VerticalSolution {
+    let bp_sum = border_padding_top + border_padding_bottom;
+    let t = top.unwrap_or(0.0);
+    let b = bottom.unwrap_or(0.0);
+
+    match (height, margin_top, margin_bottom) {
+        // Height and both margins specified
+        (Some(h), Some(mt), Some(_mb)) => {
+            // Over-constrained: ignore bottom, adjust margin_bottom
+            let mb = cb_height - t - mt - h - bp_sum - b;
+            VerticalSolution { margin_top: mt, height: h, margin_bottom: mb }
+        }
+        // Height auto
+        (None, Some(mt), Some(mb)) => {
+            let h = (cb_height - t - mt - mb - bp_sum - b).max(0.0);
+            VerticalSolution { margin_top: mt, height: h, margin_bottom: mb }
+        }
+        (None, None, Some(mb)) => {
+            let h = (cb_height - t - mb - bp_sum - b).max(0.0);
+            VerticalSolution { margin_top: 0.0, height: h, margin_bottom: mb }
+        }
+        (None, Some(mt), None) => {
+            let h = (cb_height - t - mt - bp_sum - b).max(0.0);
+            VerticalSolution { margin_top: mt, height: h, margin_bottom: 0.0 }
+        }
+        (None, None, None) => {
+            let h = (cb_height - t - bp_sum - b).max(0.0);
+            VerticalSolution { margin_top: 0.0, height: h, margin_bottom: 0.0 }
+        }
+        // Height specified, one or both margins auto
+        (Some(h), None, Some(mb)) => {
+            let mt = (cb_height - t - h - mb - bp_sum - b).max(0.0);
+            VerticalSolution { margin_top: mt, height: h, margin_bottom: mb }
+        }
+        (Some(h), Some(mt), None) => {
+            let mb = (cb_height - t - mt - h - bp_sum - b).max(0.0);
+            VerticalSolution { margin_top: mt, height: h, margin_bottom: mb }
+        }
+        (Some(h), None, None) => {
+            let remaining = (cb_height - t - h - bp_sum - b).max(0.0);
+            let half = remaining / 2.0;
+            VerticalSolution { margin_top: half, height: h, margin_bottom: half }
+        }
+    }
+}
+
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,

@@ -3773,6 +3773,63 @@ where
     }
 }
 
+/// Standalone predicate: does this element establish a new stacking context?
+///
+/// Centralizes the CSS 2.1 §9.9.1 and CSS3 rules for stacking context creation.
+/// Checks: position + z-index, opacity < 1, transform != none.
+///
+/// This is the canonical check used by display list generation and can also
+/// be called from other phases that need to reason about stacking contexts.
+pub fn node_establishes_stacking_context(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+) -> bool {
+    let position = crate::solver3::positioning::get_position_type(styled_dom, Some(dom_id));
+    let z_auto = crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id));
+
+    // Fixed positioning always creates stacking context
+    if position == LayoutPosition::Fixed {
+        return true;
+    }
+    // Absolute with explicit z-index creates stacking context
+    if position == LayoutPosition::Absolute && !z_auto {
+        return true;
+    }
+    // Relative with explicit z-index creates stacking context
+    if position == LayoutPosition::Relative && !z_auto {
+        return true;
+    }
+
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+
+    // Opacity < 1
+    let opacity = styled_dom
+        .css_property_cache
+        .ptr
+        .get_opacity(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.inner.normalized())
+        .unwrap_or(1.0);
+    if opacity < 1.0 {
+        return true;
+    }
+
+    // Transform != none
+    let has_transform = styled_dom
+        .css_property_cache
+        .ptr
+        .get_transform(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    if has_transform {
+        return true;
+    }
+
+    false
+}
+
 /// Helper struct to pass layout results to the display list generator.
 ///
 /// Combines the layout tree with pre-calculated absolute positions for each node.

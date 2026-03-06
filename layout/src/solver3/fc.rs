@@ -6866,6 +6866,62 @@ fn apply_segment_break_transform(text: &str) -> String {
     result
 }
 
+// ============================================================================
+// WHITE-SPACE PROCESSING PIPELINE (CSS Text Level 3 §4)
+// ============================================================================
+//
+// The white-space processing pipeline is organized into four phases per the
+// CSS Text Level 3 specification:
+//
+//   Phase 1 (Collapse): Collapse whitespace sequences per §4.1.1
+//   Phase 2 (Segment Break Transform): Transform segment breaks per §4.1.3
+//   Phase 3 (Edge Trimming): Trim spaces at line start/end per §4.1.2
+//   Phase 4 (Tab Resolution): Resolve tab stops per §4.2
+//
+// Each phase is a standalone function that transforms a string, allowing
+// spec patches to modify individual phases without touching others.
+
+/// Phase 1: Collapse consecutive whitespace to a single space.
+/// CSS Text 3 §4.1.1 - applies to `normal`, `nowrap`, and `pre-line` modes.
+pub fn ws_phase1_collapse(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut prev_was_space = false;
+    for ch in text.chars() {
+        if ch == ' ' || ch == '\t' {
+            if !prev_was_space {
+                result.push(' ');
+                prev_was_space = true;
+            }
+        } else {
+            result.push(ch);
+            prev_was_space = false;
+        }
+    }
+    result
+}
+
+/// Phase 2: Transform segment breaks (newlines) per CSS Text 3 §4.1.3.
+/// Delegates to `apply_segment_break_transform` for the actual transformation rules.
+pub fn ws_phase2_segment_break_transform(text: &str) -> String {
+    apply_segment_break_transform(text)
+}
+
+/// Phase 3: Trim leading/trailing collapsible whitespace at line boundaries.
+/// CSS Text 3 §4.1.2 - this is a no-op during text collection; actual trimming
+/// happens during line breaking when line start/end positions are known.
+/// Provided as a pipeline slot for patches to hook into.
+pub fn ws_phase3_trim_edges(text: &str) -> String {
+    text.to_string()
+}
+
+/// Phase 4: Resolve tab characters to spaces based on tab-size.
+/// CSS Text 3 §4.2 - for `normal`/`nowrap`, tabs are collapsed to spaces in Phase 1.
+/// For `pre`/`pre-wrap`/`break-spaces`, tabs are emitted as `InlineContent::Tab`
+/// and resolved during line layout. This phase is a no-op during text collection.
+pub fn ws_phase4_resolve_tabs(text: &str) -> String {
+    text.to_string()
+}
+
 /// Splits text content into InlineContent items based on white-space CSS property.
 ///
 /// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as

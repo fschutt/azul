@@ -1993,6 +1993,62 @@ fn is_proper_table_child(display: LayoutDisplay) -> bool {
     )
 }
 
+/// Returns true if `display` is a table-internal display type that requires
+/// a specific parent container per CSS 2.2 §17.2.1.
+pub fn is_table_internal_display(display: LayoutDisplay) -> bool {
+    matches!(
+        display,
+        LayoutDisplay::TableCell
+            | LayoutDisplay::TableRow
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableColumn
+            | LayoutDisplay::TableColumnGroup
+            | LayoutDisplay::TableCaption
+    )
+}
+
+/// Returns true if a node with the given display type is "misparented" -
+/// i.e. its parent's display type cannot legally contain it per CSS 2.2 §17.2.1.
+/// This is a convenience wrapper around `needs_table_parent_wrapper`.
+pub fn is_misparented_table_item(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    parent_display: LayoutDisplay,
+) -> bool {
+    needs_table_parent_wrapper(styled_dom, node_id, parent_display).is_some()
+}
+
+/// Finds runs of consecutive children (by DOM ID) that do NOT have `expected_display`.
+/// Returns a Vec of (start_index, count) pairs into the children list.
+/// Used by table anonymous box generation to identify which children need wrapping.
+pub fn find_consecutive_non_matching_children(
+    styled_dom: &StyledDom,
+    children: &[NodeId],
+    expected_display: LayoutDisplay,
+) -> Vec<(usize, usize)> {
+    let mut runs = Vec::new();
+    let mut i = 0;
+    while i < children.len() {
+        let child_display = get_display_type(styled_dom, children[i]);
+        if child_display != expected_display {
+            let start = i;
+            while i < children.len() {
+                let d = get_display_type(styled_dom, children[i]);
+                if d == expected_display {
+                    break;
+                }
+                i += 1;
+            }
+            runs.push((start, i - start));
+        } else {
+            i += 1;
+        }
+    }
+    runs
+}
+
 /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 3:
 /// "Generate missing parents. For each table-cell box C in a sequence of consecutive
 /// table-cell boxes (that are not part of a table-row), an anonymous table-row box

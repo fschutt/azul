@@ -39,6 +39,20 @@ pub struct EdgeSizes {
 }
 
 impl EdgeSizes {
+    pub fn zero() -> Self {
+        Self { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 }
+    }
+
+    /// Sum of horizontal edges (left + right).
+    pub fn horizontal_sum(&self) -> f32 {
+        self.left + self.right
+    }
+
+    /// Sum of vertical edges (top + bottom).
+    pub fn vertical_sum(&self) -> f32 {
+        self.top + self.bottom
+    }
+
     /// Returns the size of the edge at the start of the main/block axis.
     pub fn main_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
@@ -281,11 +295,89 @@ impl ResolvedBoxProps {
 
         LogicalSize::from_main_cross(inner_main, inner_cross, wm)
     }
+
+    /// Returns the content-box rect from a border-box rect.
+    /// Shrinks inward by border + padding on each side.
+    pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
+        let x = border_box.origin.x + self.border.left + self.padding.left;
+        let y = border_box.origin.y + self.border.top + self.padding.top;
+        let w = (border_box.size.width - self.border.horizontal_sum() - self.padding.horizontal_sum()).max(0.0);
+        let h = (border_box.size.height - self.border.vertical_sum() - self.padding.vertical_sum()).max(0.0);
+        LogicalRect { origin: LogicalPosition { x, y }, size: LogicalSize { width: w, height: h } }
+    }
+
+    /// Returns the padding-box rect from a border-box rect.
+    /// Shrinks inward by border on each side.
+    pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
+        let x = border_box.origin.x + self.border.left;
+        let y = border_box.origin.y + self.border.top;
+        let w = (border_box.size.width - self.border.horizontal_sum()).max(0.0);
+        let h = (border_box.size.height - self.border.vertical_sum()).max(0.0);
+        LogicalRect { origin: LogicalPosition { x, y }, size: LogicalSize { width: w, height: h } }
+    }
+
+    /// Returns the margin-box rect from a border-box rect.
+    /// Expands outward by margin on each side.
+    pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
+        let x = border_box.origin.x - self.margin.left;
+        let y = border_box.origin.y - self.margin.top;
+        let w = border_box.size.width + self.margin.horizontal_sum();
+        let h = border_box.size.height + self.margin.vertical_sum();
+        LogicalRect { origin: LogicalPosition { x, y }, size: LogicalSize { width: w, height: h } }
+    }
+
+    /// Total horizontal space consumed by margin + border + padding.
+    pub fn horizontal_mbp(&self) -> f32 {
+        self.margin.horizontal_sum() + self.border.horizontal_sum() + self.padding.horizontal_sum()
+    }
+
+    /// Total vertical space consumed by margin + border + padding.
+    pub fn vertical_mbp(&self) -> f32 {
+        self.margin.vertical_sum() + self.border.vertical_sum() + self.padding.vertical_sum()
+    }
+
+    /// Total horizontal space consumed by border + padding only (no margin).
+    pub fn horizontal_bp(&self) -> f32 {
+        self.border.horizontal_sum() + self.padding.horizontal_sum()
+    }
+
+    /// Total vertical space consumed by border + padding only (no margin).
+    pub fn vertical_bp(&self) -> f32 {
+        self.border.vertical_sum() + self.padding.vertical_sum()
+    }
 }
 
 /// Type alias for backwards compatibility.
 /// TODO: Remove this once all code uses ResolvedBoxProps directly.
 pub type BoxProps = ResolvedBoxProps;
+
+/// Shrink a rect inward by the given edge sizes.
+pub fn shrink_rect_by_edges(rect: LogicalRect, edges: &EdgeSizes) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition {
+            x: rect.origin.x + edges.left,
+            y: rect.origin.y + edges.top,
+        },
+        size: LogicalSize {
+            width: (rect.size.width - edges.horizontal_sum()).max(0.0),
+            height: (rect.size.height - edges.vertical_sum()).max(0.0),
+        },
+    }
+}
+
+/// Expand a rect outward by the given edge sizes.
+pub fn expand_rect_by_edges(rect: LogicalRect, edges: &EdgeSizes) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition {
+            x: rect.origin.x - edges.left,
+            y: rect.origin.y - edges.top,
+        },
+        size: LogicalSize {
+            width: rect.size.width + edges.horizontal_sum(),
+            height: rect.size.height + edges.vertical_sum(),
+        },
+    }
+}
 
 // Verwende die Typen aus azul_css für float und clear
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};

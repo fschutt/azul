@@ -1959,6 +1959,44 @@ pub fn get_display_property(
     get_display_property_internal(styled_dom, id, node_state)
 }
 
+/// CSS Display Module Level 3: Blockification of display values.
+///
+/// When an element is floated, absolutely positioned, or is the root element,
+/// its computed display value may be "blockified" per the table in CSS Display 3 §2.7.
+/// This function returns the blockified display value without mutating any state.
+pub fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
+    match raw_display {
+        // Inline-level display types become their block-level equivalents
+        LayoutDisplay::Inline => LayoutDisplay::Block,
+        LayoutDisplay::InlineBlock => LayoutDisplay::Block,
+        LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
+        LayoutDisplay::InlineTable => LayoutDisplay::Table,
+        // Already block-level or internal table types are unchanged
+        other => other,
+    }
+}
+
+/// Resolves the computed display value for an element, applying blockification
+/// rules per CSS Display Module Level 3 §2.7.
+///
+/// This centralizes the blockification decision so that all layout phases
+/// (layout_tree, sizing, positioning) use consistent display values.
+pub fn get_computed_display(
+    raw_display: LayoutDisplay,
+    is_absolute_or_fixed: bool,
+    is_floated: bool,
+    is_root: bool,
+) -> LayoutDisplay {
+    if raw_display == LayoutDisplay::None {
+        return LayoutDisplay::None;
+    }
+    if is_absolute_or_fixed || is_floated || is_root {
+        blockify_display(raw_display)
+    } else {
+        raw_display
+    }
+}
+
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
 pub fn get_vertical_align_for_node(

@@ -3246,6 +3246,14 @@ pub struct ShapedCluster {
     /// (in the padding gutter) or inside (inline with content).
     /// None for non-marker content.
     pub marker_position_outside: Option<bool>,
+    /// True if this is the first visual fragment of its inline box.
+    /// Used for `box-decoration-break` and split inline border/padding.
+    /// When an inline element wraps across lines, only the first fragment
+    /// gets the start-edge border/padding.
+    pub is_first_fragment: bool,
+    /// True if this is the last visual fragment of its inline box.
+    /// Only the last fragment gets the end-edge border/padding.
+    pub is_last_fragment: bool,
 }
 
 /// A single, shaped glyph with its essential metrics.
@@ -5791,6 +5799,8 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 direction,
                 style: style.clone(),
                 marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
             });
             current_cluster_glyphs.clear();
             cluster_id = glyph.cluster;
@@ -5851,6 +5861,8 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             direction,
             style: style.clone(),
             marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
         });
     }
 
@@ -6724,6 +6736,8 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
             direction: BidiDirection::Ltr,
             style: style.clone(),
             marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
         });
 
         possible_breaks.push(HyphenationBreak {
@@ -7509,6 +7523,8 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             direction: BidiDirection::Ltr,
             style,
             marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
         })
     };
 

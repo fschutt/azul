@@ -606,3 +606,59 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
 
     final_glyphs
 }
+
+// ============================================================================
+// LINE BOX METRICS ACCUMULATOR (CSS 2.2 §10.8.1)
+// ============================================================================
+
+/// Accumulates metrics for a single line box during inline layout.
+///
+/// Implements the CSS 2.2 §10.8.1 "half-leading" model:
+/// - Each inline item has a content area (ascent + descent from font metrics)
+/// - CSS `line-height` distributes "half-leading" equally above and below
+/// - The line box height is the maximum extent of all items after leading
+///
+/// Usage: create a new `LineBoxMetrics`, call `add_item()` for each inline
+/// item on the line, then call `line_height()` and `baseline_offset()`.
+#[derive(Debug, Clone)]
+pub struct LineBoxMetrics {
+    /// Maximum distance above the baseline (positive = up).
+    max_above_baseline: f32,
+    /// Maximum distance below the baseline (positive = down).
+    max_below_baseline: f32,
+}
+
+impl LineBoxMetrics {
+    pub fn new() -> Self {
+        Self {
+            max_above_baseline: 0.0,
+            max_below_baseline: 0.0,
+        }
+    }
+
+    /// Add an inline item's metrics to this line box.
+    ///
+    /// - `ascent`: font ascent (positive, distance from baseline to top of text)
+    /// - `descent`: font descent (positive, distance from baseline to bottom of text)
+    /// - `line_height`: the computed CSS `line-height` for this item
+    ///
+    /// Half-leading = (line_height - (ascent + descent)) / 2, added above and below.
+    pub fn add_item(&mut self, ascent: f32, descent: f32, line_height: f32) {
+        let content_height = ascent + descent;
+        let half_leading = (line_height - content_height) / 2.0;
+        let above = ascent + half_leading;
+        let below = descent + half_leading;
+        self.max_above_baseline = self.max_above_baseline.max(above);
+        self.max_below_baseline = self.max_below_baseline.max(below);
+    }
+
+    /// The total height of the line box.
+    pub fn line_height(&self) -> f32 {
+        self.max_above_baseline + self.max_below_baseline
+    }
+
+    /// The offset from the top of the line box to the baseline.
+    pub fn baseline_offset(&self) -> f32 {
+        self.max_above_baseline
+    }
+}

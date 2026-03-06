@@ -35,7 +35,7 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
-struct PositionOffsets {
+pub struct PositionOffsets {
     top: Option<f32>,
     right: Option<f32>,
     bottom: Option<f32>,
@@ -572,7 +572,11 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 /// Helper to find the containing block for an absolutely positioned element.
 /// CSS 2.1 Section 10.1: The containing block for absolutely positioned elements
 /// is the padding box of the nearest positioned ancestor.
-fn find_absolute_containing_block_rect(
+///
+/// Returns a `LogicalRect` representing the padding-box of the nearest
+/// positioned ancestor, or the viewport (initial containing block) if none exists.
+/// This is the unified entry point used by both sizing and positioning phases.
+pub fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
     styled_dom: &StyledDom,
