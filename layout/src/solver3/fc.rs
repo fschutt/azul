@@ -378,6 +378,10 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         }
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints)
             .map(BfcLayoutResult::from_output),
+        // +spec:table-layout-p026 +spec:table-layout-p028 +spec:table-layout-p029 +spec:table-layout-p043
+        // Table-internal flex items are blockified during tree construction
+        // (blockify_flex_item_if_table_internal in layout_tree.rs), so they arrive
+        // here as Block, not TableCell etc.
         FormattingContext::Flex | FormattingContext::Grid => {
             layout_flex_grid(ctx, tree, text_cache, node_index, constraints)
         }

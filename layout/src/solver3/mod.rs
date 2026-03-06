@@ -775,7 +775,9 @@ fn get_containing_block_for_node(
         }
     }
     
-    // For ROOT nodes: the containing block is the viewport.
+    // +spec:containing-block-p035 +spec:containing-block-p047 - root element's containing block
+    // is the initial containing block (CSS Display 3 §2.8).
+    // For ROOT nodes: the containing block is the viewport (initial containing block).
     // Do NOT subtract margin here - margins are handled in calculate_used_size().
     // The margin creates space between viewport edge and element's border-box,
     // but the available space for calculating width/height percentages

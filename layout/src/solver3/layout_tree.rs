@@ -860,7 +860,41 @@ impl LayoutTreeBuilder {
     ) -> Result<usize> {
         let node_data = &styled_dom.node_data.as_container()[dom_id];
         let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
-        let display_type = get_display_type(styled_dom, dom_id);
+        let raw_display = get_display_type(styled_dom, dom_id);
+
+        // +spec:containing-block-p035 +spec:containing-block-p047 - root element's display
+        // type is always blockified (CSS Display 3 §2.8)
+        // +spec:containing-block-p047 - flex/grid parent blockifies children's display type
+        // (CSS Display 3 §2.7)
+        let display_type = if parent_idx.is_none() {
+            blockify_display(raw_display)
+        } else if let Some(parent_fc) = parent_idx.and_then(|p| self.nodes.get(p).map(|n| &n.formatting_context)) {
+            match parent_fc {
+                FormattingContext::Flex | FormattingContext::Grid => blockify_display(raw_display),
+                _ => raw_display,
+            }
+        } else {
+            raw_display
+        };
+
+        // If blockification changed the display type, update the node's formatting context
+        if display_type != raw_display {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.display = display_type;
+                node.formatting_context = determine_formatting_context_for_display(
+                    styled_dom, dom_id, display_type,
+                );
+            }
+        }
+
+        // +spec:containing-block-p047 - root element establishes independent formatting context
+        if parent_idx.is_none() {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                if let FormattingContext::Block { ref mut establishes_new_context } = node.formatting_context {
+                    *establishes_new_context = true;
+                }
+            }
+        }
 
         // If this is a list-item, inject a ::marker pseudo-element as its first child
         // Per CSS spec, the ::marker is generated as the first child of the list-item
@@ -890,6 +924,8 @@ impl LayoutTreeBuilder {
             }
             // Inline, TableCell, etc., have their children processed as part of their
             // formatting context layout and don't require anonymous box generation at this stage.
+            // +spec:table-layout-p026 +spec:table-layout-p028 - flex/grid item blockification
+            // of table-internal display values is handled via blockify_flex_item_if_table_internal
             _ => {
                 // Filter out display: none children - they don't participate in layout
                 // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
@@ -910,8 +946,21 @@ impl LayoutTreeBuilder {
                     })
                     .collect();
 
+                let is_flex_or_grid = matches!(
+                    display_type,
+                    LayoutDisplay::Flex | LayoutDisplay::InlineFlex
+                    | LayoutDisplay::Grid | LayoutDisplay::InlineGrid
+                );
+
                 for child_dom_id in children {
-                    self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                    let child_idx = self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                    // +spec:table-layout-p026 +spec:table-layout-p043 - CSS Flexbox §3:
+                    // table-internal flex items are blockified, preventing anonymous table
+                    // box generation (e.g. two display:table-cell flex items become two
+                    // separate display:block flex items)
+                    if is_flex_or_grid {
+                        blockify_flex_item_if_table_internal(&mut self.nodes, child_idx);
+                    }
                 }
             }
         }
@@ -1983,6 +2032,51 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
 }
 
+// +spec:containing-block-p035 +spec:containing-block-p043 +spec:containing-block-p047
+/// Blockify a display type per CSS Display 3 §2.7.
+/// Inline-level display types become their block-level equivalents:
+/// - `inline` → `block`
+/// - `inline-block` → `flow-root`
+/// - `inline-table` → `table`
+/// - `inline-flex` → `flex`
+/// - `inline-grid` → `grid`
+/// Block-level types are returned unchanged.
+pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
+    match display {
+        LayoutDisplay::Inline => LayoutDisplay::Block,
+        LayoutDisplay::InlineBlock => LayoutDisplay::FlowRoot,
+        LayoutDisplay::InlineTable => LayoutDisplay::Table,
+        LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
+        LayoutDisplay::InlineGrid => LayoutDisplay::Grid,
+        other => other,
+    }
+}
+
+// +spec:table-layout-p026 +spec:table-layout-p028 +spec:table-layout-p029 +spec:table-layout-p043
+/// CSS Flexbox §3: flex items with table-internal display values
+/// (table-cell, table-row, table-row-group, table-header-group, table-footer-group,
+/// table-column, table-column-group, table-caption) are blockified to display:block
+/// before anonymous table box generation can occur. E.g. two consecutive
+/// display:table-cell flex items become two separate display:block flex items.
+fn blockify_flex_item_if_table_internal(nodes: &mut Vec<LayoutNode>, node_idx: usize) {
+    if let Some(node) = nodes.get_mut(node_idx) {
+        let is_table_internal = matches!(
+            node.formatting_context,
+            FormattingContext::TableCell
+                | FormattingContext::TableRow
+                | FormattingContext::TableRowGroup
+                | FormattingContext::TableColumnGroup
+                | FormattingContext::TableCaption
+                | FormattingContext::Table
+        );
+        if is_table_internal {
+            node.formatting_context = FormattingContext::Block {
+                establishes_new_context: true,
+            };
+        }
+    }
+}
+
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
 /// A BFC contains floats and prevents margin collapse.
 fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
@@ -2021,12 +2115,57 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
         }
     }
 
+    // +spec:containing-block-p035 - root element always establishes an independent formatting context
     // The root element (<html>) also establishes a BFC.
     if styled_dom.root.into_crate_internal() == Some(node_id) {
         return true;
     }
 
     false
+}
+
+/// Like `determine_formatting_context`, but uses an explicit (possibly blockified) display type
+/// instead of reading it from the DOM. Used when blockification changes the display.
+fn determine_formatting_context_for_display(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    display_type: LayoutDisplay,
+) -> FormattingContext {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        return FormattingContext::Inline;
+    }
+    match display_type {
+        LayoutDisplay::Inline => FormattingContext::Inline,
+        LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
+            if has_only_inline_children(styled_dom, node_id) {
+                FormattingContext::Inline
+            } else {
+                FormattingContext::Block {
+                    establishes_new_context: establishes_new_block_formatting_context(
+                        styled_dom, node_id,
+                    ),
+                }
+            }
+        }
+        LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
+        LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
+        LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup => FormattingContext::TableRowGroup,
+        LayoutDisplay::TableRow => FormattingContext::TableRow,
+        LayoutDisplay::TableCell => FormattingContext::TableCell,
+        LayoutDisplay::None => FormattingContext::None,
+        LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
+        LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
+        LayoutDisplay::TableCaption => FormattingContext::TableCaption,
+        LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
+        LayoutDisplay::TableColumn | LayoutDisplay::RunIn | LayoutDisplay::Marker => {
+            FormattingContext::Block {
+                establishes_new_context: true,
+            }
+        }
+    }
 }
 
 /// The logic now correctly identifies all BFC roots.
