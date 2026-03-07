@@ -507,12 +507,12 @@ impl SkillTree {
                 "layout/src/solver3/layout_tree.rs".to_string(),
             ],
             source_functions: vec![],
-            needs_text_engine: false,
+            needs_text_engine: true,
             spec_sections: vec![],
             status: VerificationStatus::NotStarted,
             found_annotations: vec![],
         });
-        
+
         // ============================================================
         // TIER 2 (continued): Overflow, Min/Max Sizing, Box-Sizing
         // ============================================================
