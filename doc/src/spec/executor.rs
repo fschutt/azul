@@ -2584,11 +2584,11 @@ Common bugs to look for:
 ### Step 3: Act based on what you found
 
 **If the code ALREADY correctly implements a paragraph:**
-- Add the appropriate marker comment at EVERY implementation site
-  (there may be multiple). Use the tag for the specific paragraph:
+- Add ONE marker comment at the PRIMARY implementation site (the most
+  important function/match-arm that handles this behavior). Use the tag:
 {marker_instructions}
-- Find each function/match-arm/code-block that handles this behavior
-  and add the marker on the line above.
+- Do NOT scatter markers across every tangentially related line.
+  One precise marker per paragraph is ideal, two is acceptable, three+ is noise.
 - Commit with the marker comments only.
 - This is the EXPECTED outcome for most paragraphs.
 
@@ -2647,11 +2647,12 @@ exit with zero commits. This is NOT a failure.
 
 ### Output format
 
-Output a brief summary for EACH paragraph:
+Be CONCISE. Output a brief summary for EACH paragraph (no bullet lists,
+no checklists, no verbose explanations):
 - **TAG**: the spec tag
 - **ACTION**: `ANNOTATED` / `IMPLEMENTED` / `FIXED` / `NOT_APPLICABLE`
 - **FILES**: list of files modified (or "none")
-- **DESCRIPTION**: 1-2 sentences explaining what you did
+- **DESCRIPTION**: 1 sentence explaining what you did
 
 ## CRITICAL RULES — VIOLATION = IMMEDIATE FAILURE
 
@@ -2665,8 +2666,12 @@ Output a brief summary for EACH paragraph:
   100% correct — we will fix compilation errors later.
 - DO NOT USE `rust-analyzer`, LSP tools, OR ANY MCP TOOLS.
 - Make ONLY the changes needed for the spec paragraphs in this prompt.
+- Only modify files in `layout/src/solver3/`, `layout/src/text3/`, and `css/src/`.
+  Do NOT modify `display_list.rs`, rendering code, or any other files.
 - Zero commits is OK if the paragraphs are not applicable or already covered.
 - If unsure whether a change is correct, make your best effort.
+- Be CONCISE in your output. No verbose explanations, checklists, or bullet
+  lists. One sentence per paragraph is sufficient.
 "#,
         feature_id = feature_id,
         grep_cmd = grep_cmd,
@@ -4027,6 +4032,8 @@ pub fn cmd_test_models(
         let base_sha = base_sha.clone();
         let results = Arc::clone(&results);
         let workspace_root = workspace_root.to_path_buf();
+        // Store result file OUTSIDE the worktree so agents can't `git add` it
+        let result_path = test_dir.join(format!("{}_{}.stream.json", model, prompt_path.file_stem().unwrap().to_string_lossy()));
 
         let handle = std::thread::spawn(move || {
             let start = Instant::now();
@@ -4050,7 +4057,7 @@ pub fn cmd_test_models(
             };
 
             // Run claude with model
-            let result_path = slot_path.join(".test-result.json");
+            let result_path = result_path;
             let result_file = match fs::File::create(&result_path) {
                 Ok(f) => f,
                 Err(e) => {
