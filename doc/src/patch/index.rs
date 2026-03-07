@@ -1294,18 +1294,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 for variant in &e.variants {
                     let variant_name = variant.ident.to_string();
 
-                    // Check for repr(C) violations: variants can only have 0 or 1 field
-                    let field_count = variant.fields.len();
-                    if field_count > 1 {
-                        eprintln!(
-                            "[WARNING] repr(C) violation in enum '{}' variant '{}': has {} fields \
-                             but repr(C) enums can only have 0 or 1 field per variant. File: {}",
-                            type_name,
-                            variant_name,
-                            field_count,
-                            parsed_file.path.display()
-                        );
-                        // Skip this variant - it cannot be represented in FFI
+                    // Skip repr(C) violations: variants can only have 0 or 1 field
+                    if variant.fields.len() > 1 {
                         continue;
                     }
 

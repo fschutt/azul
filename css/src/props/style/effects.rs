@@ -844,6 +844,14 @@ pub fn parse_style_object_position<'a>(
 
 // -- StyleAspectRatio --
 
+/// Width/height ratio stored as fixed-point (value * 1000).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct AspectRatioValue {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// CSS aspect-ratio property: preferred aspect ratio for the box.
 /// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
 ///
@@ -854,7 +862,7 @@ pub enum StyleAspectRatio {
     /// No preferred aspect ratio
     Auto,
     /// Fixed ratio (width / height), stored as fixed-point (value * 1000)
-    Ratio(u32, u32),
+    Ratio(AspectRatioValue),
 }
 
 impl Default for StyleAspectRatio {
@@ -869,7 +877,7 @@ impl PrintAsCssValue for StyleAspectRatio {
     fn print_as_css_value(&self) -> String {
         match self {
             StyleAspectRatio::Auto => String::from("auto"),
-            StyleAspectRatio::Ratio(w, h) => format!("{} / {}", w, h),
+            StyleAspectRatio::Ratio(r) => format!("{} / {}", r.width, r.height),
         }
     }
 }
@@ -931,15 +939,18 @@ pub fn parse_style_aspect_ratio<'a>(
         if h <= 0.0 || w <= 0.0 {
             return Err(StyleAspectRatioParseError::InvalidValue(input));
         }
-        return Ok(StyleAspectRatio::Ratio(
-            (w * 1000.0).round() as u32,
-            (h * 1000.0).round() as u32,
-        ));
+        return Ok(StyleAspectRatio::Ratio(AspectRatioValue {
+            width: (w * 1000.0).round() as u32,
+            height: (h * 1000.0).round() as u32,
+        }));
     }
     // Try single number (width/1)
     let w: f32 = input.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
     if w <= 0.0 {
         return Err(StyleAspectRatioParseError::InvalidValue(input));
     }
-    Ok(StyleAspectRatio::Ratio((w * 1000.0).round() as u32, 1000))
+    Ok(StyleAspectRatio::Ratio(AspectRatioValue {
+        width: (w * 1000.0).round() as u32,
+        height: 1000,
+    }))
 }

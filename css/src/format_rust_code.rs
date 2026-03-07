@@ -543,7 +543,7 @@ impl FormatAsRustCode for StyleAspectRatio {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             StyleAspectRatio::Auto => "StyleAspectRatio::Auto".to_string(),
-            StyleAspectRatio::Ratio(w, h) => format!("StyleAspectRatio::Ratio({}, {})", w, h),
+            StyleAspectRatio::Ratio(r) => format!("StyleAspectRatio::Ratio(AspectRatioValue {{ width: {}, height: {} }})", r.width, r.height),
         }
     }
 }

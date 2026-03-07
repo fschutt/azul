@@ -33229,7 +33229,7 @@
                             {
                                 "Auto": {},
                                 "Ratio": {
-                                    "type": "u32, u32"
+                                    "type": "AspectRatioValue"
                                 }
                             }
                         ],
@@ -79938,6 +79938,30 @@
                                 "fn_body": "azul_core::callbacks::VirtualViewReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "AspectRatioValue": {
+                        "external": "azul_css::props::style::effects::AspectRatioValue",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
