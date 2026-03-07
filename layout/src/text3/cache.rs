@@ -1097,12 +1097,27 @@ impl LayoutFontMetrics {
         self.ascent * scale
     }
 
-    /// Convert from full FontMetrics to layout-specific metrics
+    /// Convert from full FontMetrics to layout-specific metrics.
+    ///
+    /// Per CSS 2.2 §10.8.1: prefer OS/2 sTypoAscender/sTypoDescender,
+    /// fall back to HHEA Ascent/Descent if OS/2 metrics are absent.
     pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
+        let ascent = metrics.s_typo_ascender
+            .as_option()
+            .map(|v| *v as f32)
+            .unwrap_or(metrics.ascender as f32);
+        let descent = metrics.s_typo_descender
+            .as_option()
+            .map(|v| *v as f32)
+            .unwrap_or(metrics.descender as f32);
+        let line_gap = metrics.s_typo_line_gap
+            .as_option()
+            .map(|v| *v as f32)
+            .unwrap_or(metrics.line_gap as f32);
         Self {
-            ascent: metrics.ascender as f32,
-            descent: metrics.descender as f32,
-            line_gap: metrics.line_gap as f32,
+            ascent,
+            descent,
+            line_gap,
             units_per_em: metrics.units_per_em,
         }
     }
