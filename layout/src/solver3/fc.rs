@@ -53,8 +53,8 @@ use azul_css::{
         style::{
             BorderStyle, StyleDirection, StyleHyphens, StyleLineBreak, StyleListStylePosition,
             StyleListStyleType, StyleOverflowWrap, StyleTextAlign, StyleTextAlignLast,
-            StyleTextCombineUpright, StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
-            StyleWordBreak,
+            StyleTextCombineUpright, StyleTextOrientation, StyleVerticalAlign, StyleVisibility,
+            StyleWhiteSpace, StyleWordBreak,
         },
     },
 };
@@ -79,8 +79,8 @@ use crate::{
             get_display_property, get_element_font_size, get_float, get_clear,
             get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
             get_parent_font_size, get_root_font_size, get_style_properties,
-            get_text_align, get_vertical_align_property, get_visibility,
-            get_white_space_property, get_writing_mode, MultiValue,
+            get_text_align, get_text_orientation_property, get_vertical_align_property,
+            get_visibility, get_white_space_property, get_writing_mode, MultiValue,
         },
         layout_tree::{
             AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutTree, PseudoElement,
@@ -2949,7 +2949,14 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             text3::cache::VerticalAlign::Offset(offset)
         }
     };
-    let text_orientation = text3::cache::TextOrientation::default();
+    let text_orientation = match get_text_orientation_property(styled_dom, id, node_state) {
+        MultiValue::Exact(o) => match o {
+            StyleTextOrientation::Mixed => text3::cache::TextOrientation::Mixed,
+            StyleTextOrientation::Upright => text3::cache::TextOrientation::Upright,
+            StyleTextOrientation::Sideways => text3::cache::TextOrientation::Sideways,
+        },
+        _ => text3::cache::TextOrientation::default(),
+    };
 
     // Get the direction property from the CSS cache (defaults to LTR if not set)
     let direction = match get_direction_property(styled_dom, id, node_state) {
