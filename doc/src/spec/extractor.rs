@@ -235,10 +235,6 @@ pub fn extract_for_skill_node(
     // that produce near-identical paragraphs with slightly different prefixes)
     all_paragraphs = deduplicate_paragraphs(all_paragraphs, 0.75);
 
-    // Take top N most relevant paragraphs to avoid overwhelming context
-    let max_paragraphs = 50;
-    all_paragraphs.truncate(max_paragraphs);
-
     Ok(all_paragraphs)
 }
 
