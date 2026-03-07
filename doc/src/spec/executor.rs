@@ -2523,21 +2523,20 @@ fn build_agent_instructions(feature_id: &str, spec_tag: &str) -> String {
     format!(
         r#"## Your Task
 
-You MUST leave at least one `// +spec:{spec_tag}` marker comment in the source
-code and MUST commit it. This is how we track progress.
+### Step 1: Check if the feature is already implemented
 
-### Step 1: Search for existing implementation
+First, check whether the spec paragraph's requirements are ALREADY correctly
+implemented in the codebase. Many features are already working — your job is
+to verify, not to blindly add code.
 
 ```
 grep -rn "+spec:{spec_tag}" layout/src/
 ```
 
-### Step 2: Read the relevant source files
+Read the relevant source files listed in the codebase orientation above.
+Find the EXACT code path that handles this spec paragraph's requirements.
 
-Read the files listed in the codebase orientation above. Understand the
-current implementation before making changes.
-
-### Step 3: Scrutinize and implement
+### Step 2: Evaluate the implementation
 
 Your job is to be a SKEPTICAL REVIEWER. Do not assume the code is correct.
 For each requirement in the spec paragraph:
@@ -2554,12 +2553,31 @@ Common bugs to look for:
 - Spec lists multiple conditions but code only checks some of them
 - Spec says "all" but code has incomplete match arms
 
+### Step 3: Act based on what you found
+
+**If the code ALREADY correctly implements this paragraph:**
+- Add `// +spec:{spec_tag} - <brief description>` marker comments at EVERY
+  implementation site (there may be multiple).
+- Find each function/match-arm/code-block that handles this behavior
+  and add the marker on the line above.
+- Commit with the marker comments only.
+- This is the EXPECTED outcome for most paragraphs.
+
 **If the code is MISSING functionality required by this paragraph:**
 - Implement it. Use the Edit tool to modify source files.
 - Make minimal, focused changes — only what this paragraph requires.
 - You MAY add new functions, new match arms, new fields, or new files.
 - Do NOT refactor surrounding code or add unrelated improvements.
 - Add `// +spec:{spec_tag} - <what this implements>` at each implementation site.
+
+**If the code has a BUG relative to this paragraph's requirements:**
+- Fix the bug. Show the before/after logic clearly in the commit message.
+- Add `// +spec:{spec_tag} - <what this fixes>` at the fix site.
+
+**If the spec paragraph does NOT apply to this codebase** (e.g., it only
+applies to flex/grid which is handled by Taffy, or it describes user agent
+behavior we don't implement):
+- Do NOT commit. Output `NOT_APPLICABLE` and exit. This is fine.
 
 **Before implementing anything, search for existing functions and types.**
 Many CSS properties, enums, getters, and helper functions already exist in the
@@ -2575,7 +2593,7 @@ codebase. Before creating a new type or function:
 **Flex and Grid layout is handled entirely by the Taffy library**, not by our
 layout solver. Do NOT implement flex/grid layout logic. Do NOT modify
 `taffy_bridge.rs`. If a spec paragraph only applies to flex/grid contexts,
-annotate it with a marker comment and move on.
+output `NOT_APPLICABLE` and exit.
 
 **Feature completeness is important.** If the spec paragraph references a CSS
 property that doesn't exist yet in the codebase:
@@ -2587,32 +2605,22 @@ property that doesn't exist yet in the codebase:
 - Do NOT leave a TODO — implement a working first version, even if approximate.
   We can refine the implementation later, but a stub that does nothing is useless.
 
-**If the code has a BUG relative to this paragraph's requirements:**
-- Fix the bug. Show the before/after logic clearly in the commit message.
-- Add `// +spec:{spec_tag} - <what this fixes>` at the fix site.
+### Step 4: Commit (if you made changes)
 
-**If the code correctly implements this paragraph (after careful scrutiny):**
-- You MUST still add `// +spec:{spec_tag} - <brief description>` marker
-  comments at EVERY implementation site (there may be multiple).
-- Find each function/match-arm/code-block that handles this behavior
-  and add the marker on the line above.
-- This is NOT optional — markers are how we track spec coverage.
-
-### Step 4: ALWAYS commit
-
-You MUST always commit, even if you only added marker comments:
+If you added marker comments, implemented features, or fixed bugs:
 ```
 git add -A
 git commit -m "spec({feature_id}): <short description>"
 ```
 
-A run with zero commits is considered a FAILURE.
+If the paragraph is not applicable or you have nothing to add, it is OK to
+exit with zero commits. This is NOT a failure.
 
 ### Output format
 
-After committing, output a brief summary:
-- **ACTION**: `IMPLEMENTED` / `FIXED` / `ANNOTATED` (chose one)
-- **FILES**: list of files modified
+Output a brief summary:
+- **ACTION**: `ANNOTATED` / `IMPLEMENTED` / `FIXED` / `NOT_APPLICABLE`
+- **FILES**: list of files modified (or "none")
 - **DESCRIPTION**: 1-2 sentences explaining what you did
 
 ## CRITICAL RULES — VIOLATION = IMMEDIATE FAILURE
@@ -2627,7 +2635,7 @@ After committing, output a brief summary:
   100% correct — we will fix compilation errors later.
 - DO NOT USE `rust-analyzer`, LSP tools, OR ANY MCP TOOLS.
 - Make ONLY the changes needed for this one spec paragraph.
-- You MUST commit at least once. Zero commits = failure.
+- Zero commits is OK if the paragraph is not applicable or already covered.
 - If unsure whether a change is correct, make your best effort.
 "#,
         feature_id = feature_id,
@@ -3134,22 +3142,8 @@ fn run_agent_in_slot(
     );
     let _ = fs::write(&done_path, done_content);
 
-    // If 0 patches (agent didn't commit), mark as failed
-    if patches == 0 {
-        let _ = fs::rename(&done_path, &failed_path);
-        let fail_msg = format!(
-            "Agent completed but made 0 commits (expected at least 1 annotation commit).\n\
-             elapsed={}s\n\n--- AGENT OUTPUT ---\n{}",
-            elapsed.as_secs(), result_content,
-        );
-        let _ = fs::write(&failed_path, fail_msg);
-        return AgentResult {
-            success: false,
-            patches: 0,
-            error: Some("Zero commits".to_string()),
-        };
-    }
-
+    // Zero commits is OK — paragraph may be not applicable or already covered.
+    // Only mark as failed if the agent itself errored (non-zero exit).
     AgentResult {
         success: true,
         patches,
