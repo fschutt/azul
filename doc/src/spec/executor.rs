@@ -2175,8 +2175,8 @@ struct ExecArgs {
     collect: bool,
     cleanup: bool,
     force_api: bool,
-    /// Claude model to use (e.g. "sonnet", "haiku", "opus").
-    model: String,
+    /// Claude model to use (e.g. "sonnet", "haiku", "opus"). None = default.
+    model: Option<String>,
 }
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
@@ -2188,7 +2188,7 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         collect: false,
         cleanup: false,
         force_api: false,
-        model: "sonnet".to_string(),
+        model: None,
     };
 
     for arg in args {
@@ -2207,7 +2207,7 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         } else if arg == "--force-api" {
             ea.force_api = true;
         } else if let Some(val) = arg.strip_prefix("--model=") {
-            ea.model = val.to_string();
+            ea.model = Some(val.to_string());
         }
     }
 
@@ -3547,7 +3547,7 @@ pub fn run_executor(
     println!("  Failed:          {}", failed_count);
     println!("  Agent slots:     {}", agent_count);
     println!("  Timeout:         {}s", ea.timeout_secs);
-    println!("  Model:           {}", ea.model);
+    println!("  Model:           {}", ea.model.as_deref().unwrap_or("(default)"));
     println!();
 
     // Record base SHA before creating worktrees
@@ -3620,7 +3620,7 @@ pub fn run_executor(
 
                 let result = run_agent_in_slot(
                     &slot, i, &prompt_path, timeout, &base_sha,
-                    Some(model.as_str()),
+                    model.as_deref(),
                     &|msg| {
                         line.update(format!("[{}] {} | {}", i, prompt_name, msg));
                     },
