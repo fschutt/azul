@@ -2603,9 +2603,15 @@ Common bugs to look for:
 - Fix the bug. Show the before/after logic clearly in the commit message.
 - Add `// +spec:<tag> - <what this fixes>` at the fix site.
 
+**If a spec paragraph seems to belong to a DIFFERENT feature** (e.g., a table
+paragraph matched to "positioning" via keyword overlap):
+- Still review and annotate/implement it. The paragraph is valid spec content
+  regardless of which feature it was grouped under. Use the assigned tag.
+- Do NOT skip it just because the feature name doesn't match.
+
 **If a spec paragraph does NOT apply to this codebase** (e.g., it only
 applies to flex/grid which is handled by Taffy, or it describes user agent
-behavior we don't implement):
+behavior we don't implement, or it is purely about rendering/painting):
 - Do NOT commit for that paragraph. Output `NOT_APPLICABLE` and move on.
 
 **Before implementing anything, search for existing functions and types.**

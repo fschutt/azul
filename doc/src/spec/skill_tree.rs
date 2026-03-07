@@ -482,7 +482,8 @@ impl SkillTree {
                 "https://www.w3.org/TR/CSS22/visuren.html#floats".to_string(),
             ],
             keywords: vec![
-                "float", "left", "right", "clear", "clearance",
+                "float", "float: left", "float: right", "clear", "clearance",
+                "floating box", "floating element",
                 "line box shortening", "margin box",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
@@ -511,7 +512,8 @@ impl SkillTree {
             ],
             keywords: vec![
                 "position", "relative", "absolute", "fixed", "static position",
-                "offset", "top", "right", "bottom", "left",
+                "positioned element", "positioned ancestor",
+                "offset", "out-of-flow", "out of flow",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
                 "layout/src/solver3/fc.rs".to_string(),
