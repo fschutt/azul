@@ -2719,8 +2719,9 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
         None => (stem, "000000"),
     };
     // hash_part may be "a3f2c1" or "a3f2c1+b4e7d2" (grouped)
+    // Tag format: "feature:hash" — colon separator so humans can grep by feature
     let spec_tags: Vec<String> = hash_part.split('+')
-        .map(|h| format!("{}-{}", feature_id, h))
+        .map(|h| format!("{}:{}", feature_id, h))
         .collect();
 
     // Extract just the spec context (feature, sources, paragraph) from the

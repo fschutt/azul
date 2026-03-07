@@ -13,6 +13,7 @@
 //! 6. `spec agent-apply` — apply patches via Claude agents (4-phase workflow)
 
 use std::path::PathBuf;
+use std::collections::HashSet;
 
 pub mod skill_tree;
 pub mod downloader;
@@ -546,7 +547,7 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
     let mut total_tokens = 0usize;
     let mut total_deduped = 0usize;
 
-    let group_size = 2usize;
+    let max_group_size = 3usize;
 
     for (node_id, fp) in &all_features {
         // Keep only paragraphs owned by this feature
@@ -561,20 +562,22 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
         let mut feature_tokens = 0usize;
         let mut seen_filenames = HashSet::new();
 
-        // Group consecutive paragraphs into chunks of group_size
-        let chunks: Vec<&[&extractor::ExtractedParagraph]> = owned_paras.chunks(group_size).collect();
-        let total_groups = chunks.len();
+        // Semantic grouping: group consecutive paragraphs from the same
+        // source file that share ≥ 2/3 of their keywords, up to 3 per group.
+        let groups = group_paragraphs_by_keyword_overlap(&owned_paras, max_group_size);
+        let total_groups = groups.len();
 
-        for (group_idx, chunk) in chunks.iter().enumerate() {
+        for (group_idx, group) in groups.iter().enumerate() {
+            let group_refs: Vec<&extractor::ExtractedParagraph> = group.iter().copied().collect();
             let prompt = reviewer::generate_grouped_prompt(
-                &fp.node, chunk, group_idx, total_groups, workspace_root,
+                &fp.node, &group_refs, group_idx, total_groups, workspace_root,
             );
 
             let tokens = prompt.len() / 4;
             feature_tokens += tokens;
 
             // Filename = concatenated hashes with + separator
-            let hashes: Vec<String> = chunk.iter()
+            let hashes: Vec<String> = group.iter()
                 .map(|p| extractor::paragraph_content_hash(p))
                 .collect();
             let hash_part = hashes.join("+");
@@ -606,11 +609,12 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
         } else {
             String::new()
         };
-        println!("  [OK] {:30} {:>4} files ({} paras, groups of {})  (~{} tokens avg){}{}{}",
+        let avg_group = if total_groups > 0 { para_count as f64 / total_groups as f64 } else { 0.0 };
+        println!("  [OK] {:30} {:>4} files ({} paras, {:.1}/group avg)  (~{} tokens avg){}{}{}",
             node_id,
             total_groups,
             para_count,
-            group_size,
+            avg_group,
             if total_groups > 0 { feature_tokens / total_groups } else { 0 },
             text_indicator,
             css_indicator,
@@ -637,6 +641,62 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
     println!("Prompts saved to: {}", prompts_dir.display());
 
     Ok(())
+}
+
+/// Group consecutive paragraphs from the same source file that share
+/// at least 2/3 of their keywords, up to `max_size` per group.
+///
+/// Walks through paragraphs in order. For each paragraph, tries to extend
+/// the current group if:
+///   1. Same `source_file` as previous paragraph
+///   2. Keyword overlap with the *first* paragraph in the group is ≥ 2/3
+///      (using Jaccard-like: |intersection| / |smaller set| ≥ 2/3)
+///   3. Group hasn't reached `max_size`
+///
+/// Otherwise, starts a new group. Singletons are fine.
+fn group_paragraphs_by_keyword_overlap<'a>(
+    paras: &[&'a extractor::ExtractedParagraph],
+    max_size: usize,
+) -> Vec<Vec<&'a extractor::ExtractedParagraph>> {
+    if paras.is_empty() {
+        return Vec::new();
+    }
+
+    let keywords_overlap_sufficient = |a: &extractor::ExtractedParagraph, b: &extractor::ExtractedParagraph| -> bool {
+        let set_a: HashSet<&str> = a.matched_keywords.iter().map(|s| s.as_str()).collect();
+        let set_b: HashSet<&str> = b.matched_keywords.iter().map(|s| s.as_str()).collect();
+        let intersection = set_a.intersection(&set_b).count();
+        let smaller = set_a.len().min(set_b.len());
+        // Need ≥ 2/3 overlap relative to the smaller set.
+        // Use integer math: intersection * 3 >= smaller * 2
+        if smaller == 0 {
+            return false;
+        }
+        intersection * 3 >= smaller * 2
+    };
+
+    let mut groups: Vec<Vec<&'a extractor::ExtractedParagraph>> = Vec::new();
+    let mut current_group: Vec<&'a extractor::ExtractedParagraph> = vec![paras[0]];
+
+    for para in &paras[1..] {
+        let anchor = current_group[0];
+        let can_extend = current_group.len() < max_size
+            && para.source_file == anchor.source_file
+            && keywords_overlap_sufficient(anchor, para);
+
+        if can_extend {
+            current_group.push(para);
+        } else {
+            groups.push(std::mem::take(&mut current_group));
+            current_group.push(para);
+        }
+    }
+
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    groups
 }
 
 fn cmd_download(config: &SpecConfig) -> Result<(), String> {
@@ -723,7 +783,8 @@ fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(
                     .or_insert((0, 0));
                 entry.0 += hashes.len();
                 for h in &hashes {
-                    let spec_tag = format!("{}-{}", feature_id, h);
+                    // Tag format: "feature:hash" (colon separator)
+                    let spec_tag = format!("{}:{}", feature_id, h);
                     if found_tags.contains(&spec_tag) {
                         entry.1 += 1;
                     }

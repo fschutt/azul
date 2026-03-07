@@ -579,7 +579,7 @@ pub fn generate_grouped_prompt(
 
     for (i, para) in paragraphs.iter().enumerate() {
         let hash = super::extractor::paragraph_content_hash(para);
-        let spec_tag = format!("{}-{}", node.id, hash);
+        let spec_tag = format!("{}:{}", node.id, hash);
 
         prompt.push_str(&format!(
             "## Spec Paragraph {} (tag: `{}`)\n\n",
