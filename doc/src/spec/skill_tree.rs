@@ -1056,17 +1056,30 @@ impl SkillTree {
         }
     }
     
-    /// Save skill tree to JSON file
-    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(self)
+    /// Save only verification statuses to JSON file.
+    /// Structure (fields, source_files, keywords, etc.) always comes from code.
+    pub fn save_status(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let statuses: BTreeMap<&str, &VerificationStatus> = self.nodes.iter()
+            .filter(|(_, n)| n.status != VerificationStatus::NotStarted)
+            .map(|(id, n)| (id.as_str(), &n.status))
+            .collect();
+        let json = serde_json::to_string_pretty(&statuses)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         std::fs::write(path, json)
     }
-    
-    /// Load skill tree from JSON file
-    pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
-        let json = std::fs::read_to_string(path)?;
-        serde_json::from_str(&json)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+
+    /// Load tree from code defaults, then overlay saved statuses from JSON.
+    pub fn load_with_status(path: &std::path::Path) -> Self {
+        let mut tree = Self::new();
+        if let Ok(json) = std::fs::read_to_string(path) {
+            if let Ok(statuses) = serde_json::from_str::<BTreeMap<String, VerificationStatus>>(&json) {
+                for (id, status) in statuses {
+                    if let Some(node) = tree.nodes.get_mut(&id) {
+                        node.status = status;
+                    }
+                }
+            }
+        }
+        tree
     }
 }

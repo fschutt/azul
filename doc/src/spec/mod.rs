@@ -75,20 +75,15 @@ impl SpecConfig {
         self.skill_tree_dir.join("results")
     }
     
-    /// Load or create skill tree
+    /// Load skill tree from code defaults, overlaying saved statuses.
     pub fn load_skill_tree(&self) -> SkillTree {
-        let path = self.skill_tree_path();
-        if path.exists() {
-            SkillTree::load(&path).unwrap_or_default()
-        } else {
-            SkillTree::default()
-        }
+        SkillTree::load_with_status(&self.skill_tree_path())
     }
-    
-    /// Save skill tree
+
+    /// Save only verification statuses (structure always comes from code).
     pub fn save_skill_tree(&self, tree: &SkillTree) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.skill_tree_dir)?;
-        tree.save(&self.skill_tree_path())
+        tree.save_status(&self.skill_tree_path())
     }
 }
 

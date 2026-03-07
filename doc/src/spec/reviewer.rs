@@ -480,6 +480,14 @@ fn extract_type_hints(source_files: &[(String, usize)], workspace_root: &Path) -
                 .unwrap_or_default();
             for line in content.lines() {
                 let trimmed = line.trim();
+                // Skip macro template lines (contain $)
+                if trimmed.contains('$') {
+                    continue;
+                }
+                // Skip parse error types — they're noise for agents
+                if trimmed.contains("ParseError") {
+                    continue;
+                }
                 if trimmed.starts_with("pub enum ")
                     || trimmed.starts_with("pub struct ")
                     || (trimmed.starts_with("pub fn ") && path.contains("getters"))
