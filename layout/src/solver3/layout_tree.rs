@@ -627,10 +627,8 @@ pub enum AnonymousBoxType {
     /// Anonymous box for a list item marker (bullet or number)
     /// DEPRECATED: Use PseudoElement::Marker instead
     ListItemMarker,
-    // +spec:table-layout-p002 - §17.4: table generates table wrapper box containing table box + caption boxes
     /// Anonymous table wrapper
     TableWrapper,
-    // +spec:table-layout-p022 - §17.2.1: missing elements generate anonymous table objects
     /// Anonymous table row group (tbody)
     TableRowGroup,
     /// Anonymous table row
@@ -854,7 +852,6 @@ impl LayoutTreeBuilder {
     /// Main entry point for recursively building the layout tree.
     /// This function dispatches to specialized handlers based on the node's
     /// `display` property to correctly generate anonymous boxes.
-    // +spec:display-property-p040 - property index: dispatches by display value to generate boxes per §2 box layout modes
     pub fn process_node(
         &mut self,
         styled_dom: &StyledDom,
@@ -866,9 +863,7 @@ impl LayoutTreeBuilder {
         let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
         let raw_display = get_display_type(styled_dom, dom_id);
 
-        // +spec:containing-block-p035 +spec:containing-block-p047 - root element's display
         // type is always blockified (CSS Display 3 §2.8)
-        // +spec:containing-block-p047 - flex/grid parent blockifies children's display type
         // (CSS Display 3 §2.7)
         let display_type = if parent_idx.is_none() {
             blockify_display(raw_display)
@@ -891,7 +886,6 @@ impl LayoutTreeBuilder {
             }
         }
 
-        // +spec:containing-block-p047 - root element establishes independent formatting context
         if parent_idx.is_none() {
             if let Some(node) = self.nodes.get_mut(node_idx) {
                 if let FormattingContext::Block { ref mut establishes_new_context } = node.formatting_context {
@@ -929,11 +923,9 @@ impl LayoutTreeBuilder {
             | LayoutDisplay::ListItem => {
                 self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
-            // +spec:table-layout-p001 - table and inline-table both generate anonymous table objects (CSS 2.2 §17.2.1)
             LayoutDisplay::Table | LayoutDisplay::InlineTable => {
                 self.process_table_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
-            // +spec:table-layout-p001 - row group boxes generate anonymous rows for non-row children (CSS 2.2 §17.2.1)
             LayoutDisplay::TableRowGroup
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup => {
@@ -942,12 +934,10 @@ impl LayoutTreeBuilder {
             LayoutDisplay::TableRow => {
                 self.process_table_row_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
-            // +spec:table-layout-p022 - §17.2.1: all child boxes of a table-column parent are treated as display:none
             LayoutDisplay::TableColumn => {
                 // CSS 2.2 §17.2.1: "All child boxes of a 'table-column' parent are
                 // treated as if they had 'display: none'." - skip all children.
             }
-            // +spec:table-layout-p022 - §17.2.1: non-table-column children of table-column-group treated as display:none
             LayoutDisplay::TableColumnGroup => {
                 // CSS 2.2 §17.2.1: "If a child C of a 'table-column-group' parent is not
                 // a 'table-column' box, then it is treated as if it had 'display: none'."
@@ -961,7 +951,6 @@ impl LayoutTreeBuilder {
             }
             // Inline, TableCell, etc., have their children processed as part of their
             // formatting context layout and don't require anonymous box generation at this stage.
-            // +spec:table-layout-p026 +spec:table-layout-p028 - flex/grid item blockification
             // of table-internal display values is handled via blockify_flex_item_if_table_internal
             _ => {
                 // Filter out display: none children - they don't participate in layout
@@ -990,7 +979,6 @@ impl LayoutTreeBuilder {
                 );
 
                 for child_dom_id in children {
-                    // +spec:box-model-p034 - CSS Flexbox §4: for flex items with display:table,
                     // the table wrapper box becomes the flex item; align-self applies to the
                     // wrapper, flex longhands apply to the inner table box, caption contents
                     // contribute to wrapper min/max-content sizes
@@ -1004,7 +992,6 @@ impl LayoutTreeBuilder {
                         self.process_node(styled_dom, child_dom_id, Some(wrapper_idx), debug_messages)?;
                     } else {
                         let child_idx = self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
-                        // +spec:table-layout-p026 +spec:table-layout-p043 - CSS Flexbox §3:
                         // table-internal flex items are blockified, preventing anonymous table
                         // box generation (e.g. two display:table-cell flex items become two
                         // separate display:block flex items)
@@ -1080,7 +1067,6 @@ impl LayoutTreeBuilder {
         for child_id in children {
             if is_block_level(styled_dom, child_id) {
                 // End the current inline run — but skip if all nodes are whitespace-only text.
-                // +spec:display-property-p014 - white space that would be collapsed does not generate anonymous inline boxes (CSS2§9.2.2.1)
                 // CSS 2.1 §9.2.2.1: "White space content that would subsequently be collapsed
                 // away according to the 'white-space' property does not generate any anonymous
                 // inline boxes."
@@ -1176,7 +1162,6 @@ impl LayoutTreeBuilder {
         Ok(())
     }
 
-    // +spec:table-layout-p001 - generate anonymous table-row for non-proper-table-children of table/inline-table (CSS 2.2 §17.2.1)
     /// CSS 2.2 Section 17.2.1 - Anonymous box generation for tables:
     /// "If a child C of a 'table' or 'inline-table' box is not a proper table child,
     /// then generate an anonymous 'table-row' box around C and all consecutive
@@ -1202,7 +1187,6 @@ impl LayoutTreeBuilder {
 
             let child_display = get_display_type(styled_dom, child_id);
 
-            // +spec:table-layout-p001 - proper table children pass through; non-proper get wrapped in anonymous row
             if is_proper_table_child(child_display) {
                 // Flush any accumulated non-proper children into an anonymous table-row
                 if !non_proper_children.is_empty() {
@@ -1241,7 +1225,6 @@ impl LayoutTreeBuilder {
         Ok(())
     }
 
-    // +spec:table-layout-p001 - generate anonymous table-row for non-table-row children of row group (CSS 2.2 §17.2.1)
     /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
     /// "If a child C of a row group box is not a 'table-row' box, then generate
     /// an anonymous 'table-row' box around C and all consecutive siblings of C
@@ -1297,7 +1280,6 @@ impl LayoutTreeBuilder {
         Ok(())
     }
 
-    // +spec:table-layout-p001 - generate anonymous table-cell for non-table-cell children of table-row (CSS 2.2 §17.2.1)
     /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
     /// "If a child C of a 'table-row' box is not a 'table-cell', then generate an
     /// anonymous 'table-cell' box around C and all consecutive siblings of C that
@@ -1577,7 +1559,6 @@ impl LayoutTreeBuilder {
     }
 }
 
-// +spec:display-property-p027 - block-level elements per CSS Display 3 §2.1
 pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
         get_display_type(styled_dom, node_id),
@@ -1595,14 +1576,12 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     )
 }
 
-// +spec:display-property-p027 - inline-level elements per CSS Display 3 §2.1
 /// Checks if a node is inline-level (including text nodes).
 /// According to CSS spec, inline-level content includes:
 ///
 /// - Elements with display: inline, inline-block, inline-table, inline-flex, inline-grid
 /// - Text nodes
 /// - Generated content
-// +spec:display-property-p014 - inline box (display:inline non-replaced) vs atomic inline-level box (inline-block, inline-table, replaced inline-level) (CSS2§9.2.2)
 fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     // Text nodes are always inline-level
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -1617,7 +1596,6 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::InlineBlock
             | LayoutDisplay::InlineTable
             | LayoutDisplay::InlineFlex
-// +spec:display-property-p029 - CSS-DISPLAY-3 "block-level" term: elements with block outer display type
             | LayoutDisplay::InlineGrid
     )
 }
@@ -1645,7 +1623,6 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     // Check all children
     while let Some(child_id) = current_child {
         let is_inline = is_inline_level(styled_dom, child_id);
-// +spec:display-property-p029 - CSS-DISPLAY-3 "inline-level box", "text node" terms: inline-level elements and text nodes
 
         if !is_inline {
             // Found a block-level child
@@ -1832,7 +1809,6 @@ fn collect_box_props(
     // This is fine for initial resolution - will be re-resolved during layout
     let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
 
-    // +spec:box-model-p048 - §8.1 example: read per-side margin/padding/border from CSS (e.g. margin: 12px 12px 12px 12px)
     // Read margin values from styled_dom
     let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
     let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
@@ -1878,7 +1854,6 @@ fn collect_box_props(
         left: to_pixel_value(padding_left_mv),
     };
 
-    // +spec:box-model-p018 - §17.5: "These boxes have content and borders and cells have padding as well."
     // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
     let unresolved_padding = match get_display_type(styled_dom, dom_id) {
         LayoutDisplay::TableRow
@@ -1909,7 +1884,6 @@ fn collect_box_props(
         left: to_pixel_value(border_left_mv),
     };
 
-    // +spec:box-model-p019 - §17.5: internal table elements do not have margins
     // "These boxes have content and borders and cells have padding as well.
     //  Internal table elements do not have margins."
     let display_type = get_display_type(styled_dom, dom_id);
@@ -1926,7 +1900,6 @@ fn collect_box_props(
             bottom: UnresolvedMargin::Zero,
             left: UnresolvedMargin::Zero,
         },
-        // +spec:height-calculation-p032 - §8.3: vertical margins have no effect on non-replaced inline elements
         // "These properties apply to all elements, but vertical margins will not have
         //  any effect on non-replaced inline elements."
         LayoutDisplay::Inline => {
@@ -2016,9 +1989,7 @@ fn collect_box_props(
 /// Checks if a DOM node is whitespace-only text (for table anonymous box generation).
 /// Returns true if the node is a text node containing only whitespace characters
 /// that would be collapsed away by the white-space property.
-// +spec:white-space-processing-p046 - whitespace content that would be collapsed away
 // according to the 'white-space' property does not generate any anonymous inline boxes (CSS2§9.2.2.1)
-// +spec:white-space-processing-p047 - use document white space chars (U+0020, U+0009, segment breaks) not Unicode whitespace
 fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let binding = styled_dom.node_data.as_container();
     let node_data = binding.get(node_id);
@@ -2082,7 +2053,6 @@ fn should_skip_for_table_structure(
     ) && is_whitespace_only_text(styled_dom, node_id)
 }
 
-// +spec:table-layout-p001 - proper table child: row-group, row, column-group, column, caption (CSS 2.2 §17.2.1)
 /// Returns true if the given display type is a "proper table child" of a table/inline-table box.
 /// Per CSS 2.2 §17.2.1, proper table children are: table-row-group, table-header-group,
 /// table-footer-group, table-row, table-column-group, table-column, table-caption.
@@ -2166,7 +2136,6 @@ pub fn find_consecutive_non_matching_children(
 ///
 /// This function checks if a node needs a parent wrapper and returns the appropriate
 /// anonymous box type, or None if no wrapper is needed.
-// +spec:table-layout-p001 - generate missing parents for misparented table elements (CSS 2.2 §17.2.1)
 fn needs_table_parent_wrapper(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -2174,7 +2143,6 @@ fn needs_table_parent_wrapper(
 ) -> Option<AnonymousBoxType> {
     let child_display = get_display_type(styled_dom, node_id);
 
-    // +spec:table-layout-p002 - §17.2.1: table-cell not in table-row gets anonymous table-row wrapper
     // CSS 2.2 Section 17.2.1, Stage 3 - Generate missing parents:
     // "For each 'table-cell' box C, if C's parent is not a 'table-row'
     // then generate an anonymous 'table-row' box."
@@ -2184,7 +2152,6 @@ fn needs_table_parent_wrapper(
             _ => Some(AnonymousBoxType::TableRow),
         }
     }
-    // +spec:table-layout-p002 - §17.2.1: table-row misparented if parent is not row-group/table/inline-table
     // "A 'table-row' is misparented if its parent is neither a row group box
     // nor a 'table' or 'inline-table' box."
     else if matches!(child_display, LayoutDisplay::TableRow) {
@@ -2197,7 +2164,6 @@ fn needs_table_parent_wrapper(
             _ => Some(AnonymousBoxType::TableWrapper),
         }
     }
-    // +spec:table-layout-p002 - §17.2.1: table-column misparented if parent is not column-group/table/inline-table
     // "A 'table-column' box is misparented if its parent is neither a
     // 'table-column-group' box nor a 'table' or 'inline-table' box."
     else if matches!(child_display, LayoutDisplay::TableColumn) {
@@ -2208,7 +2174,6 @@ fn needs_table_parent_wrapper(
             _ => Some(AnonymousBoxType::TableWrapper),
         }
     }
-    // +spec:display-property-p016 - row group, table-column-group, table-caption misparented if parent is neither table nor inline-table (CSS 2.2 §17.2.1)
     else if matches!(
         child_display,
         LayoutDisplay::TableRowGroup
@@ -2233,7 +2198,6 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
 }
 
-// +spec:containing-block-p035 +spec:containing-block-p043 +spec:containing-block-p047
 /// Blockify a display type per CSS Display 3 §2.7.
 /// Inline-level display types become their block-level equivalents:
 /// - `inline` → `block`
@@ -2245,7 +2209,6 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
 pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
     match display {
         LayoutDisplay::Inline => LayoutDisplay::Block,
-        // +spec:inline-block-p022 - inline-block (= inline flow-root) blockifies to flow-root (= block flow-root), preserving inner display (CSS-DISPLAY-3 §2.7, Issue 1246)
         LayoutDisplay::InlineBlock => LayoutDisplay::FlowRoot,
         LayoutDisplay::InlineTable => LayoutDisplay::Table,
         LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
@@ -2254,7 +2217,6 @@ pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
     }
 }
 
-// +spec:table-layout-p026 +spec:table-layout-p028 +spec:table-layout-p029 +spec:table-layout-p043
 /// CSS Flexbox §3: flex items with table-internal display values
 /// (table-cell, table-row, table-row-group, table-header-group, table-footer-group,
 /// table-column, table-column-group, table-caption) are blockified to display:block
@@ -2281,10 +2243,8 @@ fn blockify_flex_item_if_table_internal(nodes: &mut Vec<LayoutNode>, node_idx: u
 
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
 /// A BFC contains floats and prevents margin collapse.
-// +spec:inline-block-p022 - block boxes establishing independent FC have used display of flow-root (CSS-DISPLAY-3 Issue 1550)
 fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let display = get_display_type(styled_dom, node_id);
-    // +spec:inline-block-p010 - §9.4.1: block containers (inline-blocks, table-cells, table-captions) that are not block boxes establish new BFC
     if matches!(
         display,
         LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::TableCaption | LayoutDisplay::FlowRoot
@@ -2293,7 +2253,6 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     }
 
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-        // +spec:inline-block-p010 - §9.4.1: block boxes with overflow other than visible establish new BFC
         let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.styled_node_state);
         if !overflow_x.is_visible_or_clip() {
             return true;
@@ -2304,20 +2263,17 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
             return true;
         }
 
-        // +spec:inline-block-p010 - §9.4.1: absolutely positioned elements establish new BFC
         let position = get_position(styled_dom, node_id, &styled_node.styled_node_state);
         if position.is_absolute_or_fixed() {
             return true;
         }
 
-        // +spec:inline-block-p010 - §9.4.1: floats establish new BFC
         let float = get_float(styled_dom, node_id, &styled_node.styled_node_state);
         if !float.is_none() {
             return true;
         }
     }
 
-    // +spec:containing-block-p035 - root element always establishes an independent formatting context
     // The root element (<html>) also establishes a BFC.
     if styled_dom.root.into_crate_internal() == Some(node_id) {
         return true;
@@ -2362,7 +2318,6 @@ fn determine_formatting_context_for_display(
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
-        // +spec:table-layout-p019 - display:table-column is not rendered (as if display:none) but may carry style (§17.2)
         // table-column elements are used only for column styling, not for generating boxes
         LayoutDisplay::TableColumn => FormattingContext::None,
         // display:contents - element generates no box, children are promoted to parent
@@ -2376,7 +2331,6 @@ fn determine_formatting_context_for_display(
     }
 }
 
-// +spec:display-property-p027 - principal box: maps display type to formatting context
 /// The logic now correctly identifies all BFC roots.
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
     let node_data = &styled_dom.node_data.as_container()[node_id];

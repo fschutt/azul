@@ -17,8 +17,6 @@ pub enum BoxSizing {
     BorderBox,
 }
 
-// +spec:width-calculation-p039 - §8.1: each box has content area and optional surrounding padding, border, margin areas
-// +spec:width-calculation-p042 - §8.1: each box has content area and optional surrounding padding, border, margin areas; width is part of content edge
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
     /// The outer bounds of the rectangle
@@ -31,8 +29,6 @@ pub struct PositionedRectangle {
     pub padding: ResolvedOffsets,
 }
 
-// +spec:width-calculation-p039 - §8.1: size of each area (margin, padding, border) specified by per-side properties
-// +spec:width-calculation-p042 - §8.1: margin/border/padding broken into top, right, bottom, left segments
 /// Represents the four edges of a box for properties like margin, padding, border.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EdgeSizes {
@@ -78,7 +74,6 @@ impl EdgeSizes {
         self.main_start(wm) + self.main_end(wm)
     }
 
-    // +spec:box-model-p041 - §8.3 baseline: item with largest distance between baseline and cross-start margin edge placed flush against cross-start edge
     /// Returns the size of the edge at the start of the cross/inline axis.
     pub fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
@@ -134,10 +129,6 @@ impl UnresolvedMargin {
     pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
         match self {
             UnresolvedMargin::Zero => 0.0,
-            // +spec:width-calculation-p001 - §10.3.9: for inline-block, auto margin-left/margin-right becomes used value of 0
-            // +spec:width-calculation-p007 - §10.3.1/§10.3.2: auto margin-left/margin-right on inline elements becomes 0
-            // +spec:width-calculation-p008 - §10.3.1: auto margin-left/margin-right on inline non-replaced elements becomes used value 0
-            // +spec:inline-block-p043 - §10.3.9: auto margins on inline-block non-replaced elements become 0
             UnresolvedMargin::Auto => 0.0, // Auto is handled separately in layout
             UnresolvedMargin::Length(pv) => pv.resolve_with_context(ctx, PropertyContext::Margin),
         }
@@ -233,7 +224,6 @@ impl ResolutionParams {
 // UNRESOLVED BOX PROPS (new design)
 // ============================================================================
 
-// +spec:box-model-p048 - §8.1 example: each element stores its own margin/padding/border per-side (UL/LI nesting)
 /// Box properties with unresolved CSS values.
 ///
 /// This stores the raw CSS values as parsed, deferring resolution until
@@ -271,7 +261,6 @@ pub struct MarginAuto {
     pub bottom: bool,
 }
 
-// +spec:box-model-p048 - §8.1 example: resolved per-element margin/padding/border for correct parent-child box nesting
 /// A fully resolved representation of a node's box model properties.
 ///
 /// All values are in pixels. This is the result of resolving `UnresolvedBoxProps`
@@ -288,8 +277,6 @@ pub struct ResolvedBoxProps {
 }
 
 impl ResolvedBoxProps {
-    // +spec:width-calculation-p039 - §8.1: content edge surrounds content area; padding/border/margin edges nest outward
-    // +spec:width-calculation-p042 - §8.1: content edge surrounds rectangle given by width; padding/border/margin edges nest outward
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
     pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
@@ -394,12 +381,8 @@ pub fn expand_rect_by_edges(rect: LogicalRect, edges: &EdgeSizes) -> LogicalRect
 // Verwende die Typen aus azul_css für float und clear
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 
-// +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2/§2.3: min-content contribution, max-content contribution,
 // min-content constraint, max-content constraint definitions
-// +spec:intrinsic-sizing-p032 - §2.1 css-sizing-3: defines min-content, max-content,
 // and fit-content sizes for both inline and block axes
-// +spec:intrinsic-sizing-p047 - css-sizing-3 index: IntrinsicSizes struct implements min-content, max-content intrinsic size terms
-// +spec:width-calculation-p040 - css-sizing-3 §2.1: intrinsic size = max-content or min-content size
 /// Represents the intrinsic sizing information for an element, calculated
 /// without knowledge of the final containing block size.
 #[derive(Debug, Clone, Copy, Default)]

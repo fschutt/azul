@@ -904,7 +904,6 @@ impl DisplayListBuilder {
         }
     }
 
-    // +spec:height-calculation-p050 - §8.1: background style of content, padding, and border areas specified by 'background' property; margin backgrounds are always transparent
     /// Unified method to paint all background layers and border for an element.
     ///
     /// This consolidates the background/border painting logic that was previously
@@ -2694,7 +2693,6 @@ where
                 }
             }
 
-            // +spec:box-model-p003 - background painted on border-box (paint_rect), not margin-box; margin backgrounds are always transparent
             // Use unified background/border painting
             builder.push_backgrounds_and_border(
                 paint_rect,
@@ -2712,7 +2710,6 @@ where
         Ok(())
     }
 
-    // +spec:table-layout-p035 - §17.6.1: in spacing area, row/column/row group/column group
     //   backgrounds are invisible, allowing table background to show through
     /// CSS 2.2 Section 17.5.1: Table background painting in 6 layers
     ///
@@ -3421,7 +3418,6 @@ where
                     run_bounds.size.height += top_inset + bottom_inset;
                 }
 
-                // +spec:height-calculation-p030 - §10.8.1: inline box margins/borders/padding are still rendered even though they don't enter line box height calculation; may bleed into adjoining line boxes
                 builder.push_inline_backgrounds_and_border(
                     run_bounds,
                     glyph_run.background_color,
@@ -3708,7 +3704,6 @@ where
         Ok(())
     }
 
-    // +spec:positioning-p014 - §9.9.1: z-index determines stacking context creation for positioned elements
     /// Determines if a node establishes a new stacking context based on CSS rules.
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
@@ -3721,12 +3716,10 @@ where
         let position = get_position_type(self.ctx.styled_dom, Some(dom_id));
         let z_auto = crate::solver3::getters::is_z_index_auto(self.ctx.styled_dom, Some(dom_id));
 
-        // +spec:positioning-p014 - §9.9.1: z-index:auto on position:fixed always establishes stacking context
         if position == LayoutPosition::Fixed {
             return true;
         }
 
-        // +spec:positioning-p014 - §9.9.1: z-index:<integer> on positioned element establishes new stacking context
         // z-index:auto on position:absolute does NOT establish stacking context
         if position == LayoutPosition::Absolute {
             return !z_auto;

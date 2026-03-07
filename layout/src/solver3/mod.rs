@@ -678,14 +678,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         break;
     }
 
-    // +spec:block-formatting-context-p042 - § 9.3: three positioning schemes (normal flow, floats, absolute); relative applied after normal flow
     // --- Step 3: Adjust Relatively Positioned Elements ---
     // This must be done BEFORE positioning out-of-flow elements, because
     // relatively positioned elements establish containing blocks for their
     // absolutely positioned descendants. If we adjust relative positions after
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
-    // +spec:positioning-p023 - §9.4.3: relative positioning applied AFTER normal flow layout; following boxes not re-positioned after offset
     // Pass the viewport to correctly resolve percentage offsets for the root element.
     positioning::adjust_relative_positions(
         &mut ctx,
@@ -694,7 +692,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         viewport,
     )?;
 
-    // +spec:block-formatting-context-p042 - § 9.3: absolute positioning removes box from normal flow, positions relative to containing block
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
     // positioned elements are positioned relative to the final (post-adjustment)
@@ -738,8 +735,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     Ok(display_list)
 }
 
-// +spec:containing-block-p001 - static/relative: CB is content edge of nearest block container ancestor
-// +spec:inline-block-p035 - §10.1: inline-block is a block container so it qualifies as a containing block for descendants
 fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
@@ -779,9 +774,7 @@ fn get_containing_block_for_node(
         }
     }
     
-    // +spec:containing-block-p001 +spec:containing-block-p031 +spec:containing-block-p035 +spec:containing-block-p047
     // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
-    // +spec:containing-block-p031 - §5.1 css-sizing-3: initial CB dimensions used as fallback inline size
     // for replaced elements with aspect ratio but no intrinsic size.
     // For ROOT nodes: the containing block is the viewport (initial containing block).
     // Do NOT subtract margin here - margins are handled in calculate_used_size().

@@ -166,7 +166,6 @@ pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
     }
 }
 
-// +spec:positioning-p011 - CSS Grid §9.1: abspos grid items use grid-placement properties
 // to determine their CB; Taffy's Position::Absolute handles this for both flex and grid
 pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     match val.get_property_or_default().unwrap_or_default() {
@@ -178,7 +177,6 @@ pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     }
 }
 
-// +spec:margin-collapsing-p016 - dense keyword in grid-auto-flow triggers backtracking in auto-placement (delegated to Taffy)
 pub fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutGridAutoFlow::Row => taffy::GridAutoFlow::Row,
@@ -249,14 +247,13 @@ pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignIt
     }
 }
 
-// +spec:positioning-p044 - Flexbox change: align-self auto on abspos elements computes to itself (not inherited from parent's align-items); Taffy handles this internally
 pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items (for non-abspos; abspos auto computes to itself per spec)
         LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
         LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
-        LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center), // +spec:box-model-p041 - §8.3 center: margin box centered in cross axis
-        LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline), // +spec:box-model-p041 - §8.3 baseline: align baselines, largest baseline-to-cross-start-margin-edge flush against cross-start
+        LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center),
+        LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline),
         LayoutAlignSelf::Stretch => Some(taffy::AlignSelf::Stretch),
     }
 }
@@ -467,7 +464,6 @@ fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto
     }
 }
 
-// +spec:positioning-p044 - Flexbox change: percentage margins/paddings on flex items resolved against own axis or inline axis (implementation-defined; Taffy resolves against inline axis)
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto for margins
 // CSS spec: margin initial value is 0, but `auto` has special centering meaning in flexbox
 fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
@@ -666,7 +662,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Min/Max Size
-        // +spec:margin-collapsing-p040 - §4.5 css-flexbox-1: automatic minimum size of flex items;
         // min-size:auto enables Taffy's auto minimum size algorithm which computes the
         // content size suggestion (min-content in main axis) and transferred size suggestion
         // (cross size converted through aspect ratio, if any). NOTE: aspect_ratio is not yet
@@ -898,7 +893,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         }
 
         // Flexbox
-        // +spec:margin-collapsing-p026 - Flexbox §5.4: order property not explicitly set; Taffy default order:0 preserves source document order
         taffy_style.flex_direction = match get_flex_direction(styled_dom, id, node_state) {
             MultiValue::Exact(v) => layout_flex_direction_to_taffy(CssPropertyValue::Exact(v)),
             _ => taffy::FlexDirection::Row,
@@ -1055,7 +1049,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             });
-        // +spec:positioning-p044 - Flexbox change: justify-self auto on abspos elements computes to itself (Taffy handles abspos case internally)
         taffy_style.justify_self = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
             .and_then(|p| {
@@ -1309,7 +1302,6 @@ impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'a, 'b, T> 
     where
         Self: 'c;
 
-    // +spec:margin-collapsing-p026 - Flexbox §5.4: children returned in source document order (default order:0 for all items)
     fn child_ids(&self, node_id: taffy::NodeId) -> Self::ChildIter<'_> {
         let node_idx: usize = node_id.into();
         let children = self.get_layout_children(node_idx);
@@ -1650,7 +1642,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .and_then(|n| n.intrinsic_sizes)
                     .unwrap_or_default();
 
-                // +spec:margin-collapsing-p040 - §4.5 css-flexbox-1: content size suggestion is the
                 // min-content size in the main axis; for items with a preferred aspect ratio, it
                 // should be clamped by definite min/max cross sizes converted through the ratio.
                 // For MinContent/MaxContent queries, use intrinsic sizes instead of layout result.

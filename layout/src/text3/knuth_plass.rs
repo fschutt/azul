@@ -29,7 +29,6 @@ enum LayoutNode {
         stretch: f32,
         shrink: f32,
     },
-    // +spec:line-breaking-p031 - soft wrap opportunity (§5): a Penalty node represents a potential soft wrap break point
     /// A point where a line break is allowed, with an associated cost.
     Penalty {
         /// Optional item associated with the penalty (e.g., a hyphen glyph).
@@ -68,8 +67,6 @@ struct Breakpoint {
 /// - Higher computational cost than greedy breaking
 /// - May produce different results than browsers for edge cases
 /// - Does not yet handle overflow-wrap: anywhere/break-word (handled in greedy path)
-// +spec:line-breaking-p012 - line breaking process (§5): Knuth-Plass optimal line breaking
-// +spec:line-breaking-p014 - §5.5 overflow-wrap: KP algorithm does not yet handle
 // overflow-wrap emergency breaks; the greedy break_one_line path handles this
 pub(crate) fn kp_layout<T: ParsedFontTrait>(
     items: &[ShapedItem],
@@ -116,7 +113,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
         // nodes between CJK clusters (normal) or between all clusters (break-all),
         // or suppress CJK inter-character penalties (keep-all).
         match item {
-            // +spec:line-breaking-p050 - U+200B (zero width space) creates a soft wrap opportunity with zero width
             item if is_zero_width_space(item) => {
                 nodes.push(LayoutNode::Penalty {
                     item: None,
@@ -124,7 +120,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     penalty: 0.0,
                 });
             }
-            // +spec:line-breaking-p026 - soft wrap opportunity: word separator creates a potential soft wrap break point
             item if is_word_separator(item) => {
                 let width = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Glue {
@@ -139,7 +134,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     penalty: 0.0,
                 });
             }
-            // +spec:line-breaking-p047 - U+002D HYPHEN-MINUS and U+2010 HYPHEN: soft wrap after, no extra glyph
             ShapedItem::Cluster(cluster)
                 if cluster.text.ends_with('\u{002D}')
                     || cluster.text.ends_with('\u{2010}') =>
@@ -167,7 +161,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     }
                 }
 
-                // +spec:line-breaking-p036 - language-specific hyphenation rules apply to explicit hyphenation opportunities
                 // 2. Try to find all hyphenation opportunities for this word.
                 let hyphenation_breaks = hyphenator.and_then(|h| {
                     crate::text3::cache::find_all_hyphenation_breaks(
@@ -200,7 +193,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         }
                         current_item_cursor += num_items_in_syllable;
 
-                        // +spec:line-breaking-p033 - soft wrap opportunity at hyphenation points (word-break/overflow-wrap §5.2/§5.5)
                         let hyphen_measure = get_item_measure(&b.hyphen_item, is_vertical);
                         nodes.push(LayoutNode::Penalty {
                             item: Some(b.hyphen_item.clone()),
@@ -226,7 +218,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     }
                 }
             }
-            // +spec:line-breaking-p005 - soft wrap opportunity before and after each atomic inline
             // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and
             // after each replaced element or other atomic inline"
             ShapedItem::Object { .. } | ShapedItem::CombinedBlock { .. } => {
@@ -247,7 +238,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     penalty: 0.0,
                 });
             }
-            // +spec:line-breaking-p031 - tab size / tab stop (§4.1.2, §4.2): tabs treated as flexible glue
             ShapedItem::Tab { bounds, .. } => {
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
@@ -256,8 +246,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     shrink: bounds.width * 0.33,
                 });
             }
-            // +spec:line-breaking-p026 - forced line break: explicit line-breaking controls map to mandatory penalty
-            // +spec:line-breaking-p012 - line break (§5): forced line break via infinite penalty
             ShapedItem::Break { .. } => {
                 nodes.push(LayoutNode::Penalty {
                     item: None,
@@ -271,7 +259,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
     nodes
 }
 
-// +spec:line-breaking-p012 - soft wrap break (§5): DP selects optimal soft wrap break points
 /// Uses dynamic programming to find the optimal set of line breaks.
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For Knuth-Plass, we need a definite line width.
@@ -291,7 +278,6 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         AvailableSpace::MinContent => f32::MAX / 2.0,
     };
 
-    // +spec:line-breaking-p039 - text-indent reduces available width for the first line
     // (and lines after forced breaks when each-line is set). The hanging keyword would
     // invert this, indenting all lines EXCEPT the first.
     let text_indent = constraints.text_indent;
@@ -351,7 +337,6 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
                 }
             }
 
-            // +spec:line-breaking-p039 - use reduced line width for first line to account for text-indent
             let effective_line_width = if breakpoints[j].line == 0 {
                 first_line_width
             } else if constraints.text_indent_hanging {
@@ -454,7 +439,6 @@ fn position_lines_from_breaks(
         let mut extra_per_space = 0.0;
         let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
 
-        // +spec:line-breaking-p042 - §6.3 text-align-last: use text_align_last for
         // the last line and lines ending with a forced break
         let ends_with_forced_break = line_nodes.iter().any(|n| matches!(
             n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
@@ -514,7 +498,6 @@ fn position_lines_from_breaks(
                             .count() as f32)
         };
 
-        // +spec:containing-block-p037 - §6.1 text-align: alignment is w.r.t. line box start/end sides, NOT viewport or containing block
         // Resolve the physical alignment here, inside the function,
         // just like in position_one_line
         let physical_align = match (effective_align, base_direction) {
@@ -531,7 +514,6 @@ fn position_lines_from_breaks(
             _ => 0.0,
         };
 
-        // +spec:line-breaking-p038 - §8.1 text-indent: apply based on each-line/hanging keywords
         if constraints.text_indent != 0.0 {
             let is_indent_target = if constraints.text_indent_each_line {
                 line_index == 0 // TODO: also detect lines after forced breaks in KP path
@@ -579,7 +561,6 @@ fn position_lines_from_breaks(
             }
         }
 
-        // +spec:inline-formatting-context-p050 - §10.8.1: when all inline boxes share the same line-height and font, baselines of successive lines are exactly line-height apart
         cross_axis_pen += constraints.line_height;
         start_node = end_node;
     }

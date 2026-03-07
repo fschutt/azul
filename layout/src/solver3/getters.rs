@@ -983,7 +983,6 @@ get_css_property!(
     compact = get_font_style
 );
 
-// +spec:display-property-p025 - visibility (term from CSS-DISPLAY-4 index)
 get_css_property!(
     get_visibility,
     get_visibility,
@@ -1243,7 +1242,6 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
         .unwrap_or(0)
 }
 
-// +spec:positioning-p014 - §9.9.1: z-index:auto does NOT establish stacking context (except for fixed/root);
 // z-index:<integer> ALWAYS establishes new stacking context on positioned elements
 /// Returns true if z-index is `auto` (the initial value), false if it's an explicit `<integer>`.
 /// This distinction matters for stacking context creation per §9.9.1.
@@ -1996,7 +1994,6 @@ get_css_property!(
     compact = get_display
 );
 
-// +spec:display-property-p043 - property index: reads the display CSS property (#propdef-display) from the styled DOM
 pub fn get_display_property(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
@@ -2048,8 +2045,6 @@ pub fn get_computed_display(
 
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
-// +spec:inline-block-p036 - §10.8.1: vertical-align conversion (keyword values only; <percentage>/<length> not yet supported)
-// +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property retrieval (initial: baseline)
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -2208,7 +2203,6 @@ pub fn get_style_properties(
     // should only be used when referenced through CSS system-color keywords.
     let color = color_from_cache.unwrap_or(ColorU::BLACK);
 
-    // +spec:line-height-p012 - §10.8.1: line-height resolved to absolute px; normal ≈ 1.0–1.2, <number>/<percentage> × font-size, <length> as-is
     let line_height = {
         // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16)
         let mut fast_lh = None;
@@ -2231,7 +2225,7 @@ pub fn get_style_properties(
                 .get_line_height(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| v.inner.normalized() * font_size)
-                .unwrap_or(font_size * 1.2) // +spec:inline-block-p033 - §10.8.1: 'normal' line-height recommended 1.0-1.2
+                .unwrap_or(font_size * 1.2)
         })
     };
 
@@ -2532,7 +2526,6 @@ get_css_property_pixel!(
     compact_i16 = get_bottom
 );
 
-// +spec:box-model-p046 - css-sizing-3 references: "margin properties" from css-box-4
 /// Get margin properties - returns MultiValue<PixelValue>
 get_css_property_pixel!(
     get_css_margin_left,
@@ -2559,7 +2552,6 @@ get_css_property_pixel!(
     compact_i16 = get_margin_bottom_raw
 );
 
-// +spec:box-model-p046 - css-sizing-3 references: "padding properties" from css-box-4
 /// Get padding properties - returns MultiValue<PixelValue>
 get_css_property_pixel!(
     get_css_padding_left,
@@ -2619,7 +2611,6 @@ get_css_property!(
     compact_u32_struct = get_max_height_raw
 );
 
-// +spec:box-model-p046 - css-sizing-3 references: "border" from css-backgrounds-3
 /// Get border width properties (no UA CSS fallback needed, defaults to 0)
 get_css_property_pixel!(
     get_css_border_left_width,
@@ -3833,7 +3824,6 @@ impl ExtractPropertyValue<StyleCaptionSide> for CssProperty {
     }
 }
 
-// +spec:table-layout-p034 - §17.6.1.1: empty-cells extract (show/hide for table-cell elements)
 impl ExtractPropertyValue<StyleEmptyCells> for CssProperty {
     fn extract(&self) -> Option<StyleEmptyCells> {
         match self {
@@ -3920,7 +3910,6 @@ get_css_property!(
     CssPropertyType::CaptionSide
 );
 
-// +spec:table-layout-p034 - §17.6.1.1: empty-cells getter (show|hide; initial: show; inherited; applies to table-cell)
 get_css_property!(
     get_empty_cells,
     get_empty_cells,
@@ -4436,9 +4425,7 @@ get_css_property_value!(get_flex_shrink_prop, get_flex_shrink, LayoutFlexShrinkV
 get_css_property_value!(get_flex_basis_prop, get_flex_basis, LayoutFlexBasisValue);
 
 // Alignment properties
-// +spec:box-model-p041 - §8.3 align-items: center centers margin box in cross axis; baseline aligns baselines with cross-start margin edge
 get_css_property_value!(get_align_items_prop, get_align_items, LayoutAlignItemsValue);
-// +spec:box-model-p041 - §8.3 align-self: per-item override of align-items (center / baseline behavior)
 get_css_property_value!(get_align_self_prop, get_align_self, LayoutAlignSelfValue);
 get_css_property_value!(get_align_content_prop, get_align_content, LayoutAlignContentValue);
 get_css_property_value!(get_justify_content_prop, get_justify_content, LayoutJustifyContentValue);

@@ -757,7 +757,6 @@ fn is_whitespace_only_inline_run(
             match data.get_node_type() {
                 NodeType::Text(text) => {
                     let s = text.as_str();
-                    // +spec:white-space-processing-p047 - only CSS document white space chars
                     if !s.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')) {
                         return false; // Non-whitespace text → must create wrapper
                     }
@@ -852,7 +851,6 @@ pub fn reconcile_recursive(
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
     let mut new_child_hashes = Vec::new();
 
-    // +spec:display-property-p017 - when inline box contains in-flow block-level box, inline box is broken around the block-level box, splitting into two anonymous block boxes (CSS2§9.2.1.1)
     // CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
     // "When an inline box contains an in-flow block-level box, the inline box
     // (and its inline ancestors within the same line box) are broken around

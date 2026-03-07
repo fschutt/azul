@@ -711,7 +711,6 @@ pub struct UnifiedConstraints {
     pub text_justify: JustifyContent,
     pub line_height: f32,
     pub vertical_align: VerticalAlign,
-    // +spec:inline-formatting-context-p003 - §10.8.1: strut ascent/descent from
     // block container's first available font, used for minimum line box height
     pub strut_ascent: f32,
     pub strut_descent: f32,
@@ -727,11 +726,9 @@ pub struct UnifiedConstraints {
     // Advanced features
     pub text_combine_upright: Option<TextCombineUpright>,
     pub exclusion_margin: f32,
-    // +spec:line-breaking-p045 - §5.4 hyphens property (none/manual/auto)
     pub hyphenation: Hyphens,
     pub hyphenation_language: Option<Language>,
     pub text_indent: f32,
-    // +spec:line-breaking-p038 - §8.1 text-indent each-line and hanging flags
     pub text_indent_each_line: bool,
     pub text_indent_hanging: bool,
     pub initial_letter: Option<InitialLetter>,
@@ -742,15 +739,11 @@ pub struct UnifiedConstraints {
     pub columns: u32,
     pub column_gap: f32,
     pub hanging_punctuation: bool,
-    // +spec:line-breaking-p014 - §5.5 overflow-wrap property on constraints
     pub overflow_wrap: OverflowWrap,
-    // +spec:line-breaking-p042 - §6.3 text-align-last: alignment for last line and lines before forced breaks
     pub text_align_last: TextAlign,
     // §5.2 word-break property on constraints
     pub word_break: WordBreak,
-    // +spec:white-space-processing-p030 - white-space mode for trailing WS hang/collapse
     pub white_space_mode: WhiteSpaceMode,
-    // +spec:white-space-processing-p034 - §5.3 line-break property
     pub line_break: LineBreakStrictness,
 }
 
@@ -1123,7 +1116,6 @@ pub struct LineSegment {
     pub priority: u8,
 }
 
-// +spec:white-space-processing-p022 - nowrap (§3), soft wrap break / soft wrap opportunity (§5) definitions
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum TextWrap {
     #[default]
@@ -1132,7 +1124,6 @@ pub enum TextWrap {
     NoWrap,
 }
 
-// +spec:line-breaking-p014 - §5.5 overflow-wrap property values
 /// CSS `overflow-wrap` (aka `word-wrap`) property.
 ///
 /// Controls whether an otherwise unbreakable sequence of characters
@@ -1152,7 +1143,6 @@ pub enum OverflowWrap {
     BreakWord,
 }
 
-// +spec:line-breaking-p045 - §5.4 hyphens property values
 /// Controls whether hyphenation is allowed to create soft wrap opportunities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Hyphens {
@@ -1165,7 +1155,6 @@ pub enum Hyphens {
     Auto,
 }
 
-// +spec:white-space-processing-p030 - CSS white-space mode for trailing whitespace handling
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum WhiteSpaceMode {
     #[default]
@@ -1177,7 +1166,6 @@ pub enum WhiteSpaceMode {
     BreakSpaces,
 }
 
-// +spec:white-space-processing-p028 - line-break property strictness levels (§5.3)
 // CSS Text Level 3 §5.3: The line-break property controls strictness of line breaking rules.
 // - Auto: UA-dependent, typically normal for CJK, loose for non-CJK
 // - Loose: least restrictive, allows breaks before small kana, CJK hyphens, etc.
@@ -1498,8 +1486,6 @@ impl Glyph {
     }
 
     #[inline]
-    // +spec:line-breaking-p041 - §5.4 U+00AD soft hyphen suggests a hyphenation opportunity
-    // +spec:line-breaking-p047 - U+002D HYPHEN-MINUS and U+2010 HYPHEN create soft wrap opportunities (not hyphenation opportunities)
     fn break_opportunity_after(&self) -> bool {
         let is_whitespace = self.codepoint.is_whitespace();
         let is_soft_hyphen = self.codepoint == '\u{00AD}';
@@ -1601,7 +1587,6 @@ impl Ord for ImageSource {
     }
 }
 
-// +spec:inline-formatting-context-p028 - §10.8.1: vertical-align property values
 // CSS 2.2 §10.8.1 vertical-align property values
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum VerticalAlign {
@@ -2490,11 +2475,9 @@ pub struct InlineBreak {
     pub content_index: usize,
 }
 
-// +spec:line-breaking-p026 - line break types: forced (explicit controls, block start/end) vs soft wrap (content wrapping)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BreakType {
     Soft,   // Soft wrap break: UA creates unforced line breaks to fit content within the measure
-    // +spec:white-space-processing-p025 - preserved segment breaks and BK/NL class = forced line breaks
     Hard,   // Forced line break: explicit line-breaking controls (preserved newline, <br>)
     Page,   // Page break
     Column, // Column break
@@ -2623,7 +2606,6 @@ pub enum TextTransform {
     Uppercase,
     Lowercase,
     Capitalize,
-    // +spec:white-space-processing-p010 - full-width transforms U+0020 to U+3000
     // only within preserved white space (non-preserved spaces already collapsed in Phase I)
     FullWidth,
 }
@@ -2734,7 +2716,7 @@ impl Default for StyleProperties {
             border: None,
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
-            line_height: FONT_SIZE * 1.2, // +spec:line-height-p012 - §10.8.1: 'normal' defaults to ~1.2 (spec recommends 1.0–1.2)
+            line_height: FONT_SIZE * 1.2,
             text_decoration: TextDecoration::default(),
             font_features: Vec::new(),
             font_variations: Vec::new(),
@@ -2787,7 +2769,6 @@ impl StyleProperties {
     ///
     /// This allows the layout cache to reuse layouts when only rendering
     /// properties change (e.g., color changes on hover).
-    // +spec:margin-collapsing-p010 - §7.3 boundary-shaping: layout_hash includes font_stack
     // (family, weight, style) so that shaping runs break at element boundaries where font
     // properties differ, preventing impossible cross-boundary ligatures (e.g. "and" → "&").
     pub fn layout_hash(&self) -> u64 {
@@ -3494,7 +3475,6 @@ impl UnifiedLayout {
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
-    // +spec:line-height-p019 - §17.5.3: baseline of a cell is the baseline of the first in-flow line box
     pub fn first_baseline(&self) -> Option<f32> {
         self.items
             .iter()
@@ -4481,7 +4461,6 @@ impl UnifiedLayout {
     }
 }
 
-// +spec:line-height-p019 - §17.5.3: baseline of a cell is the baseline of the first in-flow line box
 fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
     match item {
         ShapedItem::CombinedBlock {
@@ -5124,8 +5103,6 @@ pub fn create_logical_items(
                     }
                 }
             }
-            // +spec:line-breaking-p026 - forced line break: explicit line-breaking controls (preserved newline or <br>)
-            // +spec:white-space-processing-p025 - preserved segment breaks and BK/NL
             // line breaking class characters must be treated as forced line breaks
             InlineContent::LineBreak(break_info) => {
                 if let Some(msgs) = debug_messages {
@@ -5183,7 +5160,6 @@ pub fn create_logical_items(
 
 // --- Stage 2 Implementation ---
 
-// +spec:inline-block-p012 - §9.10: non-text items (atomic inline-level boxes) are skipped
 // when determining base direction, consistent with their neutral bidi treatment
 pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
@@ -5222,7 +5198,6 @@ pub fn reorder_logical_items(
     let mut bidi_str = String::new();
     let mut item_map = Vec::new();
     for (idx, item) in logical_items.iter().enumerate() {
-        // +spec:inline-block-p012 - §9.10: all atomic inline-level boxes (inline-block, etc.)
         // are treated as neutral characters in the bidi algorithm. Replaced elements with
         // display:inline are also neutral unless unicode-bidi != normal (not yet implemented).
         // U+FFFC (OBJECT REPLACEMENT CHARACTER) is a neutral bidi character.
@@ -5372,7 +5347,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let bidi_level = item.bidi_level;
                 let script = item.script;
 
-                // +spec:margin-collapsing-p010 - §7.3 boundary-shaping: shaping runs are split
                 // when layout-affecting properties (font weight, family, size, etc.) change
                 // across element boundaries, preventing ligatures from forming across such changes.
                 // Look ahead: find consecutive text items with the same layout-affecting
@@ -5625,7 +5599,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
             }
-            // +spec:white-space-processing-p004 - §4.1.2 Phase II: tab handling
             // "If the tab size is zero, preserved tabs are not rendered."
             // "Otherwise, each preserved tab is rendered as a horizontal shift that lines up
             //  the start edge of the next glyph with the next tab stop."
@@ -6180,18 +6153,11 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
-// +spec:line-height - §10.8.1: half-leading applied per glyph: L = line-height - AD, A' = A + L/2, D' = D + L/2
-// +spec:line-height-p012 - §10.8.1: half-leading applied above ascent and below descent; leading = line-height - (ascent + descent)
-// +spec:line-height-p016 - §10.8: inline box height = line-height (half-leading model); replaced/inline-block = margin box height
-// +spec:line-height-p021 - §10.8.1: on a non-replaced inline element, line-height specifies the height used in line box height calculation
-// +spec:inline-formatting-context-p003 - §10.8.1: half-leading applied to inline boxes; L = line-height - AD, A' = A + L/2, D' = D + L/2
-// +spec:inline-formatting-context-p028 - §10.8.1: for inline non-replaced elements, alignment box is line-height box; for all other elements, alignment box is margin box
 pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstraints) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
             if c.glyphs.is_empty() {
-                // +spec:inline-formatting-context-p003 - §10.8.1: strut: inline box with no glyphs uses A and D of element's first available font
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
                 // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
@@ -6222,7 +6188,6 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
                     (max_asc.max(item_asc), max_desc.max(item_desc))
                 })
         }
-        // +spec:line-height-p016 - §10.8: for replaced elements and inline-block, height = margin box
         ShapedItem::Object {
             bounds,
             baseline_offset,
@@ -6251,8 +6216,6 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
 /// Calculates the maximum ascent and descent for an entire line of items.
 /// This determines the "line box" used for vertical alignment.
 ///
-// +spec:line-height-p015 - §10.8: computes uppermost box top and lowermost box bottom across all inline boxes on the line
-// +spec:inline-formatting-context-p004 - §10.8: two-pass line box height calculation
 /// Per CSS 2.2 §10.8: Inline-level boxes aligned 'top' or 'bottom' must be aligned
 /// so as to minimize the line box height. The algorithm is:
 /// 1. First pass: compute line box height from baseline-aligned items only
@@ -6264,7 +6227,6 @@ fn calculate_line_metrics(
     default_vertical_align: VerticalAlign,
     constraints: &UnifiedConstraints,
 ) -> (f32, f32) {
-    // +spec:inline-formatting-context-p004 - §10.8: pass 1 - line box from baseline-aligned items
     // Pass 1: Compute ascent/descent from baseline-aligned items only
     // (i.e., items that are NOT vertical-align: top or bottom).
     let (mut max_asc, mut max_desc) = items
@@ -6286,7 +6248,6 @@ fn calculate_line_metrics(
 
     let baseline_line_height = max_asc + max_desc;
 
-    // +spec:inline-formatting-context-p004 - §10.8: pass 2 - expand for top/bottom aligned items to minimize height
     // Pass 2: Check top/bottom aligned items. If any of them is taller
     // than the current line box, expand the line box to fit.
     for item in items {
@@ -6382,7 +6343,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // Get the shaped items from the cursor
         let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
 
-        // +spec:line-breaking-p045 - §5.4 only use automatic hyphenator for hyphens:auto
         let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
             fragment_constraints
                 .hyphenation_language
@@ -6401,7 +6361,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         );
     }
 
-    // +spec:line-breaking-p045 - §5.4 only use automatic hyphenator for hyphens:auto
     let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
         fragment_constraints
             .hyphenation_language
@@ -6471,7 +6430,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut line_top_y = 0.0;
         let mut line_index = 0;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
-        // +spec:line-breaking-p038 - §8.1 text-indent each-line: track forced line breaks
         let mut is_after_forced_break = false;
         const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
 
@@ -6587,7 +6545,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // Reset counter when we find valid segments
             empty_segment_count = 0;
 
-            // +spec:line-breaking-p014 - §5.5 overflow-wrap: for min-content intrinsic sizes,
             // `anywhere` introduces soft wrap opportunities (min-content = widest cluster),
             // but `break-word` does NOT (min-content = widest unbreakable word).
             let effective_overflow_wrap = if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::Anywhere {
@@ -6626,10 +6583,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 )));
             }
 
-            // +spec:line-breaking-p038 - §8.1 text-indent each-line: detect if this line ends with a forced break
             let line_ends_with_forced_break = line_items.iter().any(|item| matches!(item, ShapedItem::Break { .. }));
 
-            // +spec:line-breaking-p042 - §6.3 text-align-last: determine if this line
             // uses text-align-last (last line of block, or line right before forced break)
             let is_last_line = cursor.is_done() && !was_hyphenated;
             let effective_align = resolve_effective_alignment(
@@ -6659,7 +6614,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 item.position.x += column_start_x;
             }
 
-            // +spec:line-height-p012 - §10.8.1: strut — each line box starts with zero-width inline box
             // with element's font/line-height; minimum line box height = fragment_constraints.line_height
             line_top_y += line_height.max(fragment_constraints.line_height);
             line_index += 1;
@@ -6744,7 +6698,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 ///   filtering added via `is_cjk_break_allowed_by_strictness` (§5.3)
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
 /// - \u2705 white-space: break-spaces handling
-// +spec:white-space-processing-p029 - §5.3 line-break: anywhere creates soft wrap opportunity
 // around every typographic character unit including preserved white spaces; with break-spaces
 // it allows breaking before the first space of a sequence
 pub fn break_one_line<T: ParsedFontTrait>(
@@ -6764,11 +6717,9 @@ pub fn break_one_line<T: ParsedFontTrait>(
         return (Vec::new(), false);
     }
 
-    // +spec:white-space-processing-p002 - §4.1.2 Phase II: collapsible spaces at the beginning of a line are removed
     // CSS Text Module Level 3 § 4.1.2: At the beginning of a line, white space
     // is collapsed away. Skip leading whitespace at line start.
     // https://www.w3.org/TR/css-text-3/#white-space-phase-2
-    // +spec:white-space-processing-p035 - break-spaces: spaces cannot be collapsed, skip stripping
     let break_spaces = white_space_mode == WhiteSpaceMode::BreakSpaces;
     if !break_spaces {
         while !cursor.is_done() {
@@ -6785,7 +6736,6 @@ pub fn break_one_line<T: ParsedFontTrait>(
     }
 
     loop {
-        // +spec:white-space-processing-p034 - §5.3 line-break: anywhere treats every
         // typographic character unit as a soft wrap opportunity; hyphenation is not applied
         let next_unit = if line_break == LineBreakStrictness::Anywhere {
             cursor.peek_next_single_item()
@@ -6796,7 +6746,6 @@ pub fn break_one_line<T: ParsedFontTrait>(
             break; // End of content
         }
 
-        // +spec:white-space-processing-p024 - §5.1: preserved segment breaks and BK/NL class treated as forced line breaks
         if let Some(ShapedItem::Break { .. }) = next_unit.first() {
             line_items.push(next_unit[0].clone());
             cursor.consume(1);
@@ -6815,7 +6764,6 @@ pub fn break_one_line<T: ParsedFontTrait>(
             current_width += unit_width;
             cursor.consume(next_unit.len());
         } else {
-            // +spec:white-space-processing-p034 - §5.3 line-break: anywhere disables hyphenation
             // 3. The unit overflows. Can we hyphenate it?
             if line_break != LineBreakStrictness::Anywhere {
                 if let Some(hyphenator) = hyphenator {
@@ -6836,7 +6784,6 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 }
             }
 
-            // +spec:line-breaking-p014 - §5.5 overflow-wrap: anywhere/break-word allow breaking
             // an otherwise unbreakable sequence at an arbitrary point when no other
             // break points exist. Grapheme clusters stay together; no hyphen inserted.
             // 4. Cannot hyphenate or fit. The line is finished.
@@ -6875,7 +6822,6 @@ pub fn break_one_line<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:white-space-processing-p002 - §4.1.2 Phase II: collapsible spaces at the end of a line are removed,
     // as well as any trailing U+1680 OGHAM SPACE MARK whose white-space is normal/nowrap/pre-line.
     // Note: pre-wrap and break-spaces have different handling (hanging/preserving)
     // which is not yet implemented here.
@@ -7146,7 +7092,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
-    // +spec:line-breaking-p038 - §8.1 text-indent each-line: track if line follows a forced break
     is_after_forced_break: bool,
 ) -> (Vec<PositionedItem>, f32) {
     let line_text: String = line_items
@@ -7182,13 +7127,11 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let mut positioned = Vec::new();
     let is_vertical = constraints.is_vertical();
 
-    // +spec:inline-formatting-context-p004 - §10.8: vertical alignment and line box height minimization
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
     let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align, constraints);
 
-    // +spec:line-height-p015 - §10.8: line box height includes the strut: an imaginary zero-width
     // inline box with the block container's font and line-height. The strut has A (ascent) and
     // D (descent) from the block container's first available font. Half-leading L/2 is applied:
     // L = line-height - (A + D), strut_above = A + L/2, strut_below = D + L/2.
@@ -7198,7 +7141,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let strut_below = constraints.strut_descent + strut_leading_half;
     let line_ascent = content_ascent.max(strut_above);
     let line_descent = content_descent.max(strut_below);
-    // +spec:line-height-p015 - line box height = distance from uppermost box top to lowermost box bottom
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.
@@ -7232,7 +7174,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             continue;
         }
 
-        // +spec:inline-formatting-context-p015 - §9.4.2: text-align:justify stretches spaces/words in inline boxes but not inline-table/inline-block
         // 2. Calculate justification spacing *for this segment only*.
         let (extra_word_spacing, extra_char_spacing) = if constraints.text_justify
             != JustifyContent::None
@@ -7278,7 +7219,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             .map(|item| get_item_measure(item, is_vertical))
             .sum();
 
-        // +spec:white-space-processing-p030 - Phase II trailing whitespace handling:
         // For normal/nowrap/pre-line: unconditionally hang trailing WS.
         // For pre-wrap: unconditionally hang, unless before forced break (then conditionally hang).
         // For break-spaces: trailing spaces cannot hang.
@@ -7308,8 +7248,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
         let effective_segment_width = final_segment_width - trailing_ws_width;
 
-        // +spec:inline-formatting-context-p015 - §9.4.2: when total inline-level box width < line box width, text-align determines horizontal distribution
-        // +spec:containing-block-p037 - §6.1 text-align: alignment is w.r.t. line box start/end sides
         // 3. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - effective_segment_width;
 
@@ -7338,8 +7276,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             )));
         }
 
-        // +spec:line-breaking-p038 - §8.1 text-indent: apply indent based on each-line/hanging keywords
-        // +spec:floats-p029 - text-indent applied to first line; adds to start_x which already accounts for float exclusions
         // Default: indent first line only. each-line: also indent after forced breaks.
         // hanging: invert which lines get the indent.
         if segment_idx == 0 {
@@ -7383,8 +7319,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             0.0
         };
 
-        // +spec:inline-formatting-context-p004 - §10.8: inline-level boxes aligned vertically per vertical-align property
-        // +spec:inline-formatting-context-p028 - §10.8.1: vertical-align positioning within line box
         // 4. Position the items belonging to this segment.
         //
         // Vertical alignment positioning (CSS vertical-align)
@@ -7402,8 +7336,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
                 .unwrap_or(constraints.vertical_align);
-            // +spec:inline-formatting-context-p028 - §10.8.1: all vertical-align values (baseline/sub/super/top/text-top/middle/bottom/text-bottom/percentage/length)
-            // +spec:inline-formatting-context-p004 - §10.8: top/bottom aligned to minimize line box height; baseline undefined if tall enough
             // §10.8.1 vertical-align positioning
             let item_baseline_pos = match effective_align {
                 // top: align top of aligned subtree with top of line box
@@ -7427,10 +7359,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // Parent's content area bottom = baseline + strut_descent
                 VerticalAlign::TextBottom => (line_baseline_y + constraints.strut_descent) - item_descent,
                 // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
-                // +spec:inline-formatting-context-p028 - §10.8.1: 0 means same as baseline; percentage refers to element's own line-height
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
                 // baseline: align baseline of box with baseline of parent box
-                // +spec:inline-formatting-context-p028 - §10.8.1: if box does not have a baseline, align bottom margin edge with parent's baseline
                 VerticalAlign::Baseline => line_baseline_y,
             };
 
@@ -7864,7 +7794,6 @@ fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
 }
 
 /// Helper to identify if an item is a word separator (like a space).
-// +spec:white-space-processing-p030 - measure trailing whitespace width for hanging
 fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
     let mut trailing_ws = 0.0;
     for item in items.iter().rev() {
@@ -7890,7 +7819,6 @@ pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
     }
 }
 
-// +spec:margin-collapsing-p013 - CSS Text §7.1: word-separator characters
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
@@ -7924,7 +7852,6 @@ fn is_word_separator_char(c: char) -> bool {
     }
 }
 
-// +spec:line-breaking-p050 - U+200B (zero width space) acts as explicit word delimiter / soft wrap opportunity
 /// Helper to identify if an item is a zero-width space (U+200B),
 /// which provides a soft wrap opportunity with no visible width.
 /// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
@@ -7936,7 +7863,6 @@ pub fn is_zero_width_space(item: &ShapedItem) -> bool {
     }
 }
 
-// +spec:inline-formatting-context-p015 - §9.4.2: justify stretches spaces/words in inline boxes, not inline-table/inline-block
 /// Helper to identify if space can be added after an item.
 fn can_justify_after(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
@@ -8278,10 +8204,8 @@ fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
     Err(LayoutError::HyphenationError("Hyphenation feature not enabled".to_string()))
 }
 
-// +spec:inline-block-p048 - non-tailorable Unicode line breaking controls other than NBSP
 // take precedence over atomic inline rules (CSS-TEXT-3 recent changes, issue 8972)
 
-// +spec:inline-block-p048 - checks if a Unicode line breaking control suppresses breaks
 fn is_break_suppressing_control(ch: char) -> bool {
     matches!(ch,
         '\u{200D}' | // ZERO WIDTH JOINER
@@ -8290,7 +8214,6 @@ fn is_break_suppressing_control(ch: char) -> bool {
     )
 }
 
-// +spec:inline-block-p048 - checks if a Unicode line breaking control forces a break
 fn is_break_forcing_control(ch: char) -> bool {
     matches!(ch,
         '\u{200B}' | // ZERO WIDTH SPACE (already handled but included for completeness)
@@ -8340,7 +8263,6 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
     if let ShapedItem::Break { .. } = item {
         return true;
     }
-    // +spec:line-breaking-p045 - §5.4 soft hyphens (U+00AD) are break opportunities
     // only when hyphens != none. With hyphens:none, soft hyphens do not create break points.
     if hyphens != Hyphens::None {
         if let ShapedItem::Cluster(c) = item {
@@ -8375,7 +8297,6 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
     }
 }
 
-// +spec:white-space-processing-p028 - line-break strictness filtering for CJK break opportunities
 // CSS Text Level 3 §5.3: Determines whether a break opportunity before a character is
 // allowed based on the line-break strictness level. The spec defines:
 // - strict: forbids breaks before small kana (class CJ), CJK hyphens, and certain punctuation
@@ -8450,19 +8371,14 @@ fn is_small_kana(ch: char) -> bool {
     )
 }
 
-// +spec:white-space-processing-p029 - §5.3 line-break: anywhere would make this return true
 // for every typographic character unit, disregarding GL/WJ/ZWJ line breaking classes
-// +spec:line-breaking-p007 - §5.1: soft wrap opportunity before and after each
 // replaced element or other atomic inline for web-compat
 fn is_break_opportunity(item: &ShapedItem) -> bool {
-    // +spec:line-breaking-p005 - soft wrap opportunity before and after each atomic inline
     // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and
     // after each replaced element or other atomic inline"
     if matches!(item, ShapedItem::Object { .. } | ShapedItem::CombinedBlock { .. }) {
         return true;
     }
-    // +spec:white-space-processing-p024 - §5.1: WJ, ZW, GL, ZWJ line breaking classes honored
-    // +spec:inline-block-p048 - non-tailorable Unicode line breaking controls take precedence
     // over atomic inline rules: break-forcing controls (ZWSP, LS, PS) create break opportunities
     // even adjacent to atomic inlines, while break-suppressing controls (WJ, ZWJ, ZWNBSP)
     // prevent breaks
@@ -8479,7 +8395,6 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
         if c.text.chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
             return false;
         }
-        // +spec:line-breaking-p047 - U+002D HYPHEN-MINUS and U+2010 HYPHEN: these characters
         // are always visible and create a soft wrap opportunity after them, but are NOT
         // hyphenation opportunities (no extra glyph is inserted at the break).
         if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') {
@@ -8501,9 +8416,7 @@ pub struct BreakCursor<'a> {
     pub partial_remainder: Vec<ShapedItem>,
     // §5.2 word-break property stored on cursor
     pub word_break: WordBreak,
-    // +spec:line-breaking-p045 - §5.4 hyphens property stored on cursor
     pub hyphens: Hyphens,
-    // +spec:white-space-processing-p028 - §5.3 line-break strictness for CJK filtering
     pub line_break: LineBreakStrictness,
 }
 
@@ -8572,7 +8485,6 @@ impl<'a> BreakCursor<'a> {
     /// This is typically a word (a series of non-space clusters) followed by a
     /// space, or just a single space if that's next.
     /// The definition of "unbreakable unit" depends on the word-break property.
-    // +spec:white-space-processing-p029 - §5.3 line-break: anywhere would change this to return
     // a single typographic character unit (every character is a soft wrap opportunity), including
     // punctuation and preserved white spaces; currently handled via peek_next_single_item
     pub fn peek_next_unit(&self) -> Vec<ShapedItem> {
@@ -8594,7 +8506,6 @@ impl<'a> BreakCursor<'a> {
         // For break-all: each cluster is its own unit.
         // For keep-all: CJK sequences are NOT break opportunities.
         // For normal: CJK characters are individual break opportunities.
-        // +spec:inline-block-p048 - break-suppressing Unicode controls (WJ, ZWJ, ZWNBSP)
         // glue items together: if the last cluster ends with a break-suppressing control,
         // the next item cannot be separated from it.
         let mut suppress_next_break = false;
@@ -8606,7 +8517,6 @@ impl<'a> BreakCursor<'a> {
             } else {
                 false
             };
-            // +spec:white-space-processing-p028 - §5.3 line-break strictness filtering
             // If the item is a CJK cluster, check if the break is allowed by strictness
             let cjk_strictness_suppressed = if let ShapedItem::Cluster(c) = item {
                 c.text.chars().next().map_or(false, |ch| {
@@ -8640,7 +8550,6 @@ impl<'a> BreakCursor<'a> {
         unit
     }
 
-    // +spec:white-space-processing-p034 - §5.3 line-break: anywhere returns each item individually
     pub fn peek_next_single_item(&self) -> Vec<ShapedItem> {
         if !self.partial_remainder.is_empty() {
             return vec![self.partial_remainder[0].clone()];

@@ -1,4 +1,3 @@
-// +spec:height-calculation-p022 - non-normative: extracted paragraph is spec document stylesheet (css-display-3.html), not normative height/margin rules
 //! solver3/sizing.rs
 //!
 //! Pass 2: Sizing calculations (intrinsic and used sizes)
@@ -99,7 +98,6 @@ use crate::{
 /// Margins, borders, and padding are NOT subtracted from the base for percentage
 /// resolution in content-box sizing. They may cause overflow if the total exceeds
 /// the containing block width.
-// +spec:width-calculation-p016 - §10.2: percentage width resolved against containing block dimension
 pub fn resolve_percentage_with_box_model(
     containing_block_dimension: f32,
     percentage: f32,
@@ -113,7 +111,6 @@ pub fn resolve_percentage_with_box_model(
 }
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
-// +spec:intrinsic-sizing-p047 - css-sizing-3 index: entry point for computing intrinsic sizes (§5.1 min-content, max-content)
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -192,7 +189,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
-        // +spec:width-calculation-p010 - §10.3.8: abs-pos replaced elements use inline replaced width rules (§10.3.2); intrinsic width used here
         // VirtualViews are replaced elements with a default intrinsic size of 300x150px
         // (same as virtualized view elements)
         if let Some(dom_id) = node.dom_node_id {
@@ -208,30 +204,20 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 });
             }
             
-            // +spec:containing-block-p031 - §5.1 css-sizing-3: replaced element with aspect ratio
             // but no intrinsic size uses initial CB inline size
-            // +spec:width-calculation-p010 - §10.3.8/§10.3.2: abs-pos replaced image width from intrinsic size
-            // +spec:width-calculation-p006 - §10.3.2: inline replaced elements — intrinsic width/height/ratio cascading rules and 300x150 fallback
-            // +spec:width-calculation-p007 - §10.3.2: inline replaced element width from intrinsic dimensions
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
                 let size = image_ref.get_size();
                 // Per css-sizing-3 §5.1: "use an inline size matching the corresponding dimension
                 // of the initial containing block and calculate the other dimension using the aspect ratio"
-                // +spec:width-calculation-p006 - §10.3.2: if width+height both auto and intrinsic width exists, use intrinsic width
-                // +spec:width-calculation-p006 - §10.3.2: if width auto, height auto, no intrinsic width but has intrinsic height+ratio → width = height * ratio
-                // +spec:width-calculation-p006 - §10.3.2: fallback 300px (or 2:1 device-fit rectangle)
                 let (width, height) = if size.width > 0.0 && size.height > 0.0 {
-                    // +spec:width-calculation-p007 - §10.3.2: both intrinsic width and height available
                     (size.width, size.height)
                 } else if size.width > 0.0 {
-                    // +spec:width-calculation-p007 - §10.3.2: has intrinsic width, use it directly
                     (size.width, size.width / 2.0)
                 } else if size.height > 0.0 {
                     // Has intrinsic height but no width — use initial CB inline dimension
                     (self.ctx.viewport_size.width, size.height)
                 } else {
                     // No intrinsic dimensions — cap at 300x150 per CSS 2.2 §10.3.2
-                    // +spec:width-calculation-p005 - §10.3.2: auto width with no intrinsic width fallback to 300px (2:1 ratio)
                     let w = self.ctx.viewport_size.width.min(300.0);
                     (w, w / 2.0)
                 };
@@ -379,14 +365,11 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                     // InlineBlock with inline children - measure as IFC root
                     let mut intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
 
-                    // +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2: intrinsic size contributions
                     // are based on the outer size of the box. Add margin, padding, and border
                     // to the content intrinsic size. Auto margins are treated as zero.
-                    // +spec:intrinsic-sizing-p047 - css-sizing-3 §5.2.1: padding/border added to intrinsic contributions
                     let h_extras = node.box_props.margin.left + node.box_props.margin.right
                                  + node.box_props.padding.left + node.box_props.padding.right
                                  + node.box_props.border.left + node.box_props.border.right;
-                    // +spec:height-calculation-p034 - §8.1: padding and border areas surround content area vertically
                     let v_extras = node.box_props.margin.top + node.box_props.margin.bottom
                                  + node.box_props.padding.top + node.box_props.padding.bottom
                                  + node.box_props.border.top + node.box_props.border.bottom;
@@ -405,7 +388,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             FormattingContext::Table => {
                 self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics)
             }
-            // +spec:intrinsic-sizing-p027 - flex container intrinsic sizes per css-flexbox-1 §9.9.1
             FormattingContext::Flex => {
                 self.calculate_flex_intrinsic_sizes(tree, node_index, child_intrinsics)
             }
@@ -497,7 +479,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             .map(|l| l.bounds().width)
             .unwrap_or(0.0);
 
-        // +spec:inline-block-p049 - css-sizing-3 §2.1: "The min-content size in the
         // block axis. For block containers, tables, and inline boxes, this is equivalent
         // to the max-content block size." So min_content_height = max_content_height.
         let max_content_height = max_layout
@@ -541,7 +522,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
 
         for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
-                // +spec:intrinsic-sizing-p024 - css-sizing-3 §2.2: intrinsic size contributions
                 // are based on the outer size of the box (margin-box). Add the child's margin,
                 // border, and padding to its intrinsic content size. Auto margins are treated
                 // as zero for this purpose.
@@ -606,7 +586,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         })
     }
 
-    // +spec:intrinsic-sizing-p027 - css-flexbox-1 §9.9.1: intrinsic sizes of flex containers
     // The max-content main size is the sum of items' max-content contributions.
     // The min-content main size of a single-line flex container is the sum of items'
     // min-content contributions. For multi-line, it is the largest min-content contribution.
@@ -655,9 +634,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                     )
                 };
 
-                // +spec:intrinsic-sizing-p027 - max-content main size = sum of items' max-content contributions
                 sum_main_max += child_main_max;
-                // +spec:intrinsic-sizing-p027 - min-content main size (single-line) = sum of items' min-content contributions
                 sum_main_min += child_main_min;
                 // For multi-line min-content, track the largest single item
                 max_main_min = max_main_min.max(child_main_min);
@@ -687,7 +664,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             true
         };
 
-        // +spec:intrinsic-sizing-p027 - single-line: min-content = sum; multi-line: min-content = largest item
         let min_main = if is_single_line { sum_main_min } else { max_main_min };
         let max_main = sum_main_max;
 
@@ -1021,10 +997,7 @@ fn process_layout_children<T: ParsedFontTrait>(
                         _ => intrinsic_sizes.max_content_width,
                     }
                 }
-                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content uses min-content size
-                // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content sizing values for width
                 MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
-                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content uses max-content size
                 MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
                 MultiValue::Exact(LayoutWidth::FitContent(_)) => {
                     // During intrinsic sizing, fit-content resolves to max-content
@@ -1048,11 +1021,8 @@ fn process_layout_children<T: ParsedFontTrait>(
                         _ => intrinsic_sizes.max_content_height,
                     }
                 }
-                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content for block size
                 // is equivalent to automatic size
-                // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content sizing values for height
                 MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.max_content_height,
-                // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content for block size
                 // is equivalent to automatic size
                 MultiValue::Exact(LayoutHeight::MaxContent) => intrinsic_sizes.max_content_height,
                 MultiValue::Exact(LayoutHeight::FitContent(_)) => intrinsic_sizes.max_content_height,
@@ -1150,8 +1120,6 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     // Determine stacking direction from the node's formatting context.
     // "horizontal" means children are laid out side-by-side (inline, flex-row).
     // "vertical" means children stack top-to-bottom (block, flex-column).
-    // +spec:intrinsic-sizing-p027 - flex container intrinsic sizes (stub path, assumes row)
-    // +spec:intrinsic-sizing-p044 - flex container intrinsic main size:
     // max-content = sum of items' max-content contributions;
     // min-content (single-line) = sum of items' min-content contributions;
     // min-content (multi-line) = largest of items' min-content contributions.
@@ -1171,7 +1139,6 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     let mut max_height: f32 = 0.0;
     let mut total_width: f32 = 0.0;
     let mut total_height: f32 = 0.0;
-    // +spec:intrinsic-sizing-p044 - track min-content contributions separately
     let mut max_min_width: f32 = 0.0;
     let mut max_min_height: f32 = 0.0;
     let mut total_min_width: f32 = 0.0;
@@ -1191,7 +1158,6 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     let is_flex = matches!(&_node.formatting_context, FormattingContext::Flex);
 
     if is_horizontal {
-        // +spec:intrinsic-sizing-p044 - flex-row intrinsic main size (width):
         // max-content width = sum of items' max-content width contributions
         // min-content width: single-line flex = sum, multi-line = largest, inline = largest
         // NOTE: flex-wrap not yet queried; defaults to nowrap (single-line), so use sum for flex.
@@ -1210,7 +1176,6 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
         }
     } else {
         // Vertical stacking (Block / flex-column)
-        // +spec:intrinsic-sizing-p044 - flex-column intrinsic main size (height):
         // max-content height = sum of items' max-content height contributions
         // min-content height: single-line flex = sum, block = largest
         let min_h = if is_flex {
@@ -1271,13 +1236,11 @@ pub fn calculate_used_size_for_node(
     let display = get_display_property(styled_dom, Some(id));
     let position = get_position_type(styled_dom, dom_id);
 
-    // +spec:width-calculation-p007 - §10.3: width/margin calculation depends on box type
     // Determine if this element is a replaced element (images, virtual views)
     let node_data = &styled_dom.node_data.as_container()[id];
     let is_replaced = matches!(node_data.get_node_type(), NodeType::Image(_))
         || node_data.is_virtual_view_node();
 
-    // +spec:width-calculation-p008 - §10.3.1: the 'width' property does not apply to inline, non-replaced elements
     // For inline non-replaced elements, override any explicit width to Auto.
     let css_width = if display.unwrap_or_default() == LayoutDisplay::Inline
         && !is_replaced
@@ -1288,12 +1251,9 @@ pub fn calculate_used_size_for_node(
     };
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
-    // +spec:width-calculation-p005 - §10.3.2/§10.3.3/§10.3.4/§10.3.5: width calculation dispatch by box type
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width.unwrap_or_default() {
         LayoutWidth::Auto => {
-            // +spec:width-calculation-p005 - §10.3.2: inline replaced elements with auto width use intrinsic width
-            // +spec:width-calculation-p005 - §10.3.4: block-level replaced elements use inline replaced width rules
             // CSS 2.2 §10.3.2: If 'width' has a computed value of 'auto', and the element
             // has an intrinsic width, then that intrinsic width is the used value of 'width'.
             // §10.3.4: "The used value of 'width' is determined as for inline replaced elements."
@@ -1302,7 +1262,6 @@ pub fn calculate_used_size_for_node(
                 // The intrinsic sizes were already computed with the 300px fallback per §10.3.2.
                 intrinsic.max_content_width
             }
-            // +spec:width-calculation-p005 - §10.3.5: floating non-replaced elements with auto width use shrink-to-fit
             else if get_float(styled_dom, id, node_state).unwrap_or(LayoutFloat::None) != LayoutFloat::None {
                 // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
                 // shrink-to-fit = min(max(preferred minimum width, available width), preferred width)
@@ -1318,7 +1277,6 @@ pub fn calculate_used_size_for_node(
                 let preferred = intrinsic.max_content_width;
                 preferred_minimum.max(available_width).min(preferred).max(0.0)
             }
-            // +spec:width-calculation-p002 - §10.3.7: absolutely positioned non-replaced elements with auto width use shrink-to-fit
             else if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
                 // §10.3.7: abs-pos elements with auto width use shrink-to-fit
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
@@ -1336,9 +1294,6 @@ pub fn calculate_used_size_for_node(
             } else {
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
-                // +spec:width-calculation-p005 - §10.3.3: block-level non-replaced auto width fills containing block
-                // +spec:width-calculation-p006 - §10.3.3: block-level non-replaced width:auto → solve constraint equation for width
-                // +spec:width-calculation-p007 - §10.3.3: block-level non-replaced auto width = CB width - margins - borders - padding
                 LayoutDisplay::Block
                 | LayoutDisplay::FlowRoot
                 | LayoutDisplay::ListItem
@@ -1348,7 +1303,6 @@ pub fn calculate_used_size_for_node(
                     // 'auto' width fills the containing block (minus margins, borders, padding).
                     // CSS 2.2 §10.3.3: width = containing_block_width - margin_left -
                     // margin_right - border_left - border_right - padding_left - padding_right
-                    // +spec:width-calculation-p005 - §10.3.3: constraint equation solved for width when width is auto, other auto values become 0
                     let available_width = containing_block_size.width
                         - _box_props.margin.left
                         - _box_props.margin.right
@@ -1359,12 +1313,6 @@ pub fn calculate_used_size_for_node(
 
                     available_width.max(0.0)
                 }
-                // +spec:width-calculation-p024 - §10.3.9: inline-block non-replaced auto width uses shrink-to-fit width as for floats
-                // +spec:width-calculation-p001 - §10.3.9: inline-block non-replaced with auto width uses shrink-to-fit width
-                // +spec:display-property-p047 - inline-grid in IFC is sized as atomic inline-level box (CSS Grid 5.2)
-                // +spec:inline-block-p018 - inline-grid in IFC sized as atomic inline-level box (like inline-block) per CSS Grid 5.2
-                // +spec:inline-block-p020 - inline-level grid/flex containers sized as atomic inline-level box per CSS Grid §5.2
-                // +spec:inline-block-p043 - §10.3.9: inline-block non-replaced auto width uses shrink-to-fit
                 LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
                     // CSS 2.2 §10.3.9: If 'width' is 'auto', the used value is the
                     // shrink-to-fit width as for floating elements.
@@ -1381,21 +1329,16 @@ pub fn calculate_used_size_for_node(
                     let preferred = intrinsic.max_content_width;
                     preferred_minimum.max(available_width).min(preferred).max(0.0)
                 }
-                // +spec:width-calculation-p001 - §10.3.10: inline-block replaced uses intrinsic width (same as inline replaced)
-                // +spec:width-calculation-p006 - §10.3.2: inline replaced elements with auto width use intrinsic width (via max_content_width from intrinsic size pass)
                 LayoutDisplay::Inline => {
                     // For inline elements, 'auto' width is the intrinsic/max-content width
                     intrinsic.max_content_width
                 }
-                // +spec:width-calculation-p017 - §17.5.2: table with width:auto does NOT fill containing block; uses intrinsic (max-content) width
-                // +spec:width-calculation-p018 - §17.5.2: table with width:auto does NOT auto-fill containing block; uses intrinsic sizing instead
                 LayoutDisplay::Table | LayoutDisplay::InlineTable => intrinsic.max_content_width,
                 // Other display types use intrinsic sizing
                 _ => intrinsic.max_content_width,
             }
             }
         }
-        // +spec:width-calculation-p016 - §10.2: <length> specifies content area width; <percentage> w.r.t. containing block width
         LayoutWidth::Px(px) => {
             // Resolve percentage or absolute pixel value
             use azul_css::props::basic::{
@@ -1434,10 +1377,7 @@ pub fn calculate_used_size_for_node(
                 },
             }
         }
-        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content uses min-content size in relevant axis
-        // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content keyword values for width property
         LayoutWidth::MinContent => intrinsic.min_content_width,
-        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content uses max-content size in relevant axis
         LayoutWidth::MaxContent => intrinsic.max_content_width,
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         LayoutWidth::FitContent(px) => {
@@ -1460,9 +1400,6 @@ pub fn calculate_used_size_for_node(
             // For 'auto' height, we initially use the intrinsic content height.
             // For block containers, this will be updated later in the layout process
             // after the children's heights are known.
-            // +spec:display-property-p047 - grid container's auto block size is its max-content size (CSS Grid 5.2)
-            // +spec:inline-block-p018 - grid container auto block size is its max-content size (CSS Grid 5.2)
-            // +spec:inline-block-p020 - grid container auto block size is max-content size in both inline and block contexts (CSS Grid §5.2)
             intrinsic.max_content_height
         }
         LayoutHeight::Px(px) => {
@@ -1499,11 +1436,8 @@ pub fn calculate_used_size_for_node(
                 },
             }
         }
-        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: min-content for block size is
         // equivalent to automatic size (not min_content_height which is height at min-content width)
-        // +spec:intrinsic-sizing-p047 - css-sizing-3 §3.2: min-content/max-content keyword values for height property
         LayoutHeight::MinContent => intrinsic.max_content_height,
-        // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: max-content for block size is
         // equivalent to automatic size
         LayoutHeight::MaxContent => intrinsic.max_content_height,
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
@@ -1529,7 +1463,6 @@ pub fn calculate_used_size_for_node(
     // If the resulting width is smaller than 'min-width', the rules above are applied again
     // using the value of 'min-width' as the computed value for 'width'."
 
-    // +spec:height-calculation-p043 - §10.4: for replaced elements with intrinsic ratios,
     // use the constraint violation table to coordinate width+height together;
     // for non-replaced elements, apply width and height constraints independently
     let has_intrinsic_ratio = intrinsic.preferred_width.is_some()
@@ -1571,7 +1504,6 @@ pub fn calculate_used_size_for_node(
         (cw, ch)
     };
 
-    // +spec:width-calculation-p042 - §8.1: width defines content edge; content-box adds padding+border outside, border-box includes them
     // Step 4: Convert to border-box dimensions, respecting box-sizing property
     // CSS box-sizing:
     // - content-box (default): width/height set content size, border+padding are added
@@ -1595,7 +1527,6 @@ pub fn calculate_used_size_for_node(
             // border and padding are added outside
             // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
             // margin, border, padding, width, and height."
-            // +spec:width-calculation-p039 - §8.1: content-box width adds padding and border areas outside content area
             let border_box_width = constrained_width
                 + _box_props.padding.left
                 + _box_props.padding.right
@@ -1623,7 +1554,6 @@ pub fn calculate_used_size_for_node(
     Ok(result)
 }
 
-// +spec:height-calculation-p047 - §10.4: constraint violation table for replaced elements
 // with intrinsic ratios. Implements all 10 cases from the spec table, coordinating
 // width and height together to preserve the aspect ratio while respecting min/max constraints.
 fn apply_constraint_violation_table(
@@ -1711,7 +1641,6 @@ fn apply_constraint_violation_table(
         _ => f32::MAX,
     };
 
-    // +spec:height-calculation-p047 - §10.4: "Take the max-width and max-height as
     // max(min, max) so that min ≤ max holds true."
     let max_w = max_w.max(min_w);
     let max_h = max_h.max(min_h);
@@ -1796,7 +1725,6 @@ fn apply_width_constraints(
 
     use crate::solver3::getters::{get_css_max_width, get_css_min_width, MultiValue};
 
-    // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: auto for min-width resolves to 0
     // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
     // Resolve min-width (default is 0)
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
@@ -1832,7 +1760,6 @@ fn apply_width_constraints(
         _ => 0.0,
     };
 
-    // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: none means no limit on box size
     // Resolve max-width (default is infinity/none)
     let max_width = match get_css_max_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
@@ -1899,7 +1826,6 @@ fn apply_height_constraints(
 
     use crate::solver3::getters::{get_css_max_height, get_css_min_height, MultiValue};
 
-    // +spec:intrinsic-sizing-p014 - css-sizing-3 §3.2: auto for min-height resolves to 0
     // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
     // Resolve min-height (default is 0)
     let min_height = match get_css_min_height(styled_dom, id, node_state) {
