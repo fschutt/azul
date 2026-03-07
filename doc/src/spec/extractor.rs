@@ -4,6 +4,8 @@
 //! based on keywords. Uses simple HTML parsing without external dependencies.
 
 use std::path::Path;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 /// A single extracted paragraph with context
 #[derive(Debug, Clone)]
@@ -20,6 +22,18 @@ pub struct ExtractedParagraph {
     pub source_file: String,
     /// Approximate line number
     pub approx_line: usize,
+}
+
+/// Compute a stable 6-hex-char content hash for a paragraph.
+///
+/// The hash is derived from source_file, section_id, and the first 200 chars
+/// of text. This survives reordering, new spec files, and keyword changes.
+pub fn paragraph_content_hash(para: &ExtractedParagraph) -> String {
+    let mut hasher = DefaultHasher::new();
+    para.source_file.hash(&mut hasher);
+    para.section_id.hash(&mut hasher);
+    para.text.chars().take(200).collect::<String>().hash(&mut hasher);
+    format!("{:06x}", hasher.finish() & 0xFFFFFF)
 }
 
 /// Extract paragraphs from an HTML file that match given keywords

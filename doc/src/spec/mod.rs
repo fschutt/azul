@@ -481,6 +481,8 @@ fn print_spec_help() {
 /// Each file is self-contained: feature context + single paragraph + instructions.
 /// Agents pick up individual files and read the source code themselves.
 pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(), String> {
+    use std::collections::{HashMap, HashSet};
+
     let mut tree = config.load_skill_tree();
     let node_ids: Vec<String> = tree.nodes.keys().cloned().collect();
 
@@ -499,13 +501,19 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
 
     println!("Building per-paragraph agent prompts for {} features...\n", node_ids.len());
 
-    let mut total_files = 0usize;
-    let mut total_tokens = 0usize;
+    // Phase 1: Extract all paragraphs per feature, then deduplicate across features.
+    // Each unique paragraph (by text) is assigned to the feature with the most
+    // keyword matches. This eliminates ~73% of redundant prompts.
+
+    struct FeatureParas {
+        node: skill_tree::SkillNode,
+        paragraphs: Vec<extractor::ExtractedParagraph>,
+    }
+
+    let mut all_features: Vec<(String, FeatureParas)> = Vec::new();
 
     for node_id in &node_ids {
         let node = tree.nodes.get(node_id).unwrap().clone();
-
-        // Extract + deduplicate spec paragraphs
         let paragraphs = match extract_for_skill_node(&node, &config.spec_dir) {
             Ok(p) => p,
             Err(e) => {
@@ -513,19 +521,66 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
                 continue;
             }
         };
+        all_features.push((node_id.clone(), FeatureParas { node, paragraphs }));
+    }
 
-        let para_count = paragraphs.len();
+    // Build a map: paragraph_text → best (feature_id, keyword_count)
+    // Paragraphs seen by multiple features are assigned to the one with more matches.
+    let mut para_owner: HashMap<String, (String, usize)> = HashMap::new();
+
+    for (node_id, fp) in &all_features {
+        for para in &fp.paragraphs {
+            let key = para.text.clone();
+            let kw_count = para.matched_keywords.len();
+            let entry = para_owner.entry(key).or_insert_with(|| (node_id.clone(), 0));
+            if kw_count > entry.1 || (kw_count == entry.1 && node_id < &entry.0) {
+                *entry = (node_id.clone(), kw_count);
+            }
+        }
+    }
+
+    let total_before_dedup: usize = all_features.iter().map(|(_, fp)| fp.paragraphs.len()).sum();
+
+    // Phase 2: Generate prompts, skipping paragraphs owned by other features.
+    let mut total_files = 0usize;
+    let mut total_tokens = 0usize;
+    let mut total_deduped = 0usize;
+
+    for (node_id, fp) in &all_features {
+        // Keep only paragraphs owned by this feature
+        let owned_paras: Vec<&extractor::ExtractedParagraph> = fp.paragraphs.iter()
+            .filter(|p| para_owner.get(&p.text).map(|(owner, _)| owner == node_id).unwrap_or(false))
+            .collect();
+
+        let skipped = fp.paragraphs.len() - owned_paras.len();
+        total_deduped += skipped;
+
+        let para_count = owned_paras.len();
         let mut feature_tokens = 0usize;
+        let mut seen_filenames = HashSet::new();
 
-        for (i, para) in paragraphs.iter().enumerate() {
+        for (i, para) in owned_paras.iter().enumerate() {
             let prompt = reviewer::generate_paragraph_prompt(
-                &node, para, i, para_count, workspace_root,
+                &fp.node, para, i, para_count, workspace_root,
             );
 
             let tokens = prompt.len() / 4;
             feature_tokens += tokens;
 
-            let filename = format!("{}_{:03}.md", node_id, i + 1);
+            let hash = extractor::paragraph_content_hash(para);
+            let mut filename = format!("{}_{}.md", node_id, hash);
+            // Handle hash collisions by appending a counter suffix
+            if seen_filenames.contains(&filename) {
+                let mut suffix = 2;
+                loop {
+                    filename = format!("{}_{}{}.md", node_id, hash, suffix);
+                    if !seen_filenames.contains(&filename) {
+                        break;
+                    }
+                    suffix += 1;
+                }
+            }
+            seen_filenames.insert(filename.clone());
             let prompt_path = prompts_dir.join(&filename);
             std::fs::write(&prompt_path, &prompt)
                 .map_err(|e| format!("Failed to write {}: {}", prompt_path.display(), e))?;
@@ -534,12 +589,18 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
         total_files += para_count;
         total_tokens += feature_tokens;
 
-        let text_indicator = if node.needs_text_engine { " +text3" } else { "" };
-        println!("  [OK] {:30} {:>3} files  (~{} tokens avg){}",
+        let text_indicator = if fp.node.needs_text_engine { " +text3" } else { "" };
+        let dedup_note = if skipped > 0 {
+            format!("  (-{} deduped)", skipped)
+        } else {
+            String::new()
+        };
+        println!("  [OK] {:30} {:>4} files  (~{} tokens avg){}{}",
             node_id,
             para_count,
             if para_count > 0 { feature_tokens / para_count } else { 0 },
-            text_indicator
+            text_indicator,
+            dedup_note,
         );
 
         // Update status
@@ -555,6 +616,10 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
 
     println!("\n{}", "=".repeat(60));
     println!("Total: {} prompt files, ~{} tokens combined", total_files, total_tokens);
+    if total_deduped > 0 {
+        println!("Deduplication: {} → {} prompts ({} duplicates removed)",
+            total_before_dedup, total_files, total_deduped);
+    }
     println!("Prompts saved to: {}", prompts_dir.display());
 
     Ok(())
@@ -636,7 +701,7 @@ fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(
                     Some(i) => (&stem[..i], &stem[i + 1..]),
                     None => continue,
                 };
-                let spec_tag = format!("{}-p{}", feature_id, para_num);
+                let spec_tag = format!("{}-{}", feature_id, para_num);
 
                 let entry = features
                     .entry(feature_id.to_string())

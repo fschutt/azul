@@ -157,7 +157,6 @@ impl PrintAsCssValue for StyleWordSpacing {
 pub struct StyleLineHeight {
     pub inner: PercentageValue,
 }
-// +spec:inline-block-p033 - §10.8.1: 'normal' line-height defaults to 1.2 (within recommended 1.0-1.2 range)
 impl Default for StyleLineHeight {
     fn default() -> Self {
         Self {
@@ -251,7 +250,6 @@ impl PrintAsCssValue for StyleWhiteSpace {
 
 // -- StyleHyphens --
 
-// +spec:line-breaking-p041 - §5.4 hyphens property: none | manual | auto (initial: manual)
 /// Hyphenation rules.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -267,7 +265,6 @@ pub enum StyleHyphens {
     Auto,
 }
 impl Default for StyleHyphens {
-    // +spec:line-breaking-p041 - §5.4 initial value of hyphens is "manual"
     fn default() -> Self {
         StyleHyphens::Manual
     }
@@ -289,7 +286,6 @@ impl PrintAsCssValue for StyleHyphens {
 
 // -- StyleLineBreak --
 
-// +spec:white-space-processing-p029 - §5.3 line-break property: strictness levels for line breaking rules
 /// Controls the strictness of line breaking rules.
 ///
 /// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#line-break-property
@@ -793,7 +789,6 @@ pub fn parse_style_letter_spacing(
 // -- StyleTextIndent (text-indent property) --
 
 /// Represents a `text-indent` attribute (indentation of first line in a block).
-// +spec:line-breaking-p038 - §8.1 text-indent: each-line and hanging keywords
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTextIndent {
@@ -811,8 +806,6 @@ impl fmt::Debug for StyleTextIndent {
     }
 }
 
-// +spec:line-breaking-p038 - manually implement pixel value constructors because StyleTextIndent
-// has extra fields (each_line, hanging) beyond just `inner: PixelValue`
 impl StyleTextIndent {
     #[inline]
     pub const fn zero() -> Self {
@@ -941,7 +934,6 @@ impl StyleTextIndentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-// +spec:line-breaking-p038 - §8.1 text-indent: parse each-line and hanging keywords
 pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError> {
     let mut each_line = false;
     let mut hanging = false;
@@ -1645,7 +1637,6 @@ impl StyleHyphensParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-// +spec:line-breaking-p041 - §5.4 hyphens property parsing: none | manual | auto
 pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensParseError> {
     match input.trim() {
         "none" => Ok(StyleHyphens::None),

@@ -86,7 +86,7 @@ fn write_review_header(f: &mut fs::File, count: usize) {
     writeln!(f, "# Agent Run Code Review — Refactoring & Lazy Commit Analysis\n").unwrap();
     writeln!(f, "You are reviewing {} patches made by AI agents to a CSS layout engine (Rust).", count).unwrap();
     writeln!(f, "The agents were tasked with reading W3C CSS spec paragraphs and either:").unwrap();
-    writeln!(f, "1. Annotating the source code with `// +spec:feature-pXXX` markers where behavior is already implemented").unwrap();
+    writeln!(f, "1. Annotating the source code with `// +spec:feature-HASH` markers where behavior is already implemented").unwrap();
     writeln!(f, "2. Implementing missing behavior described by the spec paragraph\n").unwrap();
 
     writeln!(f, "## Your Tasks\n").unwrap();
@@ -2680,18 +2680,18 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
     let paragraph_content = fs::read_to_string(prompt_path)
         .map_err(|e| format!("Failed to read prompt {}: {}", prompt_path.display(), e))?;
 
-    // Extract feature_id and paragraph number from filename:
-    //   "box-model_001.md" → feature_id="box-model", para_num="001"
-    //   spec_tag = "box-model-p001"
+    // Extract feature_id and hash from filename:
+    //   "box-model_a3f2c1.md" → feature_id="box-model", hash="a3f2c1"
+    //   spec_tag = "box-model-a3f2c1"
     let stem = prompt_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    let (feature_id, para_num) = match stem.rfind('_') {
+    let (feature_id, para_hash) = match stem.rfind('_') {
         Some(i) => (&stem[..i], &stem[i + 1..]),
-        None => (stem, "000"),
+        None => (stem, "000000"),
     };
-    let spec_tag = format!("{}-p{}", feature_id, para_num);
+    let spec_tag = format!("{}-{}", feature_id, para_hash);
 
     // Extract just the spec context (feature, sources, paragraph) from the
     // review-framed .md file, discarding review instructions/response format.
