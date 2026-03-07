@@ -75,32 +75,10 @@ impl SpecRegistry {
             ],
         });
         
-        // CSS Flexbox
-        specs.insert("css-flexbox-1".to_string(), SpecInfo {
-            id: "css-flexbox-1".to_string(),
-            name: "CSS Flexible Box Layout Module Level 1".to_string(),
-            urls: vec![
-                SpecUrl {
-                    section: "Full Spec".to_string(),
-                    url: "https://www.w3.org/TR/css-flexbox-1/".to_string(),
-                    local_filename: "css-flexbox-1.html".to_string(),
-                },
-            ],
-        });
-        
-        // CSS Grid
-        specs.insert("css-grid-1".to_string(), SpecInfo {
-            id: "css-grid-1".to_string(),
-            name: "CSS Grid Layout Module Level 1".to_string(),
-            urls: vec![
-                SpecUrl {
-                    section: "Full Spec".to_string(),
-                    url: "https://www.w3.org/TR/css-grid-1/".to_string(),
-                    local_filename: "css-grid-1.html".to_string(),
-                },
-            ],
-        });
-        
+        // NOTE: CSS Flexbox and CSS Grid specs are NOT included here because
+        // flex/grid layout is handled entirely by the Taffy library, not our solver.
+        // Only specs for features implemented in our own layout engine are tracked.
+
         // CSS Sizing
         specs.insert("css-sizing-3".to_string(), SpecInfo {
             id: "css-sizing-3".to_string(),

@@ -706,3 +706,240 @@ pub fn parse_style_text_orientation<'a>(
         _ => Err(StyleTextOrientationParseError::InvalidValue(input)),
     }
 }
+
+// -- StyleObjectPosition --
+
+/// CSS object-position property: position of replaced element content within its box.
+/// CSS Images Level 3 §5.6 — default: `50% 50%` (centered)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleObjectPosition {
+    pub horizontal: crate::props::style::background::BackgroundPositionHorizontal,
+    pub vertical: crate::props::style::background::BackgroundPositionVertical,
+}
+
+impl Default for StyleObjectPosition {
+    fn default() -> Self {
+        use crate::props::basic::pixel::PixelValue;
+        Self {
+            horizontal: crate::props::style::background::BackgroundPositionHorizontal::Exact(
+                PixelValue::percent(50.0),
+            ),
+            vertical: crate::props::style::background::BackgroundPositionVertical::Exact(
+                PixelValue::percent(50.0),
+            ),
+        }
+    }
+}
+
+crate::impl_option!(StyleObjectPosition, OptionStyleObjectPosition, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+impl PrintAsCssValue for StyleObjectPosition {
+    fn print_as_css_value(&self) -> String {
+        format!(
+            "{} {}",
+            self.horizontal.print_as_css_value(),
+            self.vertical.print_as_css_value()
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleObjectPositionParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+crate::impl_debug_as_display!(StyleObjectPositionParseError<'a>);
+
+#[cfg(feature = "parser")]
+crate::impl_display! { StyleObjectPositionParseError<'a>, {
+    InvalidValue(val) => format!("Invalid object-position value: \"{}\"", val),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleObjectPositionParseErrorOwned {
+    InvalidValue(crate::AzString),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleObjectPositionParseError<'a> {
+    pub fn to_contained(&self) -> StyleObjectPositionParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleObjectPositionParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleObjectPositionParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleObjectPositionParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleObjectPositionParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+/// Parse object-position: accepts keyword pairs or percentage/length values.
+/// Examples: "center", "left top", "50% 50%", "10px 20px"
+#[cfg(feature = "parser")]
+pub fn parse_style_object_position<'a>(
+    input: &'a str,
+) -> Result<StyleObjectPosition, StyleObjectPositionParseError<'a>> {
+    use crate::props::style::background::{
+        BackgroundPositionHorizontal, BackgroundPositionVertical,
+    };
+    use crate::props::basic::pixel::parse_pixel_value;
+
+    let input = input.trim();
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    let (h, v) = match parts.len() {
+        1 => {
+            let val = parts[0];
+            match val {
+                "center" => (BackgroundPositionHorizontal::Center, BackgroundPositionVertical::Center),
+                "left" => (BackgroundPositionHorizontal::Left, BackgroundPositionVertical::Center),
+                "right" => (BackgroundPositionHorizontal::Right, BackgroundPositionVertical::Center),
+                "top" => (BackgroundPositionHorizontal::Center, BackgroundPositionVertical::Top),
+                "bottom" => (BackgroundPositionHorizontal::Center, BackgroundPositionVertical::Bottom),
+                _ => {
+                    let px = parse_pixel_value(val)
+                        .map_err(|_| StyleObjectPositionParseError::InvalidValue(input))?;
+                    (BackgroundPositionHorizontal::Exact(px), BackgroundPositionVertical::Exact(px))
+                }
+            }
+        }
+        2 => {
+            let h = match parts[0] {
+                "left" => BackgroundPositionHorizontal::Left,
+                "center" => BackgroundPositionHorizontal::Center,
+                "right" => BackgroundPositionHorizontal::Right,
+                other => {
+                    let px = parse_pixel_value(other)
+                        .map_err(|_| StyleObjectPositionParseError::InvalidValue(input))?;
+                    BackgroundPositionHorizontal::Exact(px)
+                }
+            };
+            let v = match parts[1] {
+                "top" => BackgroundPositionVertical::Top,
+                "center" => BackgroundPositionVertical::Center,
+                "bottom" => BackgroundPositionVertical::Bottom,
+                other => {
+                    let px = parse_pixel_value(other)
+                        .map_err(|_| StyleObjectPositionParseError::InvalidValue(input))?;
+                    BackgroundPositionVertical::Exact(px)
+                }
+            };
+            (h, v)
+        }
+        _ => return Err(StyleObjectPositionParseError::InvalidValue(input)),
+    };
+
+    Ok(StyleObjectPosition { horizontal: h, vertical: v })
+}
+
+// -- StyleAspectRatio --
+
+/// CSS aspect-ratio property: preferred aspect ratio for the box.
+/// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
+///
+/// Stored as width/height ratio. Auto means no preferred ratio.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleAspectRatio {
+    /// No preferred aspect ratio
+    Auto,
+    /// Fixed ratio (width / height), stored as fixed-point (value * 1000)
+    Ratio(u32, u32),
+}
+
+impl Default for StyleAspectRatio {
+    fn default() -> Self {
+        StyleAspectRatio::Auto
+    }
+}
+
+crate::impl_option!(StyleAspectRatio, OptionStyleAspectRatio, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+impl PrintAsCssValue for StyleAspectRatio {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            StyleAspectRatio::Auto => String::from("auto"),
+            StyleAspectRatio::Ratio(w, h) => format!("{} / {}", w, h),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleAspectRatioParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+crate::impl_debug_as_display!(StyleAspectRatioParseError<'a>);
+
+#[cfg(feature = "parser")]
+crate::impl_display! { StyleAspectRatioParseError<'a>, {
+    InvalidValue(val) => format!("Invalid aspect-ratio value: \"{}\"", val),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleAspectRatioParseErrorOwned {
+    InvalidValue(crate::AzString),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleAspectRatioParseError<'a> {
+    pub fn to_contained(&self) -> StyleAspectRatioParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleAspectRatioParseErrorOwned::InvalidValue(s.to_string().into()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleAspectRatioParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleAspectRatioParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleAspectRatioParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+/// Parse aspect-ratio: "auto", "16 / 9", "1.5", "4/3"
+#[cfg(feature = "parser")]
+pub fn parse_style_aspect_ratio<'a>(
+    input: &'a str,
+) -> Result<StyleAspectRatio, StyleAspectRatioParseError<'a>> {
+    let input = input.trim();
+    if input == "auto" {
+        return Ok(StyleAspectRatio::Auto);
+    }
+    // Try "w / h" or "w/h" format
+    if let Some(slash_pos) = input.find('/') {
+        let w_str = input[..slash_pos].trim();
+        let h_str = input[slash_pos + 1..].trim();
+        let w: f32 = w_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
+        let h: f32 = h_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
+        if h <= 0.0 || w <= 0.0 {
+            return Err(StyleAspectRatioParseError::InvalidValue(input));
+        }
+        return Ok(StyleAspectRatio::Ratio(
+            (w * 1000.0).round() as u32,
+            (h * 1000.0).round() as u32,
+        ));
+    }
+    // Try single number (width/1)
+    let w: f32 = input.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
+    if w <= 0.0 {
+        return Err(StyleAspectRatioParseError::InvalidValue(input));
+    }
+    Ok(StyleAspectRatio::Ratio((w * 1000.0).round() as u32, 1000))
+}

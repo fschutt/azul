@@ -548,6 +548,8 @@ macro_rules! css_property_from_type {
             CssPropertyType::OverflowWrap => CssProperty::OverflowWrap(CssPropertyValue::$content_type),
             CssPropertyType::LineBreak => CssProperty::LineBreak(CssPropertyValue::$content_type),
             CssPropertyType::ObjectFit => CssProperty::ObjectFit(CssPropertyValue::$content_type),
+            CssPropertyType::ObjectPosition => CssProperty::ObjectPosition(CssPropertyValue::$content_type),
+            CssPropertyType::AspectRatio => CssProperty::AspectRatio(CssPropertyValue::$content_type),
             CssPropertyType::TextOrientation => CssProperty::TextOrientation(CssPropertyValue::$content_type),
             CssPropertyType::TextAlignLast => CssProperty::TextAlignLast(CssPropertyValue::$content_type),
             CssPropertyType::WhiteSpace => CssProperty::WhiteSpace(CssPropertyValue::$content_type),

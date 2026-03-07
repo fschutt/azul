@@ -72,7 +72,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 164] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 166] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -95,6 +95,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 164] = [
     (CssPropertyType::OverflowWrap, "word-wrap"),
     (CssPropertyType::LineBreak, "line-break"),
     (CssPropertyType::ObjectFit, "object-fit"),
+    (CssPropertyType::ObjectPosition, "object-position"),
+    (CssPropertyType::AspectRatio, "aspect-ratio"),
     (CssPropertyType::TextOrientation, "text-orientation"),
     (CssPropertyType::TextAlignLast, "text-align-last"),
     (CssPropertyType::Direction, "direction"),
@@ -330,6 +332,8 @@ pub type StyleWordBreakValue = CssPropertyValue<StyleWordBreak>;
 pub type StyleOverflowWrapValue = CssPropertyValue<StyleOverflowWrap>;
 pub type StyleLineBreakValue = CssPropertyValue<StyleLineBreak>;
 pub type StyleObjectFitValue = CssPropertyValue<StyleObjectFit>;
+pub type StyleObjectPositionValue = CssPropertyValue<StyleObjectPosition>;
+pub type StyleAspectRatioValue = CssPropertyValue<StyleAspectRatio>;
 pub type StyleTextOrientationValue = CssPropertyValue<StyleTextOrientation>;
 pub type StyleTextAlignLastValue = CssPropertyValue<StyleTextAlignLast>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
@@ -551,6 +555,8 @@ pub enum CssProperty {
     OverflowWrap(StyleOverflowWrapValue),
     LineBreak(StyleLineBreakValue),
     ObjectFit(StyleObjectFitValue),
+    ObjectPosition(StyleObjectPositionValue),
+    AspectRatio(StyleAspectRatioValue),
     TextOrientation(StyleTextOrientationValue),
     TextAlignLast(StyleTextAlignLastValue),
     Direction(StyleDirectionValue),
@@ -786,6 +792,8 @@ pub enum CssPropertyType {
     OverflowWrap,
     LineBreak,
     ObjectFit,
+    ObjectPosition,
+    AspectRatio,
     TextOrientation,
     TextAlignLast,
     Direction,
@@ -1089,6 +1097,8 @@ impl CssPropertyType {
             CssPropertyType::OverflowWrap => "overflow-wrap",
             CssPropertyType::LineBreak => "line-break",
             CssPropertyType::ObjectFit => "object-fit",
+            CssPropertyType::ObjectPosition => "object-position",
+            CssPropertyType::AspectRatio => "aspect-ratio",
             CssPropertyType::TextOrientation => "text-orientation",
             CssPropertyType::TextAlignLast => "text-align-last",
             CssPropertyType::Direction => "direction",
@@ -1277,7 +1287,7 @@ impl CssPropertyType {
             | BackfaceVisibility | MixBlendMode | Filter | BackdropFilter
             | TextShadow | SelectionBackgroundColor | SelectionColor
             | SelectionRadius | CaretColor | CaretAnimationDuration
-            | CaretWidth | ObjectFit => RelayoutScope::None,
+            | CaretWidth | ObjectFit | ObjectPosition => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
@@ -1377,6 +1387,8 @@ pub enum CssParsingError<'a> {
     OverflowWrap(StyleOverflowWrapParseError<'a>),
     LineBreak(StyleLineBreakParseError<'a>),
     ObjectFit(StyleObjectFitParseError<'a>),
+    ObjectPosition(StyleObjectPositionParseError<'a>),
+    AspectRatio(StyleAspectRatioParseError<'a>),
     TextOrientation(StyleTextOrientationParseError<'a>),
     TextAlignLast(StyleTextAlignLastParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
@@ -1535,6 +1547,8 @@ pub enum CssParsingErrorOwned {
     OverflowWrap(StyleOverflowWrapParseErrorOwned),
     LineBreak(StyleLineBreakParseErrorOwned),
     ObjectFit(StyleObjectFitParseErrorOwned),
+    ObjectPosition(StyleObjectPositionParseErrorOwned),
+    AspectRatio(StyleAspectRatioParseErrorOwned),
     TextOrientation(StyleTextOrientationParseErrorOwned),
     TextAlignLast(StyleTextAlignLastParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
@@ -1728,6 +1742,8 @@ impl_display! { CssParsingError<'a>, {
     OverflowWrap(e) => format!("Invalid overflow-wrap: {}", e),
     LineBreak(e) => format!("Invalid line-break: {}", e),
     ObjectFit(e) => format!("Invalid object-fit: {}", e),
+    ObjectPosition(e) => format!("Invalid object-position: {}", e),
+    AspectRatio(e) => format!("Invalid aspect-ratio: {}", e),
     TextOrientation(e) => format!("Invalid text-orientation: {}", e),
     TextAlignLast(e) => format!("Invalid text-align-last: {}", e),
     Direction(e) => format!("Invalid direction: {}", e),
@@ -1962,6 +1978,8 @@ impl_from!(StyleWordBreakParseError<'a>, CssParsingError::WordBreak);
 impl_from!(StyleOverflowWrapParseError<'a>, CssParsingError::OverflowWrap);
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
 impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
+impl_from!(StyleObjectPositionParseError<'a>, CssParsingError::ObjectPosition);
+impl_from!(StyleAspectRatioParseError<'a>, CssParsingError::AspectRatio);
 impl_from!(StyleTextOrientationParseError<'a>, CssParsingError::TextOrientation);
 impl_from!(StyleTextAlignLastParseError<'a>, CssParsingError::TextAlignLast);
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
@@ -2213,6 +2231,8 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::OverflowWrap(e) => CssParsingErrorOwned::OverflowWrap(e.to_contained()),
             CssParsingError::LineBreak(e) => CssParsingErrorOwned::LineBreak(e.to_contained()),
             CssParsingError::ObjectFit(e) => CssParsingErrorOwned::ObjectFit(e.to_contained()),
+            CssParsingError::ObjectPosition(e) => CssParsingErrorOwned::ObjectPosition(e.to_contained()),
+            CssParsingError::AspectRatio(e) => CssParsingErrorOwned::AspectRatio(e.to_contained()),
             CssParsingError::TextOrientation(e) => CssParsingErrorOwned::TextOrientation(e.to_contained()),
             CssParsingError::TextAlignLast(e) => CssParsingErrorOwned::TextAlignLast(e.to_contained()),
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
@@ -2417,6 +2437,8 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::OverflowWrap(e) => CssParsingError::OverflowWrap(e.to_shared()),
             CssParsingErrorOwned::LineBreak(e) => CssParsingError::LineBreak(e.to_shared()),
             CssParsingErrorOwned::ObjectFit(e) => CssParsingError::ObjectFit(e.to_shared()),
+            CssParsingErrorOwned::ObjectPosition(e) => CssParsingError::ObjectPosition(e.to_shared()),
+            CssParsingErrorOwned::AspectRatio(e) => CssParsingError::AspectRatio(e.to_shared()),
             CssParsingErrorOwned::TextOrientation(e) => CssParsingError::TextOrientation(e.to_shared()),
             CssParsingErrorOwned::TextAlignLast(e) => CssParsingError::TextAlignLast(e.to_shared()),
             CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
@@ -2488,7 +2510,8 @@ pub fn parse_css_property<'a>(
         CssPropertyType::TextAlignLast | // text-align-last: auto means StyleTextAlignLast::Auto
         CssPropertyType::OverflowX |
         CssPropertyType::OverflowY |
-        CssPropertyType::UserSelect // user-select: auto is a typed value
+        CssPropertyType::UserSelect | // user-select: auto is a typed value
+        CssPropertyType::AspectRatio // aspect-ratio: auto means StyleAspectRatio::Auto
     );
 
     let has_typed_none = matches!(
@@ -2547,6 +2570,8 @@ pub fn parse_css_property<'a>(
             CssPropertyType::OverflowWrap => parse_style_overflow_wrap(value)?.into(),
             CssPropertyType::LineBreak => parse_style_line_break(value)?.into(),
             CssPropertyType::ObjectFit => parse_style_object_fit(value)?.into(),
+            CssPropertyType::ObjectPosition => parse_style_object_position(value)?.into(),
+            CssPropertyType::AspectRatio => parse_style_aspect_ratio(value)?.into(),
             CssPropertyType::TextOrientation => parse_style_text_orientation(value)?.into(),
             CssPropertyType::TextAlignLast => parse_style_text_align_last(value)?.into(),
             CssPropertyType::Direction => parse_style_direction(value)?.into(),
@@ -3678,6 +3703,8 @@ impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
 impl_from_css_prop!(StyleOverflowWrap, CssProperty::OverflowWrap);
 impl_from_css_prop!(StyleLineBreak, CssProperty::LineBreak);
 impl_from_css_prop!(StyleObjectFit, CssProperty::ObjectFit);
+impl_from_css_prop!(StyleObjectPosition, CssProperty::ObjectPosition);
+impl_from_css_prop!(StyleAspectRatio, CssProperty::AspectRatio);
 impl_from_css_prop!(StyleTextOrientation, CssProperty::TextOrientation);
 impl_from_css_prop!(StyleTextAlignLast, CssProperty::TextAlignLast);
 impl_from_css_prop!(StyleDirection, CssProperty::Direction);
@@ -3846,6 +3873,8 @@ impl CssProperty {
             CssProperty::OverflowWrap(v) => v.get_css_value_fmt(),
             CssProperty::LineBreak(v) => v.get_css_value_fmt(),
             CssProperty::ObjectFit(v) => v.get_css_value_fmt(),
+            CssProperty::ObjectPosition(v) => v.get_css_value_fmt(),
+            CssProperty::AspectRatio(v) => v.get_css_value_fmt(),
             CssProperty::TextOrientation(v) => v.get_css_value_fmt(),
             CssProperty::TextAlignLast(v) => v.get_css_value_fmt(),
             CssProperty::Direction(v) => v.get_css_value_fmt(),
@@ -4308,6 +4337,8 @@ impl CssProperty {
             CssProperty::OverflowWrap(_) => CssPropertyType::OverflowWrap,
             CssProperty::LineBreak(_) => CssPropertyType::LineBreak,
             CssProperty::ObjectFit(_) => CssPropertyType::ObjectFit,
+            CssProperty::ObjectPosition(_) => CssPropertyType::ObjectPosition,
+            CssProperty::AspectRatio(_) => CssPropertyType::AspectRatio,
             CssProperty::TextOrientation(_) => CssPropertyType::TextOrientation,
             CssProperty::TextAlignLast(_) => CssPropertyType::TextAlignLast,
             CssProperty::Direction(_) => CssPropertyType::Direction,
@@ -5460,6 +5491,18 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_object_position(&self) -> Option<&StyleObjectPositionValue> {
+        match self {
+            CssProperty::ObjectPosition(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_aspect_ratio(&self) -> Option<&StyleAspectRatioValue> {
+        match self {
+            CssProperty::AspectRatio(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_text_orientation(&self) -> Option<&StyleTextOrientationValue> {
         match self {
             CssProperty::TextOrientation(f) => Some(f),
@@ -5868,6 +5911,8 @@ impl CssProperty {
             OverflowWrap(c) => c.is_initial(),
             LineBreak(c) => c.is_initial(),
             ObjectFit(c) => c.is_initial(),
+            ObjectPosition(c) => c.is_initial(),
+            AspectRatio(c) => c.is_initial(),
             TextOrientation(c) => c.is_initial(),
             TextAlignLast(c) => c.is_initial(),
             BreakBefore(c) => c.is_initial(),
@@ -6661,6 +6706,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::ObjectFit(p) => format!(
             "CssProperty::ObjectFit({})",
             print_css_property_value(p, tabs, "StyleObjectFit")
+        ),
+        CssProperty::ObjectPosition(p) => format!(
+            "CssProperty::ObjectPosition({})",
+            print_css_property_value(p, tabs, "StyleObjectPosition")
+        ),
+        CssProperty::AspectRatio(p) => format!(
+            "CssProperty::AspectRatio({})",
+            print_css_property_value(p, tabs, "StyleAspectRatio")
         ),
         CssProperty::TextOrientation(p) => format!(
             "CssProperty::TextOrientation({})",

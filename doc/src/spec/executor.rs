@@ -2561,6 +2561,22 @@ Common bugs to look for:
 - Do NOT refactor surrounding code or add unrelated improvements.
 - Add `// +spec:{spec_tag} - <what this implements>` at each implementation site.
 
+**Before implementing anything, search for existing functions and types.**
+Many CSS properties, enums, getters, and helper functions already exist in the
+codebase. Before creating a new type or function:
+- `grep -rn "StylePropertyName\|PropertyName" css/src/` to check if the CSS
+  enum/parser already exists.
+- `grep -rn "get_property_name" layout/src/solver3/getters.rs` to check if a
+  getter already exists.
+- `grep -rn "PropertyName" core/src/prop_cache.rs` to check if the prop_cache
+  getter exists.
+- Reuse existing types and functions rather than creating duplicates.
+
+**Flex and Grid layout is handled entirely by the Taffy library**, not by our
+layout solver. Do NOT implement flex/grid layout logic. Do NOT modify
+`taffy_bridge.rs`. If a spec paragraph only applies to flex/grid contexts,
+annotate it with a marker comment and move on.
+
 **Feature completeness is important.** If the spec paragraph references a CSS
 property that doesn't exist yet in the codebase:
 - Add the new CSS property variant to `css/src/css_properties.rs` (enum + parsing).

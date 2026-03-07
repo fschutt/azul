@@ -90,7 +90,8 @@ use azul_css::{
             StyleHyphenationLanguageValue, StyleHyphensValue, StyleInitialLetterValue,
             StyleLetterSpacingValue, StyleLineBreakValue, StyleLineClampValue, StyleLineHeightValue,
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
-            StyleObjectFitValue, StyleOpacityValue, StylePerspectiveOriginValue,
+            StyleAspectRatioValue, StyleObjectFitValue, StyleObjectPositionValue,
+            StyleOpacityValue, StylePerspectiveOriginValue,
             StyleScrollbarColorValue, StyleOverflowWrapValue, StyleTabSizeValue,
             StyleTextAlignLastValue, StyleTextOrientationValue,
             StyleTextAlignValue, StyleTextColorValue,
@@ -1985,6 +1986,28 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleTextOrientationValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextOrientation)
             .and_then(|p| p.as_text_orientation())
+    }
+
+    // Method for getting object-position property
+    pub fn get_object_position<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleObjectPositionValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ObjectPosition)
+            .and_then(|p| p.as_object_position())
+    }
+
+    // Method for getting aspect-ratio property
+    pub fn get_aspect_ratio<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleAspectRatioValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::AspectRatio)
+            .and_then(|p| p.as_aspect_ratio())
     }
 
     // Method for getting direction property

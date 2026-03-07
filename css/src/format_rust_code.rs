@@ -530,6 +530,24 @@ impl_enum_fmt!(StyleWordBreak, Normal, BreakAll, KeepAll);
 impl_enum_fmt!(StyleOverflowWrap, Normal, Anywhere, BreakWord);
 impl_enum_fmt!(StyleLineBreak, Auto, Loose, Normal, Strict, Anywhere);
 impl_enum_fmt!(StyleObjectFit, Fill, Contain, Cover, None, ScaleDown);
+
+impl FormatAsRustCode for StyleObjectPosition {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleObjectPosition {{ horizontal: {}, vertical: {} }}",
+            format_background_position_horizontal(&self.horizontal),
+            format_background_position_vertical(&self.vertical))
+    }
+}
+
+impl FormatAsRustCode for StyleAspectRatio {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            StyleAspectRatio::Auto => "StyleAspectRatio::Auto".to_string(),
+            StyleAspectRatio::Ratio(w, h) => format!("StyleAspectRatio::Ratio({}, {})", w, h),
+        }
+    }
+}
+
 impl_enum_fmt!(StyleTextOrientation, Mixed, Upright, Sideways);
 impl_enum_fmt!(StyleTextAlignLast, Auto, Start, End, Left, Right, Center, Justify);
 
