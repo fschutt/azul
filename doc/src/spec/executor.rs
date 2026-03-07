@@ -3887,3 +3887,409 @@ diff --git a/layout/src/solver3/fc.rs b/layout/src/solver3/fc.rs
         assert!(!para.contains("Instructions"));
     }
 }
+
+// ── test-models command ────────────────────────────────────────────────
+
+/// Result of running a single model on a single prompt.
+struct ModelTestResult {
+    model: String,
+    prompt_name: String,
+    wall_secs: u64,
+    patches: usize,
+    diff: String,
+    agent_output: String,
+    success: bool,
+    error: Option<String>,
+}
+
+/// Run N random prompts through haiku/sonnet/opus in parallel, capturing diffs.
+pub fn cmd_test_models(
+    config: &SpecConfig,
+    workspace_root: &Path,
+    args: &[String],
+) -> Result<(), String> {
+    let prompts_dir = config.skill_tree_dir.join("prompts");
+    if !prompts_dir.exists() {
+        return Err("No prompts directory. Run `azul-doc spec build-all` first.".to_string());
+    }
+
+    // Parse args: --count=N, --filter=FEATURE, --timeout=SECS
+    let mut count = 3usize;
+    let mut filter: Option<String> = None;
+    let mut timeout_secs = 480u64;
+    for arg in args {
+        if let Some(v) = arg.strip_prefix("--count=") {
+            count = v.parse().unwrap_or(3);
+        } else if let Some(v) = arg.strip_prefix("--filter=") {
+            filter = Some(v.to_string());
+        } else if let Some(v) = arg.strip_prefix("--timeout=") {
+            timeout_secs = v.parse().unwrap_or(480);
+        }
+    }
+
+    let models = ["haiku", "sonnet", "opus"];
+
+    // Collect matching prompts
+    let mut prompt_files: Vec<PathBuf> = fs::read_dir(&prompts_dir)
+        .map_err(|e| format!("Failed to read prompts dir: {}", e))?
+        .flatten()
+        .filter(|e| e.path().extension().map(|x| x == "md").unwrap_or(false))
+        .filter(|e| {
+            filter.as_ref().map_or(true, |f| {
+                e.file_name().to_string_lossy().contains(f.as_str())
+            })
+        })
+        .map(|e| e.path())
+        .collect();
+
+    if prompt_files.is_empty() {
+        return Err(format!("No prompts match filter {:?}", filter));
+    }
+
+    // Pick N random prompts
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    // Deterministic shuffle based on file count (so re-runs pick same prompts)
+    prompt_files.sort();
+    let seed = prompt_files.len() as u64;
+    let mut selected = Vec::new();
+    let mut indices: Vec<usize> = (0..prompt_files.len()).collect();
+    // Fisher-Yates with simple hash-based RNG
+    let mut rng_state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+    for i in (1..indices.len()).rev() {
+        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let j = (rng_state >> 33) as usize % (i + 1);
+        indices.swap(i, j);
+    }
+    for &idx in indices.iter().take(count) {
+        selected.push(prompt_files[idx].clone());
+    }
+
+    println!("Model Comparison Test");
+    println!("=====================\n");
+    println!("  Prompts:  {}", selected.len());
+    println!("  Models:   {}", models.join(", "));
+    println!("  Timeout:  {}s", timeout_secs);
+    println!();
+
+    for p in &selected {
+        println!("  - {}", p.file_name().unwrap_or_default().to_string_lossy());
+    }
+    println!();
+
+    // Create worktrees: one per (model × prompt) = 3 × N
+    let total_slots = models.len() * selected.len();
+    let base_sha = get_head_sha(workspace_root)?;
+    let test_dir = workspace_root.join(".claude-test-models");
+    fs::create_dir_all(&test_dir)
+        .map_err(|e| format!("Failed to create test dir: {}", e))?;
+
+    // Create all worktrees
+    let mut slots: Vec<(String, String, PathBuf)> = Vec::new(); // (model, prompt_name, path)
+    for (mi, model) in models.iter().enumerate() {
+        for (pi, prompt) in selected.iter().enumerate() {
+            let prompt_name = prompt.file_stem().unwrap().to_string_lossy().to_string();
+            let slot_name = format!("{}-{}", model, pi);
+            let branch = format!("test-{}-{}", model, pi);
+            let slot_path = test_dir.join(&slot_name);
+
+            if slot_path.exists() {
+                reset_worktree(&slot_path, &base_sha)?;
+            } else {
+                let output = Command::new("git")
+                    .args(["worktree", "add", "-B", &branch])
+                    .arg(&slot_path)
+                    .arg("HEAD")
+                    .current_dir(workspace_root)
+                    .output()
+                    .map_err(|e| format!("git worktree add failed: {}", e))?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "git worktree add {} failed: {}",
+                        slot_name,
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+            }
+            slots.push((model.to_string(), prompt_name, slot_path));
+        }
+    }
+
+    println!("Created {} worktrees, starting agents...\n", total_slots);
+
+    // Run all agents in parallel threads
+    let timeout = Duration::from_secs(timeout_secs);
+    let results: Arc<Mutex<Vec<ModelTestResult>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let mut handles = Vec::new();
+    for (si, (model, prompt_name, slot_path)) in slots.into_iter().enumerate() {
+        let prompt_path = selected[si % selected.len()].clone();
+        let base_sha = base_sha.clone();
+        let results = Arc::clone(&results);
+        let workspace_root = workspace_root.to_path_buf();
+
+        let handle = std::thread::spawn(move || {
+            let start = Instant::now();
+
+            // Build full prompt
+            let full_prompt = match build_full_prompt(&prompt_path, &slot_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    results.lock().unwrap().push(ModelTestResult {
+                        model: model.clone(),
+                        prompt_name: prompt_name.clone(),
+                        wall_secs: start.elapsed().as_secs(),
+                        patches: 0,
+                        diff: String::new(),
+                        agent_output: String::new(),
+                        success: false,
+                        error: Some(e),
+                    });
+                    return;
+                }
+            };
+
+            // Run claude with model
+            let result_path = slot_path.join(".test-result.json");
+            let result_file = match fs::File::create(&result_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    results.lock().unwrap().push(ModelTestResult {
+                        model, prompt_name, wall_secs: 0, patches: 0,
+                        diff: String::new(), agent_output: String::new(),
+                        success: false, error: Some(format!("File create: {}", e)),
+                    });
+                    return;
+                }
+            };
+            let result_err = result_file.try_clone().unwrap();
+
+            let mut child = match Command::new("claude")
+                .args([
+                    "-p",
+                    "--dangerously-skip-permissions",
+                    "--verbose",
+                    "--output-format", "stream-json",
+                    "--model", &model,
+                    "--disallowedTools", "Bash(cargo *)",
+                    "--disallowedTools", "Bash(rustc *)",
+                    "--disallowedTools", "Bash(clang *)",
+                    "--disallowedTools", "Bash(gcc *)",
+                    "--disallowedTools", "Bash(make *)",
+                    "--disallowedTools", "Bash(cmake *)",
+                    "--disallowedTools", "mcp__*",
+                    "--disallowedTools", "rust-analyzer-lsp",
+                ])
+                .env_remove("CLAUDECODE")
+                .env("GIT_DIR", slot_path.join(".git"))
+                .env("GIT_WORK_TREE", &slot_path)
+                .current_dir(&slot_path)
+                .stdin(Stdio::piped())
+                .stdout(result_file)
+                .stderr(result_err)
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    results.lock().unwrap().push(ModelTestResult {
+                        model, prompt_name, wall_secs: 0, patches: 0,
+                        diff: String::new(), agent_output: String::new(),
+                        success: false, error: Some(format!("Spawn: {}", e)),
+                    });
+                    return;
+                }
+            };
+
+            // Send prompt
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(full_prompt.as_bytes());
+            }
+
+            // Wait with timeout
+            let exit_ok = loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break status.success(),
+                    Ok(None) => {
+                        if start.elapsed() > timeout {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            results.lock().unwrap().push(ModelTestResult {
+                                model, prompt_name,
+                                wall_secs: start.elapsed().as_secs(),
+                                patches: 0, diff: String::new(),
+                                agent_output: String::new(),
+                                success: false,
+                                error: Some("Timeout".to_string()),
+                            });
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_secs(2));
+                    }
+                    Err(e) => {
+                        results.lock().unwrap().push(ModelTestResult {
+                            model, prompt_name, wall_secs: start.elapsed().as_secs(),
+                            patches: 0, diff: String::new(), agent_output: String::new(),
+                            success: false, error: Some(format!("Wait: {}", e)),
+                        });
+                        return;
+                    }
+                }
+            };
+
+            let wall_secs = start.elapsed().as_secs();
+            let agent_output = extract_result_text(&result_path);
+
+            // Extract diff
+            let diff = Command::new("git")
+                .args(["diff", &base_sha, "HEAD"])
+                .current_dir(&slot_path)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                .unwrap_or_default();
+
+            // Count commits
+            let patches = Command::new("git")
+                .args(["rev-list", "--count", &format!("{}..HEAD", base_sha)])
+                .current_dir(&slot_path)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse().unwrap_or(0))
+                .unwrap_or(0);
+
+            // Extract usage from stream-json
+            let usage_info = extract_usage_from_stream_json(&result_path);
+
+            let mut output_with_usage = agent_output;
+            if !usage_info.is_empty() {
+                output_with_usage.push_str(&format!("\n\n--- USAGE ---\n{}", usage_info));
+            }
+
+            results.lock().unwrap().push(ModelTestResult {
+                model, prompt_name, wall_secs, patches, diff,
+                agent_output: output_with_usage,
+                success: exit_ok, error: None,
+            });
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all threads
+    for h in handles {
+        let _ = h.join();
+    }
+
+    // Collect and display results
+    let results = results.lock().unwrap();
+
+    // Save results to files
+    let output_dir = config.skill_tree_dir.join("test-models");
+    fs::create_dir_all(&output_dir)
+        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+
+    // Clean old results
+    if let Ok(entries) = fs::read_dir(&output_dir) {
+        for entry in entries.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+
+    for r in results.iter() {
+        let fname = format!("{}_{}.md", r.model, r.prompt_name);
+        let content = format!(
+            "# {} — {}\n\n\
+             - **Success**: {}\n\
+             - **Wall time**: {}s\n\
+             - **Patches**: {}\n\
+             - **Error**: {}\n\n\
+             ## Agent Output\n\n```\n{}\n```\n\n\
+             ## Diff\n\n```diff\n{}\n```\n",
+            r.model, r.prompt_name,
+            r.success, r.wall_secs, r.patches,
+            r.error.as_deref().unwrap_or("none"),
+            r.agent_output,
+            if r.diff.is_empty() { "(no changes)" } else { &r.diff },
+        );
+        let _ = fs::write(output_dir.join(&fname), &content);
+    }
+
+    // Print comparison table
+    println!("\n{}", "=".repeat(90));
+    println!("{:<10} {:<40} {:>6} {:>8} {:>7} {:<10}",
+        "MODEL", "PROMPT", "SECS", "PATCHES", "DIFF", "STATUS");
+    println!("{}", "-".repeat(90));
+
+    // Sort by prompt then model for easy comparison
+    let mut sorted: Vec<&ModelTestResult> = results.iter().collect();
+    sorted.sort_by(|a, b| a.prompt_name.cmp(&b.prompt_name).then(a.model.cmp(&b.model)));
+
+    for r in &sorted {
+        let diff_lines = if r.diff.is_empty() { 0 } else {
+            r.diff.lines().filter(|l| l.starts_with('+') || l.starts_with('-')).count()
+        };
+        let status = if let Some(ref e) = r.error {
+            e.as_str()
+        } else if r.success {
+            "OK"
+        } else {
+            "FAIL"
+        };
+        println!("{:<10} {:<40} {:>5}s {:>8} {:>5}L {:<10}",
+            r.model,
+            if r.prompt_name.len() > 40 { &r.prompt_name[..40] } else { &r.prompt_name },
+            r.wall_secs, r.patches, diff_lines, status,
+        );
+    }
+    println!("{}", "=".repeat(90));
+
+    println!("\nDetailed results saved to: {}", output_dir.display());
+
+    // Cleanup worktrees
+    println!("\nCleaning up test worktrees...");
+    for model in &models {
+        for pi in 0..selected.len() {
+            let slot_name = format!("{}-{}", model, pi);
+            let slot_path = test_dir.join(&slot_name);
+            if slot_path.exists() {
+                let _ = Command::new("git")
+                    .args(["worktree", "remove", "--force"])
+                    .arg(&slot_path)
+                    .current_dir(workspace_root)
+                    .output();
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(&test_dir);
+
+    Ok(())
+}
+
+/// Extract usage/cost info from stream-json result file.
+fn extract_usage_from_stream_json(result_path: &Path) -> String {
+    let content = match fs::read_to_string(result_path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    let mut info = Vec::new();
+    for line in content.lines().rev() {
+        let event: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if event.get("type").and_then(|t| t.as_str()) == Some("result") {
+            if let Some(usage) = event.get("usage") {
+                if let Some(input) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                    info.push(format!("input_tokens: {}", input));
+                }
+                if let Some(output) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                    info.push(format!("output_tokens: {}", output));
+                }
+            }
+            if let Some(cost) = event.get("cost_usd").and_then(|v| v.as_f64()) {
+                info.push(format!("cost_usd: ${:.4}", cost));
+            }
+            break;
+        }
+    }
+    info.join("\n")
+}

@@ -118,6 +118,10 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             let count: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(3);
             cmd_preview(&config, workspace_root, filter, count)
         }
+        "test-models" => {
+            let rest: Vec<String> = args[1..].to_vec();
+            executor::cmd_test_models(&config, workspace_root, &rest)
+        }
         "claude-exec" => {
             let rest: Vec<String> = args[1..].to_vec();
             executor::run_executor(&config, workspace_root, &rest)
