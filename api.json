@@ -15850,6 +15850,12 @@
                                 "ObjectFit": {
                                     "type": "StyleObjectFitValue"
                                 },
+                                "ObjectPosition": {
+                                    "type": "StyleObjectPositionValue"
+                                },
+                                "AspectRatio": {
+                                    "type": "StyleAspectRatioValue"
+                                },
                                 "TextOrientation": {
                                     "type": "StyleTextOrientationValue"
                                 },
@@ -28444,6 +28450,8 @@
                                 "OverflowWrap": {},
                                 "LineBreak": {},
                                 "ObjectFit": {},
+                                "ObjectPosition": {},
+                                "AspectRatio": {},
                                 "TextOrientation": {},
                                 "TextAlignLast": {},
                                 "Direction": {},
@@ -33122,6 +33130,110 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "StyleAspectRatioParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::StyleAspectRatioParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleObjectPositionValue": {
+                        "external": "azul_css::props::property::StyleObjectPositionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleObjectPosition"
+                            ]
+                        }
+                    },
+                    "StyleAspectRatioValue": {
+                        "external": "azul_css::props::property::StyleAspectRatioValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleAspectRatio"
+                            ]
+                        }
+                    },
+                    "StyleObjectPositionParseErrorOwned": {
+                        "external": "azul_css::props::style::effects::StyleObjectPositionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleObjectPosition": {
+                        "external": "azul_css::props::style::effects::StyleObjectPosition",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "horizontal": {
+                                    "type": "BackgroundPositionHorizontal"
+                                },
+                                "vertical": {
+                                    "type": "BackgroundPositionVertical"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleAspectRatio": {
+                        "external": "azul_css::props::style::effects::StyleAspectRatio",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Ratio": {
+                                    "type": "u32, u32"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -76381,6 +76493,12 @@
                                 },
                                 "ObjectFit": {
                                     "type": "StyleObjectFitParseErrorOwned"
+                                },
+                                "ObjectPosition": {
+                                    "type": "StyleObjectPositionParseErrorOwned"
+                                },
+                                "AspectRatio": {
+                                    "type": "StyleAspectRatioParseErrorOwned"
                                 },
                                 "TextOrientation": {
                                     "type": "StyleTextOrientationParseErrorOwned"

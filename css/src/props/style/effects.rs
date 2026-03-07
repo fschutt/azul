@@ -849,7 +849,7 @@ pub fn parse_style_object_position<'a>(
 ///
 /// Stored as width/height ratio. Auto means no preferred ratio.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum StyleAspectRatio {
     /// No preferred aspect ratio
     Auto,
