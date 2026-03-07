@@ -468,31 +468,84 @@ pub fn generate_holistic_prompt(
     prompt
 }
 
-/// Extract type/function signature hints from css/ and core/ source files.
+/// Extract compact type index from source files using WorkspaceIndex.
 ///
-/// Scans for `pub enum`, `pub struct`, and `pub fn` lines to give agents
-/// a quick index of available types without reading full files.
-fn extract_type_hints(source_files: &[(String, usize)], workspace_root: &Path) -> String {
+/// Lists `file:line — enum/struct Name` for css/ and core/ files so agents
+/// know what types exist and where to read details. No variants or fields —
+/// agents can discover those by reading the file at the given line.
+fn extract_type_hints(
+    source_files: &[(String, usize)],
+    workspace_root: &Path,
+    ws_index: Option<&crate::patch::index::WorkspaceIndex>,
+) -> String {
+    use crate::patch::index::TypeKind;
+
     let mut hints = String::new();
+
     for (path, _) in source_files {
-        if path.starts_with("css/") || path.starts_with("core/") {
-            let content = std::fs::read_to_string(workspace_root.join(path))
+        // Skip getters.rs — agents can discover functions by reading the file
+        if path.contains("getters") {
+            continue;
+        }
+
+        // Only show type hints for css/ and core/ files
+        if !path.starts_with("css/") && !path.starts_with("core/") {
+            continue;
+        }
+
+        let full_path = workspace_root.join(path);
+
+        if let Some(idx) = ws_index {
+            let file_source = idx.file_sources.get(&full_path);
+
+            if let Some(parsed_file) = idx.files.get(&full_path) {
+                for type_name in &parsed_file.types {
+                    if type_name.contains("ParseError") {
+                        continue;
+                    }
+                    if let Some(infos) = idx.types.get(type_name) {
+                        for info in infos {
+                            if info.file_path != full_path {
+                                continue;
+                            }
+                            let kind_str = match &info.kind {
+                                TypeKind::Enum { .. } => "enum",
+                                TypeKind::Struct { .. } => "struct",
+                                TypeKind::TypeAlias { .. } => "type",
+                                _ => continue,
+                            };
+                            // Find line number
+                            let line_num = file_source.and_then(|src| {
+                                let needle = format!("{} {} ", kind_str, type_name);
+                                src.lines().position(|l| l.contains(&needle)).map(|n| n + 1)
+                            });
+                            match line_num {
+                                Some(n) => hints.push_str(&format!(
+                                    "- `{}:{}` — {} {}\n", path, n, kind_str, type_name,
+                                )),
+                                None => hints.push_str(&format!(
+                                    "- `{}` — {} {}\n", path, kind_str, type_name,
+                                )),
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback: grep-based extraction when no index available
+            let content = std::fs::read_to_string(&full_path)
                 .unwrap_or_default();
             for line in content.lines() {
                 let trimmed = line.trim();
-                // Skip macro template lines (contain $)
-                if trimmed.contains('$') {
+                if trimmed.contains('$') || trimmed.contains("ParseError") {
                     continue;
                 }
-                // Skip parse error types — they're noise for agents
-                if trimmed.contains("ParseError") {
-                    continue;
-                }
-                if trimmed.starts_with("pub enum ")
-                    || trimmed.starts_with("pub struct ")
-                    || (trimmed.starts_with("pub fn ") && path.contains("getters"))
-                {
-                    hints.push_str(&format!("- `{}`: `{}`\n", path, trimmed));
+                if let Some(name) = trimmed.strip_prefix("pub enum ") {
+                    let name = name.split_whitespace().next().unwrap_or(name);
+                    hints.push_str(&format!("- `{}` — enum {}\n", path, name));
+                } else if let Some(name) = trimmed.strip_prefix("pub struct ") {
+                    let name = name.split_whitespace().next().unwrap_or(name);
+                    hints.push_str(&format!("- `{}` — struct {}\n", path, name));
                 }
             }
         }
@@ -532,6 +585,7 @@ pub fn generate_grouped_prompt(
     group_index: usize,
     total_groups: usize,
     workspace_root: &Path,
+    ws_index: Option<&crate::patch::index::WorkspaceIndex>,
 ) -> String {
     let source_files: Vec<(String, usize)> = node.source_files.iter()
         .filter(|f| {
@@ -548,7 +602,7 @@ pub fn generate_grouped_prompt(
         })
         .collect();
 
-    let type_hints = extract_type_hints(&source_files, workspace_root);
+    let type_hints = extract_type_hints(&source_files, workspace_root, ws_index);
 
     let para_count = paragraphs.len();
     let mut prompt = String::new();

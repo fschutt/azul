@@ -486,6 +486,10 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
     std::fs::create_dir_all(&prompts_dir)
         .map_err(|e| format!("Failed to create directory: {}", e))?;
 
+    // Build workspace index once for structured type hints
+    let ws_index = crate::patch::index::WorkspaceIndex::build_with_verbosity(workspace_root, false)
+        .ok();
+
     // Clean old prompts
     if let Ok(entries) = std::fs::read_dir(&prompts_dir) {
         for entry in entries.flatten() {
@@ -566,6 +570,7 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
             let group_refs: Vec<&extractor::ExtractedParagraph> = group.iter().copied().collect();
             let prompt = reviewer::generate_grouped_prompt(
                 &fp.node, &group_refs, group_idx, total_groups, workspace_root,
+                ws_index.as_ref(),
             );
 
             let tokens = prompt.len() / 4;

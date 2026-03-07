@@ -2175,6 +2175,8 @@ struct ExecArgs {
     collect: bool,
     cleanup: bool,
     force_api: bool,
+    /// Claude model to use (e.g. "sonnet", "haiku", "opus"). None = default.
+    model: Option<String>,
 }
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
@@ -2186,6 +2188,7 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         collect: false,
         cleanup: false,
         force_api: false,
+        model: None,
     };
 
     for arg in args {
@@ -2203,6 +2206,8 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
             ea.cleanup = true;
         } else if arg == "--force-api" {
             ea.force_api = true;
+        } else if let Some(val) = arg.strip_prefix("--model=") {
+            ea.model = Some(val.to_string());
         }
     }
 
@@ -2931,6 +2936,7 @@ fn run_agent_in_slot(
     prompt_path: &Path,
     timeout: Duration,
     base_sha: &str,
+    model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
     let taken_path = prompt_path.with_extension("md.taken");
@@ -2984,33 +2990,39 @@ fn run_agent_in_slot(
     // Remove CLAUDECODE env var so nested sessions are allowed.
     // --output-format stream-json --verbose: writes one JSON event per line,
     // enabling real-time progress parsing from the .result file.
+    let mut cmd_args = vec![
+        "-p",
+        "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        // Block compilation tools
+        "--disallowedTools",
+        "Bash(cargo *)",
+        "--disallowedTools",
+        "Bash(rustc *)",
+        "--disallowedTools",
+        "Bash(clang *)",
+        "--disallowedTools",
+        "Bash(gcc *)",
+        "--disallowedTools",
+        "Bash(make *)",
+        "--disallowedTools",
+        "Bash(cmake *)",
+        // Block MCP tools that leak from user config
+        "--disallowedTools",
+        "mcp__*",
+        // Block rust-analyzer LSP tool
+        "--disallowedTools",
+        "rust-analyzer-lsp",
+    ];
+    if let Some(m) = model {
+        cmd_args.push("--model");
+        cmd_args.push(m);
+    }
+
     let mut child = match Command::new("claude")
-        .args([
-            "-p",
-            "--dangerously-skip-permissions",
-            "--verbose",
-            "--output-format",
-            "stream-json",
-            // Block compilation tools
-            "--disallowedTools",
-            "Bash(cargo *)",
-            "--disallowedTools",
-            "Bash(rustc *)",
-            "--disallowedTools",
-            "Bash(clang *)",
-            "--disallowedTools",
-            "Bash(gcc *)",
-            "--disallowedTools",
-            "Bash(make *)",
-            "--disallowedTools",
-            "Bash(cmake *)",
-            // Block MCP tools that leak from user config
-            "--disallowedTools",
-            "mcp__*",
-            // Block rust-analyzer LSP tool
-            "--disallowedTools",
-            "rust-analyzer-lsp",
-        ])
+        .args(&cmd_args)
         .env_remove("CLAUDECODE")
         // Pin git operations to the worktree so agents can't accidentally
         // commit to the main repo branch by cd-ing to the main repo path.
@@ -3519,6 +3531,7 @@ pub fn run_executor(
     println!("  Failed:          {}", failed_count);
     println!("  Agent slots:     {}", agent_count);
     println!("  Timeout:         {}s", ea.timeout_secs);
+    println!("  Model:           {}", ea.model.as_deref().unwrap_or("(default)"));
     println!();
 
     // Record base SHA before creating worktrees
@@ -3552,6 +3565,7 @@ pub fn run_executor(
         let completed = Arc::clone(&completed);
         let failed = Arc::clone(&failed);
         let base_sha = base_sha.clone();
+        let model = ea.model.clone();
 
         let handle = std::thread::spawn(move || {
             let mut done_count = 0usize;
@@ -3590,6 +3604,7 @@ pub fn run_executor(
 
                 let result = run_agent_in_slot(
                     &slot, i, &prompt_path, timeout, &base_sha,
+                    model.as_deref(),
                     &|msg| {
                         line.update(format!("[{}] {} | {}", i, prompt_name, msg));
                     },
