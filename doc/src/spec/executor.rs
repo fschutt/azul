@@ -2261,9 +2261,9 @@ fn create_worktree_pool(
             // Already exists — reset branch to main HEAD
             reset_worktree(&slot_path, &head_sha)?;
         } else {
-            // Create new worktree with branch at HEAD
+            // Create new worktree with branch at HEAD (no checkout yet)
             let output = Command::new("git")
-                .args(["worktree", "add", "-B", &branch])
+                .args(["worktree", "add", "--no-checkout", "-B", &branch])
                 .arg(&slot_path)
                 .arg("HEAD")
                 .current_dir(workspace_root)
@@ -2277,6 +2277,20 @@ fn create_worktree_pool(
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
+
+            // Enable sparse checkout — only check out files agents actually need
+            let _ = Command::new("git")
+                .args(["sparse-checkout", "init", "--cone"])
+                .current_dir(&slot_path)
+                .output();
+            let _ = Command::new("git")
+                .args(["sparse-checkout", "set", "layout/src", "css/src", "core/src"])
+                .current_dir(&slot_path)
+                .output();
+            let _ = Command::new("git")
+                .args(["checkout"])
+                .current_dir(&slot_path)
+                .output();
         }
 
         slots.push(WorktreeSlot {
