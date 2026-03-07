@@ -584,7 +584,7 @@ impl SkillTree {
             ],
             keywords: vec![
                 "box-sizing", "border-box", "content-box",
-                "padding", "border", "width", "height",
+                "sizing box", "box model sizing",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
                 "layout/src/solver3/sizing.rs".to_string(),
@@ -672,8 +672,9 @@ impl SkillTree {
                 "https://www.w3.org/TR/css-text-3/#word-spacing-property".to_string(),
             ],
             keywords: vec![
-                "text-align", "letter-spacing", "word-spacing",
-                "justify", "start", "end", "center",
+                "text-align", "text-align-all", "text-align-last",
+                "letter-spacing", "word-spacing", "text-justify",
+                "justify", "inter-word", "inter-character",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
                 "layout/src/text3/cache.rs".to_string(),
@@ -704,7 +705,7 @@ impl SkillTree {
             ],
             keywords: vec![
                 "stacking context", "z-index", "painting order",
-                "stack level", "auto", "opacity", "transform",
+                "stack level", "stacking order", "tree order",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
                 "layout/src/solver3/mod.rs".to_string(),
@@ -731,7 +732,8 @@ impl SkillTree {
             ],
             keywords: vec![
                 "sticky", "position: sticky", "constraint rectangle",
-                "scroll container", "inset", "sticky-constraint",
+                "sticky position", "sticky-position constraint",
+                "scrollport",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
                 "layout/src/solver3/fc.rs".to_string(),
@@ -756,8 +758,8 @@ impl SkillTree {
                 "https://www.w3.org/TR/css-display-3/#valdef-display-contents".to_string(),
             ],
             keywords: vec![
-                "display: contents", "no box", "replaced element",
-                "promoted children", "box generation",
+                "display: contents", "contents", "display-contents",
+                "promoted children", "no boxes", "element itself",
             ].into_iter().map(String::from).collect(),
             source_files: vec![
                 "layout/src/solver3/layout_tree.rs".to_string(),

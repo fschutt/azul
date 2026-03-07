@@ -1008,6 +1008,34 @@ get_css_property!(
     compact = get_direction
 );
 
+get_css_property!(
+    get_object_fit_property,
+    get_object_fit,
+    StyleObjectFit,
+    azul_css::props::property::CssPropertyType::ObjectFit
+);
+
+get_css_property!(
+    get_text_orientation_property,
+    get_text_orientation,
+    StyleTextOrientation,
+    azul_css::props::property::CssPropertyType::TextOrientation
+);
+
+get_css_property!(
+    get_object_position_property,
+    get_object_position,
+    StyleObjectPosition,
+    azul_css::props::property::CssPropertyType::ObjectPosition
+);
+
+get_css_property!(
+    get_aspect_ratio_property,
+    get_aspect_ratio,
+    StyleAspectRatio,
+    azul_css::props::property::CssPropertyType::AspectRatio
+);
+
 // NOTE: vertical-align does NOT use the compact cache because the compact cache
 // only stores keyword variants (3 bits = 8 values) and silently drops
 // Percentage/Length values by mapping them to Baseline. Always use the slow path.

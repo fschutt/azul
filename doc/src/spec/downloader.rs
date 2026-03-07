@@ -59,6 +59,11 @@ impl SpecRegistry {
                     url: "https://www.w3.org/TR/CSS22/tables.html".to_string(),
                     local_filename: "css22-tables.html".to_string(),
                 },
+                SpecUrl {
+                    section: "Stacking Contexts (Appendix E)".to_string(),
+                    url: "https://www.w3.org/TR/CSS22/zindex.html".to_string(),
+                    local_filename: "css22-zindex.html".to_string(),
+                },
             ],
         });
         
