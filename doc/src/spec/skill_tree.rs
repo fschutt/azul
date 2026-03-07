@@ -423,12 +423,12 @@ impl SkillTree {
                 "layout/src/solver3/sizing.rs".to_string(),
             ],
             source_functions: vec![],
-            needs_text_engine: false,
+            needs_text_engine: true,
             spec_sections: vec![],
             status: VerificationStatus::NotStarted,
             found_annotations: vec![],
         });
-        
+
         // ============================================================
         // TIER 4: Positioning & Floats (difficulty 3-4)
         // ============================================================
