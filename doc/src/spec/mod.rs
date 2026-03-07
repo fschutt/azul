@@ -25,8 +25,8 @@ pub use skill_tree::{SkillTree, SkillNode, VerificationStatus};
 pub use downloader::{SpecRegistry, download_all_specs, download_specs_for_node};
 pub use extractor::{extract_paragraphs, extract_for_skill_node, format_paragraphs_for_prompt};
 pub use reviewer::{
-    generate_review_prompt, generate_paragraph_prompt, read_source_files,
-    save_review_result, load_review_results, update_node_status,
+    generate_review_prompt, generate_paragraph_prompt, generate_grouped_prompt,
+    read_source_files, save_review_result, load_review_results, update_node_status,
     generate_holistic_prompt, ReviewStage, ReviewResult, parse_verdict,
 };
 pub use paragraphs::{ParagraphRegistry, SpecParagraph, scan_source_for_annotations, scan_spec_tags};
@@ -546,6 +546,8 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
     let mut total_tokens = 0usize;
     let mut total_deduped = 0usize;
 
+    let group_size = 2usize;
+
     for (node_id, fp) in &all_features {
         // Keep only paragraphs owned by this feature
         let owned_paras: Vec<&extractor::ExtractedParagraph> = fp.paragraphs.iter()
@@ -559,21 +561,29 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
         let mut feature_tokens = 0usize;
         let mut seen_filenames = HashSet::new();
 
-        for (i, para) in owned_paras.iter().enumerate() {
-            let prompt = reviewer::generate_paragraph_prompt(
-                &fp.node, para, i, para_count, workspace_root,
+        // Group consecutive paragraphs into chunks of group_size
+        let chunks: Vec<&[&extractor::ExtractedParagraph]> = owned_paras.chunks(group_size).collect();
+        let total_groups = chunks.len();
+
+        for (group_idx, chunk) in chunks.iter().enumerate() {
+            let prompt = reviewer::generate_grouped_prompt(
+                &fp.node, chunk, group_idx, total_groups, workspace_root,
             );
 
             let tokens = prompt.len() / 4;
             feature_tokens += tokens;
 
-            let hash = extractor::paragraph_content_hash(para);
-            let mut filename = format!("{}_{}.md", node_id, hash);
+            // Filename = concatenated hashes with + separator
+            let hashes: Vec<String> = chunk.iter()
+                .map(|p| extractor::paragraph_content_hash(p))
+                .collect();
+            let hash_part = hashes.join("+");
+            let mut filename = format!("{}_{}.md", node_id, hash_part);
             // Handle hash collisions by appending a counter suffix
             if seen_filenames.contains(&filename) {
                 let mut suffix = 2;
                 loop {
-                    filename = format!("{}_{}{}.md", node_id, hash, suffix);
+                    filename = format!("{}_{}{}.md", node_id, hash_part, suffix);
                     if !seen_filenames.contains(&filename) {
                         break;
                     }
@@ -586,20 +596,24 @@ pub(crate) fn cmd_build_all(config: &SpecConfig, workspace_root: &std::path::Pat
                 .map_err(|e| format!("Failed to write {}: {}", prompt_path.display(), e))?;
         }
 
-        total_files += para_count;
+        total_files += total_groups;
         total_tokens += feature_tokens;
 
         let text_indicator = if fp.node.needs_text_engine { " +text3" } else { "" };
+        let css_indicator = if fp.node.needs_css_source { " +css" } else { "" };
         let dedup_note = if skipped > 0 {
             format!("  (-{} deduped)", skipped)
         } else {
             String::new()
         };
-        println!("  [OK] {:30} {:>4} files  (~{} tokens avg){}{}",
+        println!("  [OK] {:30} {:>4} files ({} paras, groups of {})  (~{} tokens avg){}{}{}",
             node_id,
+            total_groups,
             para_count,
-            if para_count > 0 { feature_tokens / para_count } else { 0 },
+            group_size,
+            if total_groups > 0 { feature_tokens / total_groups } else { 0 },
             text_indicator,
+            css_indicator,
             dedup_note,
         );
 
@@ -697,18 +711,22 @@ fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(
 
             for path in &paths {
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                let (feature_id, para_num) = match stem.rfind('_') {
+                let (feature_id, hash_part) = match stem.rfind('_') {
                     Some(i) => (&stem[..i], &stem[i + 1..]),
                     None => continue,
                 };
-                let spec_tag = format!("{}-{}", feature_id, para_num);
+                // hash_part may be "a3f2c1" or "a3f2c1+b4e7d2" (grouped)
+                let hashes: Vec<&str> = hash_part.split('+').collect();
 
                 let entry = features
                     .entry(feature_id.to_string())
                     .or_insert((0, 0));
-                entry.0 += 1;
-                if found_tags.contains(&spec_tag) {
-                    entry.1 += 1;
+                entry.0 += hashes.len();
+                for h in &hashes {
+                    let spec_tag = format!("{}-{}", feature_id, h);
+                    if found_tags.contains(&spec_tag) {
+                        entry.1 += 1;
+                    }
                 }
             }
         }

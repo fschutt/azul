@@ -2517,29 +2517,52 @@ The layout solver is in `layout/src/solver3/`.
 - Containing block = **content-box** of parent (margin-box + border + padding)
 - Relative positioning applied AFTER layout, absolute positioning AFTER that
 - Flex/Grid is handled by Taffy — do NOT modify taffy_bridge.rs
+
+### CSS type definitions (css/src/props/):
+- `layout/display.rs` — LayoutDisplay enum (None, Block, Inline, InlineBlock, ...)
+- `layout/spacing.rs` — Margin, Padding types
+- `layout/dimensions.rs` — Width, Height, box-sizing
+- `layout/overflow.rs` — Overflow enum
+- `layout/position.rs` — Position enum (static, relative, absolute, fixed, sticky)
+- `style/text.rs` — StyleLineHeight, StyleWhiteSpace, StyleHyphens, StyleLineBreak, StyleTextIndent
+
+### Core types (core/src/):
+- `dom.rs` — FormattingContext enum, NodeType
+- `styled_dom.rs` — StyledDom, styled node access
 "#;
 
-fn build_agent_instructions(feature_id: &str, spec_tag: &str) -> String {
+fn build_agent_instructions(feature_id: &str, spec_tags: &[String]) -> String {
+    let grep_pattern = spec_tags.iter()
+        .map(|t| format!("+spec:{}", t))
+        .collect::<Vec<_>>()
+        .join("\\|");
+    let grep_cmd = format!("grep -rn \"{}\" layout/src/", grep_pattern);
+
+    let marker_instructions = spec_tags.iter()
+        .map(|t| format!("  `// +spec:{} - <brief description>`", t))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     format!(
         r#"## Your Task
 
 ### Step 1: Check if the feature is already implemented
 
-First, check whether the spec paragraph's requirements are ALREADY correctly
+First, check whether the spec paragraphs' requirements are ALREADY correctly
 implemented in the codebase. Many features are already working — your job is
 to verify, not to blindly add code.
 
 ```
-grep -rn "+spec:{spec_tag}" layout/src/
+{grep_cmd}
 ```
 
 Read the relevant source files listed in the codebase orientation above.
-Find the EXACT code path that handles this spec paragraph's requirements.
+Find the EXACT code path that handles each spec paragraph's requirements.
 
 ### Step 2: Evaluate the implementation
 
 Your job is to be a SKEPTICAL REVIEWER. Do not assume the code is correct.
-For each requirement in the spec paragraph:
+For each requirement in each spec paragraph:
 
 1. Find the EXACT code path that handles this requirement
 2. Read the actual logic — does it match what the spec says word-for-word?
@@ -2555,29 +2578,30 @@ Common bugs to look for:
 
 ### Step 3: Act based on what you found
 
-**If the code ALREADY correctly implements this paragraph:**
-- Add `// +spec:{spec_tag} - <brief description>` marker comments at EVERY
-  implementation site (there may be multiple).
+**If the code ALREADY correctly implements a paragraph:**
+- Add the appropriate marker comment at EVERY implementation site
+  (there may be multiple). Use the tag for the specific paragraph:
+{marker_instructions}
 - Find each function/match-arm/code-block that handles this behavior
   and add the marker on the line above.
 - Commit with the marker comments only.
 - This is the EXPECTED outcome for most paragraphs.
 
-**If the code is MISSING functionality required by this paragraph:**
+**If the code is MISSING functionality required by a paragraph:**
 - Implement it. Use the Edit tool to modify source files.
-- Make minimal, focused changes — only what this paragraph requires.
+- Make minimal, focused changes — only what the paragraph requires.
 - You MAY add new functions, new match arms, new fields, or new files.
 - Do NOT refactor surrounding code or add unrelated improvements.
-- Add `// +spec:{spec_tag} - <what this implements>` at each implementation site.
+- Add `// +spec:<tag> - <what this implements>` at each implementation site.
 
-**If the code has a BUG relative to this paragraph's requirements:**
+**If the code has a BUG relative to a paragraph's requirements:**
 - Fix the bug. Show the before/after logic clearly in the commit message.
-- Add `// +spec:{spec_tag} - <what this fixes>` at the fix site.
+- Add `// +spec:<tag> - <what this fixes>` at the fix site.
 
-**If the spec paragraph does NOT apply to this codebase** (e.g., it only
+**If a spec paragraph does NOT apply to this codebase** (e.g., it only
 applies to flex/grid which is handled by Taffy, or it describes user agent
 behavior we don't implement):
-- Do NOT commit. Output `NOT_APPLICABLE` and exit. This is fine.
+- Do NOT commit for that paragraph. Output `NOT_APPLICABLE` and move on.
 
 **Before implementing anything, search for existing functions and types.**
 Many CSS properties, enums, getters, and helper functions already exist in the
@@ -2595,7 +2619,7 @@ layout solver. Do NOT implement flex/grid layout logic. Do NOT modify
 `taffy_bridge.rs`. If a spec paragraph only applies to flex/grid contexts,
 output `NOT_APPLICABLE` and exit.
 
-**Feature completeness is important.** If the spec paragraph references a CSS
+**Feature completeness is important.** If a spec paragraph references a CSS
 property that doesn't exist yet in the codebase:
 - Add the new CSS property variant to `css/src/css_properties.rs` (enum + parsing).
 - Add the getter function in `layout/src/solver3/getters.rs`.
@@ -2613,12 +2637,13 @@ git add -A
 git commit -m "spec({feature_id}): <short description>"
 ```
 
-If the paragraph is not applicable or you have nothing to add, it is OK to
+If the paragraphs are not applicable or you have nothing to add, it is OK to
 exit with zero commits. This is NOT a failure.
 
 ### Output format
 
-Output a brief summary:
+Output a brief summary for EACH paragraph:
+- **TAG**: the spec tag
 - **ACTION**: `ANNOTATED` / `IMPLEMENTED` / `FIXED` / `NOT_APPLICABLE`
 - **FILES**: list of files modified (or "none")
 - **DESCRIPTION**: 1-2 sentences explaining what you did
@@ -2634,12 +2659,13 @@ Output a brief summary:
   not possible in this environment. It does not matter if your change is not
   100% correct — we will fix compilation errors later.
 - DO NOT USE `rust-analyzer`, LSP tools, OR ANY MCP TOOLS.
-- Make ONLY the changes needed for this one spec paragraph.
-- Zero commits is OK if the paragraph is not applicable or already covered.
+- Make ONLY the changes needed for the spec paragraphs in this prompt.
+- Zero commits is OK if the paragraphs are not applicable or already covered.
 - If unsure whether a change is correct, make your best effort.
 "#,
         feature_id = feature_id,
-        spec_tag = spec_tag,
+        grep_cmd = grep_cmd,
+        marker_instructions = marker_instructions,
     )
 }
 
@@ -2657,7 +2683,8 @@ fn extract_spec_context_from_md(prompt_content: &str) -> String {
     const KEEP_SECTIONS: &[&str] = &[
         "## Feature Context",
         "## Source Files to Read",
-        "## Spec Paragraph",  // matches "## Spec Paragraph to Verify" too
+        "## Relevant Types",
+        "## Spec Paragraph",  // matches "## Spec Paragraph to Verify" and "## Spec Paragraph N"
     ];
 
     let mut result = String::new();
@@ -2680,18 +2707,21 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
     let paragraph_content = fs::read_to_string(prompt_path)
         .map_err(|e| format!("Failed to read prompt {}: {}", prompt_path.display(), e))?;
 
-    // Extract feature_id and hash from filename:
-    //   "box-model_a3f2c1.md" → feature_id="box-model", hash="a3f2c1"
-    //   spec_tag = "box-model-a3f2c1"
+    // Extract feature_id and hash(es) from filename:
+    //   "box-model_a3f2c1.md" → feature_id="box-model", hash_part="a3f2c1"
+    //   "box-model_a3f2c1+b4e7d2.md" → feature_id="box-model", hash_part="a3f2c1+b4e7d2"
     let stem = prompt_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    let (feature_id, para_hash) = match stem.rfind('_') {
+    let (feature_id, hash_part) = match stem.rfind('_') {
         Some(i) => (&stem[..i], &stem[i + 1..]),
         None => (stem, "000000"),
     };
-    let spec_tag = format!("{}-{}", feature_id, para_hash);
+    // hash_part may be "a3f2c1" or "a3f2c1+b4e7d2" (grouped)
+    let spec_tags: Vec<String> = hash_part.split('+')
+        .map(|h| format!("{}-{}", feature_id, h))
+        .collect();
 
     // Extract just the spec context (feature, sources, paragraph) from the
     // review-framed .md file, discarding review instructions/response format.
@@ -2710,7 +2740,7 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
     ));
     full_prompt.push_str(&spec_context);
     full_prompt.push('\n');
-    full_prompt.push_str(&build_agent_instructions(feature_id, &spec_tag));
+    full_prompt.push_str(&build_agent_instructions(feature_id, &spec_tags));
 
     Ok(full_prompt)
 }

@@ -172,7 +172,11 @@ pub fn extract_paragraph_context(
     workspace_root: &Path,
 ) -> SpecParagraphContext {
     let source_files = node.source_files.iter()
-        .filter(|f| node.needs_text_engine || !f.contains("text3"))
+        .filter(|f| {
+            (node.needs_text_engine || !f.contains("text3"))
+            && (node.needs_css_source || !f.starts_with("css/"))
+            && (node.needs_core_source || !f.starts_with("core/"))
+        })
         .map(|file_path| {
             let full_path = workspace_root.join(file_path);
             let line_count = std::fs::read_to_string(&full_path)
@@ -461,6 +465,165 @@ pub fn generate_holistic_prompt(
         }
     }
     
+    prompt
+}
+
+/// Extract type/function signature hints from css/ and core/ source files.
+///
+/// Scans for `pub enum`, `pub struct`, and `pub fn` lines to give agents
+/// a quick index of available types without reading full files.
+fn extract_type_hints(source_files: &[(String, usize)], workspace_root: &Path) -> String {
+    let mut hints = String::new();
+    for (path, _) in source_files {
+        if path.starts_with("css/") || path.starts_with("core/") {
+            let content = std::fs::read_to_string(workspace_root.join(path))
+                .unwrap_or_default();
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("pub enum ")
+                    || trimmed.starts_with("pub struct ")
+                    || (trimmed.starts_with("pub fn ") && path.contains("getters"))
+                {
+                    hints.push_str(&format!("- `{}`: `{}`\n", path, trimmed));
+                }
+            }
+        }
+    }
+    hints
+}
+
+/// Structured context for a group of spec paragraphs (typically 2).
+pub struct GroupedSpecContext {
+    pub feature_name: String,
+    pub feature_id: String,
+    pub feature_description: String,
+    pub group_index: usize,
+    pub total_groups: usize,
+    pub source_files: Vec<(String, usize)>,
+    pub paragraphs: Vec<GroupedParagraph>,
+    pub spec_urls: Vec<String>,
+    pub type_hints: String,
+}
+
+pub struct GroupedParagraph {
+    pub text: String,
+    pub section: String,
+    pub source_file: String,
+    pub section_id: Option<String>,
+    pub matched_keywords: Vec<String>,
+    pub content_hash: String,
+}
+
+/// Generate a grouped review prompt for multiple spec paragraphs.
+///
+/// Groups consecutive paragraphs (typically 2) into a single prompt to
+/// halve the number of agent invocations while keeping prompts focused.
+pub fn generate_grouped_prompt(
+    node: &SkillNode,
+    paragraphs: &[&ExtractedParagraph],
+    group_index: usize,
+    total_groups: usize,
+    workspace_root: &Path,
+) -> String {
+    let source_files: Vec<(String, usize)> = node.source_files.iter()
+        .filter(|f| {
+            (node.needs_text_engine || !f.contains("text3"))
+            && (node.needs_css_source || !f.starts_with("css/"))
+            && (node.needs_core_source || !f.starts_with("core/"))
+        })
+        .map(|file_path| {
+            let full_path = workspace_root.join(file_path);
+            let line_count = std::fs::read_to_string(&full_path)
+                .map(|c| c.lines().count())
+                .unwrap_or(0);
+            (file_path.clone(), line_count)
+        })
+        .collect();
+
+    let type_hints = extract_type_hints(&source_files, workspace_root);
+
+    let para_count = paragraphs.len();
+    let mut prompt = String::new();
+
+    prompt.push_str(&format!(
+        "# Spec Paragraph Review: {} — group {}/{}\n\n",
+        node.name,
+        group_index + 1,
+        total_groups,
+    ));
+    prompt.push_str(&format!(
+        "You are reviewing a CSS layout engine against {} W3C spec paragraph{}.\n\
+         Read the source files listed below, then check whether the code correctly\n\
+         implements what these paragraphs require.\n\n",
+        para_count,
+        if para_count > 1 { "s" } else { "" },
+    ));
+
+    prompt.push_str("## Feature Context\n\n");
+    prompt.push_str(&format!(
+        "**{}** (id: `{}`): {}\n\n",
+        node.name, node.id, node.description
+    ));
+
+    prompt.push_str("## Source Files to Read\n\n");
+    for (path, lines) in &source_files {
+        prompt.push_str(&format!("- `{}` ({} lines)\n", path, lines));
+    }
+    prompt.push('\n');
+
+    if !type_hints.is_empty() {
+        prompt.push_str("## Relevant Types\n\n");
+        prompt.push_str(&type_hints);
+        prompt.push('\n');
+    }
+
+    for (i, para) in paragraphs.iter().enumerate() {
+        let hash = super::extractor::paragraph_content_hash(para);
+        let spec_tag = format!("{}-{}", node.id, hash);
+
+        prompt.push_str(&format!(
+            "## Spec Paragraph {} (tag: `{}`)\n\n",
+            i + 1,
+            spec_tag,
+        ));
+        prompt.push_str(&format!(
+            "**Source**: {} (from `{}`)\n",
+            para.section, para.source_file
+        ));
+        if let Some(ref id) = para.section_id {
+            prompt.push_str(&format!("**Section ID**: `{}`\n", id));
+        }
+        prompt.push_str(&format!(
+            "**Matched keywords**: {}\n\n",
+            para.matched_keywords.join(", ")
+        ));
+        prompt.push_str(&format!("> {}\n\n", para.text));
+    }
+
+    if !node.spec_urls.is_empty() {
+        prompt.push_str("**Full spec**: ");
+        prompt.push_str(&node.spec_urls.join(", "));
+        prompt.push_str("\n\n");
+    }
+
+    prompt.push_str("## Instructions\n\n");
+    prompt.push_str("1. Read the source files above\n");
+    prompt.push_str("2. For EACH spec paragraph, find the code that implements (or should implement) what it describes\n");
+    prompt.push_str("3. Check:\n");
+    prompt.push_str("   - Is the requirement from each paragraph implemented at all?\n");
+    prompt.push_str("   - If yes, does the implementation match the spec exactly?\n");
+    prompt.push_str("   - Are edge cases from the paragraphs handled?\n");
+    prompt.push_str("   - Are there TODO/FIXME/HACK comments near the relevant code?\n\n");
+
+    prompt.push_str("## Response Format\n\n");
+    prompt.push_str("For EACH paragraph, respond with:\n\n");
+    prompt.push_str("**PARAGRAPH N** (tag: `<tag>`):\n\n");
+    prompt.push_str("**IMPLEMENTED**: yes | partially | no\n\n");
+    prompt.push_str("**LOCATION**: file:line where this is (or should be) implemented\n\n");
+    prompt.push_str("**VERDICT**: `PASS` | `MINOR_ISSUES` | `NEEDS_CHANGES` | `NOT_IMPLEMENTED`\n\n");
+    prompt.push_str("**DETAILS**: Explain what the code does vs what the paragraph requires.\n");
+    prompt.push_str("Quote specific lines. If there are issues, describe the fix.\n\n");
+
     prompt
 }
 
