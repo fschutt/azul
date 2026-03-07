@@ -804,6 +804,7 @@ fn shape_text_internal(
         let offset_x = offset_x_units as f32 * scale_factor;
         let offset_y = offset_y_units as f32 * scale_factor;
 
+        let vert = parsed_font.get_vertical_metrics(info.glyph.glyph_index);
         let glyph = Glyph {
             glyph_id: info.glyph.glyph_index,
             codepoint: source_char,
@@ -826,9 +827,11 @@ fn shape_text_internal(
                 x: offset_x,
                 y: offset_y,
             },
-            vertical_advance: 0.0,
-            vertical_origin_y: 0.0,
-            vertical_bearing: Point { x: 0.0, y: 0.0 },
+            vertical_advance: vert.as_ref().map(|v| v.advance * font_size).unwrap_or(0.0),
+            vertical_origin_y: vert.as_ref().map(|v| v.origin_y * font_size).unwrap_or(0.0),
+            vertical_bearing: vert
+                .map(|v| Point { x: v.bearing_x * font_size, y: v.bearing_y * font_size })
+                .unwrap_or(Point { x: 0.0, y: 0.0 }),
             orientation: GlyphOrientation::Horizontal,
             script,
             bidi_level: BidiLevel::new(if direction.is_rtl() { 1 } else { 0 }),

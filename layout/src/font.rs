@@ -253,6 +253,8 @@ pub mod parsed {
         pub hmtx_data: Vec<u8>,
         /// Raw vertical metrics data (vmtx table bytes, if present).
         pub vmtx_data: Vec<u8>,
+        /// Vertical header table (vhea), same format as hhea. None if font has no vertical metrics.
+        pub vhea_table: Option<HheaTable>,
         /// Maximum profile table (maxp) containing glyph count and memory hints.
         pub maxp_table: MaxpTable,
         /// Cached GSUB table for glyph substitution (ligatures, alternates).
@@ -619,6 +621,12 @@ pub mod parsed {
                 .and_then(|s| Some(s?.to_vec()))
                 .unwrap_or_default();
 
+            // Parse vhea table (same format as hhea, used for vertical metrics)
+            let vhea_table = provider
+                .table_data(tag::VHEA)
+                .ok()
+                .and_then(|vhea_data| ReadScope::new(&vhea_data?).read::<HheaTable>().ok());
+
             let hhea_table = provider
                 .table_data(tag::HHEA)
                 .ok()
@@ -779,6 +787,7 @@ pub mod parsed {
                 hhea_table,
                 hmtx_data,
                 vmtx_data,
+                vhea_table,
                 maxp_table,
                 gsub_cache,
                 gpos_cache,
@@ -935,14 +944,41 @@ pub mod parsed {
 
         /// Get vertical metrics for a glyph (for vertical text layout).
         ///
-        /// Currently always returns `None` because vertical layout tables
-        /// (vhea, vmtx) are not parsed. Vertical text layout is not yet supported.
+        /// Uses vhea+vmtx tables (same binary format as hhea+hmtx).
+        /// Returns None if font has no vertical metrics tables.
         pub fn get_vertical_metrics(
             &self,
-            _glyph_id: u16,
+            glyph_id: u16,
         ) -> Option<crate::text3::cache::VerticalMetrics> {
-            // Vertical text layout requires parsing vhea and vmtx tables
-            None
+            let vhea = self.vhea_table.as_ref()?;
+            if self.vmtx_data.is_empty() {
+                return None;
+            }
+            let vert_advance = allsorts::glyph_info::advance(
+                &self.maxp_table, vhea, &self.vmtx_data, glyph_id,
+            ).ok()? as f32;
+
+            let units_per_em = self.font_metrics.units_per_em as f32;
+            let scale = if units_per_em > 0.0 { 1.0 / units_per_em } else { 0.001 };
+
+            // Vertical bearing: approximate from glyph bbox if available
+            let (bearing_x, bearing_y) = self.glyph_records_decoded
+                .get(&glyph_id)
+                .map(|g| {
+                    let bbox = &g.bounding_box;
+                    // tsb (top side bearing): origin_y - max_y
+                    // lsb for vertical: center the glyph horizontally
+                    let width = (bbox.max_x - bbox.min_x) as f32;
+                    (-(width / 2.0) * scale, (vert_advance * scale) - (bbox.max_y as f32 * scale))
+                })
+                .unwrap_or((0.0, 0.0));
+
+            Some(crate::text3::cache::VerticalMetrics {
+                advance: vert_advance * scale,
+                bearing_x,
+                bearing_y,
+                origin_y: self.font_metrics.ascent * scale,
+            })
         }
 
         /// Get layout-specific font metrics
