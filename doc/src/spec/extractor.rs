@@ -180,18 +180,38 @@ fn collect_element(lines: &[&str], start_line: usize) -> String {
 pub fn strip_html(html: &str) -> String {
     let mut result = String::with_capacity(html.len());
     let mut in_tag = false;
-    let mut chars = html.chars().peekable();
-    
-    while let Some(c) = chars.next() {
+    let mut tag_buf = String::new();
+    // Stack of pending link URLs: when we see <a href="...">, push the URL.
+    // When we see </a>, pop and append " (URL)" after the link text.
+    let mut link_stack: Vec<String> = Vec::new();
+
+    for c in html.chars() {
         if c == '<' {
             in_tag = true;
+            tag_buf.clear();
         } else if c == '>' {
             in_tag = false;
+            let tag = tag_buf.trim();
+            if tag.starts_with("a ") || tag.starts_with("a\t") {
+                // Extract href from <a href="...">
+                if let Some(href) = extract_href_attr(tag) {
+                    // Only preserve external spec links, not internal anchors
+                    if href.starts_with("https://www.w3.org/") {
+                        link_stack.push(href);
+                    }
+                }
+            } else if tag == "/a" {
+                if let Some(url) = link_stack.pop() {
+                    result.push_str(&format!(" ({})", url));
+                }
+            }
             // Add space after tags to prevent word joining
             if !result.ends_with(' ') {
                 result.push(' ');
             }
-        } else if !in_tag {
+        } else if in_tag {
+            tag_buf.push(c);
+        } else {
             result.push(c);
         }
     }
@@ -226,6 +246,22 @@ pub fn strip_html(html: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+/// Extract href attribute value from an `<a ...>` tag body (without the `<a` prefix's angle bracket).
+fn extract_href_attr(tag_body: &str) -> Option<String> {
+    // Look for href="..." or href='...'
+    let href_start = tag_body.find("href=")?;
+    let after_eq = &tag_body[href_start + 5..];
+    let (quote, rest) = if after_eq.starts_with('"') {
+        ('"', &after_eq[1..])
+    } else if after_eq.starts_with('\'') {
+        ('\'', &after_eq[1..])
+    } else {
+        return None;
+    };
+    let end = rest.find(quote)?;
+    Some(rest[..end].to_string())
 }
 
 /// Extract all paragraphs from multiple spec files for a skill node
