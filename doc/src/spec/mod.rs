@@ -113,6 +113,11 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
             cmd_paragraphs(&config, Some(&args[1]), workspace_root)
         }
         "build-all" => cmd_build_all(&config, workspace_root),
+        "preview" => {
+            let filter = args.get(1).map(|s| s.as_str());
+            let count: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(3);
+            cmd_preview(&config, workspace_root, filter, count)
+        }
         "claude-exec" => {
             let rest: Vec<String> = args[1..].to_vec();
             executor::run_executor(&config, workspace_root, &rest)
@@ -944,6 +949,62 @@ fn cmd_annotations(workspace_root: &std::path::Path) -> Result<(), String> {
             println!("  ... and {} more", unknown_ids.len() - 10);
         }
     }
-    
+
+    Ok(())
+}
+
+/// Preview full agent prompts (CODEBASE_CONTEXT + spec + instructions) for a sample of prompts.
+fn cmd_preview(
+    config: &SpecConfig,
+    workspace_root: &std::path::Path,
+    filter: Option<&str>,
+    count: usize,
+) -> Result<(), String> {
+    let prompts_dir = config.skill_tree_dir.join("prompts");
+    if !prompts_dir.exists() {
+        return Err("No prompts directory. Run `azul-doc spec build-all` first.".to_string());
+    }
+
+    let preview_dir = config.skill_tree_dir.join("preview");
+    std::fs::create_dir_all(&preview_dir)
+        .map_err(|e| format!("Failed to create preview dir: {}", e))?;
+
+    // Clean old previews
+    if let Ok(entries) = std::fs::read_dir(&preview_dir) {
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+
+    // Collect matching prompt files
+    let mut prompt_files: Vec<_> = std::fs::read_dir(&prompts_dir)
+        .map_err(|e| format!("Failed to read prompts dir: {}", e))?
+        .flatten()
+        .filter(|e| e.path().extension().map(|x| x == "md").unwrap_or(false))
+        .filter(|e| {
+            filter.map_or(true, |f| {
+                e.file_name().to_string_lossy().contains(f)
+            })
+        })
+        .collect();
+    prompt_files.sort_by_key(|e| e.file_name());
+
+    if prompt_files.is_empty() {
+        return Err(format!("No prompts match filter {:?}", filter));
+    }
+
+    let selected: Vec<_> = prompt_files.iter().take(count).collect();
+    println!("Generating {} full preview prompt(s)...\n", selected.len());
+
+    for entry in &selected {
+        let prompt_path = entry.path();
+        let full = executor::build_full_prompt_preview(&prompt_path, workspace_root)?;
+        let out_path = preview_dir.join(entry.file_name());
+        std::fs::write(&out_path, &full)
+            .map_err(|e| format!("Failed to write preview: {}", e))?;
+        println!("  {} ({} tokens)", out_path.display(), full.len() / 4);
+    }
+
+    println!("\nPreviews saved to: {}", preview_dir.display());
     Ok(())
 }

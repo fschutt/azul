@@ -63,12 +63,14 @@ pub fn extract_paragraphs(
             current_section_id = heading.id;
         }
         
-        // Extract paragraphs and definition lists
-        if line.contains("<p") || line.contains("<dd") || line.contains("<li") {
+        // Extract paragraphs and definition list definitions.
+        // Skip <li> (captures TOC, navigation, property indexes) and only
+        // match <p> and <dd> for actual spec prose.
+        if line.contains("<p") || line.contains("<dd") {
             // Collect full paragraph (may span multiple lines)
             let para_text = collect_element(&lines, line_num);
             let plain_text = strip_html(&para_text);
-            
+
             // Check for keyword matches
             let matched: Vec<String> = keywords
                 .iter()
@@ -77,8 +79,20 @@ pub fn extract_paragraphs(
                 })
                 .cloned()
                 .collect();
-            
+
             if !matched.is_empty() && plain_text.len() > 20 {
+                // Skip reference/bibliography entries (contain multiple URLs)
+                if plain_text.matches("URL:").count() >= 2 {
+                    continue;
+                }
+                // Skip term index entries ("foo , in § X.Y bar , in § Z.W")
+                if plain_text.matches(", in §").count() >= 3 {
+                    continue;
+                }
+                // Skip cross-reference lists ("defines the following terms:")
+                if plain_text.contains("defines the following terms:") {
+                    continue;
+                }
                 results.push(ExtractedParagraph {
                     section: current_section.clone(),
                     section_id: current_section_id.clone(),
@@ -248,6 +262,10 @@ pub fn extract_for_skill_node(
     // Deduplicate paragraphs with high text overlap (e.g., nested TOC entries
     // that produce near-identical paragraphs with slightly different prefixes)
     all_paragraphs = deduplicate_paragraphs(all_paragraphs, 0.75);
+
+    // Filter out paragraphs that are too short to be actionable spec requirements
+    // (section headings, figure captions, navigation fragments, etc.)
+    all_paragraphs.retain(|p| p.text.len() >= 100);
 
     Ok(all_paragraphs)
 }

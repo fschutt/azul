@@ -2708,6 +2708,11 @@ fn extract_spec_context_from_md(prompt_content: &str) -> String {
     result
 }
 
+/// Public wrapper for preview: builds the full prompt using workspace_root as working dir.
+pub fn build_full_prompt_preview(prompt_path: &Path, workspace_root: &Path) -> Result<String, String> {
+    build_full_prompt(prompt_path, workspace_root)
+}
+
 fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, String> {
     let paragraph_content = fs::read_to_string(prompt_path)
         .map_err(|e| format!("Failed to read prompt {}: {}", prompt_path.display(), e))?;
