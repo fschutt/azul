@@ -53,8 +53,8 @@ use azul_css::{
         style::{
             BorderStyle, StyleDirection, StyleHyphens, StyleLineBreak, StyleListStylePosition,
             StyleListStyleType, StyleOverflowWrap, StyleTextAlign, StyleTextAlignLast,
-            StyleTextCombineUpright, StyleTextOrientation, StyleUnicodeBidi, StyleVerticalAlign,
-            StyleVisibility, StyleWhiteSpace, StyleWordBreak,
+            StyleTextBoxTrim, StyleTextCombineUpright, StyleTextOrientation, StyleUnicodeBidi,
+            StyleVerticalAlign, StyleVisibility, StyleWhiteSpace, StyleWordBreak,
         },
     },
 };
@@ -74,12 +74,15 @@ use crate::{
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{
-            get_css_height, get_css_width, get_direction_property, get_unicode_bidi_property,
+            get_css_border_bottom_width, get_css_border_top_width,
+            get_css_height, get_css_padding_bottom, get_css_padding_top,
+            get_css_width, get_direction_property, get_unicode_bidi_property,
             get_display_property, get_element_font_size, get_float, get_clear,
             get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
             get_parent_font_size, get_root_font_size, get_style_properties,
-            get_text_align, get_text_orientation_property, get_vertical_align_property,
-            get_visibility, get_white_space_property, get_writing_mode, MultiValue,
+            get_text_align, get_text_box_trim_property, get_text_orientation_property,
+            get_vertical_align_property, get_visibility, get_white_space_property,
+            get_writing_mode, MultiValue,
         },
         layout_tree::{
             AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutTree, PseudoElement,
@@ -2550,7 +2553,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 main_frag.clone(),
                 current_width_type,
                 has_floats,
-                cached_constraints,
+                cached_constraints.clone(),
             ));
         }
 
@@ -2560,6 +2563,59 @@ fn layout_ifc<T: ParsedFontTrait>(
         output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
         output.baseline = main_frag.last_baseline();
         node.baseline = output.baseline;
+
+        // +spec:box-model:929f42 - text-box-trim: trim half-leading from first/last formatted line
+        // +spec:box-model:02e0f9 - text-box-trim: trim-end and trim-both, no effect with non-zero padding/border
+        //
+        // CSS Inline 3 § 6.2: For block containers, trim the block-start/block-end side
+        // of the first/last formatted line. If there is intervening non-zero padding or
+        // borders, there is no effect. Does not apply to flex, grid, or table contexts.
+        let ifc_node_state = &ctx.styled_dom.styled_nodes.as_container()[ifc_root_dom_id].styled_node_state;
+        let text_box_trim = get_text_box_trim_property(ctx.styled_dom, ifc_root_dom_id, ifc_node_state)
+            .unwrap_or(StyleTextBoxTrim::None);
+
+        if text_box_trim != StyleTextBoxTrim::None && !main_frag.items.is_empty() {
+            // Half-leading = (line-height - (ascent + descent)) / 2
+            let half_leading = (cached_constraints.line_height
+                - (cached_constraints.strut_ascent + cached_constraints.strut_descent))
+                / 2.0;
+            let half_leading = half_leading.max(0.0);
+
+            // Check for intervening non-zero padding/border on block-start (top)
+            let has_pad_or_border_top = match get_css_padding_top(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            } || match get_css_border_top_width(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            };
+
+            // Check for intervening non-zero padding/border on block-end (bottom)
+            let has_pad_or_border_bottom = match get_css_padding_bottom(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            } || match get_css_border_bottom_width(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            };
+
+            let trim_start = matches!(text_box_trim, StyleTextBoxTrim::TrimStart | StyleTextBoxTrim::TrimBoth)
+                && !has_pad_or_border_top;
+            let trim_end = matches!(text_box_trim, StyleTextBoxTrim::TrimEnd | StyleTextBoxTrim::TrimBoth)
+                && !has_pad_or_border_bottom;
+
+            let mut height_reduction = 0.0;
+            if trim_start && half_leading > 0.0 {
+                height_reduction += half_leading;
+            }
+            if trim_end && half_leading > 0.0 {
+                height_reduction += half_leading;
+            }
+
+            if height_reduction > 0.0 {
+                output.overflow_size.height = (output.overflow_size.height - height_reduction).max(0.0);
+            }
+        }
 
         // Position all the inline-block children based on text3's calculations.
         // [CoordinateSpace::Parent] - positions are relative to IFC's content-box (0,0)
