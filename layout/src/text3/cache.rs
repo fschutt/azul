@@ -1124,6 +1124,7 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:05193a - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     // +spec:font-metrics:17a71c - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     // +spec:font-metrics:62c659 - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
+    // +spec:writing-modes:451a3e - ascent/descent/line-gap metrics: prefer OS/2, fallback HHEA, floor line_gap at 0
     /// Per CSS 2.2 §10.8.1: prefer OS/2 sTypoAscender/sTypoDescender,
     /// fall back to HHEA Ascent/Descent if OS/2 metrics are absent.
     // +spec:font-metrics:3dc8c1 - text-over/text-under baselines from font ascent/descent metrics
@@ -1145,6 +1146,7 @@ impl LayoutFontMetrics {
             .map(|v| *v as f32)
             .unwrap_or(metrics.descender as f32);
         // UAs must floor the line gap metric at zero (css-inline-3 §3.2.2)
+        // Spec: "UAs must floor the line gap metric at zero."
         let line_gap = metrics.s_typo_line_gap
             .as_option()
             .map(|v| *v as f32)
