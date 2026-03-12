@@ -723,6 +723,8 @@ pub struct UnifiedConstraints {
     // block container's first available font, used for minimum line box height
     pub strut_ascent: f32,
     pub strut_descent: f32,
+    // x-height of the strut font (scaled to font_size), for vertical-align: middle
+    pub strut_x_height: f32,
 
     // Width of '0' (zero) character in px, used for ch unit and tab-size.
     // Approximated as space_width from the first available font, or 0.5 * font_size fallback.
@@ -779,6 +781,7 @@ impl Default for UnifiedConstraints {
             vertical_align: VerticalAlign::default(),
             strut_ascent: 12.8, // 80% of default line-height (typical ratio)
             strut_descent: 3.2, // 20% of default line-height
+            strut_x_height: 8.0, // 0.5 * default font_size (16.0), spec fallback
             ch_width: 8.0, // 0.5 * default font_size (16.0)
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
@@ -822,6 +825,7 @@ impl Hash for UnifiedConstraints {
         self.vertical_align.hash(state);
         (self.strut_ascent.round() as usize).hash(state);
         (self.strut_descent.round() as usize).hash(state);
+        (self.strut_x_height.round() as usize).hash(state);
         (self.ch_width.round() as usize).hash(state);
         self.overflow.hash(state);
         self.text_combine_upright.hash(state);
@@ -860,6 +864,7 @@ impl PartialEq for UnifiedConstraints {
             && self.vertical_align == other.vertical_align
             && round_eq(self.strut_ascent, other.strut_ascent)
             && round_eq(self.strut_descent, other.strut_descent)
+            && round_eq(self.strut_x_height, other.strut_x_height)
             && round_eq(self.ch_width, other.ch_width)
             && self.overflow == other.overflow
             && self.text_combine_upright == other.text_combine_upright
@@ -7684,9 +7689,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // top: align top of aligned subtree with top of line box
                 VerticalAlign::Top => line_top_y + item_ascent,
                 // +spec:font-metrics:70000d - align vertical midpoint of box with baseline + half x-height of parent
-                // Approximation: x-height ≈ 0.5 * ascent (no direct x-height metric available)
                 VerticalAlign::Middle => {
-                    let half_x_height = line_ascent * 0.25;
+                    let half_x_height = constraints.strut_x_height / 2.0;
                     line_baseline_y + half_x_height - (item_ascent + item_descent) / 2.0 + item_ascent
                 }
                 // bottom: align bottom of aligned subtree with bottom of line box
