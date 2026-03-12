@@ -577,7 +577,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 
         // +spec:block-formatting-context:faa1cf - static boxes: top/right/bottom/left do not apply
         // Early continue for non-relative positioning
-        if position_type != LayoutPosition::Relative {
+        // +spec:overflow:cfb09a - Sticky positioning uses relative-like offsets, clamped to nearest scrollport at scroll time
+        if position_type != LayoutPosition::Relative && position_type != LayoutPosition::Sticky {
             continue;
         }
 
