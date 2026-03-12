@@ -1136,6 +1136,7 @@ impl LayoutFontMetrics {
     // +spec:table-layout:6bbd10 - use sTypoAscender/sTypoDescender as ascent/descent metrics per spec recommendation
     // +spec:font-metrics:5346d2 - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     // +spec:font-metrics:e16941 - line gap metric floored at zero per spec
+    // +spec:font-metrics:a55c05 - metrics taken from font, synthesized if missing (prefers OS/2, falls back to HHEA)
     pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
         let ascent = metrics.s_typo_ascender
             .as_option()
@@ -1158,6 +1159,28 @@ impl LayoutFontMetrics {
             line_gap,
             units_per_em: metrics.units_per_em,
         }
+    }
+
+    // +spec:font-metrics:1eda6b - em-over is 0.5em over central baseline, em-under is 0.5em under
+    /// Synthesize em-over baseline offset (in font units).
+    /// Per CSS Inline 3 Appendix A.1: em-over = central baseline + 0.5em.
+    /// Central baseline is synthesized as midpoint of ascent and descent.
+    pub fn em_over(&self) -> f32 {
+        let central = self.central_baseline();
+        central + (self.units_per_em as f32 / 2.0)
+    }
+
+    /// Synthesize em-under baseline offset (in font units).
+    /// Per CSS Inline 3 Appendix A.1: em-under = central baseline - 0.5em.
+    pub fn em_under(&self) -> f32 {
+        let central = self.central_baseline();
+        central - (self.units_per_em as f32 / 2.0)
+    }
+
+    /// Synthesize central baseline (in font units).
+    /// Midpoint between ascent and descent when not provided by the font.
+    pub fn central_baseline(&self) -> f32 {
+        (self.ascent + self.descent) / 2.0
     }
 }
 
@@ -2249,6 +2272,7 @@ impl ShapeDefinition {
 /// Resolve effective text alignment for a line, handling text-align-last per CSS Text §6.3.
 /// For the last line (or lines before forced breaks), text-align-last overrides text-align.
 /// When text-align-last is auto (default), justify falls back to start; others use text-align.
+// +spec:text-alignment-spacing:bca77d - text-align-last auto falls back to text-align-all, justify→start
 // +spec:line-breaking:9b10d2 - text-align-last applies to last line and lines before forced breaks
 /// +spec:text-alignment-spacing:8d88ce - text-align-last overrides justify on last line/forced break
 pub(crate) fn resolve_effective_alignment(
@@ -2775,6 +2799,7 @@ pub struct StyleProperties {
     pub background_content: Vec<StyleBackgroundContent>,
     /// Border information for inline elements
     pub border: Option<InlineBorderInfo>,
+    // +spec:text-alignment-spacing:b39a04 - word-spacing and letter-spacing control text spacing
     pub letter_spacing: Spacing,
     pub word_spacing: Spacing,
 
@@ -5183,24 +5208,32 @@ pub fn create_logical_items(
                     // +spec:display-contents:644c78 - text-combine-upright run boundary check:
                     // if a combinable run boundary is due only to inline box boundaries,
                     // and adjacent chars would form a longer combinable sequence, do not combine
-                    let is_combinable_chunk = if let Some(TextCombineUpright::Digits(max_digits)) =
-                        &style_to_use.text_combine_upright
-                    {
-                        *max_digits > 0
-                            && !text_slice.is_empty()
-                            && text_slice.chars().all(|c| c.is_ascii_digit())
-                            && text_slice.chars().count() <= *max_digits as usize
-                    } else {
-                        false
+                    // +spec:white-space-processing:409d90 - text-combine-upright combined text: white space at start/end processed as in inline-block
+                    let is_combinable_chunk = match &style_to_use.text_combine_upright {
+                        Some(TextCombineUpright::All) => !text_slice.is_empty(),
+                        Some(TextCombineUpright::Digits(max_digits)) => {
+                            *max_digits > 0
+                                && !text_slice.is_empty()
+                                && text_slice.chars().all(|c| c.is_ascii_digit())
+                                && text_slice.chars().count() <= *max_digits as usize
+                        }
+                        _ => false,
                     };
 
                     if is_combinable_chunk {
+                        // Trim leading/trailing white space like an inline-block
+                        let trimmed = text_slice.trim();
+                        let combined_text = if trimmed.is_empty() {
+                            text_slice.to_string()
+                        } else {
+                            trimmed.to_string()
+                        };
                         items.push(LogicalItem::CombinedText {
                             source: ContentIndex {
                                 run_index: run_idx as u32,
                                 item_index: start as u32,
                             },
-                            text: text_slice.to_string(),
+                            text: combined_text,
                             style: style_to_use,
                         });
                     } else {
@@ -5768,10 +5801,19 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 } else {
                     // TODO: use actual font's space_width via ParsedFontTrait::get_space_width()
                     // once we thread font resolution into the shaping phase for tab stops.
-                    // For now, approximate ch unit as 0.5 * font_size (typical for Latin fonts).
-                    let ch_approx = style.font_size_px * 0.5;
-                    // Tab stop interval in pixels: tab_size (number) * ch unit
-                    let tab_interval = style.tab_size * ch_approx;
+                    // For now, approximate space advance as 0.5 * font_size (typical for Latin fonts).
+                    let space_advance_approx = style.font_size_px * 0.5;
+                    // +spec:text-alignment-spacing:5a5efd - tab-size includes letter-spacing and word-spacing
+                    let ls = match style.letter_spacing {
+                        Spacing::Px(px) => px as f32,
+                        Spacing::Em(em) => em * style.font_size_px,
+                    };
+                    let ws = match style.word_spacing {
+                        Spacing::Px(px) => px as f32,
+                        Spacing::Em(em) => em * style.font_size_px,
+                    };
+                    // Tab stop interval: tab_size * (space advance + letter-spacing + word-spacing)
+                    let tab_interval = style.tab_size * (space_advance_approx + ls + ws);
                     // Calculate current advance to find next tab stop
                     let current_advance: f32 = shaped.iter().map(|item| {
                         match item {
@@ -5785,7 +5827,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     let next_tab_stop = ((current_advance / tab_interval).floor() + 1.0) * tab_interval;
                     let mut tab_width = next_tab_stop - current_advance;
                     // "If this distance is less than 0.5ch, then the subsequent tab stop is used instead."
-                    let half_ch = ch_approx * 0.5;
+                    let half_ch = space_advance_approx * 0.5;
                     if tab_width < half_ch {
                         tab_width += tab_interval;
                     }
@@ -5949,18 +5991,26 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 // +spec:block-formatting-context:dc4549 - text-combine-upright compression: UA may scale composition to match 水 advance height
                 let total_width: f32 = shaped_glyphs.iter().map(|g| g.advance + g.kerning).sum();
+                // +spec:inline-formatting-context:8c5969 - text-combine-upright baseline centering
+                // The composition forms a 1em square. Per spec, its baseline must be
+                // chosen so the square is centered between the text-over and text-under
+                // baselines of the parent inline box. We approximate by using font_size
+                // as the square height and centering it (baseline_offset = em_size / 2).
+                let em_size = shaped_glyphs.first()
+                    .map(|g| g.style.font_size_px)
+                    .unwrap_or(style.font_size_px);
                 let bounds = Rect {
                     x: 0.0,
                     y: 0.0,
                     width: total_width,
-                    height: style.line_height,
+                    height: em_size,
                 };
 
                 shaped.push(ShapedItem::CombinedBlock {
                     source: *source,
                     glyphs: shaped_glyphs,
                     bounds,
-                    baseline_offset: 0.0,
+                    baseline_offset: em_size / 2.0,
                 });
             }
             LogicalItem::Object {
@@ -7497,13 +7547,23 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // we're measuring natural content width. We check for both infinite AND very large
         // values (> 1e30) to catch the MaxContent case.
         let is_indefinite_width = segment.width.is_infinite() || segment.width > 1e30;
+        // +spec:text-alignment-spacing:ab1d4f - unexpandable justify text aligns as center
         let alignment_offset = if is_indefinite_width {
             0.0 // No alignment offset for indefinite width
         } else {
             match physical_align {
                 TextAlign::Center => remaining_space / 2.0,
                 TextAlign::Right => remaining_space,
-                _ => 0.0, // Left, Justify
+                TextAlign::Justify | TextAlign::JustifyAll
+                    if remaining_space > 0.0
+                        && extra_word_spacing == 0.0
+                        && extra_char_spacing == 0.0 =>
+                {
+                    // CSS Text §6.4.3: If text cannot be stretched to full width
+                    // and text-align-last is justify, align as center.
+                    remaining_space / 2.0
+                }
+                _ => 0.0, // Left, Justify (when justification succeeded)
             }
         };
 
@@ -7693,7 +7753,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
             }
 
             // +spec:text-alignment-spacing:e09bd1 - justification space added on top of letter-spacing/word-spacing
-            if !is_outside_marker && extra_char_spacing > 0.0 && can_justify_after(&item) {
+            // +spec:text-alignment-spacing:456643 - cursive scripts don't admit inter-character gaps
+            let is_cursive = if let ShapedItem::Cluster(c) = &item { is_cursive_script_cluster(c) } else { false };
+            if !is_outside_marker && extra_char_spacing > 0.0 && can_justify_after(&item) && !is_cursive {
                 main_axis_pen += extra_char_spacing;
             }
             // +spec:display-property:3a833c - consecutive atomic inlines treated as single unit for letter-spacing
@@ -7708,11 +7770,14 @@ pub fn position_one_line<T: ParsedFontTrait>(
                     // +spec:text-alignment-spacing:d3ef6e - single-char element: only trailing space, no inter-char effect
                     // +spec:text-alignment-spacing:d668fc - letter-spacing only affects characters within the element (per-cluster style)
                     // +spec:text-alignment-spacing:8dbb78 - zero letter-spacing behaves as normal (Px(0) adds no spacing)
+                    // +spec:text-alignment-spacing:456643 - skip letter-spacing for cursive scripts
+                    if !is_cursive_script_cluster(c) {
                     let letter_spacing_px = match c.style.letter_spacing {
                         Spacing::Px(px) => px as f32,
                         Spacing::Em(em) => em * c.style.font_size_px,
                     };
                     main_axis_pen += letter_spacing_px;
+                    }
                     // +spec:width-calculation:9447d1 - word-spacing only applied to word separators; zero-width chars like U+200B are excluded
                     if is_word_separator(&item) {
                         let word_spacing_px = match c.style.word_spacing {
@@ -8089,6 +8154,37 @@ pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
     }
 }
 
+// +spec:text-alignment-spacing:456643 - cursive scripts do not admit letter-spacing gaps
+/// Returns true if the cluster's first character belongs to a cursive script
+/// (Arabic, Syriac, Mongolian, N'Ko, Mandaic, Phags Pa, Hanifi Rohingya)
+/// per CSS Text 3 Appendix D. These scripts should not have letter-spacing applied.
+pub fn is_cursive_script_cluster(c: &ShapedCluster) -> bool {
+    c.text.chars().next().map_or(false, |ch| is_cursive_script_char(ch))
+}
+
+fn is_cursive_script_char(ch: char) -> bool {
+    let cp = ch as u32;
+    // Arabic (U+0600–U+06FF, U+0750–U+077F, U+08A0–U+08FF, U+FB50–U+FDFF, U+FE70–U+FEFF)
+    if (0x0600..=0x06FF).contains(&cp) { return true; }
+    if (0x0750..=0x077F).contains(&cp) { return true; }
+    if (0x08A0..=0x08FF).contains(&cp) { return true; }
+    if (0xFB50..=0xFDFF).contains(&cp) { return true; }
+    if (0xFE70..=0xFEFF).contains(&cp) { return true; }
+    // Syriac (U+0700–U+074F)
+    if (0x0700..=0x074F).contains(&cp) { return true; }
+    // Mongolian (U+1800–U+18AF)
+    if (0x1800..=0x18AF).contains(&cp) { return true; }
+    // N'Ko (U+07C0–U+07FF)
+    if (0x07C0..=0x07FF).contains(&cp) { return true; }
+    // Mandaic (U+0840–U+085F)
+    if (0x0840..=0x085F).contains(&cp) { return true; }
+    // Phags Pa (U+A840–U+A87F)
+    if (0xA840..=0xA87F).contains(&cp) { return true; }
+    // Hanifi Rohingya (U+10D00–U+10D3F)
+    if (0x10D00..=0x10D3F).contains(&cp) { return true; }
+    false
+}
+
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
@@ -8102,6 +8198,7 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
 /// Returns true if the character is a word-separator character per CSS Text §7.1.
 /// Punctuation and fixed-width spaces (U+3000, U+2000 through U+200A) are NOT
 /// word-separator characters even though they may visually separate words.
+// +spec:text-alignment-spacing:3e0655 - word-separator characters for word-spacing
 fn is_word_separator_char(c: char) -> bool {
     match c {
         // Standard ASCII space
@@ -8110,6 +8207,8 @@ fn is_word_separator_char(c: char) -> bool {
         '\u{00A0}' => true,
         // OGHAM SPACE MARK
         '\u{1680}' => true,
+        // ETHIOPIC WORDSPACE (spec §7.1)
+        '\u{1361}' => true,
         // Fixed-width spaces: NOT word separators per spec
         '\u{2000}'..='\u{200A}' => false,
         // NARROW NO-BREAK SPACE
@@ -8118,6 +8217,14 @@ fn is_word_separator_char(c: char) -> bool {
         '\u{205F}' => true,
         // IDEOGRAPHIC SPACE: NOT a word separator per spec
         '\u{3000}' => false,
+        // AEGEAN WORD SEPARATOR LINE (spec §7.1)
+        '\u{10100}' => true,
+        // AEGEAN WORD SEPARATOR DOT (spec §7.1)
+        '\u{10101}' => true,
+        // UGARITIC WORD DIVIDER (spec §7.1)
+        '\u{1039F}' => true,
+        // PHOENICIAN WORD SEPARATOR (spec §7.1)
+        '\u{1091F}' => true,
         // Other Unicode whitespace not listed above
         _ => false,
     }
