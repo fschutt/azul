@@ -3219,6 +3219,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // float!=none or position!=static causes display to compute to block (BFC), so
     // initial-letter naturally does not apply to those elements
     // +spec:writing-modes:c89d19 - initial-letter block-axis positioning: sink determines block offset
+    // +spec:display-property:b67500 - initial-letter size/sink: values other than normal make box an initial letter box (inline-level, in-flow)
+    // +spec:display-property:416f27 - initial-letter sink defaults to "drop" (sink = size floored) when omitted
     let initial_letter = styled_dom
         .css_property_cache
         .ptr
@@ -3228,7 +3230,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             use std::num::NonZeroUsize;
             let sink = match il.sink {
                 azul_css::corety::OptionU32::Some(s) => s,
-                azul_css::corety::OptionU32::None => il.size,
+                azul_css::corety::OptionU32::None => il.size, // "drop" assumed: sink = size
             };
             text3::cache::InitialLetter {
                 size: il.size as f32,
