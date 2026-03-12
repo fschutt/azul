@@ -1517,16 +1517,20 @@ pub fn calculate_used_size_for_node(
 
     let (border_box_width, border_box_height) = match box_sizing {
         azul_css::props::layout::LayoutBoxSizing::BorderBox => {
-            // border-box: The width/height values already include border and padding
-            // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
-            // properties) on this element determine the border box of the element"
-            (constrained_width, constrained_height)
+            // +spec:box-sizing:cdfe09 - box-sizing: border-box makes width/height set the border box
+            // +spec:box-sizing:3ba6d3 - content-box floors at 0px, so border-box can't be less than padding+border
+            let min_border_box_w = _box_props.padding.left
+                + _box_props.padding.right
+                + _box_props.border.left
+                + _box_props.border.right;
+            let min_border_box_h = _box_props.padding.top
+                + _box_props.padding.bottom
+                + _box_props.border.top
+                + _box_props.border.bottom;
+            (constrained_width.max(min_border_box_w), constrained_height.max(min_border_box_h))
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
-            // content-box: The width/height values set the content size,
-            // border and padding are added outside
-            // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
-            // margin, border, padding, width, and height."
+            // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding added outside
             let border_box_width = constrained_width
                 + _box_props.padding.left
                 + _box_props.padding.right
