@@ -138,6 +138,162 @@ pub fn parse_layout_overflow<'a>(
     }
 }
 
+// -- StyleScrollbarGutter --
+
+/// Represents the `scrollbar-gutter` CSS property.
+///
+/// Controls whether space is reserved for the scrollbar, preventing
+/// layout shifts when content overflows.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleScrollbarGutter {
+    /// No scrollbar gutter is reserved.
+    #[default]
+    Auto,
+    /// Space is reserved for the scrollbar on one edge.
+    Stable,
+    /// Space is reserved for the scrollbar on both edges.
+    StableBothEdges,
+}
+
+impl PrintAsCssValue for StyleScrollbarGutter {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleScrollbarGutter::Auto => "auto",
+            StyleScrollbarGutter::Stable => "stable",
+            StyleScrollbarGutter::StableBothEdges => "stable both-edges",
+        })
+    }
+}
+
+// -- Parser for StyleScrollbarGutter
+
+/// Error returned when parsing a `scrollbar-gutter` property fails.
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleScrollbarGutterParseError<'a> {
+    /// The provided value is not a valid `scrollbar-gutter` keyword.
+    InvalidValue(&'a str),
+}
+
+impl_debug_as_display!(StyleScrollbarGutterParseError<'a>);
+impl_display! { StyleScrollbarGutterParseError<'a>, {
+    InvalidValue(val) => format!(
+        "Invalid scrollbar-gutter value: \"{}\". Expected 'auto', 'stable', or 'stable both-edges'.", val
+    ),
+}}
+
+/// An owned version of `StyleScrollbarGutterParseError`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleScrollbarGutterParseErrorOwned {
+    InvalidValue(AzString),
+}
+
+impl<'a> StyleScrollbarGutterParseError<'a> {
+    /// Converts the borrowed error into an owned error.
+    pub fn to_contained(&self) -> StyleScrollbarGutterParseErrorOwned {
+        match self {
+            StyleScrollbarGutterParseError::InvalidValue(s) => {
+                StyleScrollbarGutterParseErrorOwned::InvalidValue(s.to_string().into())
+            }
+        }
+    }
+}
+
+impl StyleScrollbarGutterParseErrorOwned {
+    /// Converts the owned error back into a borrowed error.
+    pub fn to_shared<'a>(&'a self) -> StyleScrollbarGutterParseError<'a> {
+        match self {
+            StyleScrollbarGutterParseErrorOwned::InvalidValue(s) => {
+                StyleScrollbarGutterParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `StyleScrollbarGutter` from a string slice.
+pub fn parse_style_scrollbar_gutter<'a>(
+    input: &'a str,
+) -> Result<StyleScrollbarGutter, StyleScrollbarGutterParseError<'a>> {
+    let input_trimmed = input.trim();
+    match input_trimmed {
+        "auto" => Ok(StyleScrollbarGutter::Auto),
+        "stable" => Ok(StyleScrollbarGutter::Stable),
+        "stable both-edges" => Ok(StyleScrollbarGutter::StableBothEdges),
+        _ => Err(StyleScrollbarGutterParseError::InvalidValue(input)),
+    }
+}
+
+// -- StyleOverflowClipMargin --
+
+/// Represents the `overflow-clip-margin` CSS property.
+///
+/// Determines how far outside the element's box the content may paint
+/// before being clipped when `overflow: clip` is used.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleOverflowClipMargin {
+    /// The clip margin distance.
+    pub inner: crate::props::basic::pixel::PixelValue,
+}
+
+impl PrintAsCssValue for StyleOverflowClipMargin {
+    fn print_as_css_value(&self) -> String {
+        self.inner.print_as_css_value()
+    }
+}
+
+/// Error returned when parsing an `overflow-clip-margin` property fails.
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleOverflowClipMarginParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+impl_debug_as_display!(StyleOverflowClipMarginParseError<'a>);
+impl_display! { StyleOverflowClipMarginParseError<'a>, {
+    InvalidValue(val) => format!("Invalid overflow-clip-margin value: \"{}\"", val),
+}}
+
+/// An owned version of `StyleOverflowClipMarginParseError`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleOverflowClipMarginParseErrorOwned {
+    InvalidValue(AzString),
+}
+
+impl<'a> StyleOverflowClipMarginParseError<'a> {
+    pub fn to_contained(&self) -> StyleOverflowClipMarginParseErrorOwned {
+        match self {
+            StyleOverflowClipMarginParseError::InvalidValue(s) => {
+                StyleOverflowClipMarginParseErrorOwned::InvalidValue(s.to_string().into())
+            }
+        }
+    }
+}
+
+impl StyleOverflowClipMarginParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleOverflowClipMarginParseError<'a> {
+        match self {
+            StyleOverflowClipMarginParseErrorOwned::InvalidValue(s) => {
+                StyleOverflowClipMarginParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `StyleOverflowClipMargin` from a string slice.
+pub fn parse_style_overflow_clip_margin<'a>(
+    input: &'a str,
+) -> Result<StyleOverflowClipMargin, StyleOverflowClipMarginParseError<'a>> {
+    use crate::props::basic::pixel::parse_pixel_value;
+    match parse_pixel_value(input) {
+        Ok(pv) => Ok(StyleOverflowClipMargin { inner: pv }),
+        Err(_) => Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
+    }
+}
+
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;

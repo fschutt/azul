@@ -2328,3 +2328,625 @@ mod tests {
         );
     }
 }
+
+// -- StyleUnicodeBidi --
+
+/// Represents the `unicode-bidi` CSS property.
+///
+/// Controls how bidirectional text is handled within an element.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleUnicodeBidi {
+    Normal,
+    Embed,
+    Isolate,
+    BidiOverride,
+    IsolateOverride,
+    Plaintext,
+}
+impl Default for StyleUnicodeBidi {
+    fn default() -> Self {
+        StyleUnicodeBidi::Normal
+    }
+}
+impl_option!(
+    StyleUnicodeBidi,
+    OptionStyleUnicodeBidi,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleUnicodeBidi {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleUnicodeBidi::Normal => "normal",
+            StyleUnicodeBidi::Embed => "embed",
+            StyleUnicodeBidi::Isolate => "isolate",
+            StyleUnicodeBidi::BidiOverride => "bidi-override",
+            StyleUnicodeBidi::IsolateOverride => "isolate-override",
+            StyleUnicodeBidi::Plaintext => "plaintext",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleUnicodeBidiParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleUnicodeBidiParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleUnicodeBidiParseError<'a>, {
+    InvalidValue(e) => format!("Invalid unicode-bidi value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleUnicodeBidiParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleUnicodeBidiParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleUnicodeBidiParseError<'a> {
+    pub fn to_contained(&self) -> StyleUnicodeBidiParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleUnicodeBidiParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleUnicodeBidiParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleUnicodeBidiParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleUnicodeBidiParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUnicodeBidiParseError> {
+    match input.trim() {
+        "normal" => Ok(StyleUnicodeBidi::Normal),
+        "embed" => Ok(StyleUnicodeBidi::Embed),
+        "isolate" => Ok(StyleUnicodeBidi::Isolate),
+        "bidi-override" => Ok(StyleUnicodeBidi::BidiOverride),
+        "isolate-override" => Ok(StyleUnicodeBidi::IsolateOverride),
+        "plaintext" => Ok(StyleUnicodeBidi::Plaintext),
+        other => Err(StyleUnicodeBidiParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleTextBoxTrim --
+
+/// Represents the `text-box-trim` CSS property.
+///
+/// Controls whether the leading is trimmed at the start/end of a block container.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextBoxTrim {
+    None,
+    TrimStart,
+    TrimEnd,
+    TrimBoth,
+}
+impl Default for StyleTextBoxTrim {
+    fn default() -> Self {
+        StyleTextBoxTrim::None
+    }
+}
+impl_option!(
+    StyleTextBoxTrim,
+    OptionStyleTextBoxTrim,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleTextBoxTrim {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleTextBoxTrim::None => "none",
+            StyleTextBoxTrim::TrimStart => "trim-start",
+            StyleTextBoxTrim::TrimEnd => "trim-end",
+            StyleTextBoxTrim::TrimBoth => "trim-both",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextBoxTrimParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextBoxTrimParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextBoxTrimParseError<'a>, {
+    InvalidValue(e) => format!("Invalid text-box-trim value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleTextBoxTrimParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleTextBoxTrimParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextBoxTrimParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextBoxTrimParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleTextBoxTrimParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextBoxTrimParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextBoxTrimParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleTextBoxTrimParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleTextBoxTrimParseError> {
+    match input.trim() {
+        "none" => Ok(StyleTextBoxTrim::None),
+        "trim-start" => Ok(StyleTextBoxTrim::TrimStart),
+        "trim-end" => Ok(StyleTextBoxTrim::TrimEnd),
+        "trim-both" => Ok(StyleTextBoxTrim::TrimBoth),
+        other => Err(StyleTextBoxTrimParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleTextBoxEdge --
+
+/// Represents the `text-box-edge` CSS property.
+///
+/// Specifies the metrics used for determining the over/under edges of text
+/// for the purposes of `text-box-trim`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextBoxEdge {
+    Auto,
+    TextEdge,
+    CapHeight,
+    ExHeight,
+}
+impl Default for StyleTextBoxEdge {
+    fn default() -> Self {
+        StyleTextBoxEdge::Auto
+    }
+}
+impl_option!(
+    StyleTextBoxEdge,
+    OptionStyleTextBoxEdge,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleTextBoxEdge {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleTextBoxEdge::Auto => "auto",
+            StyleTextBoxEdge::TextEdge => "text",
+            StyleTextBoxEdge::CapHeight => "cap",
+            StyleTextBoxEdge::ExHeight => "ex",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextBoxEdgeParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextBoxEdgeParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextBoxEdgeParseError<'a>, {
+    InvalidValue(e) => format!("Invalid text-box-edge value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleTextBoxEdgeParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleTextBoxEdgeParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextBoxEdgeParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextBoxEdgeParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleTextBoxEdgeParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextBoxEdgeParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextBoxEdgeParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleTextBoxEdgeParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError> {
+    match input.trim() {
+        "auto" => Ok(StyleTextBoxEdge::Auto),
+        "text" => Ok(StyleTextBoxEdge::TextEdge),
+        "cap" => Ok(StyleTextBoxEdge::CapHeight),
+        "ex" => Ok(StyleTextBoxEdge::ExHeight),
+        other => Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleDominantBaseline --
+
+/// Represents the `dominant-baseline` CSS property.
+///
+/// Specifies the dominant baseline used to align inline-level contents.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleDominantBaseline {
+    Auto,
+    TextBottom,
+    Alphabetic,
+    Ideographic,
+    Middle,
+    Central,
+    Mathematical,
+    Hanging,
+    TextTop,
+}
+impl Default for StyleDominantBaseline {
+    fn default() -> Self {
+        StyleDominantBaseline::Auto
+    }
+}
+impl_option!(
+    StyleDominantBaseline,
+    OptionStyleDominantBaseline,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleDominantBaseline {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleDominantBaseline::Auto => "auto",
+            StyleDominantBaseline::TextBottom => "text-bottom",
+            StyleDominantBaseline::Alphabetic => "alphabetic",
+            StyleDominantBaseline::Ideographic => "ideographic",
+            StyleDominantBaseline::Middle => "middle",
+            StyleDominantBaseline::Central => "central",
+            StyleDominantBaseline::Mathematical => "mathematical",
+            StyleDominantBaseline::Hanging => "hanging",
+            StyleDominantBaseline::TextTop => "text-top",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleDominantBaselineParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleDominantBaselineParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleDominantBaselineParseError<'a>, {
+    InvalidValue(e) => format!("Invalid dominant-baseline value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleDominantBaselineParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleDominantBaselineParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleDominantBaselineParseError<'a> {
+    pub fn to_contained(&self) -> StyleDominantBaselineParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleDominantBaselineParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleDominantBaselineParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleDominantBaselineParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleDominantBaselineParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaseline, StyleDominantBaselineParseError> {
+    match input.trim() {
+        "auto" => Ok(StyleDominantBaseline::Auto),
+        "text-bottom" => Ok(StyleDominantBaseline::TextBottom),
+        "alphabetic" => Ok(StyleDominantBaseline::Alphabetic),
+        "ideographic" => Ok(StyleDominantBaseline::Ideographic),
+        "middle" => Ok(StyleDominantBaseline::Middle),
+        "central" => Ok(StyleDominantBaseline::Central),
+        "mathematical" => Ok(StyleDominantBaseline::Mathematical),
+        "hanging" => Ok(StyleDominantBaseline::Hanging),
+        "text-top" => Ok(StyleDominantBaseline::TextTop),
+        other => Err(StyleDominantBaselineParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleAlignmentBaseline --
+
+/// Represents the `alignment-baseline` CSS property.
+///
+/// Specifies which baseline of the element is aligned with the dominant baseline.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleAlignmentBaseline {
+    Baseline,
+    TextBottom,
+    Alphabetic,
+    Ideographic,
+    Middle,
+    Central,
+    Mathematical,
+    TextTop,
+}
+impl Default for StyleAlignmentBaseline {
+    fn default() -> Self {
+        StyleAlignmentBaseline::Baseline
+    }
+}
+impl_option!(
+    StyleAlignmentBaseline,
+    OptionStyleAlignmentBaseline,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleAlignmentBaseline {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleAlignmentBaseline::Baseline => "baseline",
+            StyleAlignmentBaseline::TextBottom => "text-bottom",
+            StyleAlignmentBaseline::Alphabetic => "alphabetic",
+            StyleAlignmentBaseline::Ideographic => "ideographic",
+            StyleAlignmentBaseline::Middle => "middle",
+            StyleAlignmentBaseline::Central => "central",
+            StyleAlignmentBaseline::Mathematical => "mathematical",
+            StyleAlignmentBaseline::TextTop => "text-top",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleAlignmentBaselineParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleAlignmentBaselineParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleAlignmentBaselineParseError<'a>, {
+    InvalidValue(e) => format!("Invalid alignment-baseline value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleAlignmentBaselineParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleAlignmentBaselineParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleAlignmentBaselineParseError<'a> {
+    pub fn to_contained(&self) -> StyleAlignmentBaselineParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleAlignmentBaselineParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleAlignmentBaselineParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleAlignmentBaselineParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleAlignmentBaselineParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBaseline, StyleAlignmentBaselineParseError> {
+    match input.trim() {
+        "baseline" => Ok(StyleAlignmentBaseline::Baseline),
+        "text-bottom" => Ok(StyleAlignmentBaseline::TextBottom),
+        "alphabetic" => Ok(StyleAlignmentBaseline::Alphabetic),
+        "ideographic" => Ok(StyleAlignmentBaseline::Ideographic),
+        "middle" => Ok(StyleAlignmentBaseline::Middle),
+        "central" => Ok(StyleAlignmentBaseline::Central),
+        "mathematical" => Ok(StyleAlignmentBaseline::Mathematical),
+        "text-top" => Ok(StyleAlignmentBaseline::TextTop),
+        other => Err(StyleAlignmentBaselineParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleInitialLetterAlign --
+
+/// Represents the `initial-letter-align` CSS property.
+///
+/// Specifies the alignment points used to align an initial letter.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleInitialLetterAlign {
+    Auto,
+    Alphabetic,
+    Hanging,
+    Ideographic,
+}
+impl Default for StyleInitialLetterAlign {
+    fn default() -> Self {
+        StyleInitialLetterAlign::Auto
+    }
+}
+impl_option!(
+    StyleInitialLetterAlign,
+    OptionStyleInitialLetterAlign,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleInitialLetterAlign {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleInitialLetterAlign::Auto => "auto",
+            StyleInitialLetterAlign::Alphabetic => "alphabetic",
+            StyleInitialLetterAlign::Hanging => "hanging",
+            StyleInitialLetterAlign::Ideographic => "ideographic",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleInitialLetterAlignParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleInitialLetterAlignParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleInitialLetterAlignParseError<'a>, {
+    InvalidValue(e) => format!("Invalid initial-letter-align value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleInitialLetterAlignParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleInitialLetterAlignParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleInitialLetterAlignParseError<'a> {
+    pub fn to_contained(&self) -> StyleInitialLetterAlignParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleInitialLetterAlignParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleInitialLetterAlignParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleInitialLetterAlignParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleInitialLetterAlignParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLetterAlign, StyleInitialLetterAlignParseError> {
+    match input.trim() {
+        "auto" => Ok(StyleInitialLetterAlign::Auto),
+        "alphabetic" => Ok(StyleInitialLetterAlign::Alphabetic),
+        "hanging" => Ok(StyleInitialLetterAlign::Hanging),
+        "ideographic" => Ok(StyleInitialLetterAlign::Ideographic),
+        other => Err(StyleInitialLetterAlignParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleInitialLetterWrap --
+
+/// Represents the `initial-letter-wrap` CSS property.
+///
+/// Specifies how text adjacent to an initial letter wraps.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleInitialLetterWrap {
+    None,
+    First,
+    All,
+    Grid,
+}
+impl Default for StyleInitialLetterWrap {
+    fn default() -> Self {
+        StyleInitialLetterWrap::None
+    }
+}
+impl_option!(
+    StyleInitialLetterWrap,
+    OptionStyleInitialLetterWrap,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleInitialLetterWrap {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleInitialLetterWrap::None => "none",
+            StyleInitialLetterWrap::First => "first",
+            StyleInitialLetterWrap::All => "all",
+            StyleInitialLetterWrap::Grid => "grid",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleInitialLetterWrapParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleInitialLetterWrapParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleInitialLetterWrapParseError<'a>, {
+    InvalidValue(e) => format!("Invalid initial-letter-wrap value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleInitialLetterWrapParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum StyleInitialLetterWrapParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleInitialLetterWrapParseError<'a> {
+    pub fn to_contained(&self) -> StyleInitialLetterWrapParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleInitialLetterWrapParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleInitialLetterWrapParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleInitialLetterWrapParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleInitialLetterWrapParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_initial_letter_wrap(input: &str) -> Result<StyleInitialLetterWrap, StyleInitialLetterWrapParseError> {
+    match input.trim() {
+        "none" => Ok(StyleInitialLetterWrap::None),
+        "first" => Ok(StyleInitialLetterWrap::First),
+        "all" => Ok(StyleInitialLetterWrap::All),
+        "grid" => Ok(StyleInitialLetterWrap::Grid),
+        other => Err(StyleInitialLetterWrapParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}

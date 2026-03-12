@@ -72,7 +72,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 166] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 175] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -107,6 +107,15 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 166] = [
     (CssPropertyType::LineClamp, "line-clamp"),
     (CssPropertyType::HangingPunctuation, "hanging-punctuation"),
     (CssPropertyType::TextCombineUpright, "text-combine-upright"),
+    (CssPropertyType::UnicodeBidi, "unicode-bidi"),
+    (CssPropertyType::TextBoxTrim, "text-box-trim"),
+    (CssPropertyType::TextBoxEdge, "text-box-edge"),
+    (CssPropertyType::DominantBaseline, "dominant-baseline"),
+    (CssPropertyType::AlignmentBaseline, "alignment-baseline"),
+    (CssPropertyType::InitialLetterAlign, "initial-letter-align"),
+    (CssPropertyType::InitialLetterWrap, "initial-letter-wrap"),
+    (CssPropertyType::ScrollbarGutter, "scrollbar-gutter"),
+    (CssPropertyType::OverflowClipMargin, "overflow-clip-margin"),
     (CssPropertyType::ExclusionMargin, "-azul-exclusion-margin"),
     (
         CssPropertyType::HyphenationLanguage,
@@ -294,6 +303,15 @@ pub type StyleInitialLetterValue = CssPropertyValue<StyleInitialLetter>;
 pub type StyleLineClampValue = CssPropertyValue<StyleLineClamp>;
 pub type StyleHangingPunctuationValue = CssPropertyValue<StyleHangingPunctuation>;
 pub type StyleTextCombineUprightValue = CssPropertyValue<StyleTextCombineUpright>;
+pub type StyleUnicodeBidiValue = CssPropertyValue<StyleUnicodeBidi>;
+pub type StyleTextBoxTrimValue = CssPropertyValue<StyleTextBoxTrim>;
+pub type StyleTextBoxEdgeValue = CssPropertyValue<StyleTextBoxEdge>;
+pub type StyleDominantBaselineValue = CssPropertyValue<StyleDominantBaseline>;
+pub type StyleAlignmentBaselineValue = CssPropertyValue<StyleAlignmentBaseline>;
+pub type StyleInitialLetterAlignValue = CssPropertyValue<StyleInitialLetterAlign>;
+pub type StyleInitialLetterWrapValue = CssPropertyValue<StyleInitialLetterWrap>;
+pub type StyleScrollbarGutterValue = CssPropertyValue<StyleScrollbarGutter>;
+pub type StyleOverflowClipMarginValue = CssPropertyValue<StyleOverflowClipMargin>;
 pub type StyleExclusionMarginValue = CssPropertyValue<StyleExclusionMargin>;
 pub type StyleHyphenationLanguageValue = CssPropertyValue<StyleHyphenationLanguage>;
 pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
@@ -544,6 +562,15 @@ pub enum CssProperty {
     LineClamp(StyleLineClampValue),
     HangingPunctuation(StyleHangingPunctuationValue),
     TextCombineUpright(StyleTextCombineUprightValue),
+    UnicodeBidi(StyleUnicodeBidiValue),
+    TextBoxTrim(StyleTextBoxTrimValue),
+    TextBoxEdge(StyleTextBoxEdgeValue),
+    DominantBaseline(StyleDominantBaselineValue),
+    AlignmentBaseline(StyleAlignmentBaselineValue),
+    InitialLetterAlign(StyleInitialLetterAlignValue),
+    InitialLetterWrap(StyleInitialLetterWrapValue),
+    ScrollbarGutter(StyleScrollbarGutterValue),
+    OverflowClipMargin(StyleOverflowClipMarginValue),
     ExclusionMargin(StyleExclusionMarginValue),
     HyphenationLanguage(StyleHyphenationLanguageValue),
     LineHeight(StyleLineHeightValue),
@@ -781,6 +808,15 @@ pub enum CssPropertyType {
     LineClamp,
     HangingPunctuation,
     TextCombineUpright,
+    UnicodeBidi,
+    TextBoxTrim,
+    TextBoxEdge,
+    DominantBaseline,
+    AlignmentBaseline,
+    InitialLetterAlign,
+    InitialLetterWrap,
+    ScrollbarGutter,
+    OverflowClipMargin,
     ExclusionMargin,
     HyphenationLanguage,
     LineHeight,
@@ -988,6 +1024,15 @@ impl CssPropertyType {
             CssPropertyType::LineClamp => "line-clamp",
             CssPropertyType::HangingPunctuation => "hanging-punctuation",
             CssPropertyType::TextCombineUpright => "text-combine-upright",
+            CssPropertyType::UnicodeBidi => "unicode-bidi",
+            CssPropertyType::TextBoxTrim => "text-box-trim",
+            CssPropertyType::TextBoxEdge => "text-box-edge",
+            CssPropertyType::DominantBaseline => "dominant-baseline",
+            CssPropertyType::AlignmentBaseline => "alignment-baseline",
+            CssPropertyType::InitialLetterAlign => "initial-letter-align",
+            CssPropertyType::InitialLetterWrap => "initial-letter-wrap",
+            CssPropertyType::ScrollbarGutter => "scrollbar-gutter",
+            CssPropertyType::OverflowClipMargin => "overflow-clip-margin",
             CssPropertyType::ExclusionMargin => "-azul-exclusion-margin",
             CssPropertyType::HyphenationLanguage => "-azul-hyphenation-language",
             CssPropertyType::LineHeight => "line-height",
@@ -1151,7 +1196,7 @@ impl CssPropertyType {
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
             WordBreak | OverflowWrap | LineBreak | TextAlignLast |
-            TextOrientation |
+            TextOrientation | UnicodeBidi |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
 
             // List properties
@@ -1298,7 +1343,9 @@ impl CssPropertyType {
             | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration
             | HangingPunctuation | InitialLetter | LineClamp
-            | Direction | VerticalAlign => {
+            | Direction | VerticalAlign | UnicodeBidi
+            | TextBoxTrim | TextBoxEdge | DominantBaseline | AlignmentBaseline
+            | InitialLetterAlign | InitialLetterWrap => {
                 if node_is_ifc_member {
                     RelayoutScope::IfcOnly
                 } else {
@@ -1318,7 +1365,8 @@ impl CssPropertyType {
             | PaddingInlineStart | PaddingInlineEnd
             | BorderTopWidth | BorderRightWidth | BorderBottomWidth
             | BorderLeftWidth | BoxSizing
-            | ScrollbarWidth | ScrollbarVisibility => RelayoutScope::SizingOnly,
+            | ScrollbarWidth | ScrollbarVisibility
+            | ScrollbarGutter | OverflowClipMargin => RelayoutScope::SizingOnly,
 
             // Everything else: display, position, float, margin, flex-*,
             // grid-*, overflow, writing-mode, etc. — full relayout.
@@ -1376,6 +1424,15 @@ pub enum CssParsingError<'a> {
     LineClamp(StyleLineClampParseError<'a>),
     HangingPunctuation(StyleHangingPunctuationParseError<'a>),
     TextCombineUpright(StyleTextCombineUprightParseError<'a>),
+    UnicodeBidi(StyleUnicodeBidiParseError<'a>),
+    TextBoxTrim(StyleTextBoxTrimParseError<'a>),
+    TextBoxEdge(StyleTextBoxEdgeParseError<'a>),
+    DominantBaseline(StyleDominantBaselineParseError<'a>),
+    AlignmentBaseline(StyleAlignmentBaselineParseError<'a>),
+    InitialLetterAlign(StyleInitialLetterAlignParseError<'a>),
+    InitialLetterWrap(StyleInitialLetterWrapParseError<'a>),
+    ScrollbarGutter(StyleScrollbarGutterParseError<'a>),
+    OverflowClipMargin(StyleOverflowClipMarginParseError<'a>),
     ExclusionMargin(StyleExclusionMarginParseError),
     HyphenationLanguage(StyleHyphenationLanguageParseError),
     LineHeight(StyleLineHeightParseError),
@@ -1536,6 +1593,15 @@ pub enum CssParsingErrorOwned {
     LineClamp(StyleLineClampParseErrorOwned),
     HangingPunctuation(StyleHangingPunctuationParseErrorOwned),
     TextCombineUpright(StyleTextCombineUprightParseErrorOwned),
+    UnicodeBidi(StyleUnicodeBidiParseErrorOwned),
+    TextBoxTrim(StyleTextBoxTrimParseErrorOwned),
+    TextBoxEdge(StyleTextBoxEdgeParseErrorOwned),
+    DominantBaseline(StyleDominantBaselineParseErrorOwned),
+    AlignmentBaseline(StyleAlignmentBaselineParseErrorOwned),
+    InitialLetterAlign(StyleInitialLetterAlignParseErrorOwned),
+    InitialLetterWrap(StyleInitialLetterWrapParseErrorOwned),
+    ScrollbarGutter(StyleScrollbarGutterParseErrorOwned),
+    OverflowClipMargin(StyleOverflowClipMarginParseErrorOwned),
     ExclusionMargin(StyleExclusionMarginParseErrorOwned),
     HyphenationLanguage(StyleHyphenationLanguageParseErrorOwned),
     LineHeight(StyleLineHeightParseError),
@@ -1731,6 +1797,15 @@ impl_display! { CssParsingError<'a>, {
     LineClamp(e) => format!("Invalid line-clamp: {}", e),
     HangingPunctuation(e) => format!("Invalid hanging-punctuation: {}", e),
     TextCombineUpright(e) => format!("Invalid text-combine-upright: {}", e),
+    UnicodeBidi(e) => format!("Invalid unicode-bidi: {}", e),
+    TextBoxTrim(e) => format!("Invalid text-box-trim: {}", e),
+    TextBoxEdge(e) => format!("Invalid text-box-edge: {}", e),
+    DominantBaseline(e) => format!("Invalid dominant-baseline: {}", e),
+    AlignmentBaseline(e) => format!("Invalid alignment-baseline: {}", e),
+    InitialLetterAlign(e) => format!("Invalid initial-letter-align: {}", e),
+    InitialLetterWrap(e) => format!("Invalid initial-letter-wrap: {}", e),
+    ScrollbarGutter(e) => format!("Invalid scrollbar-gutter: {}", e),
+    OverflowClipMargin(e) => format!("Invalid overflow-clip-margin: {}", e),
     ExclusionMargin(e) => format!("Invalid -azul-exclusion-margin: {}", e),
     HyphenationLanguage(e) => format!("Invalid -azul-hyphenation-language: {}", e),
     LineHeight(e) => format!("Invalid line-height: {}", e),
@@ -1808,6 +1883,42 @@ impl_from!(
 impl_from!(
     StyleTextCombineUprightParseError<'a>,
     CssParsingError::TextCombineUpright
+);
+impl_from!(
+    StyleUnicodeBidiParseError<'a>,
+    CssParsingError::UnicodeBidi
+);
+impl_from!(
+    StyleTextBoxTrimParseError<'a>,
+    CssParsingError::TextBoxTrim
+);
+impl_from!(
+    StyleTextBoxEdgeParseError<'a>,
+    CssParsingError::TextBoxEdge
+);
+impl_from!(
+    StyleDominantBaselineParseError<'a>,
+    CssParsingError::DominantBaseline
+);
+impl_from!(
+    StyleAlignmentBaselineParseError<'a>,
+    CssParsingError::AlignmentBaseline
+);
+impl_from!(
+    StyleInitialLetterAlignParseError<'a>,
+    CssParsingError::InitialLetterAlign
+);
+impl_from!(
+    StyleInitialLetterWrapParseError<'a>,
+    CssParsingError::InitialLetterWrap
+);
+impl_from!(
+    StyleScrollbarGutterParseError<'a>,
+    CssParsingError::ScrollbarGutter
+);
+impl_from!(
+    StyleOverflowClipMarginParseError<'a>,
+    CssParsingError::OverflowClipMargin
 );
 
 // Manual From implementation for StyleExclusionMarginParseError (no lifetime)
@@ -2216,6 +2327,15 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::TextCombineUpright(e) => {
                 CssParsingErrorOwned::TextCombineUpright(e.to_contained())
             }
+            CssParsingError::UnicodeBidi(e) => CssParsingErrorOwned::UnicodeBidi(e.to_contained()),
+            CssParsingError::TextBoxTrim(e) => CssParsingErrorOwned::TextBoxTrim(e.to_contained()),
+            CssParsingError::TextBoxEdge(e) => CssParsingErrorOwned::TextBoxEdge(e.to_contained()),
+            CssParsingError::DominantBaseline(e) => CssParsingErrorOwned::DominantBaseline(e.to_contained()),
+            CssParsingError::AlignmentBaseline(e) => CssParsingErrorOwned::AlignmentBaseline(e.to_contained()),
+            CssParsingError::InitialLetterAlign(e) => CssParsingErrorOwned::InitialLetterAlign(e.to_contained()),
+            CssParsingError::InitialLetterWrap(e) => CssParsingErrorOwned::InitialLetterWrap(e.to_contained()),
+            CssParsingError::ScrollbarGutter(e) => CssParsingErrorOwned::ScrollbarGutter(e.to_contained()),
+            CssParsingError::OverflowClipMargin(e) => CssParsingErrorOwned::OverflowClipMargin(e.to_contained()),
             CssParsingError::ExclusionMargin(e) => {
                 CssParsingErrorOwned::ExclusionMargin(e.to_contained())
             }
@@ -2422,6 +2542,15 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::TextCombineUpright(e) => {
                 CssParsingError::TextCombineUpright(e.to_shared())
             }
+            CssParsingErrorOwned::UnicodeBidi(e) => CssParsingError::UnicodeBidi(e.to_shared()),
+            CssParsingErrorOwned::TextBoxTrim(e) => CssParsingError::TextBoxTrim(e.to_shared()),
+            CssParsingErrorOwned::TextBoxEdge(e) => CssParsingError::TextBoxEdge(e.to_shared()),
+            CssParsingErrorOwned::DominantBaseline(e) => CssParsingError::DominantBaseline(e.to_shared()),
+            CssParsingErrorOwned::AlignmentBaseline(e) => CssParsingError::AlignmentBaseline(e.to_shared()),
+            CssParsingErrorOwned::InitialLetterAlign(e) => CssParsingError::InitialLetterAlign(e.to_shared()),
+            CssParsingErrorOwned::InitialLetterWrap(e) => CssParsingError::InitialLetterWrap(e.to_shared()),
+            CssParsingErrorOwned::ScrollbarGutter(e) => CssParsingError::ScrollbarGutter(e.to_shared()),
+            CssParsingErrorOwned::OverflowClipMargin(e) => CssParsingError::OverflowClipMargin(e.to_shared()),
             CssParsingErrorOwned::ExclusionMargin(e) => {
                 CssParsingError::ExclusionMargin(e.to_shared())
             }
@@ -2559,6 +2688,15 @@ pub fn parse_css_property<'a>(
             CssPropertyType::LineClamp => parse_style_line_clamp(value)?.into(),
             CssPropertyType::HangingPunctuation => parse_style_hanging_punctuation(value)?.into(),
             CssPropertyType::TextCombineUpright => parse_style_text_combine_upright(value)?.into(),
+            CssPropertyType::UnicodeBidi => parse_style_unicode_bidi(value)?.into(),
+            CssPropertyType::TextBoxTrim => parse_style_text_box_trim(value)?.into(),
+            CssPropertyType::TextBoxEdge => parse_style_text_box_edge(value)?.into(),
+            CssPropertyType::DominantBaseline => parse_style_dominant_baseline(value)?.into(),
+            CssPropertyType::AlignmentBaseline => parse_style_alignment_baseline(value)?.into(),
+            CssPropertyType::InitialLetterAlign => parse_style_initial_letter_align(value)?.into(),
+            CssPropertyType::InitialLetterWrap => parse_style_initial_letter_wrap(value)?.into(),
+            CssPropertyType::ScrollbarGutter => parse_style_scrollbar_gutter(value)?.into(),
+            CssPropertyType::OverflowClipMargin => parse_style_overflow_clip_margin(value)?.into(),
             CssPropertyType::ExclusionMargin => parse_style_exclusion_margin(value)?.into(),
             CssPropertyType::HyphenationLanguage => parse_style_hyphenation_language(value)?.into(),
             CssPropertyType::LineHeight => parse_style_line_height(value)?.into(),
@@ -3610,6 +3748,15 @@ impl_from_css_prop!(StyleInitialLetter, CssProperty::InitialLetter);
 impl_from_css_prop!(StyleLineClamp, CssProperty::LineClamp);
 impl_from_css_prop!(StyleHangingPunctuation, CssProperty::HangingPunctuation);
 impl_from_css_prop!(StyleTextCombineUpright, CssProperty::TextCombineUpright);
+impl_from_css_prop!(StyleUnicodeBidi, CssProperty::UnicodeBidi);
+impl_from_css_prop!(StyleTextBoxTrim, CssProperty::TextBoxTrim);
+impl_from_css_prop!(StyleTextBoxEdge, CssProperty::TextBoxEdge);
+impl_from_css_prop!(StyleDominantBaseline, CssProperty::DominantBaseline);
+impl_from_css_prop!(StyleAlignmentBaseline, CssProperty::AlignmentBaseline);
+impl_from_css_prop!(StyleInitialLetterAlign, CssProperty::InitialLetterAlign);
+impl_from_css_prop!(StyleInitialLetterWrap, CssProperty::InitialLetterWrap);
+impl_from_css_prop!(StyleScrollbarGutter, CssProperty::ScrollbarGutter);
+impl_from_css_prop!(StyleOverflowClipMargin, CssProperty::OverflowClipMargin);
 impl_from_css_prop!(StyleExclusionMargin, CssProperty::ExclusionMargin);
 impl_from_css_prop!(StyleHyphenationLanguage, CssProperty::HyphenationLanguage);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
@@ -3765,6 +3912,15 @@ impl CssProperty {
             CssProperty::LineClamp(v) => v.get_css_value_fmt(),
             CssProperty::HangingPunctuation(v) => v.get_css_value_fmt(),
             CssProperty::TextCombineUpright(v) => v.get_css_value_fmt(),
+            CssProperty::UnicodeBidi(v) => v.get_css_value_fmt(),
+            CssProperty::TextBoxTrim(v) => v.get_css_value_fmt(),
+            CssProperty::TextBoxEdge(v) => v.get_css_value_fmt(),
+            CssProperty::DominantBaseline(v) => v.get_css_value_fmt(),
+            CssProperty::AlignmentBaseline(v) => v.get_css_value_fmt(),
+            CssProperty::InitialLetterAlign(v) => v.get_css_value_fmt(),
+            CssProperty::InitialLetterWrap(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarGutter(v) => v.get_css_value_fmt(),
+            CssProperty::OverflowClipMargin(v) => v.get_css_value_fmt(),
             CssProperty::ExclusionMargin(v) => v.get_css_value_fmt(),
             CssProperty::HyphenationLanguage(v) => v.get_css_value_fmt(),
             CssProperty::LineHeight(v) => v.get_css_value_fmt(),
@@ -4228,6 +4384,15 @@ impl CssProperty {
             CssProperty::LineClamp(_) => CssPropertyType::LineClamp,
             CssProperty::HangingPunctuation(_) => CssPropertyType::HangingPunctuation,
             CssProperty::TextCombineUpright(_) => CssPropertyType::TextCombineUpright,
+            CssProperty::UnicodeBidi(_) => CssPropertyType::UnicodeBidi,
+            CssProperty::TextBoxTrim(_) => CssPropertyType::TextBoxTrim,
+            CssProperty::TextBoxEdge(_) => CssPropertyType::TextBoxEdge,
+            CssProperty::DominantBaseline(_) => CssPropertyType::DominantBaseline,
+            CssProperty::AlignmentBaseline(_) => CssPropertyType::AlignmentBaseline,
+            CssProperty::InitialLetterAlign(_) => CssPropertyType::InitialLetterAlign,
+            CssProperty::InitialLetterWrap(_) => CssPropertyType::InitialLetterWrap,
+            CssProperty::ScrollbarGutter(_) => CssPropertyType::ScrollbarGutter,
+            CssProperty::OverflowClipMargin(_) => CssPropertyType::OverflowClipMargin,
             CssProperty::ExclusionMargin(_) => CssPropertyType::ExclusionMargin,
             CssProperty::HyphenationLanguage(_) => CssPropertyType::HyphenationLanguage,
             CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
@@ -5078,6 +5243,60 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_unicode_bidi(&self) -> Option<&StyleUnicodeBidiValue> {
+        match self {
+            CssProperty::UnicodeBidi(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_box_trim(&self) -> Option<&StyleTextBoxTrimValue> {
+        match self {
+            CssProperty::TextBoxTrim(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_box_edge(&self) -> Option<&StyleTextBoxEdgeValue> {
+        match self {
+            CssProperty::TextBoxEdge(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_dominant_baseline(&self) -> Option<&StyleDominantBaselineValue> {
+        match self {
+            CssProperty::DominantBaseline(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_alignment_baseline(&self) -> Option<&StyleAlignmentBaselineValue> {
+        match self {
+            CssProperty::AlignmentBaseline(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_initial_letter_align(&self) -> Option<&StyleInitialLetterAlignValue> {
+        match self {
+            CssProperty::InitialLetterAlign(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_initial_letter_wrap(&self) -> Option<&StyleInitialLetterWrapValue> {
+        match self {
+            CssProperty::InitialLetterWrap(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_scrollbar_gutter(&self) -> Option<&StyleScrollbarGutterValue> {
+        match self {
+            CssProperty::ScrollbarGutter(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_overflow_clip_margin(&self) -> Option<&StyleOverflowClipMarginValue> {
+        match self {
+            CssProperty::OverflowClipMargin(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_exclusion_margin(&self) -> Option<&StyleExclusionMarginValue> {
         match self {
             CssProperty::ExclusionMargin(f) => Some(f),
@@ -5799,6 +6018,15 @@ impl CssProperty {
             LineClamp(c) => c.is_initial(),
             HangingPunctuation(c) => c.is_initial(),
             TextCombineUpright(c) => c.is_initial(),
+            UnicodeBidi(c) => c.is_initial(),
+            TextBoxTrim(c) => c.is_initial(),
+            TextBoxEdge(c) => c.is_initial(),
+            DominantBaseline(c) => c.is_initial(),
+            AlignmentBaseline(c) => c.is_initial(),
+            InitialLetterAlign(c) => c.is_initial(),
+            InitialLetterWrap(c) => c.is_initial(),
+            ScrollbarGutter(c) => c.is_initial(),
+            OverflowClipMargin(c) => c.is_initial(),
             ExclusionMargin(c) => c.is_initial(),
             HyphenationLanguage(c) => c.is_initial(),
             LineHeight(c) => c.is_initial(),
@@ -6350,6 +6578,42 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::TextCombineUpright(p) => format!(
             "CssProperty::TextCombineUpright({})",
             print_css_property_value(p, tabs, "StyleTextCombineUpright")
+        ),
+        CssProperty::UnicodeBidi(p) => format!(
+            "CssProperty::UnicodeBidi({})",
+            print_css_property_value(p, tabs, "StyleUnicodeBidi")
+        ),
+        CssProperty::TextBoxTrim(p) => format!(
+            "CssProperty::TextBoxTrim({})",
+            print_css_property_value(p, tabs, "StyleTextBoxTrim")
+        ),
+        CssProperty::TextBoxEdge(p) => format!(
+            "CssProperty::TextBoxEdge({})",
+            print_css_property_value(p, tabs, "StyleTextBoxEdge")
+        ),
+        CssProperty::DominantBaseline(p) => format!(
+            "CssProperty::DominantBaseline({})",
+            print_css_property_value(p, tabs, "StyleDominantBaseline")
+        ),
+        CssProperty::AlignmentBaseline(p) => format!(
+            "CssProperty::AlignmentBaseline({})",
+            print_css_property_value(p, tabs, "StyleAlignmentBaseline")
+        ),
+        CssProperty::InitialLetterAlign(p) => format!(
+            "CssProperty::InitialLetterAlign({})",
+            print_css_property_value(p, tabs, "StyleInitialLetterAlign")
+        ),
+        CssProperty::InitialLetterWrap(p) => format!(
+            "CssProperty::InitialLetterWrap({})",
+            print_css_property_value(p, tabs, "StyleInitialLetterWrap")
+        ),
+        CssProperty::ScrollbarGutter(p) => format!(
+            "CssProperty::ScrollbarGutter({})",
+            print_css_property_value(p, tabs, "StyleScrollbarGutter")
+        ),
+        CssProperty::OverflowClipMargin(p) => format!(
+            "CssProperty::OverflowClipMargin({})",
+            print_css_property_value(p, tabs, "StyleOverflowClipMargin")
         ),
         CssProperty::ExclusionMargin(p) => format!(
             "CssProperty::ExclusionMargin({})",

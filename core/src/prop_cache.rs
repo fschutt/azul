@@ -95,7 +95,12 @@ use azul_css::{
             StyleScrollbarColorValue, StyleOverflowWrapValue, StyleTabSizeValue,
             StyleTextAlignLastValue, StyleTextOrientationValue,
             StyleTextAlignValue, StyleTextColorValue,
-            StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
+            StyleTextCombineUprightValue, StyleUnicodeBidiValue,
+            StyleTextBoxTrimValue, StyleTextBoxEdgeValue,
+            StyleDominantBaselineValue, StyleAlignmentBaselineValue,
+            StyleInitialLetterAlignValue, StyleInitialLetterWrapValue,
+            StyleScrollbarGutterValue, StyleOverflowClipMarginValue,
+            StyleTextDecorationValue, StyleTextIndentValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
             StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
@@ -143,6 +148,15 @@ macro_rules! match_property_value {
             CssProperty::LineClamp($value) => $expr,
             CssProperty::HangingPunctuation($value) => $expr,
             CssProperty::TextCombineUpright($value) => $expr,
+            CssProperty::UnicodeBidi($value) => $expr,
+            CssProperty::TextBoxTrim($value) => $expr,
+            CssProperty::TextBoxEdge($value) => $expr,
+            CssProperty::DominantBaseline($value) => $expr,
+            CssProperty::AlignmentBaseline($value) => $expr,
+            CssProperty::InitialLetterAlign($value) => $expr,
+            CssProperty::InitialLetterWrap($value) => $expr,
+            CssProperty::ScrollbarGutter($value) => $expr,
+            CssProperty::OverflowClipMargin($value) => $expr,
             CssProperty::ExclusionMargin($value) => $expr,
             CssProperty::HyphenationLanguage($value) => $expr,
             CssProperty::LineHeight($value) => $expr,
@@ -1265,6 +1279,33 @@ impl CssPropertyCache {
         if let Some(p) = self.get_direction(&node_data, node_id, node_state) {
             s.push_str(&format!("direction: {};", p.get_css_value_fmt()));
         }
+        if let Some(p) = self.get_unicode_bidi(&node_data, node_id, node_state) {
+            s.push_str(&format!("unicode-bidi: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_text_box_trim(&node_data, node_id, node_state) {
+            s.push_str(&format!("text-box-trim: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_text_box_edge(&node_data, node_id, node_state) {
+            s.push_str(&format!("text-box-edge: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_dominant_baseline(&node_data, node_id, node_state) {
+            s.push_str(&format!("dominant-baseline: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_alignment_baseline(&node_data, node_id, node_state) {
+            s.push_str(&format!("alignment-baseline: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_initial_letter_align(&node_data, node_id, node_state) {
+            s.push_str(&format!("initial-letter-align: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_initial_letter_wrap(&node_data, node_id, node_state) {
+            s.push_str(&format!("initial-letter-wrap: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_scrollbar_gutter(&node_data, node_id, node_state) {
+            s.push_str(&format!("scrollbar-gutter: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_overflow_clip_margin(&node_data, node_id, node_state) {
+            s.push_str(&format!("overflow-clip-margin: {};", p.get_css_value_fmt()));
+        }
         if let Some(p) = self.get_white_space(&node_data, node_id, node_state) {
             s.push_str(&format!("white-space: {};", p.get_css_value_fmt()));
         }
@@ -2019,6 +2060,96 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleDirectionValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::Direction)
             .and_then(|p| p.as_direction())
+    }
+
+    pub fn get_unicode_bidi<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleUnicodeBidiValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::UnicodeBidi)
+            .and_then(|p| p.as_unicode_bidi())
+    }
+
+    pub fn get_text_box_trim<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextBoxTrimValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextBoxTrim)
+            .and_then(|p| p.as_text_box_trim())
+    }
+
+    pub fn get_text_box_edge<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextBoxEdgeValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextBoxEdge)
+            .and_then(|p| p.as_text_box_edge())
+    }
+
+    pub fn get_dominant_baseline<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleDominantBaselineValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::DominantBaseline)
+            .and_then(|p| p.as_dominant_baseline())
+    }
+
+    pub fn get_alignment_baseline<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleAlignmentBaselineValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignmentBaseline)
+            .and_then(|p| p.as_alignment_baseline())
+    }
+
+    pub fn get_initial_letter_align<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleInitialLetterAlignValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::InitialLetterAlign)
+            .and_then(|p| p.as_initial_letter_align())
+    }
+
+    pub fn get_initial_letter_wrap<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleInitialLetterWrapValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::InitialLetterWrap)
+            .and_then(|p| p.as_initial_letter_wrap())
+    }
+
+    pub fn get_scrollbar_gutter<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleScrollbarGutterValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarGutter)
+            .and_then(|p| p.as_scrollbar_gutter())
+    }
+
+    pub fn get_overflow_clip_margin<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleOverflowClipMarginValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowClipMargin)
+            .and_then(|p| p.as_overflow_clip_margin())
     }
 
     // Method for getting white-space property

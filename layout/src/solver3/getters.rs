@@ -22,6 +22,7 @@ use azul_css::{
             LayoutFlexDirection, LayoutFlexWrap, LayoutFloat, LayoutHeight,
             LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent, LayoutOverflow,
             LayoutPosition, LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
+            StyleScrollbarGutter, StyleOverflowClipMargin,
             grid::GridTemplateAreas,
         },
         property::{CssProperty, CssPropertyType,
@@ -39,6 +40,9 @@ use azul_css::{
             lists::{StyleListStylePosition, StyleListStyleType},
             StyleDirection, StyleTextAlign, StyleUserSelect, StyleVerticalAlign,
             StyleVisibility, StyleWhiteSpace,
+            StyleUnicodeBidi, StyleTextBoxTrim, StyleTextBoxEdge,
+            StyleDominantBaseline, StyleAlignmentBaseline,
+            StyleInitialLetterAlign, StyleInitialLetterWrap,
         },
     },
 };
@@ -838,6 +842,87 @@ impl ExtractPropertyValue<StyleDirection> for azul_css::props::property::CssProp
     }
 }
 
+impl ExtractPropertyValue<StyleUnicodeBidi> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleUnicodeBidi> {
+        match self {
+            Self::UnicodeBidi(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleTextBoxTrim> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleTextBoxTrim> {
+        match self {
+            Self::TextBoxTrim(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleTextBoxEdge> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleTextBoxEdge> {
+        match self {
+            Self::TextBoxEdge(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleDominantBaseline> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleDominantBaseline> {
+        match self {
+            Self::DominantBaseline(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleAlignmentBaseline> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleAlignmentBaseline> {
+        match self {
+            Self::AlignmentBaseline(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleInitialLetterAlign> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleInitialLetterAlign> {
+        match self {
+            Self::InitialLetterAlign(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleInitialLetterWrap> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleInitialLetterWrap> {
+        match self {
+            Self::InitialLetterWrap(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleScrollbarGutter> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleScrollbarGutter> {
+        match self {
+            Self::ScrollbarGutter(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleOverflowClipMargin> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleOverflowClipMargin> {
+        match self {
+            Self::OverflowClipMargin(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<StyleVerticalAlign> for azul_css::props::property::CssProperty {
     fn extract(&self) -> Option<StyleVerticalAlign> {
         match self {
@@ -1005,6 +1090,78 @@ get_css_property!(
     StyleDirection,
     azul_css::props::property::CssPropertyType::Direction,
     compact = get_direction
+);
+
+get_css_property!(
+    get_unicode_bidi_property,
+    get_unicode_bidi,
+    StyleUnicodeBidi,
+    azul_css::props::property::CssPropertyType::UnicodeBidi,
+    compact = get_unicode_bidi
+);
+
+get_css_property!(
+    get_text_box_trim_property,
+    get_text_box_trim,
+    StyleTextBoxTrim,
+    azul_css::props::property::CssPropertyType::TextBoxTrim,
+    compact = get_text_box_trim
+);
+
+get_css_property!(
+    get_text_box_edge_property,
+    get_text_box_edge,
+    StyleTextBoxEdge,
+    azul_css::props::property::CssPropertyType::TextBoxEdge,
+    compact = get_text_box_edge
+);
+
+get_css_property!(
+    get_dominant_baseline_property,
+    get_dominant_baseline,
+    StyleDominantBaseline,
+    azul_css::props::property::CssPropertyType::DominantBaseline,
+    compact = get_dominant_baseline
+);
+
+get_css_property!(
+    get_alignment_baseline_property,
+    get_alignment_baseline,
+    StyleAlignmentBaseline,
+    azul_css::props::property::CssPropertyType::AlignmentBaseline,
+    compact = get_alignment_baseline
+);
+
+get_css_property!(
+    get_initial_letter_align_property,
+    get_initial_letter_align,
+    StyleInitialLetterAlign,
+    azul_css::props::property::CssPropertyType::InitialLetterAlign,
+    compact = get_initial_letter_align
+);
+
+get_css_property!(
+    get_initial_letter_wrap_property,
+    get_initial_letter_wrap,
+    StyleInitialLetterWrap,
+    azul_css::props::property::CssPropertyType::InitialLetterWrap,
+    compact = get_initial_letter_wrap
+);
+
+get_css_property!(
+    get_scrollbar_gutter_property,
+    get_scrollbar_gutter,
+    StyleScrollbarGutter,
+    azul_css::props::property::CssPropertyType::ScrollbarGutter,
+    compact = get_scrollbar_gutter
+);
+
+get_css_property!(
+    get_overflow_clip_margin_property,
+    get_overflow_clip_margin,
+    StyleOverflowClipMargin,
+    azul_css::props::property::CssPropertyType::OverflowClipMargin,
+    compact = get_overflow_clip_margin
 );
 
 get_css_property!(
