@@ -3100,12 +3100,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:display-property:da3b59 - direction property specifies inline base direction for ordering inline-level content
     // +spec:inline-formatting-context:97af40 - direction property sets inline base direction for bidi, text alignment, overflow
     // +spec:writing-modes:2deb38 - bidirectional reordering via CSS direction property
-    let direction = match get_direction_property(styled_dom, id, node_state) {
-        MultiValue::Exact(d) => Some(match d {
-            StyleDirection::Ltr => text3::cache::BidiDirection::Ltr,
-            StyleDirection::Rtl => text3::cache::BidiDirection::Rtl,
-        }),
-        _ => None,
+    // +spec:writing-modes:fbb332 - in vertical writing modes, text-orientation:upright forces used direction to ltr
+    let direction = match constraints.writing_mode {
+        LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr
+            if matches!(text_orientation, text3::cache::TextOrientation::Upright) =>
+        {
+            Some(text3::cache::BidiDirection::Ltr)
+        }
+        _ => match get_direction_property(styled_dom, id, node_state) {
+            MultiValue::Exact(d) => Some(match d {
+                StyleDirection::Ltr => text3::cache::BidiDirection::Ltr,
+                StyleDirection::Rtl => text3::cache::BidiDirection::Rtl,
+            }),
+            _ => None,
+        },
     };
 
     debug_info!(
@@ -6037,13 +6045,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 let content_box_size = box_props.inner_size(tentative_size, writing_mode);
 
                 // To find its height and baseline, we must lay out its contents.
-                let child_wm_ctx = super::geometry::WritingModeContext {
+                let child_wm_ctx = super::geometry::WritingModeContext::new(
                     writing_mode,
-                    direction: get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
+                    get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
                         .unwrap_or_default(),
-                    text_orientation: get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
+                    get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
                         .unwrap_or_default(),
-                };
+                );
                 let child_constraints = LayoutConstraints {
                     available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
                     writing_mode,
@@ -6446,13 +6454,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             );
 
             // To find its height and baseline, we must lay out its contents.
-            let child_wm_ctx = super::geometry::WritingModeContext {
+            let child_wm_ctx = super::geometry::WritingModeContext::new(
                 writing_mode,
-                direction: get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
+                get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
                     .unwrap_or_default(),
-                text_orientation: get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
+                get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
                     .unwrap_or_default(),
-            };
+            );
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
                 writing_mode,
@@ -6880,13 +6888,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 let writing_mode =
                     get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state)
                         .unwrap_or_default();
-                let child_wm_ctx = super::geometry::WritingModeContext {
+                let child_wm_ctx = super::geometry::WritingModeContext::new(
                     writing_mode,
-                    direction: get_direction_property(ctx.styled_dom, child_dom_id, &styled_node_state)
+                    get_direction_property(ctx.styled_dom, child_dom_id, &styled_node_state)
                         .unwrap_or_default(),
-                    text_orientation: get_text_orientation_property(ctx.styled_dom, child_dom_id, &styled_node_state)
+                    get_text_orientation_property(ctx.styled_dom, child_dom_id, &styled_node_state)
                         .unwrap_or_default(),
-                };
+                );
                 let child_constraints = LayoutConstraints {
                     available_size: LogicalSize::new(width, f32::INFINITY),
                     writing_mode,

@@ -1147,11 +1147,11 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // to avoid double-subtraction (layout_bfc already handles both the used_size
     // and available_size code paths).
 
-    let wm_ctx = crate::solver3::geometry::WritingModeContext {
+    let wm_ctx = crate::solver3::geometry::WritingModeContext::new(
         writing_mode,
-        direction: node.computed_style.direction,
-        text_orientation: node.computed_style.text_orientation,
-    };
+        node.computed_style.direction,
+        node.computed_style.text_orientation,
+    );
     let constraints = LayoutConstraints {
         available_size: available_size_for_children,
         bfc_state: None,

@@ -1341,11 +1341,11 @@ pub fn calculate_used_size_for_node(
 
     // Construct the full WritingModeContext from resolved styles.
     // This determines how logical dimensions (inline/block) map to physical (width/height).
-    let wm_ctx = WritingModeContext {
-        writing_mode: writing_mode.unwrap_or_default(),
-        direction: get_direction_property(styled_dom, id, node_state).unwrap_or_default(),
-        text_orientation: get_text_orientation_property(styled_dom, id, node_state).unwrap_or_default(),
-    };
+    let wm_ctx = WritingModeContext::new(
+        writing_mode.unwrap_or_default(),
+        get_direction_property(styled_dom, id, node_state).unwrap_or_default(),
+        get_text_orientation_property(styled_dom, id, node_state).unwrap_or_default(),
+    );
     let is_vertical = !wm_ctx.is_horizontal();
 
     // +spec:display-property:06e0b1 - form controls (non-image) treated as non-replaced
