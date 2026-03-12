@@ -38,8 +38,8 @@ use crate::{
         geometry::{BoxProps, BoxSizing, IntrinsicSizes, WritingModeContext},
         getters::{
             get_css_box_sizing, get_css_height, get_css_width, get_display_property,
-            get_direction_property, get_flex_direction, get_float, get_style_properties,
-            get_text_orientation_property, get_writing_mode, MultiValue,
+            get_direction_property, get_element_font_size, get_flex_direction, get_float,
+            get_style_properties, get_text_orientation_property, get_writing_mode, MultiValue,
         },
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree, get_display_type},
         positioning::get_position_type,
@@ -976,7 +976,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref()));
+        let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
         let text_items = split_text_for_whitespace(
@@ -1005,7 +1005,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
-            let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref()));
+            let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
             ctx.debug_log(&format!(
                 "Found text in DOM child of node {}: '{}'",
                 node_index, text
@@ -1568,7 +1568,14 @@ pub fn calculate_used_size_for_node(
             );
             intrinsic.max_content_width.min(intrinsic.min_content_width.max(arg))
         }
-        LayoutWidth::Calc(_) => intrinsic.max_content_width, // TODO: resolve calc
+        LayoutWidth::Calc(items) => {
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let em = get_element_font_size(styled_dom, id, node_state);
+            let calc_ctx = super::calc::CalcResolveContext {
+                items, em_size: em, rem_size: DEFAULT_FONT_SIZE,
+            };
+            super::calc::evaluate_calc(&calc_ctx, containing_block_size.width)
+        }
     };
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
     let resolved_width = resolved_width.max(0.0);
@@ -1644,7 +1651,14 @@ pub fn calculate_used_size_for_node(
             let auto_height = intrinsic.max_content_height;
             auto_height.min(auto_height.max(arg))
         }
-        LayoutHeight::Calc(_) => intrinsic.max_content_height, // TODO: resolve calc
+        LayoutHeight::Calc(items) => {
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let em = get_element_font_size(styled_dom, id, node_state);
+            let calc_ctx = super::calc::CalcResolveContext {
+                items, em_size: em, rem_size: DEFAULT_FONT_SIZE,
+            };
+            super::calc::evaluate_calc(&calc_ctx, containing_block_size.height)
+        }
     };
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
     let resolved_height = resolved_height.max(0.0);
@@ -1664,29 +1678,30 @@ pub fn calculate_used_size_for_node(
             _ => None,
         };
 
-        if height_is_auto && !has_intrinsic_width && has_intrinsic_height && intrinsic_ratio.is_some() {
-            // §6.2 case: both auto, no intrinsic width, has intrinsic height + ratio
-            // → width = used height × ratio
-            let ratio = intrinsic_ratio.unwrap();
-            (resolved_height * ratio, resolved_height)
-        } else if !height_is_auto && intrinsic_ratio.is_some() {
-            // §6.2 case: width auto, height not auto, has intrinsic ratio
-            // → width = used height × ratio
-            let ratio = intrinsic_ratio.unwrap();
-            (resolved_height * ratio, resolved_height)
-        } else if height_is_auto && intrinsic_ratio.is_some() && !has_intrinsic_width && !has_intrinsic_height {
-            // §6.2 case: both auto, has ratio but no intrinsic width or height
-            // → use block-level non-replaced constraint equation for width
-            let block_width = (containing_block_size.width
-                - _box_props.margin.left
-                - _box_props.margin.right
-                - _box_props.border.left
-                - _box_props.border.right
-                - _box_props.padding.left
-                - _box_props.padding.right)
-                .max(0.0);
-            let ratio = intrinsic_ratio.unwrap();
-            (block_width, block_width / ratio)
+        if let Some(ratio) = intrinsic_ratio {
+            if height_is_auto && !has_intrinsic_width && has_intrinsic_height {
+                // §6.2 case: both auto, no intrinsic width, has intrinsic height + ratio
+                // → width = used height × ratio
+                (resolved_height * ratio, resolved_height)
+            } else if !height_is_auto {
+                // §6.2 case: width auto, height not auto, has intrinsic ratio
+                // → width = used height × ratio
+                (resolved_height * ratio, resolved_height)
+            } else if height_is_auto && !has_intrinsic_width && !has_intrinsic_height {
+                // §6.2 case: both auto, has ratio but no intrinsic width or height
+                // → use block-level non-replaced constraint equation for width
+                let block_width = (containing_block_size.width
+                    - _box_props.margin.left
+                    - _box_props.margin.right
+                    - _box_props.border.left
+                    - _box_props.border.right
+                    - _box_props.padding.left
+                    - _box_props.padding.right)
+                    .max(0.0);
+                (block_width, block_width / ratio)
+            } else {
+                (resolved_width, resolved_height)
+            }
         } else {
             (resolved_width, resolved_height)
         }

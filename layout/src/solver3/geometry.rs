@@ -392,34 +392,6 @@ impl ResolvedBoxProps {
 /// TODO: Remove this once all code uses ResolvedBoxProps directly.
 pub type BoxProps = ResolvedBoxProps;
 
-/// Shrink a rect inward by the given edge sizes.
-pub fn shrink_rect_by_edges(rect: LogicalRect, edges: &EdgeSizes) -> LogicalRect {
-    LogicalRect {
-        origin: LogicalPosition {
-            x: rect.origin.x + edges.left,
-            y: rect.origin.y + edges.top,
-        },
-        size: LogicalSize {
-            width: (rect.size.width - edges.horizontal_sum()).max(0.0),
-            height: (rect.size.height - edges.vertical_sum()).max(0.0),
-        },
-    }
-}
-
-/// Expand a rect outward by the given edge sizes.
-pub fn expand_rect_by_edges(rect: LogicalRect, edges: &EdgeSizes) -> LogicalRect {
-    LogicalRect {
-        origin: LogicalPosition {
-            x: rect.origin.x - edges.left,
-            y: rect.origin.y - edges.top,
-        },
-        size: LogicalSize {
-            width: rect.size.width + edges.horizontal_sum(),
-            height: rect.size.height + edges.vertical_sum(),
-        },
-    }
-}
-
 // Verwende die Typen aus azul_css für float und clear
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 

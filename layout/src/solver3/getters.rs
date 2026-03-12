@@ -111,6 +111,12 @@ pub fn get_element_font_size(
                 root_font_size,
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
+                // No viewport is available in this general-purpose helper (called from
+                // layout_tree, taffy_bridge, positioning, etc. without a LayoutContext).
+                // vw/vh units in font-size are valid CSS but extremely rare in practice;
+                // they will resolve to 0 here. Callers that have LayoutContext should
+                // build their own ResolutionContext with the real viewport instead of
+                // using get_element_font_size().
                 viewport_size: PhysicalSize::new(0.0, 0.0),
             };
 
@@ -2244,12 +2250,13 @@ pub fn get_computed_display(
     is_absolute_or_fixed: bool,
     is_floated: bool,
     is_root: bool,
+    is_flex_grid_child: bool,
 ) -> LayoutDisplay {
     if raw_display == LayoutDisplay::None {
         return LayoutDisplay::None;
     }
     // +spec:positioning:69468c - absolute/fixed blockifies the box
-    if is_absolute_or_fixed || is_floated || is_root {
+    if is_absolute_or_fixed || is_floated || is_root || is_flex_grid_child {
         blockify_display(raw_display)
     } else {
         raw_display
@@ -2299,6 +2306,7 @@ pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport_size: azul_css::props::basic::PhysicalSize,
 ) -> StyleProperties {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
@@ -2349,7 +2357,7 @@ pub fn get_style_properties(
         root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Pass viewport from LayoutContext
+        viewport_size,
     };
 
     // Get font-size: either from this node's CSS, or inherit from parent
@@ -4218,19 +4226,6 @@ pub fn get_column_count(
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_column_count(node_data, &node_id, node_state)
-        .and_then(|v| v.get_property())
-        .cloned()
-}
-
-/// Get column-gap as PixelValue. Returns Option.
-pub fn get_column_gap_value(
-    styled_dom: &StyledDom,
-    node_id: NodeId,
-    node_state: &StyledNodeState,
-) -> Option<azul_css::props::layout::spacing::LayoutColumnGap> {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
-        .get_column_gap(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
 }

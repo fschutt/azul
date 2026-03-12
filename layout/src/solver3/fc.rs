@@ -657,7 +657,15 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     (Some(pixels), true)
                 }
                 LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => (None, false),
-                LayoutWidth::Calc(_) => (None, false), // TODO: resolve calc
+                LayoutWidth::Calc(items) => {
+                    let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
+                    let em = get_element_font_size(ctx.styled_dom, id, node_state);
+                    let calc_ctx = super::calc::CalcResolveContext {
+                        items, em_size: em, rem_size: DEFAULT_FONT_SIZE,
+                    };
+                    let px = super::calc::evaluate_calc(&calc_ctx, constraints.available_size.width);
+                    (Some(px), true)
+                }
             }
         })
         .unwrap_or((None, false))
@@ -688,7 +696,15 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     (Some(pixels), true)
                 }
                 LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => (None, false),
-                LayoutHeight::Calc(_) => (None, false), // TODO: resolve calc
+                LayoutHeight::Calc(items) => {
+                    let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
+                    let em = get_element_font_size(ctx.styled_dom, id, node_state);
+                    let calc_ctx = super::calc::CalcResolveContext {
+                        items, em_size: em, rem_size: DEFAULT_FONT_SIZE,
+                    };
+                    let px = super::calc::evaluate_calc(&calc_ctx, constraints.available_size.height);
+                    (Some(px), true)
+                }
             }
         })
         .unwrap_or((None, false))
@@ -760,7 +776,7 @@ fn position_float(
                 f_main_end > main_start && f_main_start < main_start + total_main
             })
             .map(|f| f.rect.origin.main(wm) + f.rect.size.main(wm) + f.margin.main_end(wm))
-            .max_by(|a, b| a.partial_cmp(b).unwrap());
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         if let Some(next) = next_main {
             main_start = next;
@@ -3222,7 +3238,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 root_font_size: get_root_font_size(styled_dom, node_state),
                 containing_block_size: PhysicalSize::new(constraints.available_size.width, 0.0),
                 element_size: None,
-                viewport_size: PhysicalSize::new(0.0, 0.0),
+                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
             };
             ti.inner
                 .resolve_with_context(&context, PropertyContext::Other)
@@ -3256,7 +3272,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 root_font_size: get_root_font_size(styled_dom, node_state),
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                viewport_size: PhysicalSize::new(0.0, 0.0),
+                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
             };
             cg.inner
                 .resolve_with_context(&context, PropertyContext::Other)
@@ -3877,7 +3893,7 @@ fn get_border_info<T: ParsedFontTrait>(
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         // Not used for border-width
         element_size: None,
-        viewport_size: PhysicalSize::new(0.0, 0.0),
+        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
     };
 
     // Top border
@@ -4409,8 +4425,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             root_font_size: get_root_font_size(styled_dom, table_state),
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            // TODO: Get actual DPI scale from ctx
-            viewport_size: PhysicalSize::new(0.0, 0.0),
+            viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
         };
 
         let h_spacing = table_ctx
@@ -5153,7 +5168,7 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
         }
     } else {
         // Case 3: Not enough space - scale down from min widths
-        let scale = available_width / total_min_width;
+        let scale = if total_min_width > 0.0 { available_width / total_min_width } else { 1.0 };
         for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
             if table_ctx.collapsed_columns.contains(&col_idx) {
                 col.computed_width = Some(0.0);
@@ -5644,7 +5659,7 @@ fn position_table_cells<T: ParsedFontTrait>(
             root_font_size: get_root_font_size(styled_dom, table_state),
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Get actual DPI scale from ctx
+            viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
         };
 
         let h = table_ctx
@@ -6056,7 +6071,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 );
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
-                let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref()));
+                let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
                 let text_items = split_text_for_whitespace(
                     ctx.styled_dom,
                     dom_id,
@@ -6211,7 +6226,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 child_map.insert(shape_content_index, child_index);
             } else {
                 // Regular inline element - collect its text children
-                let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref());
+                let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height));
                 collect_inline_span_recursive(
                     ctx,
                     tree,
@@ -6327,7 +6342,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
                 // Generate marker text segments - font fallback happens during shaping
                 let base_style =
-                    Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style, ctx.system_style.as_ref()));
+                    Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
                 let marker_segments = generate_list_marker_segments(
                     tree,
                     ctx.styled_dom,
@@ -6388,7 +6403,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
-        let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref()));
+        let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         let text_items = split_text_for_whitespace(
             ctx.styled_dom,
             ifc_root_dom_id,
@@ -6432,7 +6447,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Get style from the TEXT NODE itself (dom_child_id), not the IFC root
             // This ensures inline styles like color: #666666 are applied to the text
             // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
-            let style = Arc::new(get_style_properties(ctx.styled_dom, dom_child_id, ctx.system_style.as_ref()));
+            let style = Arc::new(get_style_properties(ctx.styled_dom, dom_child_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
             let text_items = split_text_for_whitespace(
                 ctx.styled_dom,
                 dom_child_id,
@@ -6763,7 +6778,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 dom_id
             );
 
-            let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref());
+            let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height));
             collect_inline_span_recursive(
                 ctx,
                 tree,
@@ -6922,7 +6937,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     "[collect_inline_span_recursive] Found nested inline span {:?}",
                     child_dom_id
                 );
-                let child_style = get_style_properties(ctx.styled_dom, child_dom_id, ctx.system_style.as_ref());
+                let child_style = get_style_properties(ctx.styled_dom, child_dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height));
                 collect_inline_span_recursive(
                     ctx,
                     tree,
@@ -7041,7 +7056,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     child_display
                 );
-                let child_style = get_style_properties(ctx.styled_dom, child_dom_id, ctx.system_style.as_ref());
+                let child_style = get_style_properties(ctx.styled_dom, child_dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height));
                 collect_inline_span_recursive(
                     ctx,
                     tree,
@@ -7097,7 +7112,9 @@ fn position_floated_child(
                 LayoutFloat::Left => available_cross_start,
                 // +spec:floats:5cfc93 - float:right positions box at cross-end, content flows on left
                 LayoutFloat::Right => available_cross_end - child_cross_size,
-                LayoutFloat::None => unreachable!(),
+                LayoutFloat::None => {
+                    return Err(LayoutError::PositioningFailed);
+                }
             };
             let final_pos =
                 LogicalPosition::from_main_cross(placement_main_offset, final_cross_pos, wm);

@@ -478,6 +478,13 @@ pub struct LayoutNode {
     /// This allows text nodes to find their layout data in the parent's IFC.
     /// (3 accesses — text nodes only)
     pub ifc_membership: Option<IfcMembership>,
+    /// The layout tree index of this node's containing block.
+    /// - For abs-pos elements: nearest positioned (non-static) ancestor
+    /// - For fixed elements: root / None (viewport)
+    /// - For normal-flow: parent (None = implicit)
+    /// Used for clip exemption: abs-pos elements whose containing block
+    /// is above an overflow clipper should not be clipped.
+    pub containing_block_index: Option<usize>,
 
     // ── COLD tier: construction / reconciliation / debugging only ────────
 
@@ -909,11 +916,9 @@ impl LayoutTreeBuilder {
             .and_then(|p| self.nodes.get(p).map(|n| matches!(n.formatting_context, FormattingContext::Flex | FormattingContext::Grid)))
             .unwrap_or(false);
 
-        let display_type = if is_root || is_absolute_or_fixed || is_floated || is_flex_grid_child {
-            blockify_display(raw_display)
-        } else {
-            raw_display
-        };
+        let display_type = crate::solver3::getters::get_computed_display(
+            raw_display, is_absolute_or_fixed, is_floated, is_root, is_flex_grid_child,
+        );
 
         // If blockification changed the display type, update the node's formatting context
         if display_type != raw_display {
@@ -922,6 +927,34 @@ impl LayoutTreeBuilder {
                 node.formatting_context = determine_formatting_context_for_display(
                     styled_dom, dom_id, display_type,
                 );
+            }
+        }
+
+        // Compute containing block index for abs-pos clip exemption
+        if is_absolute_or_fixed {
+            let cb_index = if matches!(node_position, LayoutPosition::Fixed) {
+                // Fixed elements: containing block is the root (viewport)
+                None
+            } else {
+                // Absolute elements: containing block is nearest positioned ancestor
+                let mut ancestor = parent_idx;
+                loop {
+                    match ancestor {
+                        Some(idx) => {
+                            let pos = self.nodes.get(idx)
+                                .map(|n| n.computed_style.position)
+                                .unwrap_or_default();
+                            if pos != LayoutPosition::Static {
+                                break Some(idx);
+                            }
+                            ancestor = self.nodes.get(idx).and_then(|n| n.parent);
+                        }
+                        None => break None, // root
+                    }
+                }
+            };
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.containing_block_index = cb_index;
             }
         }
 
@@ -1490,6 +1523,7 @@ impl LayoutTreeBuilder {
             escaped_bottom_margin: None,
             parent_formatting_context: parent_fc,
             ifc_membership: None,
+            containing_block_index: None,
             // ── COLD ──
             anonymous_type: Some(anon_type),
             node_data_fingerprint: NodeDataFingerprint::default(),
@@ -1548,6 +1582,7 @@ impl LayoutTreeBuilder {
             escaped_bottom_margin: None,
             parent_formatting_context: parent_fc,
             ifc_membership: None,
+            containing_block_index: None,
             // ── COLD ──
             anonymous_type: None,
             node_data_fingerprint: NodeDataFingerprint::default(),
@@ -1623,6 +1658,7 @@ impl LayoutTreeBuilder {
             escaped_bottom_margin: None,
             parent_formatting_context: parent_fc,
             ifc_membership: None,
+            containing_block_index: None,
             // ── COLD ──
             anonymous_type: None,
             node_data_fingerprint: NodeDataFingerprint::compute(
@@ -2276,61 +2312,6 @@ fn is_proper_table_child(display: LayoutDisplay) -> bool {
     )
 }
 
-/// Returns true if `display` is a table-internal display type that requires
-/// a specific parent container per CSS 2.2 §17.2.1.
-pub fn is_table_internal_display(display: LayoutDisplay) -> bool {
-    matches!(
-        display,
-        LayoutDisplay::TableCell
-            | LayoutDisplay::TableRow
-            | LayoutDisplay::TableRowGroup
-            | LayoutDisplay::TableHeaderGroup
-            | LayoutDisplay::TableFooterGroup
-            | LayoutDisplay::TableColumn
-            | LayoutDisplay::TableColumnGroup
-            | LayoutDisplay::TableCaption
-    )
-}
-
-/// Returns true if a node with the given display type is "misparented" -
-/// i.e. its parent's display type cannot legally contain it per CSS 2.2 §17.2.1.
-/// This is a convenience wrapper around `needs_table_parent_wrapper`.
-pub fn is_misparented_table_item(
-    styled_dom: &StyledDom,
-    node_id: NodeId,
-    parent_display: LayoutDisplay,
-) -> bool {
-    needs_table_parent_wrapper(styled_dom, node_id, parent_display).is_some()
-}
-
-/// Finds runs of consecutive children (by DOM ID) that do NOT have `expected_display`.
-/// Returns a Vec of (start_index, count) pairs into the children list.
-/// Used by table anonymous box generation to identify which children need wrapping.
-pub fn find_consecutive_non_matching_children(
-    styled_dom: &StyledDom,
-    children: &[NodeId],
-    expected_display: LayoutDisplay,
-) -> Vec<(usize, usize)> {
-    let mut runs = Vec::new();
-    let mut i = 0;
-    while i < children.len() {
-        let child_display = get_display_type(styled_dom, children[i]);
-        if child_display != expected_display {
-            let start = i;
-            while i < children.len() {
-                let d = get_display_type(styled_dom, children[i]);
-                if d == expected_display {
-                    break;
-                }
-                i += 1;
-            }
-            runs.push((start, i - start));
-        } else {
-            i += 1;
-        }
-    }
-    runs
-}
 
 // +spec:display-property:77cba8 - Anonymous table object generation (CSS 2.2 §17.2.1) and table wrapper box BFC (§17.4)
 /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 3:
@@ -2417,35 +2398,6 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
 /// // +spec:inline-block:692e44 - blockification of inline-block per CSS2 compatibility
 // +spec:display-property:c3aca2 - inline-block blockifies to block, not flow-root
 // +spec:display-property:ee2d65 - blockification of inline-level display types (CSS Display 3 §2.7)
-// +spec:inline-formatting-context:c48c31 - blockification per CSS Display 3 §2.7
-// +spec:table-layout:359ee0 - blockification of display values (CSS Display 3 §2.7)
-// +spec:table-layout:cfc60a - CSS 2.2 §9.7: display/position/float interaction
-/// Blockifies display types per CSS Display 3 §2.7 and CSS 2.2 §9.7.
-/// Inline-level types become their block-level equivalents, and table-internal
-/// display values become `block` for absolutely positioned, floated, or root elements.
-pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
-    match display {
-        LayoutDisplay::Inline => LayoutDisplay::Block,
-        // Per CSS Display 3 §2.7: "For legacy reasons, if an inline block box
-        // (inline flow-root) is blockified, it becomes a block box (losing its
-        // flow-root nature)."
-        LayoutDisplay::InlineBlock => LayoutDisplay::Block,
-        LayoutDisplay::InlineTable => LayoutDisplay::Table,
-        LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
-        LayoutDisplay::InlineGrid => LayoutDisplay::Grid,
-        // CSS 2.2 §9.7: table-internal display values blockify to block
-        LayoutDisplay::TableRowGroup
-        | LayoutDisplay::TableColumn
-        | LayoutDisplay::TableColumnGroup
-        | LayoutDisplay::TableHeaderGroup
-        | LayoutDisplay::TableFooterGroup
-        | LayoutDisplay::TableRow
-        | LayoutDisplay::TableCell
-        | LayoutDisplay::TableCaption => LayoutDisplay::Block,
-        other => other,
-    }
-}
-
 // +spec:display-property:e4a8b7 - layout-internal boxes blockified to flow (block container)
 /// CSS Flexbox §3: flex items with table-internal display values
 /// (table-cell, table-row, table-row-group, table-header-group, table-footer-group,
