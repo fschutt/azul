@@ -159,6 +159,8 @@ mod stub {
         pub descent: f32,
         pub line_gap: f32,
         pub units_per_em: u16,
+        pub x_height: Option<f32>,
+        pub cap_height: Option<f32>,
     }
 
     #[derive(Debug, Clone)]

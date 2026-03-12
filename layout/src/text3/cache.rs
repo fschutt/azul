@@ -1107,6 +1107,12 @@ pub struct LayoutFontMetrics {
     pub descent: f32,
     pub line_gap: f32,
     pub units_per_em: u16,
+    /// OS/2 sxHeight: distance from baseline to top of lowercase 'x' (in font units).
+    /// Used for `vertical-align: middle` per CSS Inline 3 §4.1.
+    pub x_height: Option<f32>,
+    /// OS/2 sCapHeight: height of capital letters from baseline (in font units).
+    /// Used for drop cap / initial-letter alignment per CSS Inline 3 §7.1.1.
+    pub cap_height: Option<f32>,
 }
 
 impl LayoutFontMetrics {
@@ -1116,6 +1122,23 @@ impl LayoutFontMetrics {
     pub fn baseline_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / self.units_per_em as f32;
         self.ascent * scale
+    }
+
+    /// Returns the x-height scaled to the given font size in px.
+    /// Falls back to 0.5em when the font doesn't provide sxHeight.
+    pub fn x_height_scaled(&self, font_size: f32) -> f32 {
+        let scale = font_size / self.units_per_em as f32;
+        match self.x_height {
+            Some(xh) => xh * scale,
+            None => font_size * 0.5,
+        }
+    }
+
+    /// Returns the cap height scaled to the given font size in px.
+    /// Falls back to ascent when the font doesn't provide sCapHeight.
+    pub fn cap_height_scaled(&self, font_size: f32) -> f32 {
+        let scale = font_size / self.units_per_em as f32;
+        self.cap_height.unwrap_or(self.ascent) * scale
     }
 
     // +spec:line-height:471816 - line gap metric extracted from font for optional use when line-height is normal
@@ -1153,11 +1176,19 @@ impl LayoutFontMetrics {
             .map(|v| *v as f32)
             .unwrap_or(metrics.line_gap as f32)
             .max(0.0);
+        let x_height = metrics.sx_height
+            .as_option()
+            .map(|v| *v as f32);
+        let cap_height = metrics.s_cap_height
+            .as_option()
+            .map(|v| *v as f32);
         Self {
             ascent,
             descent,
             line_gap,
             units_per_em: metrics.units_per_em,
+            x_height,
+            cap_height,
         }
     }
 

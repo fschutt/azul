@@ -286,6 +286,8 @@ impl ParsedFont {
             descent: self.font_metrics.descent,
             line_gap: self.font_metrics.line_gap,
             units_per_em: self.font_metrics.units_per_em,
+            x_height: self.font_metrics.x_height,
+            cap_height: self.font_metrics.cap_height,
         };
 
         Ok(shaped
@@ -817,6 +819,8 @@ fn shape_text_internal(
                 descent: parsed_font.font_metrics.descent,
                 line_gap: parsed_font.font_metrics.line_gap,
                 units_per_em: parsed_font.font_metrics.units_per_em,
+                x_height: parsed_font.font_metrics.x_height,
+                cap_height: parsed_font.font_metrics.cap_height,
             },
             style: Arc::new(style.clone()),
             source: GlyphSource::Char,

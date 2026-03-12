@@ -643,6 +643,8 @@ pub mod parsed {
                 ascent: hhea_table.ascender as f32,
                 descent: hhea_table.descender as f32,
                 line_gap: hhea_table.line_gap as f32,
+                x_height: None, // will be populated from OS/2 table via from_font_metrics if available
+                cap_height: None,
             };
 
             // Build PDF-specific font metrics
@@ -995,6 +997,8 @@ pub mod parsed {
                 descent,
                 line_gap: self.font_metrics.line_gap,
                 units_per_em: self.font_metrics.units_per_em,
+                x_height: self.font_metrics.x_height,
+                cap_height: self.font_metrics.cap_height,
             }
         }
 
