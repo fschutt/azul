@@ -583,18 +583,18 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         }
 
         // +spec:table-layout:6cb73b - position:relative effect on table elements is undefined; skip them
+        // +spec:table-layout:718f91 - relative positioning on table-row/row-group shifts all contents
         {
             use azul_css::props::layout::LayoutDisplay;
             let display = get_display_property(ctx.styled_dom, node.dom_node_id);
             if let MultiValue::Exact(d) = display {
                 // +spec:positioning:4614dd - position does not apply to table-column-group or table-column boxes
+                // Table-row and row-group elements DO support relative positioning:
+                // the shift affects all contents including cells originating in the row.
+                // Table-column, table-column-group, table-cell, and table-caption do not.
                 if matches!(
                     d,
-                    LayoutDisplay::TableRowGroup
-                        | LayoutDisplay::TableHeaderGroup
-                        | LayoutDisplay::TableFooterGroup
-                        | LayoutDisplay::TableRow
-                        | LayoutDisplay::TableColumnGroup
+                    LayoutDisplay::TableColumnGroup
                         | LayoutDisplay::TableColumn
                         | LayoutDisplay::TableCell
                         | LayoutDisplay::TableCaption
