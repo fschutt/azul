@@ -671,7 +671,7 @@ fn get_git_hash() -> String {
 /// JavaScript to extract layout information from Chrome
 const CHROME_LAYOUT_EXTRACTOR_JS: &str = include_str!("./chrome_layout_extractor.js");
 
-fn generate_chrome_screenshot(
+pub fn generate_chrome_screenshot(
     chrome_path: &str,
     test_file: &Path,
     output_file: &Path,
