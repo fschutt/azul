@@ -2625,8 +2625,13 @@ paragraph matched to "positioning" via keyword overlap):
 
 **If a spec paragraph does NOT apply to this codebase** (e.g., it only
 applies to flex/grid which is handled by Taffy, or it describes user agent
-behavior we don't implement, or it is purely about rendering/painting):
+default stylesheets we don't control):
 - Do NOT commit for that paragraph. Output `NOT_APPLICABLE` and move on.
+- NOTE: Rendering, painting, clipping, stacking contexts, and scroll
+  handling ARE in scope. Implement them in `display_list.rs`, `window.rs`,
+  or the appropriate file. Do NOT mark rendering paragraphs as NOT_APPLICABLE.
+- Only use NOT_APPLICABLE for: spec metadata, flex/grid (Taffy), UA defaults,
+  and SVG/MathML features.
 
 **Before implementing anything, search for existing functions and types.**
 Many CSS properties, enums, getters, and helper functions already exist in the
@@ -2686,8 +2691,12 @@ no checklists, no verbose explanations):
   100% correct — we will fix compilation errors later.
 - DO NOT USE `rust-analyzer`, LSP tools, OR ANY MCP TOOLS.
 - Make ONLY the changes needed for the spec paragraphs in this prompt.
-- Only modify files in `layout/src/solver3/`, `layout/src/text3/`, and `css/src/`.
-  Do NOT modify `display_list.rs`, rendering code, or any other files.
+- You may modify any file in `layout/src/` and `css/src/`.
+  This includes `solver3/`, `text3/`, `display_list.rs`, `window.rs`,
+  `scrollbar.rs`, `paged_layout.rs`, `pagination.rs`, etc.
+- You may also add new types in `core/src/` if needed for new CSS properties.
+- Do NOT modify `taffy_bridge.rs` (flex/grid is handled by Taffy).
+- Do NOT modify files outside `layout/`, `css/`, and `core/`.
 - Zero commits is OK if the paragraphs are not applicable or already covered.
 - If unsure whether a change is correct, make your best effort.
 - Be CONCISE in your output. No verbose explanations, checklists, or bullet
