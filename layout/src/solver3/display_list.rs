@@ -1952,13 +1952,17 @@ where
         // so the hit-test covers the entire container box (including visible area),
         // not just the scrolled content. This ensures scroll wheel events hit the
         // container regardless of scroll position.
-        if let Some(dom_id) = node.dom_node_id {
-            let styled_node_state = self.get_styled_node_state(dom_id);
-            let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-            let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-            if overflow_x.is_scroll() || overflow_y.is_scroll() {
-                if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
-                    builder.push_hit_test_area(node_bounds, tag_id);
+        // +spec:overflow:visibility - visibility:hidden scroll containers must not allow
+        // interactive scrolling per CSS 2.2 §11.2
+        if !self.is_node_hidden(context.node_index) {
+            if let Some(dom_id) = node.dom_node_id {
+                let styled_node_state = self.get_styled_node_state(dom_id);
+                let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+                let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+                if overflow_x.is_scroll() || overflow_y.is_scroll() {
+                    if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+                        builder.push_hit_test_area(node_bounds, tag_id);
+                    }
                 }
             }
         }
@@ -2702,6 +2706,13 @@ where
             }
         }
 
+        // CSS 2.2 §11.2: visibility:hidden — box is invisible but still affects layout.
+        // Skip painting background/border for hidden nodes, but traversal continues
+        // so visible descendants are still painted.
+        if self.is_node_hidden(node_index) {
+            return Ok(());
+        }
+
         // Skip inline and inline-block elements ONLY if they participate in an IFC (Inline Formatting Context).
         // In Flex or Grid containers, inline-block elements are treated as flex/grid items and must be painted here.
         // Inline elements participate in inline formatting context and their backgrounds
@@ -3021,6 +3032,11 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> Result<()> {
+        // CSS 2.2 §11.2: visibility:hidden — skip painting content for hidden nodes.
+        if self.is_node_hidden(node_index) {
+            return Ok(());
+        }
+
         let node = self
             .positioned_tree
             .tree
@@ -3166,6 +3182,12 @@ where
     /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
     /// clip so scrollbars appear on top of content and are not clipped.
     fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
+        // CSS 2.2 §11.2: visibility:hidden scroll containers must not paint scrollbars,
+        // but their layout space is preserved (already handled by layout).
+        if self.is_node_hidden(node_index) {
+            return Ok(());
+        }
+
         let node = self
             .positioned_tree
             .tree
