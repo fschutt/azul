@@ -6124,6 +6124,26 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
     Ok(shaped)
 }
 
+/// Returns true if `c` is a hanging punctuation stop or comma per CSS Text 3 §8.2.1.
+// +spec:hanging-punctuation - full stop/comma character list per CSS Text 3 §8.2.1
+fn is_hanging_punctuation_char(c: char) -> bool {
+    matches!(c,
+        ','      | // U+002C COMMA
+        '.'      | // U+002E FULL STOP
+        '\u{060C}' | // ARABIC COMMA
+        '\u{06D4}' | // ARABIC FULL STOP
+        '\u{3001}' | // IDEOGRAPHIC COMMA
+        '\u{3002}' | // IDEOGRAPHIC FULL STOP
+        '\u{FF0C}' | // FULLWIDTH COMMA
+        '\u{FF0E}' | // FULLWIDTH FULL STOP
+        '\u{FE50}' | // SMALL COMMA
+        '\u{FE51}' | // SMALL IDEOGRAPHIC COMMA
+        '\u{FE52}' | // SMALL FULL STOP
+        '\u{FF61}' | // HALFWIDTH IDEOGRAPHIC FULL STOP
+        '\u{FF64}'   // HALFWIDTH IDEOGRAPHIC COMMA
+    )
+}
+
 /// Helper to check if a cluster contains only hanging punctuation.
 // +spec:box-model:8bbcd1 - non-zero inline-axis borders/padding between hangable glyph and line edge prevent hanging
 /// +spec:inline-formatting-context:135be2 - hanging punctuation placed outside the line box
@@ -6131,10 +6151,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         if c.glyphs.len() == 1 {
-            match c.text.as_str() {
-                "." | "," | ":" | ";" => true,
-                _ => false,
-            }
+            c.text.chars().next().map_or(false, is_hanging_punctuation_char)
         } else {
             false
         }
