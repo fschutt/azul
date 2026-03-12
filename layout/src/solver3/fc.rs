@@ -7523,3 +7523,43 @@ fn apply_text_transform(text: &str, transform: crate::text3::cache::TextTransfor
         }
     }
 }
+
+// ============================================================================
+// INITIAL LETTER / DROP CAPS STUB
+// ============================================================================
+
+/// Applies initial-letter (drop caps) layout adjustments to a block container.
+///
+/// CSS Inline Layout Module Level 3 section 3:
+/// The `initial-letter` property specifies styling for dropped, raised, and sunken
+/// initial letters. When set, the first glyph(s) of the first line are enlarged to
+/// span multiple lines, with the remaining text wrapping around them.
+///
+/// # Parameters
+/// - `initial_letter_size`: The number of lines the initial letter should span
+/// - `initial_letter_sink`: How many lines the letter sinks below the first line
+/// - `content_box_width`: Available width in the content box
+/// - `line_height`: The computed line height for the containing block
+///
+/// # Returns
+/// A tuple of (letter_width, letter_height) representing the space reserved for
+/// the initial letter, or (0, 0) if initial-letter is not applicable.
+///
+/// TODO(initial-letter): Implement the full initial-letter layout algorithm:
+/// 1. Determine the initial letter glyph(s) based on initial-letter-align
+/// 2. Scale the glyph to span `size` lines
+/// 3. Position according to `sink` value
+/// 4. Create an exclusion area for text wrapping (via shape-outside)
+/// 5. Handle interaction with initial-letter-wrap property
+pub fn layout_initial_letter(
+    _initial_letter_size: f32,
+    _initial_letter_sink: u32,
+    _content_box_width: f32,
+    _line_height: f32,
+) -> (f32, f32) {
+    // TODO(initial-letter): Implement drop caps layout.
+    // This stub returns (0, 0) so callers can be wired up without affecting layout.
+    // The text3 engine already receives InitialLetter info via UnifiedConstraints;
+    // this function should compute the geometric exclusion for the BFC.
+    (0.0, 0.0)
+}
