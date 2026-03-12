@@ -888,15 +888,34 @@ impl LayoutTreeBuilder {
             raw_display
         };
 
-        // type is always blockified (CSS Display 3 §2.8)
-        // (CSS Display 3 §2.7)
-        let display_type = if parent_idx.is_none() {
-            blockify_display(raw_display)
-        } else if let Some(parent_fc) = parent_idx.and_then(|p| self.nodes.get(p).map(|n| &n.formatting_context)) {
-            match parent_fc {
-                FormattingContext::Flex | FormattingContext::Grid => blockify_display(raw_display),
-                _ => raw_display,
+        // +spec:display-property:0b40af - display/position/float interaction per CSS 2.2 §9.7
+        // +spec:display-property:ba53ba - float!=none or position!=static causes display to blockify
+        // +spec:positioning:69468c - absolute/fixed blockifies the box, float computes to none
+        // +spec:table-layout:cfc60a - CSS 2.2 §9.7: display/position/float interaction
+        // Blockification rules (CSS Display 3 §2.7 / §2.8):
+        // 1. Root element → blockify
+        // 2. position:absolute or position:fixed → float computes to 'none', blockify
+        // 3. float is not 'none' → blockify
+        // 4. Flex/Grid children → blockify
+        let node_position = self.nodes.get(node_idx).map(|n| n.computed_style.position).unwrap_or_default();
+        let node_float = self.nodes.get(node_idx).map(|n| n.computed_style.float).unwrap_or_default();
+        let is_absolute_or_fixed = matches!(node_position, LayoutPosition::Absolute | LayoutPosition::Fixed);
+        let is_floated = node_float != LayoutFloat::None;
+        let is_root = parent_idx.is_none();
+
+        // Per CSS 2.2 §9.7: if position is absolute or fixed, float computes to 'none'
+        if is_absolute_or_fixed && is_floated {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.float = LayoutFloat::None;
             }
+        }
+
+        let is_flex_grid_child = parent_idx
+            .and_then(|p| self.nodes.get(p).map(|n| matches!(n.formatting_context, FormattingContext::Flex | FormattingContext::Grid)))
+            .unwrap_or(false);
+
+        let display_type = if is_root || is_absolute_or_fixed || is_floated || is_flex_grid_child {
+            blockify_display(raw_display)
         } else {
             raw_display
         };
@@ -969,6 +988,7 @@ impl LayoutTreeBuilder {
                 self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
             // +spec:table-layout:d52e09 - display:table/inline-table cause element to behave like a table element
+            // +spec:table-layout:360da0 - table display values cause table formatting behavior
             LayoutDisplay::Table | LayoutDisplay::InlineTable => {
                 self.process_table_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
