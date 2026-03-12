@@ -1096,72 +1096,63 @@ get_css_property!(
     get_unicode_bidi_property,
     get_unicode_bidi,
     StyleUnicodeBidi,
-    azul_css::props::property::CssPropertyType::UnicodeBidi,
-    compact = get_unicode_bidi
+    azul_css::props::property::CssPropertyType::UnicodeBidi
 );
 
 get_css_property!(
     get_text_box_trim_property,
     get_text_box_trim,
     StyleTextBoxTrim,
-    azul_css::props::property::CssPropertyType::TextBoxTrim,
-    compact = get_text_box_trim
+    azul_css::props::property::CssPropertyType::TextBoxTrim
 );
 
 get_css_property!(
     get_text_box_edge_property,
     get_text_box_edge,
     StyleTextBoxEdge,
-    azul_css::props::property::CssPropertyType::TextBoxEdge,
-    compact = get_text_box_edge
+    azul_css::props::property::CssPropertyType::TextBoxEdge
 );
 
 get_css_property!(
     get_dominant_baseline_property,
     get_dominant_baseline,
     StyleDominantBaseline,
-    azul_css::props::property::CssPropertyType::DominantBaseline,
-    compact = get_dominant_baseline
+    azul_css::props::property::CssPropertyType::DominantBaseline
 );
 
 get_css_property!(
     get_alignment_baseline_property,
     get_alignment_baseline,
     StyleAlignmentBaseline,
-    azul_css::props::property::CssPropertyType::AlignmentBaseline,
-    compact = get_alignment_baseline
+    azul_css::props::property::CssPropertyType::AlignmentBaseline
 );
 
 get_css_property!(
     get_initial_letter_align_property,
     get_initial_letter_align,
     StyleInitialLetterAlign,
-    azul_css::props::property::CssPropertyType::InitialLetterAlign,
-    compact = get_initial_letter_align
+    azul_css::props::property::CssPropertyType::InitialLetterAlign
 );
 
 get_css_property!(
     get_initial_letter_wrap_property,
     get_initial_letter_wrap,
     StyleInitialLetterWrap,
-    azul_css::props::property::CssPropertyType::InitialLetterWrap,
-    compact = get_initial_letter_wrap
+    azul_css::props::property::CssPropertyType::InitialLetterWrap
 );
 
 get_css_property!(
     get_scrollbar_gutter_property,
     get_scrollbar_gutter,
     StyleScrollbarGutter,
-    azul_css::props::property::CssPropertyType::ScrollbarGutter,
-    compact = get_scrollbar_gutter
+    azul_css::props::property::CssPropertyType::ScrollbarGutter
 );
 
 get_css_property!(
     get_overflow_clip_margin_property,
     get_overflow_clip_margin,
     StyleOverflowClipMargin,
-    azul_css::props::property::CssPropertyType::OverflowClipMargin,
-    compact = get_overflow_clip_margin
+    azul_css::props::property::CssPropertyType::OverflowClipMargin
 );
 
 get_css_property!(

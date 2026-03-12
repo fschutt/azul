@@ -634,6 +634,15 @@ macro_rules! css_property_from_type {
             CssPropertyType::EmptyCells => CssProperty::EmptyCells(CssPropertyValue::$content_type),
             CssPropertyType::FontWeight => CssProperty::FontWeight(CssPropertyValue::$content_type),
             CssPropertyType::FontStyle => CssProperty::FontStyle(CssPropertyValue::$content_type),
+            CssPropertyType::UnicodeBidi => CssProperty::UnicodeBidi(CssPropertyValue::$content_type),
+            CssPropertyType::TextBoxTrim => CssProperty::TextBoxTrim(CssPropertyValue::$content_type),
+            CssPropertyType::TextBoxEdge => CssProperty::TextBoxEdge(CssPropertyValue::$content_type),
+            CssPropertyType::DominantBaseline => CssProperty::DominantBaseline(CssPropertyValue::$content_type),
+            CssPropertyType::AlignmentBaseline => CssProperty::AlignmentBaseline(CssPropertyValue::$content_type),
+            CssPropertyType::InitialLetterAlign => CssProperty::InitialLetterAlign(CssPropertyValue::$content_type),
+            CssPropertyType::InitialLetterWrap => CssProperty::InitialLetterWrap(CssPropertyValue::$content_type),
+            CssPropertyType::ScrollbarGutter => CssProperty::ScrollbarGutter(CssPropertyValue::$content_type),
+            CssPropertyType::OverflowClipMargin => CssProperty::OverflowClipMargin(CssPropertyValue::$content_type),
         }
     }};
 }
