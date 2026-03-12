@@ -2447,6 +2447,15 @@ where
 
         // +spec:overflow:c52f2a - clipping region is rounded to element's border-radius
         // +spec:overflow:913b23 - when both axes are clip, region is rounded per overflow-clip-margin
+        // +spec:overflow:449d69 - when one axis is clip and the other is visible, clipping region is not rounded
+        let border_radius = if (overflow_x == LayoutOverflow::Clip && overflow_y == LayoutOverflow::Visible)
+            || (overflow_y == LayoutOverflow::Clip && overflow_x == LayoutOverflow::Visible)
+        {
+            BorderRadius::default()
+        } else {
+            border_radius
+        };
+
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let border = &node.box_props.border;
