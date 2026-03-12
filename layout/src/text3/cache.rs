@@ -5831,6 +5831,29 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
             } => {
                 let language = script_to_language(item.script, &item.text);
 
+                // +spec:width-calculation:657f75 - convert full-width chars to non-full-width before compression
+                // +spec:width-calculation:d0a295 - full-width digit conversion example (e.g. "23" stays narrow)
+                // When combined text has more than one typographic character unit,
+                // full-width characters (U+FF01..U+FF5E) are converted to their
+                // ASCII equivalents (U+0021..U+007E) before compression.
+                let text = if text.chars().count() > 1 {
+                    let converted: String = text.chars().map(|c| {
+                        let cp = c as u32;
+                        if cp >= 0xFF01 && cp <= 0xFF5E {
+                            // Reverse of text-transform: full-width
+                            char::from_u32(cp - 0xFF01 + 0x0021).unwrap_or(c)
+                        } else {
+                            c
+                        }
+                    }).collect();
+                    converted
+                } else {
+                    text.clone()
+                };
+
+                // +spec:width-calculation:1ed84d - OpenType compression (half-width/third-width substitution)
+                // is delegated to the font shaping layer via shape_text()
+
                 // Shape CombinedText using either FontRef directly or fontconfig-resolved font
                 let glyphs: Vec<Glyph> = match &style.font_stack {
                     FontStack::Ref(font_ref) => {
@@ -5842,7 +5865,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             )));
                         }
                         font_ref.shape_text(
-                            text,
+                            &text,
                             item.script,
                             language,
                             BidiDirection::Ltr,
@@ -5885,7 +5908,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         match loaded_fonts.get(&font_id) {
                             Some(font) => {
                                 font.shape_text(
-                                    text,
+                                    &text,
                                     item.script,
                                     language,
                                     BidiDirection::Ltr,
