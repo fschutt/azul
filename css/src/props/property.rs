@@ -92,7 +92,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 175] = [
     (CssPropertyType::Hyphens, "hyphens"),
     (CssPropertyType::WordBreak, "word-break"),
     (CssPropertyType::OverflowWrap, "overflow-wrap"),
-    (CssPropertyType::OverflowWrap, "word-wrap"),
+    (CssPropertyType::OverflowWrap, "word-wrap"), // +spec:line-breaking:45074d - word-wrap is legacy name alias for overflow-wrap
     (CssPropertyType::LineBreak, "line-break"),
     (CssPropertyType::ObjectFit, "object-fit"),
     (CssPropertyType::ObjectPosition, "object-position"),
