@@ -3411,9 +3411,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         ch_width: font_size * 0.5, // TODO: resolve from ParsedFontTrait::get_space_width()
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise disallowed points to prevent overflow
+        // +spec:line-breaking:bbb5f7 - overflow-wrap: anywhere vs break-word distinction for min-content
         overflow_wrap: match overflow_wrap_css {
             StyleOverflowWrap::Normal => text3::cache::OverflowWrap::Normal,
-            StyleOverflowWrap::Anywhere | StyleOverflowWrap::BreakWord => text3::cache::OverflowWrap::Anywhere,
+            StyleOverflowWrap::Anywhere => text3::cache::OverflowWrap::Anywhere,
+            StyleOverflowWrap::BreakWord => text3::cache::OverflowWrap::BreakWord,
         },
         text_align_last: match text_align_last_css {
             StyleTextAlignLast::Auto => text3::cache::TextAlign::default(),

@@ -8492,6 +8492,7 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 // +spec:line-breaking:8fed57 - word-break: break-all treats all clusters as break opportunities, keep-all suppresses CJK breaks
 // +spec:line-breaking:e2b374 - word-break: normal (only at separators) vs break-all (between all letters incl. Ethiopic)
 // +spec:overflow:53a97f - word-break (normal/break-all/keep-all) and line-break strictness rules
+// +spec:line-breaking:1c830a - word-break: normal/break-all/keep-all break opportunity rules
 // §5.2 word-break property: break opportunity logic
 // +spec:line-breaking:a75147 - word-break property: normal (CJK breaks), break-all (every cluster), keep-all (suppress CJK breaks)
 // +spec:line-breaking:65ab41 - word-break: normal/break-all/keep-all break opportunity rules
@@ -8549,6 +8550,13 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
 
 // +spec:line-breaking:db0289 - line-break strictness: anywhere allows soft wrap around every typographic character unit
 // +spec:line-breaking:7d242b - line-break strictness levels: loose/normal/strict/anywhere with CJK punctuation rules
+// +spec:line-breaking:67bfe8 - line-break strictness (auto/loose/normal/strict/anywhere) controls
+// CSS Text Level 3 §5.3: Determines whether a break opportunity before a character is
+// allowed based on the line-break strictness level. The spec defines:
+// - strict: forbids breaks before small kana (class CJ), CJK hyphens, and certain punctuation
+// - normal: allows breaks before small kana (CJ); allows CJK hyphen breaks for CJK writing systems
+// - loose: additionally allows breaks before hyphens U+2010/U+2013 after ID-class chars
+// - anywhere: allows soft wrap around every typographic character unit
 fn is_cjk_break_allowed_by_strictness(
     ch: char,
     _prev_ch: Option<char>,
