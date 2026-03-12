@@ -5377,3 +5377,73 @@ pub struct BreakProperties {
     pub break_after: PageBreak,
     pub break_inside: BreakInside,
 }
+
+// ============================================================================
+// TEXT-OVERFLOW STUB
+// ============================================================================
+
+/// Applies text-overflow ellipsis handling to a display list.
+///
+/// CSS UI Module Level 3, section 6.2 (text-overflow):
+/// When inline content overflows a block container that has `overflow: hidden`
+/// (or clip/scroll) and `text-overflow: ellipsis`, the overflowing text should
+/// be replaced with an ellipsis character (U+2026) or a custom string.
+///
+/// # Parameters
+/// - `_display_list`: The display list to modify (text items may be clipped/replaced)
+/// - `_container_bounds`: The bounds of the containing block (overflow boundary)
+/// - `_ellipsis`: The ellipsis string to use (typically "..." or a custom string)
+///
+/// TODO(text-overflow): Implement the full text-overflow algorithm:
+/// 1. Check if the container has overflow: hidden/clip/scroll
+/// 2. Find text runs that overflow the container's inline-end edge
+/// 3. Measure the ellipsis string width using the font metrics
+/// 4. Replace/clip the last visible characters to make room for the ellipsis
+/// 5. Handle bidi text (ellipsis goes at the inline-end of each line)
+/// 6. Handle `text-overflow: clip` (just clip, no ellipsis)
+pub fn apply_text_overflow_ellipsis(
+    _display_list: &mut DisplayList,
+    _container_bounds: LogicalRect,
+    _ellipsis: &str,
+) {
+    // TODO(text-overflow): Implement text-overflow ellipsis rendering.
+    // This is a display-list post-processing step that modifies glyph runs
+    // to show an ellipsis when text overflows its container.
+}
+
+// ============================================================================
+// CLIP-PATH STUB
+// ============================================================================
+
+/// Applies a CSS clip-path to a display list item.
+///
+/// CSS Masking Module Level 1, section 3 (clip-path):
+/// The clip-path property creates a clipping region that determines which parts
+/// of an element are visible. Content outside the clipping region is hidden.
+///
+/// Supported clip-path values (to be implemented):
+/// - `inset()` - rectangular clip with optional rounding
+/// - `circle()` - circular clip
+/// - `ellipse()` - elliptical clip
+/// - `polygon()` - arbitrary polygon clip
+/// - `url()` - reference to an SVG `<clipPath>` element
+/// - `none` - no clipping (default)
+///
+/// # Parameters
+/// - `_display_list`: The display list to apply clipping to
+/// - `_node_bounds`: The reference box for resolving clip-path percentages
+///
+/// TODO(clip-path): Implement clip-path rendering:
+/// 1. Read the clip-path CSS property for the node
+/// 2. Resolve the basic shape against the reference box
+/// 3. Generate clip instructions in the display list
+/// 4. Handle geometry-box (margin-box, border-box, padding-box, content-box)
+/// 5. Integrate with the renderer's clipping pipeline
+pub fn apply_clip_path(
+    _display_list: &mut DisplayList,
+    _node_bounds: LogicalRect,
+) {
+    // TODO(clip-path): Implement CSS clip-path clipping.
+    // The clip-path property value needs to be read from the styled DOM
+    // and converted into renderer-specific clip instructions.
+}
