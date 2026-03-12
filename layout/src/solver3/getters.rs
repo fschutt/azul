@@ -260,6 +260,10 @@ impl MultiValue<LayoutOverflow> {
         matches!(self, MultiValue::Exact(LayoutOverflow::Scroll))
     }
 
+    pub fn is_clip(&self) -> bool {
+        matches!(self, MultiValue::Exact(LayoutOverflow::Clip))
+    }
+
     pub fn is_visible_or_clip(&self) -> bool {
         matches!(
             self,
