@@ -868,6 +868,31 @@ pub fn generate_azul_rendering_sized(
     height: u32,
     dpi_factor: f32,
 ) -> anyhow::Result<DebugData> {
+    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, None)
+}
+
+/// Like `generate_azul_rendering_sized` but reuses a pre-built font cache
+/// instead of calling `build_font_cache()` (which scans the filesystem).
+/// The cache is cloned per call (cheap compared to rebuilding).
+pub fn generate_azul_rendering_sized_cached(
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    dpi_factor: f32,
+    fc_cache: &rust_fontconfig::FcFontCache,
+) -> anyhow::Result<DebugData> {
+    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, Some(fc_cache))
+}
+
+fn generate_azul_rendering_sized_internal(
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    dpi_factor: f32,
+    fc_cache: Option<&rust_fontconfig::FcFontCache>,
+) -> anyhow::Result<DebugData> {
     let start = Instant::now();
 
     // Read XML content
@@ -914,13 +939,14 @@ pub fn generate_azul_rendering_sized(
     let xml_formatting_time = start.elapsed().as_millis() as u64;
 
     // Generate and save PNG
-    let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug(
+    let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug_internal(
         &dom_xml.parsed_dom,
         output_file,
         width,
         height,
         dpi_factor,
         &mut debug_collector,
+        fc_cache,
     )?;
 
     // Record rendering time
@@ -945,6 +971,18 @@ fn styled_dom_to_png_with_debug(
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
 ) -> anyhow::Result<(Vec<String>, u64, u64)> {
+    styled_dom_to_png_with_debug_internal(styled_dom, output_file, width, height, dpi_factor, debug_collector, None)
+}
+
+fn styled_dom_to_png_with_debug_internal(
+    styled_dom: &StyledDom,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    dpi_factor: f32,
+    debug_collector: &mut DebugDataCollector,
+    fc_cache: Option<&rust_fontconfig::FcFontCache>,
+) -> anyhow::Result<(Vec<String>, u64, u64)> {
     let start_time_layout = std::time::Instant::now();
 
     // Create window state for layout
@@ -959,11 +997,12 @@ fn styled_dom_to_png_with_debug(
     let mut renderer_resources = azul_core::resources::RendererResources::default();
 
     // Solve layout with debug information (solver3)
-    let (display_list, debug_msg, layout_window) = solve_layout_with_debug(
+    let (display_list, debug_msg, layout_window) = solve_layout_with_debug_internal(
         styled_dom.clone(),
         &fake_window_state,
         &mut renderer_resources,
         debug_collector,
+        fc_cache,
     )?;
 
     // Capture display list for debugging
@@ -1815,10 +1854,27 @@ pub fn solve_layout_with_debug(
     Vec<String>,
     azul_layout::LayoutWindow,
 )> {
+    solve_layout_with_debug_internal(styled_dom, fake_window_state, renderer_resources, debug_collector, None)
+}
+
+fn solve_layout_with_debug_internal(
+    styled_dom: StyledDom,
+    fake_window_state: &FullWindowState,
+    renderer_resources: &mut RendererResources,
+    debug_collector: &mut DebugDataCollector,
+    fc_cache: Option<&rust_fontconfig::FcFontCache>,
+) -> anyhow::Result<(
+    azul_layout::solver3::display_list::DisplayList,
+    Vec<String>,
+    azul_layout::LayoutWindow,
+)> {
     use std::fmt::Write;
 
-    // Create LayoutWindow for layout computation
-    let fc_cache = azul_layout::font::loading::build_font_cache();
+    // Create LayoutWindow for layout computation — reuse pre-built cache if provided
+    let fc_cache = match fc_cache {
+        Some(c) => c.clone(),
+        None => azul_layout::font::loading::build_font_cache(),
+    };
     let mut layout_window = azul_layout::LayoutWindow::new(fc_cache)?;
 
     // Prepare debug messages
