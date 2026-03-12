@@ -78,6 +78,7 @@ impl EdgeSizes {
     // +spec:writing-modes:c91130 - Abstract box terminology: block/inline axis mapping per writing-mode
     // +spec:writing-modes:cd31ce - flow-relative directions mapped to physical via writing mode
     // +spec:writing-modes:fd8c18 - block/inline axis mapping based on writing mode
+    // +spec:writing-modes:0e549a - writing-mode computed value influences physical/logical axis mapping
     /// Returns the size of the edge at the start of the main/block axis.
     pub fn main_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {

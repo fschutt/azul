@@ -1781,7 +1781,35 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
     };
 
     // Get writing mode, direction, and text-orientation
-    let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    // +spec:writing-modes:2af307 - Propagate used writing-mode from <body> to <html> root
+    let writing_mode = {
+        let own_wm = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        let nd = &styled_dom.node_data.as_container()[dom_id];
+        if matches!(nd.node_type, NodeType::Html) {
+            // If root <html>, propagate writing-mode from first <body> child
+            styled_dom
+                .node_hierarchy
+                .as_container()
+                .get(dom_id)
+                .and_then(|node| node.first_child_id(dom_id))
+                .and_then(|child_id| {
+                    let child_data = &styled_dom.node_data.as_container()[child_id];
+                    if matches!(child_data.node_type, NodeType::Body) {
+                        let child_state = &styled_dom
+                            .styled_nodes
+                            .as_container()[child_id]
+                            .styled_node_state;
+                        Some(get_writing_mode(styled_dom, child_id, child_state)
+                            .unwrap_or_default())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(own_wm)
+        } else {
+            own_wm
+        }
+    };
     let direction = get_direction(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
     let text_orientation = get_text_orientation(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
