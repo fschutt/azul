@@ -393,3 +393,28 @@ positioning:556aeb # SECURITY: security/privacy advisory
 positioning:a7225d # SECURITY: security/privacy advisory
 positioning:ba4d0b # SECURITY: security/privacy advisory
 positioning:fb8117 # SECURITY: security/privacy advisory
+
+# === AGENT RUN 2 — NOT APPLICABLE (22) ===
+# Identified by claude-exec agents as genuinely not applicable
+block-formatting-context:26b535 # NON_NORMATIVE: vertical typographic baseline selection rules (text/inline concern)
+block-formatting-context:3093e2 # NON_NORMATIVE: introductory prose about vertical writing, no normative requirements
+block-formatting-context:3be1e0 # NON_NORMATIVE: author advice to use sideways-lr for certain scripts
+block-formatting-context:410d6c # NON_NORMATIVE: notes about Ogham/Old Turkic script limitations
+block-formatting-context:4ea192 # NON_NORMATIVE: informational example about text-transform + text-combine-upright
+block-formatting-context:4f2433 # NON_NORMATIVE: introductory prose about vertical text concepts
+block-formatting-context:9d3d05 # NON_NORMATIVE: editorial terminology clarification
+block-formatting-context:f2cd5e # MISMATCHED: obsolete SVG glyph-orientation-vertical property aliasing
+containing-block:ebcd87 # MISMATCHED: top layer is a browser UA concept (fullscreen/dialog)
+display-property:511e16 # NON_NORMATIVE: author-facing guidance about unicode-bidi usage
+display-property:f887e9 # FLEX_GRID: orthogonal flow root sizing for flex containers (Taffy) and table cells
+intrinsic-sizing:99acd7 # MISMATCHED: UA may clause about form control minimum sizes
+overflow:55ce1f # NON_NORMATIVE: informative UX details for text-overflow + scroll interaction
+overflow:ea10a3 # MISMATCHED: viewport propagation of scrollbar-gutter (browser UA concept)
+width-calculation:75a9f2 # MISMATCHED: CSS multi-column layout not implemented
+width-calculation:bc5962 # FLEX_GRID: flex-basis handled by Taffy
+writing-modes:3deddb # NON_NORMATIVE: authoring recommendation to use dir attribute instead of CSS direction
+writing-modes:6e3844 # MISMATCHED: SVG1.1 presentational attributes and non-normative baseline intro
+writing-modes:7a9e7d # MISMATCHED: Unicode bidi text reordering handled by external libraries
+writing-modes:8e7281 # MISMATCHED: bidi control code insertion handled by external libraries
+writing-modes:f3dd0e # MISMATCHED: SVG1.1 obsolete writing-mode value mapping
+writing-modes:f488c9 # MISMATCHED: page progression direction (CSS Paged Media not implemented)
