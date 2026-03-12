@@ -8495,6 +8495,7 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 // §5.2 word-break property: break opportunity logic
 // +spec:line-breaking:a75147 - word-break property: normal (CJK breaks), break-all (every cluster), keep-all (suppress CJK breaks)
 // +spec:line-breaking:65ab41 - word-break: normal/break-all/keep-all break opportunity rules
+// +spec:line-breaking:7eca16 - U+200B ZERO WIDTH SPACE is always a break opportunity, even with keep-all
 fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
     // Break after spaces or explicit break items (always, regardless of word-break).
     if is_word_separator(item) {
@@ -8505,6 +8506,12 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
     }
     // +spec:line-breaking:432d5b - hyphens property controls soft wrap opportunities via hyphenation
     // +spec:line-breaking:5a32a1 - soft hyphen (U+00AD) creates break opportunity; glyph styled per surrounding text properties
+    // U+200B ZERO WIDTH SPACE is always a soft wrap opportunity regardless of word-break.
+    // This allows authors to mark explicit wrap points (e.g. with <wbr> or &#x200B;)
+    // even when using word-break: keep-all to suppress other breaks.
+    if is_zero_width_space(item) {
+        return true;
+    }
     // only when hyphens != none. With hyphens:none, soft hyphens do not create break points.
     if hyphens != Hyphens::None {
         if let ShapedItem::Cluster(c) = item {
