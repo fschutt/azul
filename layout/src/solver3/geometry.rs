@@ -512,6 +512,44 @@ impl Default for WritingModeContext {
 }
 
 impl WritingModeContext {
+    /// Constructs a `WritingModeContext`, applying spec-mandated overrides.
+    // +spec:writing-modes:8307e4 - text-orientation: upright forces used direction to ltr
+    pub fn new(
+        writing_mode: LayoutWritingMode,
+        direction: StyleDirection,
+        text_orientation: StyleTextOrientation,
+    ) -> Self {
+        // CSS Writing Modes Level 4 §5.1: text-orientation: upright causes
+        // the used value of direction to be ltr, and all characters to be
+        // treated as strong LTR for bidi reordering purposes.
+        let used_direction = if text_orientation == StyleTextOrientation::Upright {
+            StyleDirection::Ltr
+        } else {
+            direction
+        };
+        Self {
+            writing_mode,
+            direction: used_direction,
+            text_orientation,
+        }
+    }
+
+    // +spec:writing-modes:458d31 - text-orientation:upright forces used direction to ltr
+    /// Returns the used value of `direction`, accounting for `text-orientation: upright`
+    /// which forces direction to `ltr` in vertical writing modes per CSS Writing Modes 4 §5.1.
+    pub fn used_direction(&self) -> StyleDirection {
+        match self.writing_mode {
+            LayoutWritingMode::HorizontalTb => self.direction,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => {
+                if self.text_orientation == StyleTextOrientation::Upright {
+                    StyleDirection::Ltr
+                } else {
+                    self.direction
+                }
+            }
+        }
+    }
+
     // +spec:containing-block:c205e5 - orthogonal flow: child writing mode perpendicular to containing block's
 
     /// Returns true if the writing mode is horizontal (HorizontalTb).
@@ -542,13 +580,6 @@ impl WritingModeContext {
     /// Returns true if the inline direction is reversed (RTL in horizontal,
     /// or bottom-to-top in certain vertical modes).
     pub fn is_inline_reversed(&self) -> bool {
-        match self.writing_mode {
-            LayoutWritingMode::HorizontalTb => self.direction == StyleDirection::Rtl,
-            // TODO(writing-modes): In vertical modes, the inline direction
-            // is top-to-bottom by default; RTL reverses it to bottom-to-top
-            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => {
-                self.direction == StyleDirection::Rtl
-            }
-        }
+        self.used_direction() == StyleDirection::Rtl
     }
 }
