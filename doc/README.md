@@ -176,6 +176,74 @@ azul-doc debug-regression statistics send            # Send statistics to Gemini
 azul-doc debug-regression statistics send -o <path>  # Save Gemini response to file
 ```
 
+## `autodebug` — Automated Reftest Bug-Finding Pipeline
+
+`autodebug` combines the reftest infrastructure with the parallel Claude agent
+executor to automatically discover failing reftests, generate rich diagnostic
+prompts, and dispatch agents to analyze and fix each bug.
+
+The pipeline runs each `.xht` test at three screen sizes (mobile 375×667,
+tablet 768×1024, desktop 1920×1080), compares Azul's render against Chrome
+pixel-by-pixel, and for any test exceeding 0.5% pixel difference generates a
+structured agent prompt containing:
+
+- Codebase orientation (solver3, text3, cpurender)
+- XHTML source, CSS warnings, layout debug trace
+- Screenshot file paths (agents view images via Claude's `Read` tool)
+- Pixel diff analysis: connected-component regions with position descriptions
+  and heuristic cause classification (border offset, margin collapse, missing
+  content, anti-aliasing, layout shift)
+- Chrome layout JSON vs Azul display list
+
+Each agent receives one failing test, works in an isolated git worktree, and
+produces a commit with the fix (or a diagnostic report if the fix isn't clear).
+
+```bash
+# Full run: discover failing tests → generate prompts → dispatch 4 agents
+azul-doc autodebug claude-exec
+
+# Generate prompts only (inspect before dispatching agents)
+azul-doc autodebug claude-exec --dry-run
+
+# Run a single test
+azul-doc autodebug claude-exec --test=abspos-containing-block-initial-001
+
+# Customize parallelism and timeout
+azul-doc autodebug claude-exec --agents=8 --timeout=900
+
+# Only test specific screen sizes
+azul-doc autodebug claude-exec --sizes=mobile,desktop
+
+# Reuse cached Chrome screenshots (faster re-runs)
+azul-doc autodebug claude-exec --skip-chrome
+
+# Re-queue previously failed tests
+azul-doc autodebug claude-exec --retry-failed
+
+# Monitor progress (in a separate terminal)
+azul-doc autodebug claude-exec --status
+
+# Collect patches from completed agents
+azul-doc autodebug claude-exec --collect
+
+# Clean up worktrees and branches
+azul-doc autodebug claude-exec --cleanup
+
+# Override the Claude model
+azul-doc autodebug claude-exec --model=claude-sonnet-4-6
+```
+
+Output goes to `doc/target/autodebug/`:
+
+```
+doc/target/autodebug/
+├── screenshots/    # Chrome PNGs + Azul WebPs per test per size
+├── prompts/        # Generated .md prompts + status files (.done/.failed/.taken)
+├── patches/        # Extracted .patch files from agent commits
+├── reports/        # Agent analysis reports (when fix is uncertain)
+└── summary.json    # Overall results
+```
+
 ## Website Deployment
 
 Builds the full azul.rs website (API docs, release pages, examples, reftest
@@ -412,6 +480,7 @@ doc/src/
 │   └── v2/             # IR builder → Rust/C/C++/Python generators
 ├── patch/              # dedup, api.json patch application
 ├── reftest/            # Pixel-comparison layout tests + LLM debugging
+│   └── autodebug.rs    # Automated bug-finding pipeline (multi-res diff + agent dispatch)
 ├── docgen/             # Website documentation generator
 ├── dllgen/             # DLL build + deploy
 └── spec/               # W3C spec verification pipeline

@@ -31,6 +31,7 @@ use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
+pub mod autodebug;
 pub mod debug;
 pub mod regression;
 
@@ -558,7 +559,7 @@ pub fn run_single_reftest_headless(
     Ok(())
 }
 
-fn find_test_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+pub fn find_test_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut test_files = Vec::new();
 
     for entry in fs::read_dir(dir)? {
@@ -856,6 +857,17 @@ pub fn generate_azul_rendering(
     output_file: &Path,
     dpi_factor: f32,
 ) -> anyhow::Result<DebugData> {
+    generate_azul_rendering_sized(test_file, output_file, WIDTH, HEIGHT, dpi_factor)
+}
+
+/// Like `generate_azul_rendering` but with explicit width/height.
+pub fn generate_azul_rendering_sized(
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    dpi_factor: f32,
+) -> anyhow::Result<DebugData> {
     let start = Instant::now();
 
     // Read XML content
@@ -905,8 +917,8 @@ pub fn generate_azul_rendering(
     let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug(
         &dom_xml.parsed_dom,
         output_file,
-        WIDTH,
-        HEIGHT,
+        width,
+        height,
         dpi_factor,
         &mut debug_collector,
     )?;
@@ -1034,7 +1046,7 @@ impl Default for Options {
 }
 
 /// Helper function to determine if two pixels are similar enough (for anti-aliasing)
-fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) -> bool {
+pub fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) -> bool {
     // Skip fully transparent pixels
     if p1[3] == 0 && p2[3] == 0 {
         return true;

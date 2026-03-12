@@ -1238,6 +1238,13 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
+        ["autodebug", rest @ ..] | ["autodebug", "claude-exec", rest @ ..] => {
+            let config = reftest::autodebug::parse_autodebug_args(rest, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::autodebug::run_autodebug(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["spec", rest @ ..] => {
             let args: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
             spec::run_spec_command(&args, &project_root)

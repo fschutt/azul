@@ -2226,17 +2226,17 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
 
 // ── Worktree management ────────────────────────────────────────────────
 
-struct WorktreeSlot {
-    path: PathBuf,
-    branch: String,
+pub struct WorktreeSlot {
+    pub path: PathBuf,
+    pub branch: String,
 }
 
-fn worktrees_dir(workspace_root: &Path) -> PathBuf {
+pub fn worktrees_dir(workspace_root: &Path) -> PathBuf {
     workspace_root.join(".claude-agents")
 }
 
 /// Get the current HEAD commit sha of the main workspace.
-fn get_head_sha(workspace_root: &Path) -> Result<String, String> {
+pub fn get_head_sha(workspace_root: &Path) -> Result<String, String> {
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(workspace_root)
@@ -2255,6 +2255,21 @@ fn create_worktree_pool(
     workspace_root: &Path,
     count: usize,
 ) -> Result<Vec<WorktreeSlot>, String> {
+    create_worktree_pool_internal(workspace_root, count, "spec-agent")
+}
+
+pub fn create_worktree_pool_autodebug(
+    workspace_root: &Path,
+    count: usize,
+) -> Result<Vec<WorktreeSlot>, String> {
+    create_worktree_pool_internal(workspace_root, count, "autodebug-agent")
+}
+
+pub fn create_worktree_pool_internal(
+    workspace_root: &Path,
+    count: usize,
+    branch_prefix: &str,
+) -> Result<Vec<WorktreeSlot>, String> {
     let base = worktrees_dir(workspace_root);
     fs::create_dir_all(&base)
         .map_err(|e| format!("Failed to create .claude-agents dir: {}", e))?;
@@ -2264,7 +2279,7 @@ fn create_worktree_pool(
 
     for i in 0..count {
         let slot_name = format!("slot-{:03}", i);
-        let branch = format!("spec-agent-{:03}", i);
+        let branch = format!("{}-{:03}", branch_prefix, i);
         let slot_path = base.join(&slot_name);
 
         if slot_path.exists() {
@@ -2315,7 +2330,7 @@ fn create_worktree_pool(
 }
 
 /// Reset a worktree to a specific commit, discarding all local changes.
-fn reset_worktree(slot_path: &Path, target_sha: &str) -> Result<(), String> {
+pub fn reset_worktree(slot_path: &Path, target_sha: &str) -> Result<(), String> {
     // Reset branch HEAD to target
     let output = Command::new("git")
         .args(["reset", "--hard", target_sha])
@@ -2348,6 +2363,14 @@ fn reset_worktree(slot_path: &Path, target_sha: &str) -> Result<(), String> {
 }
 
 fn cleanup_worktrees(workspace_root: &Path) -> Result<(), String> {
+    cleanup_worktrees_internal(workspace_root, "spec-agent-*")
+}
+
+pub fn cleanup_worktrees_autodebug(workspace_root: &Path) -> Result<(), String> {
+    cleanup_worktrees_internal(workspace_root, "autodebug-agent-*")
+}
+
+pub fn cleanup_worktrees_internal(workspace_root: &Path, branch_pattern: &str) -> Result<(), String> {
     let base = worktrees_dir(workspace_root);
     if !base.exists() {
         println!("No .claude-agents directory found.");
@@ -2390,9 +2413,9 @@ fn cleanup_worktrees(workspace_root: &Path) -> Result<(), String> {
     // Remove the directory itself if empty
     let _ = fs::remove_dir(&base);
 
-    // Delete spec-agent-* branches left behind by worktrees
+    // Delete branches matching the pattern left behind by worktrees
     let branch_output = Command::new("git")
-        .args(["branch", "--list", "spec-agent-*"])
+        .args(["branch", "--list", branch_pattern])
         .current_dir(workspace_root)
         .output()
         .ok();
@@ -2425,14 +2448,14 @@ fn cleanup_worktrees(workspace_root: &Path) -> Result<(), String> {
 // ── Prompt status scanning ─────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-enum PromptStatus {
+pub enum PromptStatus {
     Done,
     Failed,
     Taken { pid: u32 },
     Pending,
 }
 
-fn classify_prompt(prompt_path: &Path, retry_failed: bool) -> PromptStatus {
+pub fn classify_prompt(prompt_path: &Path, retry_failed: bool) -> PromptStatus {
     let done_path = prompt_path.with_extension("md.done");
     let failed_path = prompt_path.with_extension("md.failed");
     let taken_path = prompt_path.with_extension("md.taken");
@@ -2469,7 +2492,7 @@ fn classify_prompt(prompt_path: &Path, retry_failed: bool) -> PromptStatus {
     PromptStatus::Pending
 }
 
-fn parse_taken_pid(content: &str) -> Option<u32> {
+pub fn parse_taken_pid(content: &str) -> Option<u32> {
     for part in content.split_whitespace() {
         if let Some(pid_str) = part.strip_prefix("pid=") {
             return pid_str.parse().ok();
@@ -2478,7 +2501,7 @@ fn parse_taken_pid(content: &str) -> Option<u32> {
     None
 }
 
-fn is_pid_alive(pid: u32) -> bool {
+pub fn is_pid_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
 }
 
@@ -2520,7 +2543,7 @@ fn is_prompt_excluded(path: &Path, exclude: &std::collections::HashSet<String>) 
     tags.iter().all(|t| exclude.contains(t))
 }
 
-fn scan_prompts_dir(
+pub fn scan_prompts_dir(
     prompts_dir: &Path,
     retry_failed: bool,
     exclude: &std::collections::HashSet<String>,
@@ -2562,7 +2585,7 @@ fn scan_prompts_dir(
 
 // ── Prompt building ────────────────────────────────────────────────────
 
-const CODEBASE_CONTEXT: &str = r#"## Codebase Orientation
+pub const CODEBASE_CONTEXT: &str = r#"## Codebase Orientation
 
 You are working in the `azul` CSS layout engine repository.
 The layout solver is in `layout/src/solver3/`.
@@ -2857,7 +2880,7 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
 
 /// Parse stream-json .result file for the most recent activity.
 /// Returns e.g. "Read fc.rs", "Edit mod.rs", "Bash", "thinking...", or "".
-fn read_stream_json_activity(result_path: &Path) -> String {
+pub fn read_stream_json_activity(result_path: &Path) -> String {
     let content = match fs::read_to_string(result_path) {
         Ok(c) if !c.is_empty() => c,
         _ => return String::new(),
@@ -2904,7 +2927,7 @@ fn read_stream_json_activity(result_path: &Path) -> String {
 
 /// Extract the final plain-text result from a stream-json .result file.
 /// Looks for the `{"type":"result","result":"..."}` event.
-fn extract_result_text(result_path: &Path) -> String {
+pub fn extract_result_text(result_path: &Path) -> String {
     let content = match fs::read_to_string(result_path) {
         Ok(c) => c,
         Err(_) => return String::new(),
@@ -2929,7 +2952,7 @@ fn extract_result_text(result_path: &Path) -> String {
 
 /// Check which files the agent has modified in its worktree.
 /// Returns e.g. "editing fc.rs (+2 files)" or empty string.
-fn check_worktree_activity(slot_path: &Path) -> String {
+pub fn check_worktree_activity(slot_path: &Path) -> String {
     let output = Command::new("git")
         .args(["diff", "--name-only"])
         .current_dir(slot_path)
@@ -2955,13 +2978,13 @@ fn check_worktree_activity(slot_path: &Path) -> String {
     }
 }
 
-struct AgentResult {
-    success: bool,
-    patches: usize,
-    error: Option<String>,
+pub struct AgentResult {
+    pub success: bool,
+    pub patches: usize,
+    pub error: Option<String>,
 }
 
-fn write_taken_file(taken_path: &Path, slot: usize, pid: u32) -> Result<(), String> {
+pub fn write_taken_file(taken_path: &Path, slot: usize, pid: u32) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -2974,7 +2997,7 @@ fn write_taken_file(taken_path: &Path, slot: usize, pid: u32) -> Result<(), Stri
 }
 
 /// Extract commits the agent made (ahead of `base_sha`) as patch files.
-fn extract_patches(
+pub fn extract_patches(
     slot_path: &Path,
     base_sha: &str,
     prompt_path: &Path,
@@ -3041,6 +3064,31 @@ fn run_agent_in_slot(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
+    run_agent_in_slot_internal(slot, slot_index, prompt_path, timeout, base_sha, model, on_progress, false)
+}
+
+pub fn run_agent_in_slot_autodebug(
+    slot: &WorktreeSlot,
+    slot_index: usize,
+    prompt_path: &Path,
+    timeout: Duration,
+    base_sha: &str,
+    model: Option<&str>,
+    on_progress: &dyn Fn(&str),
+) -> AgentResult {
+    run_agent_in_slot_internal(slot, slot_index, prompt_path, timeout, base_sha, model, on_progress, true)
+}
+
+fn run_agent_in_slot_internal(
+    slot: &WorktreeSlot,
+    slot_index: usize,
+    prompt_path: &Path,
+    timeout: Duration,
+    base_sha: &str,
+    model: Option<&str>,
+    on_progress: &dyn Fn(&str),
+    raw_prompt: bool,
+) -> AgentResult {
     let taken_path = prompt_path.with_extension("md.taken");
     let result_path = prompt_path.with_extension("md.result");
     let done_path = prompt_path.with_extension("md.done");
@@ -3055,15 +3103,28 @@ fn run_agent_in_slot(
         };
     }
 
-    // Build prompt
-    let full_prompt = match build_full_prompt(prompt_path, &slot.path) {
-        Ok(p) => p,
-        Err(e) => {
-            return AgentResult {
-                success: false,
-                patches: 0,
-                error: Some(e),
-            };
+    // Build prompt — raw mode reads the .md file as-is, normal mode wraps with codebase context
+    let full_prompt = if raw_prompt {
+        match fs::read_to_string(prompt_path) {
+            Ok(content) => content,
+            Err(e) => {
+                return AgentResult {
+                    success: false,
+                    patches: 0,
+                    error: Some(format!("Failed to read prompt: {}", e)),
+                };
+            }
+        }
+    } else {
+        match build_full_prompt(prompt_path, &slot.path) {
+            Ok(p) => p,
+            Err(e) => {
+                return AgentResult {
+                    success: false,
+                    patches: 0,
+                    error: Some(e),
+                };
+            }
         }
     };
 
@@ -3787,10 +3848,10 @@ pub fn run_executor(
 // ── Signal handling ────────────────────────────────────────────────────
 
 /// Global shutdown flag set by SIGINT handler.
-static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+pub static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// Install a SIGINT handler that sets the SHUTDOWN_REQUESTED flag.
-fn install_sigint_handler() {
+pub fn install_sigint_handler() {
     SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
 
     #[cfg(unix)]
