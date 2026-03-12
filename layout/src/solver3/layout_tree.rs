@@ -82,7 +82,7 @@ pub struct IfcMembership {
 }
 
 use azul_core::{
-    dom::{FormattingContext, NodeId, NodeType},
+    dom::{FormattingContext, NodeData, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::StyledDom,
 };
@@ -877,13 +877,8 @@ impl LayoutTreeBuilder {
         // +spec:display-property:042f56 - replaced elements with layout-internal display use inline
         // CSS Display 3 §2.4: "When the display property of a replaced element computes to
         // one of the layout-internal values, it is handled as having a used value of inline."
-        let raw_display = if raw_display.is_layout_internal() {
-            let is_replaced = matches!(
-                node_data.get_node_type(),
-                NodeType::Image(_) | NodeType::VirtualView
-                | NodeType::Object | NodeType::Embed | NodeType::Video
-            );
-            if is_replaced { LayoutDisplay::Inline } else { raw_display }
+        let raw_display = if raw_display.is_layout_internal() && is_replaced_element(node_data) {
+            LayoutDisplay::Inline
         } else {
             raw_display
         };
@@ -2453,6 +2448,30 @@ fn blockify_flex_item_if_table_internal(nodes: &mut Vec<LayoutNode>, node_idx: u
             };
         }
     }
+}
+
+/// Returns true if the node is a replaced element per CSS Display 3 Appendix B.
+/// Replaced elements (img, canvas, embed, object, audio, video, input, textarea,
+/// select, br, wbr, meter, progress, virtual views) cannot be un-boxed by
+/// `display: contents` and always establish an independent formatting context.
+fn is_replaced_element(node_data: &NodeData) -> bool {
+    matches!(
+        node_data.get_node_type(),
+        NodeType::Image(_)
+        | NodeType::VirtualView
+        | NodeType::Br
+        | NodeType::Wbr
+        | NodeType::Meter
+        | NodeType::Progress
+        | NodeType::Canvas
+        | NodeType::Embed
+        | NodeType::Object
+        | NodeType::Audio
+        | NodeType::Video
+        | NodeType::Input
+        | NodeType::TextArea
+        | NodeType::Select
+    )
 }
 
 // +spec:display-property:285fe7 - block box establishing a BFC (block-level block container with new BFC)
