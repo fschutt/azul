@@ -54,7 +54,7 @@ use crate::{
             get_break_after, get_break_before, get_caret_style,
             get_overflow_clip_margin_property, get_overflow_x, get_overflow_y,
             get_scrollbar_gutter_property, get_scrollbar_info_from_layout, get_scrollbar_style, get_selection_style,
-            get_style_border_radius, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
+            get_style_border_radius, get_visibility, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
             ComputedScrollbarStyle, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
