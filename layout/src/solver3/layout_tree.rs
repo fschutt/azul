@@ -874,6 +874,20 @@ impl LayoutTreeBuilder {
         let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
         let raw_display = get_display_type(styled_dom, dom_id);
 
+        // +spec:display-property:042f56 - replaced elements with layout-internal display use inline
+        // CSS Display 3 §2.4: "When the display property of a replaced element computes to
+        // one of the layout-internal values, it is handled as having a used value of inline."
+        let raw_display = if raw_display.is_layout_internal() {
+            let is_replaced = matches!(
+                node_data.get_node_type(),
+                NodeType::Image(_) | NodeType::VirtualView
+                | NodeType::Object | NodeType::Embed | NodeType::Video
+            );
+            if is_replaced { LayoutDisplay::Inline } else { raw_display }
+        } else {
+            raw_display
+        };
+
         // type is always blockified (CSS Display 3 §2.8)
         // (CSS Display 3 §2.7)
         let display_type = if parent_idx.is_none() {
@@ -1547,7 +1561,27 @@ impl LayoutTreeBuilder {
             relative_position: None,
             overflow_content_size: None,
             taffy_cache: TaffyCache::new(),
-            computed_style: compute_layout_style(styled_dom, dom_id),
+            // +spec:overflow:8f9f7e - viewport overflow propagation: visible→auto, clip→hidden
+            computed_style: {
+                let mut style = compute_layout_style(styled_dom, dom_id);
+                if parent.is_none() {
+                    // CSS Overflow 3 §3.3: If visible is applied to the viewport,
+                    // it must be interpreted as auto. If clip is applied to the
+                    // viewport, it must be interpreted as hidden.
+                    use azul_css::props::layout::LayoutOverflow;
+                    if style.overflow_x == LayoutOverflow::Visible {
+                        style.overflow_x = LayoutOverflow::Auto;
+                    } else if style.overflow_x == LayoutOverflow::Clip {
+                        style.overflow_x = LayoutOverflow::Hidden;
+                    }
+                    if style.overflow_y == LayoutOverflow::Visible {
+                        style.overflow_y = LayoutOverflow::Auto;
+                    } else if style.overflow_y == LayoutOverflow::Clip {
+                        style.overflow_y = LayoutOverflow::Hidden;
+                    }
+                }
+                style
+            },
             pseudo_element: None,
             escaped_top_margin: None,
             escaped_bottom_margin: None,
@@ -1732,8 +1766,19 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
     let float = get_float(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
     // Get overflow properties
-    let overflow_x = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-    let overflow_y = get_overflow_y(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    // +spec:overflow:48890c - overflow:hidden treated as overflow:clip on replaced elements
+    let is_replaced = matches!(
+        styled_dom.node_data.as_container()[dom_id].get_node_type(),
+        NodeType::Image(_) | NodeType::VirtualView
+    );
+    let overflow_x = {
+        let v = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        if is_replaced && v == LayoutOverflow::Hidden { LayoutOverflow::Clip } else { v }
+    };
+    let overflow_y = {
+        let v = get_overflow_y(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        if is_replaced && v == LayoutOverflow::Hidden { LayoutOverflow::Clip } else { v }
+    };
 
     // Get writing mode, direction, and text-orientation
     let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
@@ -1948,12 +1993,33 @@ fn collect_box_props(
     let border_bottom_mv = get_css_border_bottom_width(styled_dom, dom_id, &node_state);
     let border_left_mv = get_css_border_left_width(styled_dom, dom_id, &node_state);
 
-    // Build unresolved border
+    // +spec:box-model:17c0e0 - computed border-width is 0 if border-style is none or hidden
+    // +spec:box-model:5d2b66 - border-style none/hidden means no border
+    // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or 'hidden'"
+    use azul_css::props::style::border::BorderStyle;
+
+    let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
+
+    // Read border styles to check if widths should be zeroed
+    let bs_top = styled_dom.css_property_cache.ptr
+        .get_border_top_style(node_data, &dom_id, &node_state)
+        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
+    let bs_right = styled_dom.css_property_cache.ptr
+        .get_border_right_style(node_data, &dom_id, &node_state)
+        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
+    let bs_bottom = styled_dom.css_property_cache.ptr
+        .get_border_bottom_style(node_data, &dom_id, &node_state)
+        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
+    let bs_left = styled_dom.css_property_cache.ptr
+        .get_border_left_style(node_data, &dom_id, &node_state)
+        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
+
+    // Build unresolved border, zeroing width when style is none or hidden
     let unresolved_border = UnresolvedEdge {
-        top: to_pixel_value(border_top_mv),
-        right: to_pixel_value(border_right_mv),
-        bottom: to_pixel_value(border_bottom_mv),
-        left: to_pixel_value(border_left_mv),
+        top: if style_zeroes_width(bs_top) { PixelValue::const_px(0) } else { to_pixel_value(border_top_mv) },
+        right: if style_zeroes_width(bs_right) { PixelValue::const_px(0) } else { to_pixel_value(border_right_mv) },
+        bottom: if style_zeroes_width(bs_bottom) { PixelValue::const_px(0) } else { to_pixel_value(border_bottom_mv) },
+        left: if style_zeroes_width(bs_left) { PixelValue::const_px(0) } else { to_pixel_value(border_left_mv) },
     };
 
     // +spec:box-model:8538a9 - Internal table elements do not have margins (CSS 2.2 §17.5)
@@ -2366,6 +2432,19 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
         let float = get_float(styled_dom, node_id, &styled_node.styled_node_state);
         if !float.is_none() {
             return true;
+        }
+    }
+
+    // CSS Writing Modes 4 § 3.2: block container with different writing-mode than parent establishes BFC
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        if let Some(parent_dom_id) = hierarchy[node_id].parent_id() {
+            let parent_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+            let child_wm = get_writing_mode(styled_dom, node_id, &styled_node.styled_node_state).unwrap_or_default();
+            let parent_wm = get_writing_mode(styled_dom, parent_dom_id, parent_state).unwrap_or_default();
+            if child_wm != parent_wm {
+                return true;
+            }
         }
     }
 

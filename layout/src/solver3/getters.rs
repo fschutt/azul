@@ -742,6 +742,8 @@ impl ExtractPropertyValue<LayoutOverflow> for azul_css::props::property::CssProp
         match self {
             Self::OverflowX(CssPropertyValue::Exact(v)) => Some(*v),
             Self::OverflowY(CssPropertyValue::Exact(v)) => Some(*v),
+            Self::OverflowBlock(CssPropertyValue::Exact(v)) => Some(*v),
+            Self::OverflowInline(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }
@@ -1011,6 +1013,21 @@ get_css_property!(
     LayoutOverflow,
     azul_css::props::property::CssPropertyType::OverflowY,
     compact = get_overflow_y
+);
+
+// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical overflow based on writing mode
+get_css_property!(
+    get_overflow_block,
+    get_overflow_block,
+    LayoutOverflow,
+    azul_css::props::property::CssPropertyType::OverflowBlock
+);
+
+get_css_property!(
+    get_overflow_inline,
+    get_overflow_inline,
+    LayoutOverflow,
+    azul_css::props::property::CssPropertyType::OverflowInline
 );
 
 get_css_property!(

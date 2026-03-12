@@ -2752,6 +2752,21 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
         return true;
     }
 
+    // +spec:block-formatting-context:33e6cd - block container with different writing-mode than parent establishes independent BFC
+    // CSS Writing Modes 4 § 3.2: if a block container has a different writing-mode
+    // than its parent, its inner display type computes to flow-root (i.e., it establishes BFC).
+    {
+        let hierarchy = ctx.styled_dom.node_hierarchy.as_container();
+        if let Some(parent_dom_id) = hierarchy[dom_id].parent_id() {
+            let parent_state = &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+            let child_wm = get_writing_mode(ctx.styled_dom, dom_id, node_state).unwrap_or_default();
+            let parent_wm = get_writing_mode(ctx.styled_dom, parent_dom_id, parent_state).unwrap_or_default();
+            if child_wm != parent_wm {
+                return true;
+            }
+        }
+    }
+
     // Normal flow block boxes do NOT establish BFC
     // NOTE: align-content != normal should also establish BFC per CSS-DISPLAY-3, but align-content is not yet implemented for block containers
     false
@@ -3213,6 +3228,19 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:line-height:306d87 - initial-letter sizing must use containing block's line-height, not spanned lines' heights
     // +spec:writing-modes:903310 - atomic initial letters use normal sizing; only positioning is special
     // Get initial-letter for drop caps
+    // +spec:display-property:4c69bf - read initial-letter-align for alignment points
+    let initial_letter_align = styled_dom
+        .css_property_cache
+        .ptr
+        .get_initial_letter_align(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|a| match a {
+            azul_css::props::style::text::StyleInitialLetterAlign::Auto => text3::cache::InitialLetterAlign::Auto,
+            azul_css::props::style::text::StyleInitialLetterAlign::Alphabetic => text3::cache::InitialLetterAlign::Alphabetic,
+            azul_css::props::style::text::StyleInitialLetterAlign::Hanging => text3::cache::InitialLetterAlign::Hanging,
+            azul_css::props::style::text::StyleInitialLetterAlign::Ideographic => text3::cache::InitialLetterAlign::Ideographic,
+        })
+        .unwrap_or(text3::cache::InitialLetterAlign::Auto);
     // +spec:display-property:5af252 - initial-letter on inline-level box not at line start uses normal
     // +spec:text-alignment-spacing:a17609 - sunken initial letters suppress letter-spacing and justification (not word-spacing) with adjacent content
     // +spec:display-property:68ab22 - initial-letter only applies in IFC (inline-level);
@@ -3236,6 +3264,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 size: il.size as f32,
                 sink,
                 count: NonZeroUsize::new(1).unwrap(),
+                align: initial_letter_align,
             }
         });
 
