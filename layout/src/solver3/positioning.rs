@@ -212,6 +212,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // +spec:positioning:9ccf9a - fixed-position CB is viewport (transform/will-change/contain could override, not yet implemented)
             // +spec:positioning:a68970 - fixed positioning uses viewport as containing block
             // +spec:positioning:8fff44 - fixed: same as absolute but positioned relative to viewport
+            // +spec:positioning:744713 - fixed position uses viewport as containing block
             // +spec:positioning:f0ad47 - fixed elements use viewport as containing block; content outside viewport cannot be scrolled to
             // +spec:containing-block:df8387 - fixed positioning: containing block is the viewport
             let containing_block_rect = if position_type == LayoutPosition::Fixed {
@@ -821,6 +822,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 // +spec:positioning:5b3e43 - Containing block for abs-pos is padding box of nearest positioned ancestor, or initial CB
 // +spec:positioning:882e67 - containing block for abs pos is nearest positioned ancestor or initial CB
 // +spec:positioning:292c5c - relative parent serves as containing block for absolute descendants
+// +spec:positioning:00ce38 - CB for absolute is padding edge of nearest positioned ancestor
 pub fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
@@ -828,6 +830,7 @@ pub fn find_absolute_containing_block_rect(
     calculated_positions: &super::PositionVec,
     viewport: LogicalRect,
 ) -> Result<LogicalRect> {
+    // +spec:positioning:748d87 - walk up to nearest positioned ancestor for CB
     let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
 
     // +spec:positioning:aa361e - values other than static make a box positioned and establish an abspos containing block

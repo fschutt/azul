@@ -3883,6 +3883,7 @@ where
     // +spec:overflow:47b791 - z-index applies to positioned boxes; z-index:auto does not establish stacking context
     // +spec:positioning:8c6efd - Stacking contexts: positioned elements with z-index != auto establish new stacking context
     // +spec:positioning:b84cfa - z-index stacking context creation: integer z-index on positioned elements creates SC; auto on fixed/root creates SC
+    // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking context but are painted as if they did
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
             return false;
