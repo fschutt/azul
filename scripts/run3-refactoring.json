@@ -1,0 +1,224 @@
+[
+  {
+    "group_id": 1,
+    "action": "APPLY",
+    "patches": [
+      "block-formatting-context_33e6cd.md.done.001.patch",
+      "box-model_17c0e0+5d2b66.md.done.001.patch",
+      "box-sizing_cdfe09+fead70+3ba6d3.md.done.001.patch",
+      "display-contents_5a1b30.md.done.001.patch",
+      "display-property_042f56.md.done.001.patch",
+      "display-property_4c69bf.md.done.001.patch",
+      "overflow_297dc3.md.done.001.patch",
+      "overflow_33aaf7.md.done.001.patch",
+      "overflow_3dfb2c.md.done.001.patch",
+      "overflow_48890c.md.done.001.patch",
+      "overflow_8f9f7e.md.done.001.patch",
+      "overflow_f6955f.md.done.001.patch",
+      "overflow_ff5ea4+17654b.md.done.001.patch",
+      "replaced-elements_5a85ce+aedb26.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nApply independent correct implementations for overflow, display, and box-model features.\n\n## Apply Instructions\nApply directly as these patches do not conflict and are cleanly implemented based on the prior review."
+  },
+  {
+    "group_id": 2,
+    "action": "APPLY",
+    "patches": [
+      "intrinsic-sizing_9e1c9d.md.done.001.patch",
+      "intrinsic-sizing_c7227f+566a43.md.done.001.patch",
+      "min-max-sizing_970fef+939f2c.md.done.001.patch",
+      "replaced-elements_7d8ba8.md.done.001.patch",
+      "table-layout_ec2600.md.done.001.patch",
+      "width-calculation_1ed84d+657f75+d0a295.md.done.001.patch",
+      "width-calculation_c120b3.md.done.001.patch",
+      "writing-modes_2af307+0e549a.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nApply independent correct implementations for sizing, positioning, and table layouts.\n\n## Apply Instructions\nApply directly as these patches do not conflict and are cleanly implemented based on the prior review."
+  },
+  {
+    "group_id": 3,
+    "action": "APPLY",
+    "patches": [
+      "font-metrics_a55c05+1eda6b.md.done.001.patch",
+      "inline-formatting-context_8c5969.md.done.001.patch",
+      "line-breaking_815882.md.done.001.patch",
+      "text-alignment-spacing_3e0655+b39a04.md.done.001.patch",
+      "text-alignment-spacing_456643.md.done.001.patch",
+      "text-alignment-spacing_5a5efd.md.done.001.patch",
+      "text-alignment-spacing_6cb965+bca77d+ab1d4f.md.done.001.patch",
+      "white-space-processing_409d90.md.done.001.patch",
+      "writing-modes_798cca.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nApply independent correct implementations for text alignment, fonts, and inline formatting.\n\n## Apply Instructions\nApply directly as these patches do not conflict and are cleanly implemented based on the prior review."
+  },
+  {
+    "group_id": 4,
+    "action": "MERGE",
+    "patches": [
+      "display-property_0b40af.md.done.001.patch",
+      "display-property_ba53ba.md.done.001.patch",
+      "positioning_d06368+69468c.md.done.001.patch",
+      "positioning_744713+00ce38+748d87.md.done.001.patch",
+      "table-layout_360da0+cfc60a.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nUnify display blockification logic for absolute, fixed, floated, or root elements.\n\n## Refactoring Needed\nInstead of scattering `if/else` checks directly inside `LayoutTreeBuilder::process_node` in `layout_tree.rs` (which creates overlapping conflicts), use the existing `get_computed_display()` function from `layout/src/solver3/getters.rs`. Compute the blockified display type *once* before assigning `node.computed_style.display`.\n\n## Apply Instructions\nMerge these patches by deleting all scattered blockification logic in `process_node` and substituting it with a single unified call to `get_computed_display()`."
+  },
+  {
+    "group_id": 5,
+    "action": "MERGE",
+    "patches": [
+      "display-contents_2f80e6+18e3f2+852a59.md.done.001.patch",
+      "display-contents_c03741+2b08f1+4a524e.md.done.001.patch",
+      "replaced-elements_4f494d+2538a7+af1e68.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nPrevent `display: contents` from unboxing replaced elements (like images) in the layout tree.\n\n## Refactoring Needed\nAll three patches modify `layout_tree.rs` to intercept `display: contents`. Instead of producing duplicate checks, combine the `is_replaced_element()` check and `display: contents` override into a single, clean structural block inside `process_node`. Fall back to `LayoutDisplay::None` when an element is both replaced and specifies `display: contents`."
+  },
+  {
+    "group_id": 6,
+    "action": "MERGE",
+    "patches": [
+      "box-model_14da32.md.done.001.patch",
+      "inline-formatting-context_abe650.md.done.001.patch",
+      "inline-formatting-context_b50bb4.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nImplement the CSS 2.2 §10.8.1 rule where `overflow != visible` causes an inline-block's baseline to fall back to the bottom margin edge.\n\n## Refactoring Needed\nThree patches independently try to override the baseline calculation for `FormattingContext::InlineBlock` inside `collect_and_measure_inline_content_impl` (in `fc.rs`). Consolidate into a single conditional check inside the `LayoutDisplay::InlineBlock` matching block. Read `overflow_x` and `overflow_y` from `ComputedLayoutStyle` to force the baseline to the bottom margin edge when overflow is clipped."
+  },
+  {
+    "group_id": 7,
+    "action": "MERGE",
+    "patches": [
+      "writing-modes_5d1fd1+fbb332+f666d1.md.done.001.patch",
+      "writing-modes_8307e4+3deddb.md.done.001.patch",
+      "writing-modes_f3dd0e+6e3844+458d31.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nForce `direction` to `Ltr` when `text-orientation: upright` is active.\n\n## Refactoring Needed\nCSS Writing Modes 4 requires this, but the agents patched varying layers. Consolidate the override strictly inside the `WritingModeContext::new` initialization in `layout/src/solver3/geometry.rs` (or equivalent context init). This ensures that all layout math (including margin collapsing and alignment) sees the forced LTR direction, not just the text shaping engine."
+  },
+  {
+    "group_id": 8,
+    "action": "MERGE",
+    "patches": [
+      "font-metrics_1c2f21+790ad1.md.done.001.patch",
+      "font-metrics_3f5dc0+7671a7.md.done.001.patch",
+      "font-metrics_484108+331e49+f68d7c.md.done.001.patch",
+      "font-metrics_6476dd+a78e80+059b48.md.done.001.patch",
+      "font-metrics_af3b19+345b6d.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nAdd unified font metrics abstraction for `x-height` and `cap-height`.\n\n## Refactoring Needed\nAll 5 patches independently append `x_height` and `cap_height` to `LayoutFontMetrics` in `text3/cache.rs` and apply fallback logic (`0.5em`). Rewrite `LayoutFontMetrics` to include `x_height: Option<f32>` and `cap_height: Option<f32>`. Update `LayoutFontMetrics::from_font_metrics` to parse these from the OS/2 table if available, and add fallback getters (e.g., `get_x_height_or_fallback(font_size)`) returning `0.5em` when missing."
+  },
+  {
+    "group_id": 9,
+    "action": "MERGE",
+    "patches": [
+      "overflow_3c44cc+3a6966+e8a828.md.done.001.patch",
+      "overflow_7e8036+546eac+d1f602.md.done.001.patch",
+      "overflow_e90f12.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nImplement `scrollbar-gutter` space reservation.\n\n## Refactoring Needed\nMove all `scrollbar-gutter` space reservation logic purely into `compute_scrollbar_info_core` in `layout/src/solver3/cache.rs`. Do NOT apply it directly inside `layout_bfc`. Taffy-based flex/grid contexts don't use `layout_bfc`, so applying it there causes scrollbars to overlap flex content. Centralizing it in `compute_scrollbar_info_core` applies the reservation uniformly to BFC, Flex, and Grid contexts."
+  },
+  {
+    "group_id": 10,
+    "action": "MERGE",
+    "patches": [
+      "box-model_af9af8.md.done.001.patch",
+      "overflow_bac4e5.md.done.001.patch",
+      "position-sticky_9449f1+75412d+66ba22.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nImplement sticky position constraint mathematics (clamping to nearest scrollport).\n\n## Refactoring Needed\nSticky positioning requires complex boundary mathematics. Patches incorrectly inject this directly into relative positioning loops or the main BFC pass, destroying readability. In `layout/src/solver3/positioning.rs`, create a dedicated `adjust_sticky_positions` function and call it sequentially after `adjust_relative_positions`. Keep the scrollport clamping math strictly isolated there."
+  },
+  {
+    "group_id": 11,
+    "action": "MERGE",
+    "patches": [
+      "box-model_6180a2.md.done.001.patch",
+      "containing-block_9d73a7.md.done.001.patch",
+      "overflow_342f47+38af76+fe839e.md.done.001.patch",
+      "overflow_8f5473.md.done.001.patch",
+      "overflow_e6334e.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nImplement `overflow-clip-margin` expansion mathematics.\n\n## Refactoring Needed\nFive different patches implement this independently by modifying dense inline calculations in `display_list.rs` around the `clip_rect` assignments. Keep only one implementation and extract the `clip_rect` expansion mathematics into a small, standalone helper function. This will keep the inline layout engine flow clean."
+  },
+  {
+    "group_id": 12,
+    "action": "MERGE",
+    "patches": [
+      "overflow_66d5e6.md.done.001.patch",
+      "overflow_960968+848aba.md.done.001.patch",
+      "overflow_ea10a3+55ce1f+f30a51.md.done.001.patch",
+      "overflow_efe07e.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nSuppress painting, scrollbars, and hit tests for `visibility: hidden` elements.\n\n## Refactoring Needed\nMultiple patches try to suppress drawing borders/backgrounds by injecting local `get_visibility() == Hidden` checks scattered all over `display_list.rs`. This is incorrect because visibility inherits (a visible child inside a hidden parent must still be drawn). Create a centralized `is_node_visible()` state or helper derived during the layout tree generation/reconciliation phase that takes CSS inheritance into account."
+  },
+  {
+    "group_id": 13,
+    "action": "MERGE",
+    "patches": [
+      "containing-block_55d224+0d4914.md.done.001.patch",
+      "writing-modes_0a5368.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nSupport `unicode-bidi: plaintext` paragraph direction auto-detection.\n\n## Refactoring Needed\nAdd the `unicode-bidi` state properly to `UnifiedConstraints`. Update the paragraph auto-direction heuristics in `layout/src/text3/cache.rs` inside `get_base_direction_from_logical()` to trigger dynamically *only* when the constraint dictates `plaintext`, overriding the inherited LTR/RTL base direction."
+  },
+  {
+    "group_id": 14,
+    "action": "MERGE",
+    "patches": [
+      "containing-block_5166be.md.done.001.patch",
+      "text-alignment-spacing_1d988c.md.done.001.patch",
+      "writing-modes_6f16cc.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nImplement hanging punctuation logic for CJK text layout.\n\n## Refactoring Needed\nThree patches copy-paste the exact same massive `match` block of Unicode commas and stops into `is_hanging_punctuation` inside `text3/cache.rs`. Keep exactly one copy by extracting it into a single, reusable `is_hanging_punctuation_char(c: char) -> bool` function."
+  },
+  {
+    "group_id": 15,
+    "action": "MERGE",
+    "patches": [
+      "overflow_8935f0.md.done.001.patch",
+      "overflow_c4b9fe+b15f6e+833078.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nResolve CSS Overflow 3 §3.1 rules: if one axis scrolls, visible becomes auto, and clip becomes hidden.\n\n## Refactoring Needed\nKeep the object-oriented method approach (`is_visible_or_clip`) on the `LayoutOverflow` enum itself in `layout/src/solver3/getters.rs` to resolve these rules. Delete the standalone function implementation."
+  },
+  {
+    "group_id": 16,
+    "action": "MERGE",
+    "patches": [
+      "box-model_02e0f9+929f42.md.done.001.patch",
+      "line-height_a5626f+4f78ff.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nApply half-leading trimming for `text-box-trim`.\n\n## Refactoring Needed\nDo not shift physical text item positions inside `text3/cache.rs` because shifting items breaks hit-testing and cursor mapping. Instead, implement the layout approach: modify the container bounds directly inside `layout_bfc` in `fc.rs` so the line box itself shrinks."
+  },
+  {
+    "group_id": 17,
+    "action": "MERGE",
+    "patches": [
+      "overflow_ab9999.md.done.001.patch",
+      "positioning_4c5432.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "## Intent\nTrack and replicate `position: fixed` elements on every page in paged media.\n\n## Refactoring Needed\nBoth patches modify `DisplayListBuilder`. Use the `fixed_position_item_ranges` data structure for tracking ranges across pages in `layout/src/solver3/display_list.rs`. Avoid tracking single indices as that approach breaks multi-element fixed position support."
+  },
+  {
+    "group_id": 18,
+    "action": "SKIP",
+    "patches": [
+      "box-model_3393da+56c1d3.md.done.001.patch",
+      "height-calculation_b32921+e7dfbc.md.done.001.patch"
+    ],
+    "preferred": null,
+    "agent_context": "SKIP — These patches were identified as fake/lazy implementations that merely drop comments into the code instead of actually implementing the required structural logic."
+  }
+]
