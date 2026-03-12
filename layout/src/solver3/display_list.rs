@@ -2011,6 +2011,9 @@ where
         // 2. Push clips and scroll frames AFTER painting background
         // +spec:positioning:ddc554 - overflow clips apply to absolutely positioned descendants
         // when this node is their containing block (stacking contexts painted within clip scope)
+        // TODO: CSS Overflow 3 says overflow clips should NOT apply to abs-pos descendants
+        // whose containing block is above this clipper. Currently all descendants are clipped.
+        // The containing_block_index field on LayoutNode is set for this purpose.
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
