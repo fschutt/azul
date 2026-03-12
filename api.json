@@ -15817,6 +15817,33 @@
                                 "TextCombineUpright": {
                                     "type": "StyleTextCombineUprightValue"
                                 },
+                                "UnicodeBidi": {
+                                    "type": "StyleUnicodeBidiValue"
+                                },
+                                "TextBoxTrim": {
+                                    "type": "StyleTextBoxTrimValue"
+                                },
+                                "TextBoxEdge": {
+                                    "type": "StyleTextBoxEdgeValue"
+                                },
+                                "DominantBaseline": {
+                                    "type": "StyleDominantBaselineValue"
+                                },
+                                "AlignmentBaseline": {
+                                    "type": "StyleAlignmentBaselineValue"
+                                },
+                                "InitialLetterAlign": {
+                                    "type": "StyleInitialLetterAlignValue"
+                                },
+                                "InitialLetterWrap": {
+                                    "type": "StyleInitialLetterWrapValue"
+                                },
+                                "ScrollbarGutter": {
+                                    "type": "StyleScrollbarGutterValue"
+                                },
+                                "OverflowClipMargin": {
+                                    "type": "StyleOverflowClipMarginValue"
+                                },
                                 "ExclusionMargin": {
                                     "type": "StyleExclusionMarginValue"
                                 },
@@ -28439,6 +28466,15 @@
                                 "LineClamp": {},
                                 "HangingPunctuation": {},
                                 "TextCombineUpright": {},
+                                "UnicodeBidi": {},
+                                "TextBoxTrim": {},
+                                "TextBoxEdge": {},
+                                "DominantBaseline": {},
+                                "AlignmentBaseline": {},
+                                "InitialLetterAlign": {},
+                                "InitialLetterWrap": {},
+                                "ScrollbarGutter": {},
+                                "OverflowClipMargin": {},
                                 "ExclusionMargin": {},
                                 "HyphenationLanguage": {},
                                 "LineHeight": {},
@@ -33234,6 +33270,472 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "StyleDominantBaselineValue": {
+                        "external": "azul_css::props::property::StyleDominantBaselineValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleDominantBaseline"
+                            ]
+                        }
+                    },
+                    "StyleAlignmentBaselineParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleAlignmentBaselineParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleAlignmentBaselineValue": {
+                        "external": "azul_css::props::property::StyleAlignmentBaselineValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleAlignmentBaseline"
+                            ]
+                        }
+                    },
+                    "StyleUnicodeBidiParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleUnicodeBidiParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextBoxEdgeParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextBoxEdgeParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextBoxEdgeValue": {
+                        "external": "azul_css::props::property::StyleTextBoxEdgeValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextBoxEdge"
+                            ]
+                        }
+                    },
+                    "StyleScrollbarGutterParseErrorOwned": {
+                        "external": "azul_css::props::layout::overflow::StyleScrollbarGutterParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextBoxTrimParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleTextBoxTrimParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleOverflowClipMarginParseErrorOwned": {
+                        "external": "azul_css::props::layout::overflow::StyleOverflowClipMarginParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleOverflowClipMarginValue": {
+                        "external": "azul_css::props::property::StyleOverflowClipMarginValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleOverflowClipMargin"
+                            ]
+                        }
+                    },
+                    "StyleDominantBaselineParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleDominantBaselineParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleInitialLetterWrapParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleInitialLetterWrapParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextBoxTrimValue": {
+                        "external": "azul_css::props::property::StyleTextBoxTrimValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextBoxTrim"
+                            ]
+                        }
+                    },
+                    "StyleUnicodeBidiValue": {
+                        "external": "azul_css::props::property::StyleUnicodeBidiValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleUnicodeBidi"
+                            ]
+                        }
+                    },
+                    "StyleScrollbarGutterValue": {
+                        "external": "azul_css::props::property::StyleScrollbarGutterValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleScrollbarGutter"
+                            ]
+                        }
+                    },
+                    "StyleInitialLetterAlignParseErrorOwned": {
+                        "external": "azul_css::props::style::text::StyleInitialLetterAlignParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "InvalidValueErrOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleInitialLetterAlignValue": {
+                        "external": "azul_css::props::property::StyleInitialLetterAlignValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleInitialLetterAlign"
+                            ]
+                        }
+                    },
+                    "StyleInitialLetterWrapValue": {
+                        "external": "azul_css::props::property::StyleInitialLetterWrapValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleInitialLetterWrap"
+                            ]
+                        }
+                    },
+                    "StyleInitialLetterWrap": {
+                        "external": "azul_css::props::style::text::StyleInitialLetterWrap",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "First": {},
+                                "All": {},
+                                "Grid": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleOverflowClipMargin": {
+                        "external": "azul_css::props::layout::overflow::StyleOverflowClipMargin",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "PixelValue"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleInitialLetterAlign": {
+                        "external": "azul_css::props::style::text::StyleInitialLetterAlign",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Alphabetic": {},
+                                "Hanging": {},
+                                "Ideographic": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextBoxEdge": {
+                        "external": "azul_css::props::style::text::StyleTextBoxEdge",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "TextEdge": {},
+                                "CapHeight": {},
+                                "ExHeight": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleAlignmentBaseline": {
+                        "external": "azul_css::props::style::text::StyleAlignmentBaseline",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Baseline": {},
+                                "TextBottom": {},
+                                "Alphabetic": {},
+                                "Ideographic": {},
+                                "Middle": {},
+                                "Central": {},
+                                "Mathematical": {},
+                                "TextTop": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleDominantBaseline": {
+                        "external": "azul_css::props::style::text::StyleDominantBaseline",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "TextBottom": {},
+                                "Alphabetic": {},
+                                "Ideographic": {},
+                                "Middle": {},
+                                "Central": {},
+                                "Mathematical": {},
+                                "Hanging": {},
+                                "TextTop": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextBoxTrim": {
+                        "external": "azul_css::props::style::text::StyleTextBoxTrim",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "TrimStart": {},
+                                "TrimEnd": {},
+                                "TrimBoth": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleScrollbarGutter": {
+                        "external": "azul_css::props::layout::overflow::StyleScrollbarGutter",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Stable": {},
+                                "StableBothEdges": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleUnicodeBidi": {
+                        "external": "azul_css::props::style::text::StyleUnicodeBidi",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Embed": {},
+                                "Isolate": {},
+                                "BidiOverride": {},
+                                "IsolateOverride": {},
+                                "Plaintext": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -76460,6 +76962,33 @@
                                 },
                                 "TextCombineUpright": {
                                     "type": "StyleTextCombineUprightParseErrorOwned"
+                                },
+                                "UnicodeBidi": {
+                                    "type": "StyleUnicodeBidiParseErrorOwned"
+                                },
+                                "TextBoxTrim": {
+                                    "type": "StyleTextBoxTrimParseErrorOwned"
+                                },
+                                "TextBoxEdge": {
+                                    "type": "StyleTextBoxEdgeParseErrorOwned"
+                                },
+                                "DominantBaseline": {
+                                    "type": "StyleDominantBaselineParseErrorOwned"
+                                },
+                                "AlignmentBaseline": {
+                                    "type": "StyleAlignmentBaselineParseErrorOwned"
+                                },
+                                "InitialLetterAlign": {
+                                    "type": "StyleInitialLetterAlignParseErrorOwned"
+                                },
+                                "InitialLetterWrap": {
+                                    "type": "StyleInitialLetterWrapParseErrorOwned"
+                                },
+                                "ScrollbarGutter": {
+                                    "type": "StyleScrollbarGutterParseErrorOwned"
+                                },
+                                "OverflowClipMargin": {
+                                    "type": "StyleOverflowClipMarginParseErrorOwned"
                                 },
                                 "ExclusionMargin": {
                                     "type": "StyleExclusionMarginParseErrorOwned"
