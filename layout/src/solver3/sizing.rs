@@ -1336,6 +1336,10 @@ pub fn calculate_used_size_for_node(
         css_height
     };
 
+    // Remember if width/height were auto before consuming them
+    let width_is_auto = css_width.is_auto() || matches!(&css_width, MultiValue::Exact(LayoutWidth::Auto));
+    let height_is_auto = css_height.is_auto() || matches!(&css_height, MultiValue::Exact(LayoutHeight::Auto));
+
     // +spec:width-calculation:50d67a - automatic sizing concepts (width/height auto resolution)
     // +spec:width-calculation:564315 - §10.3 width calculation dispatch for all box types
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
@@ -1593,6 +1597,51 @@ pub fn calculate_used_size_for_node(
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
     let resolved_height = resolved_height.max(0.0);
 
+    // +spec:replaced-elements:5a85ce - abs-pos replaced: derive auto width from height × intrinsic ratio
+    // +spec:replaced-elements:aedb26 - abs-pos replaced: both auto, ratio but no intrinsic w/h → block constraint
+    // CSS Position 3 §6.2 (abs-replaced-width): For absolutely positioned replaced elements,
+    // if width is auto and the element has an intrinsic ratio, width may be derived from height.
+    let (resolved_width, resolved_height) = if is_replaced
+        && width_is_auto
+        && matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed)
+    {
+        let has_intrinsic_width = intrinsic.preferred_width.map_or(false, |w| w > 0.0);
+        let has_intrinsic_height = intrinsic.preferred_height.map_or(false, |h| h > 0.0);
+        let intrinsic_ratio = match (intrinsic.preferred_width, intrinsic.preferred_height) {
+            (Some(iw), Some(ih)) if ih > 0.0 => Some(iw / ih),
+            _ => None,
+        };
+
+        if height_is_auto && !has_intrinsic_width && has_intrinsic_height && intrinsic_ratio.is_some() {
+            // §6.2 case: both auto, no intrinsic width, has intrinsic height + ratio
+            // → width = used height × ratio
+            let ratio = intrinsic_ratio.unwrap();
+            (resolved_height * ratio, resolved_height)
+        } else if !height_is_auto && intrinsic_ratio.is_some() {
+            // §6.2 case: width auto, height not auto, has intrinsic ratio
+            // → width = used height × ratio
+            let ratio = intrinsic_ratio.unwrap();
+            (resolved_height * ratio, resolved_height)
+        } else if height_is_auto && intrinsic_ratio.is_some() && !has_intrinsic_width && !has_intrinsic_height {
+            // §6.2 case: both auto, has ratio but no intrinsic width or height
+            // → use block-level non-replaced constraint equation for width
+            let block_width = (containing_block_size.width
+                - _box_props.margin.left
+                - _box_props.margin.right
+                - _box_props.border.left
+                - _box_props.border.right
+                - _box_props.padding.left
+                - _box_props.padding.right)
+                .max(0.0);
+            let ratio = intrinsic_ratio.unwrap();
+            (block_width, block_width / ratio)
+        } else {
+            (resolved_width, resolved_height)
+        }
+    } else {
+        (resolved_width, resolved_height)
+    };
+
     // +spec:min-max-sizing:58869e - sizing properties width/height/min-width/min-height/max-width/max-height applied here
     // +spec:min-max-sizing:2e2414 - max-width/max-height specify maximum box dimensions, applied here
     // +spec:min-max-sizing:73f51a - tentative width clamped by max-width then min-width per §10.4
@@ -1681,7 +1730,8 @@ pub fn calculate_used_size_for_node(
             // border-box: The width/height values already include border and padding
             // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
             // properties) on this element determine the border box of the element"
-            (constrained_width, constrained_height)
+            // Floor: content-box cannot go negative, so border-box >= padding+border
+            (constrained_width.max(min_border_box_w), constrained_height.max(min_border_box_h))
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
             // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding added outside
