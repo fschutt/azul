@@ -3035,6 +3035,28 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             }
         });
 
+    // If initial-letter is set, compute the drop cap exclusion area and add it
+    // to the shape exclusions so that text wraps around the enlarged letter.
+    if let Some(ref il) = initial_letter {
+        let computed_line_height = line_height_value.inner.normalized() * font_size;
+        let (letter_w, letter_h) = layout_initial_letter(
+            il.size,
+            il.sink,
+            constraints.available_size.width,
+            computed_line_height,
+        );
+        if letter_w > 0.0 && letter_h > 0.0 {
+            // Place the exclusion at the inline-start (x=0, y=0 relative to the IFC).
+            // This creates a rectangular exclusion that text flows around.
+            shape_exclusions.push(ShapeBoundary::Rectangle(crate::text3::cache::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: letter_w,
+                height: letter_h,
+            }));
+        }
+    }
+
     // Get line-clamp for limiting visible lines
     let line_clamp = styled_dom
         .css_property_cache
@@ -7573,38 +7595,74 @@ fn apply_text_transform(text: &str, transform: crate::text3::cache::TextTransfor
 // INITIAL LETTER / DROP CAPS STUB
 // ============================================================================
 
-/// Applies initial-letter (drop caps) layout adjustments to a block container.
+/// Computes the geometric exclusion area for an initial letter (drop cap).
 ///
-/// CSS Inline Layout Module Level 3 section 3:
+/// CSS Inline Layout Module Level 3, section 3:
 /// The `initial-letter` property specifies styling for dropped, raised, and sunken
 /// initial letters. When set, the first glyph(s) of the first line are enlarged to
 /// span multiple lines, with the remaining text wrapping around them.
 ///
+/// # Algorithm
+///
+/// 1. The letter box height spans `size` lines: `height = size * line_height`.
+/// 2. The letter box width is estimated using a typical capital letter aspect ratio
+///    (cap-height-to-advance-width ~0.7 for Latin text). A proper implementation
+///    would measure the actual glyph, but this gives a reasonable default.
+/// 3. The letter is positioned at the inline-start of the first line.
+/// 4. The `sink` value determines how many lines the letter drops below the
+///    first baseline. When `sink == size`, this is a classic drop cap.
+///    When `sink < size`, the letter rises above the first line (raised cap).
+/// 5. A small gap (4px default) is added between the letter box and adjacent text.
+///
 /// # Parameters
-/// - `initial_letter_size`: The number of lines the initial letter should span
+/// - `initial_letter_size`: The number of lines the initial letter should span (e.g., 3.0)
 /// - `initial_letter_sink`: How many lines the letter sinks below the first line
-/// - `content_box_width`: Available width in the content box
+/// - `content_box_width`: Available width in the content box (for clamping)
 /// - `line_height`: The computed line height for the containing block
 ///
 /// # Returns
-/// A tuple of (letter_width, letter_height) representing the space reserved for
-/// the initial letter, or (0, 0) if initial-letter is not applicable.
+/// A tuple of `(letter_width, letter_height)` representing the space reserved for
+/// the initial letter exclusion, or `(0.0, 0.0)` if the parameters are invalid.
 ///
-/// TODO(initial-letter): Implement the full initial-letter layout algorithm:
-/// 1. Determine the initial letter glyph(s) based on initial-letter-align
-/// 2. Scale the glyph to span `size` lines
-/// 3. Position according to `sink` value
-/// 4. Create an exclusion area for text wrapping (via shape-outside)
-/// 5. Handle interaction with initial-letter-wrap property
+/// The caller should use these dimensions to create a float-like exclusion at the
+/// start of the block container, causing subsequent lines to wrap around the letter.
 pub fn layout_initial_letter(
-    _initial_letter_size: f32,
-    _initial_letter_sink: u32,
-    _content_box_width: f32,
-    _line_height: f32,
+    initial_letter_size: f32,
+    initial_letter_sink: u32,
+    content_box_width: f32,
+    line_height: f32,
 ) -> (f32, f32) {
-    // TODO(initial-letter): Implement drop caps layout.
-    // This stub returns (0, 0) so callers can be wired up without affecting layout.
-    // The text3 engine already receives InitialLetter info via UnifiedConstraints;
-    // this function should compute the geometric exclusion for the BFC.
-    (0.0, 0.0)
+    // Guard against degenerate values
+    if initial_letter_size <= 0.0 || line_height <= 0.0 || content_box_width <= 0.0 {
+        return (0.0, 0.0);
+    }
+
+    // CSS Inline Level 3 section 3.3: The initial letter box height spans `size` lines.
+    let letter_height = initial_letter_size * line_height;
+
+    // Estimate the letter width using a typical Latin capital letter aspect ratio.
+    // The advance width of a capital letter is approximately 0.7x the cap height.
+    // This is a heuristic; a full implementation would measure the actual glyph(s).
+    const CAP_WIDTH_RATIO: f32 = 0.7;
+    let letter_width_raw = letter_height * CAP_WIDTH_RATIO;
+
+    // Add a small gap between the letter box and the adjacent inline content.
+    // CSS Inline Level 3 section 3.5: browsers typically add ~4px padding.
+    const LETTER_GAP: f32 = 4.0;
+    let letter_width = (letter_width_raw + LETTER_GAP).min(content_box_width);
+
+    // The actual exclusion height accounts for the sink value.
+    // sink == size means the letter is fully dropped (classic drop cap).
+    // sink < size means part of the letter rises above the first line (raised cap).
+    // The exclusion area height is always `sink * line_height` since that's how
+    // many lines of subsequent text need to wrap around the letter.
+    let exclusion_height = (initial_letter_sink as f32) * line_height;
+
+    // Use the larger of exclusion_height and letter_height as the actual
+    // vertical space consumed. For raised caps (sink < size), the letter
+    // extends above the first line but the exclusion only covers sink lines.
+    // For sunken caps (sink >= size), the exclusion covers the full letter height.
+    let effective_height = exclusion_height.max(letter_height);
+
+    (letter_width, effective_height)
 }
