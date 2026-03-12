@@ -18,7 +18,8 @@ use crate::spec::executor::{
 };
 
 use super::{
-    generate_azul_rendering_sized, generate_chrome_screenshot_with_debug,
+    generate_azul_rendering_sized, generate_chrome_screenshot,
+    generate_chrome_screenshot_with_debug,
     get_chrome_path, find_test_files, pixels_similar, DebugData,
 };
 
@@ -530,17 +531,32 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
 
             // Generate Chrome screenshot (skip if cached and --skip-chrome)
             if !config.skip_chrome || !chrome_file.exists() {
-                let layout_file = screenshots.join(format!("{}_{}_chrome_layout.json", test_name, size.name));
-                if let Err(e) = generate_chrome_screenshot_with_debug(
-                    &chrome_path,
-                    test_file,
-                    &chrome_file,
-                    &layout_file,
-                    size.width,
-                    size.height,
-                ) {
-                    eprintln!("  Warning: Chrome screenshot failed for {} at {}: {}", test_name, size.name, e);
-                    continue;
+                // Use simple screenshot for all sizes (fast, no dump-dom hang risk).
+                // Extract Chrome layout JSON only for desktop (used in the prompt).
+                if size.name == "desktop" {
+                    let layout_file = screenshots.join(format!("{}_{}_chrome_layout.json", test_name, size.name));
+                    if let Err(e) = generate_chrome_screenshot_with_debug(
+                        &chrome_path,
+                        test_file,
+                        &chrome_file,
+                        &layout_file,
+                        size.width,
+                        size.height,
+                    ) {
+                        eprintln!("  Warning: Chrome screenshot failed for {} at {}: {}", test_name, size.name, e);
+                        continue;
+                    }
+                } else {
+                    if let Err(e) = generate_chrome_screenshot(
+                        &chrome_path,
+                        test_file,
+                        &chrome_file,
+                        size.width,
+                        size.height,
+                    ) {
+                        eprintln!("  Warning: Chrome screenshot failed for {} at {}: {}", test_name, size.name, e);
+                        continue;
+                    }
                 }
             }
 
@@ -581,6 +597,14 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
 
         if any_failing && !size_results.is_empty() {
+            // Attach Chrome layout JSON to debug data (only available for desktop)
+            if let Some(ref mut dd) = debug_data {
+                let layout_file = screenshots.join(format!("{}_desktop_chrome_layout.json", test_name));
+                if let Ok(data) = fs::read_to_string(&layout_file) {
+                    dd.chrome_layout = data;
+                }
+            }
+
             failing.push(FailingTestData {
                 test_name,
                 test_file: test_file.clone(),
@@ -807,8 +831,8 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
         return collect_autodebug_patches(&project_root);
     }
 
-    // Preflight checks
-    preflight_checks(&project_root)?;
+    // Preflight checks (skip agent-specific checks for dry-run)
+    preflight_checks(&project_root, config.dry_run)?;
 
     // Ensure output directories exist
     for dir in &[
@@ -877,33 +901,52 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
 }
 
 /// Preflight checks before running the pipeline.
-fn preflight_checks(workspace_root: &Path) -> Result<(), String> {
+/// `dry_run` skips agent-specific checks (CLAUDECODE env, API key, claude CLI).
+fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> {
     println!("Preflight checks");
     println!("================\n");
 
-    // Refuse to run inside an existing Claude Code session
-    if std::env::var("CLAUDECODE").is_ok() {
-        return Err(
-            "Cannot run inside a Claude Code session.\n\
-             The executor spawns claude CLI subprocesses which would conflict.\n\
-             Run this command from a regular terminal:\n\
-             \n\
-             ./target/release/azul-doc autodebug claude-exec"
-                .to_string(),
-        );
-    }
-    println!("  [OK] Not running inside Claude Code");
+    if !dry_run {
+        // Refuse to run inside an existing Claude Code session
+        if std::env::var("CLAUDECODE").is_ok() {
+            return Err(
+                "Cannot run inside a Claude Code session.\n\
+                 The executor spawns claude CLI subprocesses which would conflict.\n\
+                 Run this command from a regular terminal:\n\
+                 \n\
+                 ./target/release/azul-doc autodebug claude-exec"
+                    .to_string(),
+            );
+        }
+        println!("  [OK] Not running inside Claude Code");
 
-    // Check that ANTHROPIC_API_KEY is NOT set
-    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-        return Err(
-            "ANTHROPIC_API_KEY is set in environment.\n\
-             This would route claude CLI through the paid API.\n\
-             Unset it first: unset ANTHROPIC_API_KEY"
-                .to_string(),
-        );
+        // Check that ANTHROPIC_API_KEY is NOT set
+        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            return Err(
+                "ANTHROPIC_API_KEY is set in environment.\n\
+                 This would route claude CLI through the paid API.\n\
+                 Unset it first: unset ANTHROPIC_API_KEY"
+                    .to_string(),
+            );
+        }
+        println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
+
+        // Check claude CLI is available
+        let claude_check = std::process::Command::new("claude")
+            .arg("--version")
+            .output();
+        match claude_check {
+            Ok(o) if o.status.success() => {
+                let version = String::from_utf8_lossy(&o.stdout);
+                println!("  [OK] claude CLI: {}", version.trim());
+            }
+            _ => {
+                return Err("claude CLI not found. Install it first.".to_string());
+            }
+        }
+    } else {
+        println!("  [SKIP] Agent checks skipped (--dry-run)");
     }
-    println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
 
     // Verify working directory
     let solver_dir = workspace_root.join("layout/src/solver3");
@@ -915,20 +958,6 @@ fn preflight_checks(workspace_root: &Path) -> Result<(), String> {
         ));
     }
     println!("  [OK] Working directory: {}", workspace_root.display());
-
-    // Check claude CLI is available
-    let claude_check = std::process::Command::new("claude")
-        .arg("--version")
-        .output();
-    match claude_check {
-        Ok(o) if o.status.success() => {
-            let version = String::from_utf8_lossy(&o.stdout);
-            println!("  [OK] claude CLI: {}", version.trim());
-        }
-        _ => {
-            return Err("claude CLI not found. Install it first.".to_string());
-        }
-    }
 
     println!();
     Ok(())
