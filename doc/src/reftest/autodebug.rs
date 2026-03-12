@@ -1680,8 +1680,9 @@ fn dispatch_agents(config: &AutodebugConfig) -> Result<(), String> {
     let prompts = prompts_dir(project_root);
 
     // Scan for pending prompts
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&prompts, config.retry_failed);
+    let exclude = std::collections::HashSet::new();
+    let (pending, done, failed, taken, _excluded) =
+        executor::scan_prompts_dir(&prompts, config.retry_failed, &exclude);
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
@@ -1814,8 +1815,9 @@ fn show_status(project_root: &Path, retry_failed: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&prompts, retry_failed);
+    let exclude = std::collections::HashSet::new();
+    let (pending, done, failed, taken, _excluded) =
+        executor::scan_prompts_dir(&prompts, retry_failed, &exclude);
 
     let total = pending.len() + done + failed + taken;
     println!("Autodebug Status");
