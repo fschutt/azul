@@ -35,10 +35,6 @@ pub mod autodebug;
 pub mod debug;
 pub mod regression;
 
-/// Shared pool of already-parsed fonts, reused across multiple layout passes
-/// to avoid re-reading and re-parsing font files from disk.
-pub type SharedParsedFonts = Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, azul_css::props::basic::FontRef>>>;
-
 pub const WIDTH: u32 = 1920;
 pub const HEIGHT: u32 = 1080;
 
@@ -59,8 +55,6 @@ pub struct RunRefTestsConfig {
 }
 
 pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
-    use autodebug::{render_all_tests, RenderJob, ALL_SIZES};
-
     let RunRefTestsConfig {
         test_dir,
         output_dir,
@@ -78,6 +72,9 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
         Vec::new()
     });
     println!("Found {} test files", test_files.len());
+
+    // Results to be collected for JSON
+    let enhanced_results = Arc::new(Mutex::new(Vec::new()));
 
     // Get Chrome path
     let chrome_path = get_chrome_path();
@@ -99,6 +96,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
              correct path."
         );
 
+        // Generate empty report with just header information
         generate_enhanced_html_report(
             &output_dir.join(output_filename),
             &Vec::new(),
@@ -111,60 +109,117 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let img_dir = output_dir.join("reftest_img");
-    let _ = fs::create_dir_all(&img_dir);
+    let _ = std::fs::create_dir_all(output_dir.join("reftest_img"));
 
-    // Build render jobs for all tests across all screen sizes
-    let jobs: Vec<RenderJob> = test_files.iter().map(|f| RenderJob {
-        test_name: f.file_stem().unwrap().to_string_lossy().to_string(),
-        test_file: f.clone(),
-        sizes: ALL_SIZES.to_vec(),
-        output_dir: img_dir.clone(),
-    }).collect();
+    // Process tests
+    test_files.iter().for_each(|test_file| {
+        let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
+        println!("Processing test: {}", test_name);
 
-    // Run all tests using shared Phase 1 infrastructure
-    let render_results = render_all_tests(jobs, &chrome_path, false)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let chrome_img = output_dir
+            .join("reftest_img")
+            .join(format!("{}_chrome.webp", test_name));
+        let chrome_layout_json = output_dir
+            .join("reftest_img")
+            .join(format!("{}_chrome_layout.json", test_name));
+        let azul_img = output_dir
+            .join("reftest_img")
+            .join(format!("{}_azul.webp", test_name));
 
-    // Convert to EnhancedTestResult
-    let mut enhanced_results = Vec::new();
-    for result in render_results {
-        let size_diffs: Vec<SizeDiffResult> = result.size_results.iter().map(|sr| {
-            let total_pixels = sr.size.width as usize * sr.size.height as usize;
-            let pct = if total_pixels > 0 {
-                sr.diff_count as f64 / total_pixels as f64 * 100.0
-            } else {
-                0.0
-            };
-            SizeDiffResult {
-                size_name: sr.size.name.to_string(),
-                width: sr.size.width,
-                height: sr.size.height,
-                diff_count: sr.diff_count,
-                diff_percentage: pct,
-                passed: sr.diff_count <= pass_threshold_for_size(sr.size.width, sr.size.height),
+        // Generate Chrome reference and layout data if they don't exist
+        let mut chrome_layout_data = String::new();
+        if !chrome_img.exists() {
+            println!("  Generating Chrome reference for {}", test_name);
+            match generate_chrome_screenshot_with_debug(
+                &chrome_path,
+                test_file,
+                &chrome_img,
+                &chrome_layout_json,
+                WIDTH,
+                HEIGHT,
+            ) {
+                Ok(layout_data) => {
+                    println!("  Chrome screenshot and layout data generated successfully");
+                    chrome_layout_data = layout_data;
+                }
+                Err(e) => {
+                    println!("  Failed to generate Chrome screenshot: {}", e);
+                    return;
+                }
             }
-        }).collect();
+        } else {
+            println!("  Using existing Chrome reference for {}", test_name);
+            // Try to read existing layout data
+            if let Ok(data) = fs::read_to_string(&chrome_layout_json) {
+                chrome_layout_data = data;
+            }
+        }
 
-        let worst_diff = size_diffs.iter().map(|s| s.diff_count).max().unwrap_or(0);
-        let all_passed = size_diffs.is_empty() || size_diffs.iter().all(|s| s.passed);
+        let (chrome_w, chrome_h) = match image::open(&chrome_img) {
+            Ok(img) => img.dimensions(),
+            Err(e) => {
+                println!("  Failed to open Chrome image: {}", e);
+                return;
+            }
+        };
 
-        enhanced_results.push(EnhancedTestResult::from_debug_data(
-            result.test_name,
-            worst_diff,
-            all_passed,
-            result.debug_data.unwrap_or_default(),
-            size_diffs,
-        ));
-    }
+        let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
 
-    let passed_tests = enhanced_results.iter().filter(|r| r.passed).count();
+        // Generate Azul rendering
+        let mut debug_data = None;
+        match generate_azul_rendering(test_file, &azul_img, dpi_factor) {
+            Ok(mut data) => {
+                println!("  Azul rendering generated successfully");
+                // Add Chrome layout data to debug_data
+                data.chrome_layout = chrome_layout_data.clone();
+                debug_data = Some(data);
+            }
+            Err(e) => {
+                println!("  Failed to generate Azul rendering: {}", e);
+                return;
+            }
+        }
+
+        // Compare images and generate diff
+        match compare_images(&chrome_img, &azul_img) {
+            Ok(diff_count) => {
+                let passed = diff_count <= PASS_THRESHOLD_PIXELS; // 0.5% tolerance
+                println!(
+                    "  Comparison complete: {} differing pixels, test {}",
+                    diff_count,
+                    if passed { "PASSED" } else { "FAILED" }
+                );
+
+                // Read the original XHTML source
+                let xhtml_source = match fs::read_to_string(test_file) {
+                    Ok(content) => Some(content),
+                    Err(_) => None,
+                };
+
+                // Store enhanced result with debug data
+                let mut enhanced_results_vec = enhanced_results.lock().unwrap();
+                enhanced_results_vec.push(EnhancedTestResult::from_debug_data(
+                    test_name.to_string(),
+                    diff_count,
+                    passed,
+                    debug_data.unwrap_or_default(),
+                ));
+            }
+            Err(e) => {
+                println!("  Failed to compare images: {}", e);
+            }
+        }
+    });
+
+    // Get enhanced results
+    let final_enhanced_results = enhanced_results.lock().unwrap();
+    let passed_tests = final_enhanced_results.iter().filter(|r| r.passed).count();
 
     // Generate enhanced HTML report with header information
     println!("Generating HTML report");
     generate_enhanced_html_report(
         &output_dir.join(output_filename),
-        &enhanced_results,
+        &final_enhanced_results,
         &chrome_version,
         &current_time,
         &git_hash,
@@ -173,13 +228,13 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
     // Generate JSON results
     println!("Generating JSON results");
-    generate_json_results(&output_dir, &enhanced_results, passed_tests)?;
+    generate_json_results(&output_dir, &*final_enhanced_results, passed_tests)?;
 
     println!(
         "Testing complete. Results saved to {}",
         output_dir.display()
     );
-    println!("Passed: {}/{}", passed_tests, enhanced_results.len());
+    println!("Passed: {}/{}", passed_tests, final_enhanced_results.len());
 
     Ok(())
 }
@@ -297,26 +352,8 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
 /// Threshold for passing: 0.5% of total pixels (1920 * 1080 = 2,073,600)
 pub const PASS_THRESHOLD_PIXELS: usize = (1920 * 1080) / 200;
 
-/// Compute the pass threshold for a given screen size (0.5% of total pixels).
-pub fn pass_threshold_for_size(width: u32, height: u32) -> usize {
-    (width as usize * height as usize) / 200
-}
-
-/// Per-size diff result for multi-resolution testing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SizeDiffResult {
-    pub size_name: String,
-    pub width: u32,
-    pub height: u32,
-    pub diff_count: usize,
-    pub diff_percentage: f64,
-    pub passed: bool,
-}
-
 /// Run a single reftest and generate HTML report
 pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow::Result<()> {
-    use autodebug::{render_all_tests, RenderJob, ALL_SIZES};
-
     let RunRefTestsConfig {
         test_dir,
         output_dir,
@@ -325,8 +362,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
 
     // Create output directory
     fs::create_dir_all(&output_dir)?;
-    let img_dir = output_dir.join("reftest_img");
-    let _ = fs::create_dir_all(&img_dir);
+    let _ = fs::create_dir_all(output_dir.join("reftest_img"));
 
     // Find the test file
     let test_file = find_test_file_by_name(test_name, &test_dir)?;
@@ -343,66 +379,63 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
         return Err(anyhow::anyhow!("Chrome not found"));
     }
 
-    // Build a single render job
-    let jobs = vec![RenderJob {
-        test_name: test_name.to_string(),
-        test_file: test_file.clone(),
-        sizes: ALL_SIZES.to_vec(),
-        output_dir: img_dir,
-    }];
+    // Generate screenshots
+    let chrome_img = output_dir
+        .join("reftest_img")
+        .join(format!("{}_chrome.webp", test_name));
+    let chrome_layout_json = output_dir
+        .join("reftest_img")
+        .join(format!("{}_chrome_layout.json", test_name));
+    let azul_img = output_dir
+        .join("reftest_img")
+        .join(format!("{}_azul.webp", test_name));
 
-    let render_results = render_all_tests(jobs, &chrome_path, false)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    // Generate Chrome reference
+    println!("Generating Chrome reference...");
+    let chrome_layout_data = generate_chrome_screenshot_with_debug(
+        &chrome_path,
+        &test_file,
+        &chrome_img,
+        &chrome_layout_json,
+        WIDTH,
+        HEIGHT,
+    )?;
 
-    let result = render_results.into_iter().next()
-        .ok_or_else(|| anyhow::anyhow!("No render result for test {}", test_name))?;
+    let (chrome_w, chrome_h) = image::open(&chrome_img)?.dimensions();
+    let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
 
-    // Build per-size diffs
-    let size_diffs: Vec<SizeDiffResult> = result.size_results.iter().map(|sr| {
-        let total_pixels = sr.size.width as usize * sr.size.height as usize;
-        let pct = if total_pixels > 0 {
-            sr.diff_count as f64 / total_pixels as f64 * 100.0
-        } else {
-            0.0
-        };
-        SizeDiffResult {
-            size_name: sr.size.name.to_string(),
-            width: sr.size.width,
-            height: sr.size.height,
-            diff_count: sr.diff_count,
-            diff_percentage: pct,
-            passed: sr.diff_count <= pass_threshold_for_size(sr.size.width, sr.size.height),
-        }
-    }).collect();
+    // Generate Azul rendering
+    println!("Generating Azul rendering...");
+    let mut debug_data = generate_azul_rendering(&test_file, &azul_img, dpi_factor)?;
+    debug_data.chrome_layout = chrome_layout_data;
 
-    let worst_diff = size_diffs.iter().map(|s| s.diff_count).max().unwrap_or(0);
-    let all_passed = size_diffs.is_empty() || size_diffs.iter().all(|s| s.passed);
+    // Compare images
+    let diff_count = compare_images(&chrome_img, &azul_img)?;
+    let percentage = (diff_count as f64 / (1920.0 * 1080.0)) * 100.0;
+    let passed = diff_count <= PASS_THRESHOLD_PIXELS;
 
     println!(
-        "Comparison: {} worst-case pixels different, test {}",
-        worst_diff,
-        if all_passed { "PASSED [ OK ]" } else { "FAILED [ ERROR ]" }
+        "Comparison: {} pixels different ({:.3}%), test {}",
+        diff_count,
+        percentage,
+        if passed {
+            "PASSED [ OK ]"
+        } else {
+            "FAILED [ ERROR ]"
+        }
     );
-    for sd in &size_diffs {
-        println!(
-            "  {}: {} px diff ({:.3}%) {}",
-            sd.size_name, sd.diff_count, sd.diff_percentage,
-            if sd.passed { "PASS" } else { "FAIL" }
-        );
-    }
 
-    let enhanced = EnhancedTestResult::from_debug_data(
-        test_name.to_string(),
-        worst_diff,
-        all_passed,
-        result.debug_data.unwrap_or_default(),
-        size_diffs,
-    );
+    // Read XHTML source
+    let xhtml_source = fs::read_to_string(&test_file).ok();
+
+    // Create result
+    let result =
+        EnhancedTestResult::from_debug_data(test_name.to_string(), diff_count, passed, debug_data);
 
     // Generate HTML report
     generate_enhanced_html_report(
         &output_dir.join(output_filename),
-        &vec![enhanced],
+        &vec![result],
         &chrome_version,
         &current_time,
         &git_hash,
@@ -638,7 +671,7 @@ fn get_git_hash() -> String {
 /// JavaScript to extract layout information from Chrome
 const CHROME_LAYOUT_EXTRACTOR_JS: &str = include_str!("./chrome_layout_extractor.js");
 
-pub fn generate_chrome_screenshot(
+fn generate_chrome_screenshot(
     chrome_path: &str,
     test_file: &Path,
     output_file: &Path,
@@ -649,9 +682,6 @@ pub fn generate_chrome_screenshot(
 
     let status = Command::new(chrome_path)
         .arg("--headless")
-        .arg("--disable-lcd-text")
-        .arg("--disable-font-subpixel-positioning")
-        .arg("--force-color-profile=srgb")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
@@ -676,13 +706,8 @@ pub fn generate_chrome_screenshot_with_debug(
     let canonical_path = test_file.canonicalize()?;
 
     // First, take the screenshot
-    // --disable-lcd-text: use grayscale AA instead of subpixel/LCD rendering,
-    // so Chrome output is comparable to our grayscale cpurender
     let status = Command::new(chrome_path)
         .arg("--headless")
-        .arg("--disable-lcd-text")
-        .arg("--disable-font-subpixel-positioning")
-        .arg("--force-color-profile=srgb")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
@@ -843,46 +868,6 @@ pub fn generate_azul_rendering_sized(
     height: u32,
     dpi_factor: f32,
 ) -> anyhow::Result<DebugData> {
-    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, None, None)
-}
-
-/// Like `generate_azul_rendering_sized` but reuses a pre-built font cache
-/// instead of calling `build_font_cache()` (which scans the filesystem).
-/// The cache is cloned per call (cheap compared to rebuilding).
-pub fn generate_azul_rendering_sized_cached(
-    test_file: &Path,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-    dpi_factor: f32,
-    fc_cache: &rust_fontconfig::FcFontCache,
-) -> anyhow::Result<DebugData> {
-    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, Some(fc_cache), None)
-}
-
-/// Like `generate_azul_rendering_sized_cached` but also reuses already-parsed
-/// font data across calls, avoiding re-reading and re-parsing font files from disk.
-pub fn generate_azul_rendering_sized_cached_shared(
-    test_file: &Path,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-    dpi_factor: f32,
-    fc_cache: &rust_fontconfig::FcFontCache,
-    shared_fonts: &SharedParsedFonts,
-) -> anyhow::Result<DebugData> {
-    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, Some(fc_cache), Some(shared_fonts))
-}
-
-fn generate_azul_rendering_sized_internal(
-    test_file: &Path,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-    dpi_factor: f32,
-    fc_cache: Option<&rust_fontconfig::FcFontCache>,
-    shared_fonts: Option<&SharedParsedFonts>,
-) -> anyhow::Result<DebugData> {
     let start = Instant::now();
 
     // Read XML content
@@ -929,15 +914,13 @@ fn generate_azul_rendering_sized_internal(
     let xml_formatting_time = start.elapsed().as_millis() as u64;
 
     // Generate and save PNG
-    let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug_internal(
+    let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug(
         &dom_xml.parsed_dom,
         output_file,
         width,
         height,
         dpi_factor,
         &mut debug_collector,
-        fc_cache,
-        shared_fonts,
     )?;
 
     // Record rendering time
@@ -962,19 +945,6 @@ fn styled_dom_to_png_with_debug(
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
 ) -> anyhow::Result<(Vec<String>, u64, u64)> {
-    styled_dom_to_png_with_debug_internal(styled_dom, output_file, width, height, dpi_factor, debug_collector, None, None)
-}
-
-fn styled_dom_to_png_with_debug_internal(
-    styled_dom: &StyledDom,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-    dpi_factor: f32,
-    debug_collector: &mut DebugDataCollector,
-    fc_cache: Option<&rust_fontconfig::FcFontCache>,
-    shared_fonts: Option<&SharedParsedFonts>,
-) -> anyhow::Result<(Vec<String>, u64, u64)> {
     let start_time_layout = std::time::Instant::now();
 
     // Create window state for layout
@@ -989,13 +959,11 @@ fn styled_dom_to_png_with_debug_internal(
     let mut renderer_resources = azul_core::resources::RendererResources::default();
 
     // Solve layout with debug information (solver3)
-    let (display_list, debug_msg, layout_window) = solve_layout_with_debug_internal(
+    let (display_list, debug_msg, layout_window) = solve_layout_with_debug(
         styled_dom.clone(),
         &fake_window_state,
         &mut renderer_resources,
         debug_collector,
-        fc_cache,
-        shared_fonts,
     )?;
 
     // Capture display list for debugging
@@ -1007,7 +975,6 @@ fn styled_dom_to_png_with_debug_internal(
     let start_time_render = std::time::Instant::now();
 
     // Render the display list using the new cpurender module with FontManager
-    let mut glyph_cache = azul_layout::glyph_cache::GlyphCache::new();
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &display_list,
         &renderer_resources,
@@ -1017,7 +984,6 @@ fn styled_dom_to_png_with_debug_internal(
             height: height as f32,
             dpi_factor,
         },
-        &mut glyph_cache,
     )
     .map_err(|e| anyhow::anyhow!("Rendering failed: {}", e))?;
 
@@ -1849,48 +1815,11 @@ pub fn solve_layout_with_debug(
     Vec<String>,
     azul_layout::LayoutWindow,
 )> {
-    solve_layout_with_debug_internal(styled_dom, fake_window_state, renderer_resources, debug_collector, None, None)
-}
-
-fn solve_layout_with_debug_internal(
-    styled_dom: StyledDom,
-    fake_window_state: &FullWindowState,
-    renderer_resources: &mut RendererResources,
-    debug_collector: &mut DebugDataCollector,
-    fc_cache: Option<&rust_fontconfig::FcFontCache>,
-    shared_fonts: Option<&SharedParsedFonts>,
-) -> anyhow::Result<(
-    azul_layout::solver3::display_list::DisplayList,
-    Vec<String>,
-    azul_layout::LayoutWindow,
-)> {
     use std::fmt::Write;
 
-    // Create LayoutWindow for layout computation.
-    // If shared_fonts is provided, reuse already-parsed fonts across calls.
-    // If fc_cache is provided, reuse font path discovery.
-    let mut layout_window = match (shared_fonts, fc_cache) {
-        (Some(sf), Some(fc)) => {
-            azul_layout::LayoutWindow::new_with_shared_fonts(
-                std::sync::Arc::new(fc.clone()),
-                std::sync::Arc::clone(sf),
-            )?
-        }
-        (Some(sf), None) => {
-            let fc = azul_layout::font::loading::build_font_cache();
-            azul_layout::LayoutWindow::new_with_shared_fonts(
-                std::sync::Arc::new(fc),
-                std::sync::Arc::clone(sf),
-            )?
-        }
-        (None, Some(fc)) => {
-            azul_layout::LayoutWindow::new(fc.clone())?
-        }
-        (None, None) => {
-            let fc = azul_layout::font::loading::build_font_cache();
-            azul_layout::LayoutWindow::new(fc)?
-        }
-    };
+    // Create LayoutWindow for layout computation
+    let fc_cache = azul_layout::font::loading::build_font_cache();
+    let mut layout_window = azul_layout::LayoutWindow::new(fc_cache)?;
 
     // Prepare debug messages
     let mut debug_messages = Some(Vec::new());
@@ -1988,12 +1917,8 @@ pub fn format_display_list_for_debug_solver3(display_list: &azul_layout::Display
 pub struct EnhancedTestResult {
     // Basic test info
     pub test_name: String,
-    /// Worst-case diff count across all sizes (backwards compat).
     pub diff_count: usize,
-    /// True if all sizes pass (backwards compat).
     pub passed: bool,
-    /// Per-size diff breakdown (empty for legacy single-size runs).
-    pub size_results: Vec<SizeDiffResult>,
 
     // Metadata from test file
     pub title: String,
@@ -2028,7 +1953,6 @@ impl EnhancedTestResult {
             xhtml_source,
             diff_count: 0,
             passed: false,
-            size_results: Vec::new(),
             title: String::new(),
             assert_content: String::new(),
             help_link: String::new(),
@@ -2053,13 +1977,11 @@ impl EnhancedTestResult {
         diff_count: usize,
         passed: bool,
         debug_data: DebugData,
-        size_results: Vec<SizeDiffResult>,
     ) -> Self {
         Self {
             test_name,
             diff_count,
             passed,
-            size_results,
             title: debug_data.title,
             assert_content: debug_data.assert_content,
             help_link: debug_data.help_link,

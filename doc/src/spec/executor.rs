@@ -2177,12 +2177,6 @@ struct ExecArgs {
     force_api: bool,
     /// Claude model to use (e.g. "sonnet", "haiku", "opus"). None = default.
     model: Option<String>,
-    /// Path to custom exclude file. None = use built-in exclude.txt.
-    exclude_file: Option<String>,
-    /// Disable exclude filtering entirely.
-    no_exclude: bool,
-    /// Delete .failed files so prompts become pending again.
-    clear_failed: bool,
 }
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
@@ -2195,9 +2189,6 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         cleanup: false,
         force_api: false,
         model: None,
-        exclude_file: None,
-        no_exclude: false,
-        clear_failed: false,
     };
 
     for arg in args {
@@ -2217,12 +2208,6 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
             ea.force_api = true;
         } else if let Some(val) = arg.strip_prefix("--model=") {
             ea.model = Some(val.to_string());
-        } else if let Some(val) = arg.strip_prefix("--exclude-file=") {
-            ea.exclude_file = Some(val.to_string());
-        } else if arg == "--no-exclude" {
-            ea.no_exclude = true;
-        } else if arg == "--clear-failed" {
-            ea.clear_failed = true;
         }
     }
 
@@ -2291,9 +2276,9 @@ pub fn create_worktree_pool_internal(
             // Already exists — reset branch to main HEAD
             reset_worktree(&slot_path, &head_sha)?;
         } else {
-            // Create new worktree with branch at HEAD (no checkout yet)
+            // Create new worktree with branch at HEAD
             let output = Command::new("git")
-                .args(["worktree", "add", "--no-checkout", "-B", &branch])
+                .args(["worktree", "add", "-B", &branch])
                 .arg(&slot_path)
                 .arg("HEAD")
                 .current_dir(workspace_root)
@@ -2307,20 +2292,6 @@ pub fn create_worktree_pool_internal(
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
-
-            // Enable sparse checkout — only check out files agents actually need
-            let _ = Command::new("git")
-                .args(["sparse-checkout", "init", "--cone"])
-                .current_dir(&slot_path)
-                .output();
-            let _ = Command::new("git")
-                .args(["sparse-checkout", "set", "layout/src", "css/src", "core/src", "NAVIGATION.md"])
-                .current_dir(&slot_path)
-                .output();
-            let _ = Command::new("git")
-                .args(["checkout"])
-                .current_dir(&slot_path)
-                .output();
         }
 
         slots.push(WorktreeSlot {
@@ -2510,54 +2481,14 @@ pub fn is_pid_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
 }
 
-/// Built-in exclude list for spec paragraphs that are genuinely not applicable.
-const DEFAULT_EXCLUDE_TXT: &str = include_str!("exclude.txt");
-
-/// Parse an exclude file into a set of `feature:hash` tags.
-/// Lines starting with `#` are comments. Format: `feature:hash # optional comment`
-fn parse_exclude_tags(text: &str) -> std::collections::HashSet<String> {
-    text.lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
-}
-
-/// Extract `feature:hash` tags from a prompt filename like `overflow_342f47+38af76.md`.
-fn tags_from_prompt_path(path: &Path) -> Vec<String> {
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let (feature_id, hash_part) = match stem.rfind('_') {
-        Some(i) => (&stem[..i], &stem[i + 1..]),
-        None => return Vec::new(),
-    };
-    hash_part
-        .split('+')
-        .map(|h| format!("{}:{}", feature_id, h))
-        .collect()
-}
-
-/// Returns true if ALL tags of a prompt are in the exclude set.
-fn is_prompt_excluded(path: &Path, exclude: &std::collections::HashSet<String>) -> bool {
-    if exclude.is_empty() {
-        return false;
-    }
-    let tags = tags_from_prompt_path(path);
-    if tags.is_empty() {
-        return false;
-    }
-    tags.iter().all(|t| exclude.contains(t))
-}
-
 pub fn scan_prompts_dir(
     prompts_dir: &Path,
     retry_failed: bool,
-    exclude: &std::collections::HashSet<String>,
-) -> (Vec<PathBuf>, usize, usize, usize, usize) {
+) -> (Vec<PathBuf>, usize, usize, usize) {
     let mut pending = Vec::new();
     let mut done_count = 0usize;
     let mut failed_count = 0usize;
     let mut taken_count = 0usize;
-    let mut excluded_count = 0usize;
 
     let mut entries: Vec<_> = fs::read_dir(prompts_dir)
         .into_iter()
@@ -2573,10 +2504,6 @@ pub fn scan_prompts_dir(
     entries.sort();
 
     for path in entries {
-        if is_prompt_excluded(&path, exclude) {
-            excluded_count += 1;
-            continue;
-        }
         match classify_prompt(&path, retry_failed) {
             PromptStatus::Done => done_count += 1,
             PromptStatus::Failed => failed_count += 1,
@@ -2585,7 +2512,7 @@ pub fn scan_prompts_dir(
         }
     }
 
-    (pending, done_count, failed_count, taken_count, excluded_count)
+    (pending, done_count, failed_count, taken_count)
 }
 
 // ── Prompt building ────────────────────────────────────────────────────
@@ -2626,15 +2553,6 @@ The layout solver is in `layout/src/solver3/`.
 - `layout/overflow.rs` — Overflow enum
 - `layout/position.rs` — Position enum (static, relative, absolute, fixed, sticky)
 - `style/text.rs` — StyleLineHeight, StyleWhiteSpace, StyleHyphens, StyleLineBreak, StyleTextIndent
-
-### Writing modes (layout/src/solver3/geometry.rs):
-- `WritingModeContext` — bundles writing-mode + direction + text-orientation
-  - `is_horizontal()` — true for HorizontalTb, false for VerticalRl/VerticalLr
-  - `inline_size_is_width()` — true when inline axis maps to physical width
-  - Construct via getters: `get_writing_mode()`, `get_direction()`, `get_text_orientation()`
-- In vertical writing modes, CSS `width` = block dimension, CSS `height` = inline dimension
-- `StyleUnicodeBidi` — Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext
-- `StyleTextCombineUpright` — None, All (horizontal-in-vertical composition)
 
 ### Core types (core/src/):
 - `dom.rs` — FormattingContext enum, NodeType
@@ -2716,13 +2634,8 @@ paragraph matched to "positioning" via keyword overlap):
 
 **If a spec paragraph does NOT apply to this codebase** (e.g., it only
 applies to flex/grid which is handled by Taffy, or it describes user agent
-default stylesheets we don't control):
+behavior we don't implement, or it is purely about rendering/painting):
 - Do NOT commit for that paragraph. Output `NOT_APPLICABLE` and move on.
-- NOTE: Rendering, painting, clipping, stacking contexts, and scroll
-  handling ARE in scope. Implement them in `display_list.rs`, `window.rs`,
-  or the appropriate file. Do NOT mark rendering paragraphs as NOT_APPLICABLE.
-- Only use NOT_APPLICABLE for: spec metadata, flex/grid (Taffy), UA defaults,
-  and SVG/MathML features.
 
 **Before implementing anything, search for existing functions and types.**
 Many CSS properties, enums, getters, and helper functions already exist in the
@@ -2782,12 +2695,8 @@ no checklists, no verbose explanations):
   100% correct — we will fix compilation errors later.
 - DO NOT USE `rust-analyzer`, LSP tools, OR ANY MCP TOOLS.
 - Make ONLY the changes needed for the spec paragraphs in this prompt.
-- You may modify any file in `layout/src/` and `css/src/`.
-  This includes `solver3/`, `text3/`, `display_list.rs`, `window.rs`,
-  `scrollbar.rs`, `paged_layout.rs`, `pagination.rs`, etc.
-- You may also add new types in `core/src/` if needed for new CSS properties.
-- Do NOT modify `taffy_bridge.rs` (flex/grid is handled by Taffy).
-- Do NOT modify files outside `layout/`, `css/`, and `core/`.
+- Only modify files in `layout/src/solver3/`, `layout/src/text3/`, and `css/src/`.
+  Do NOT modify `display_list.rs`, rendering code, or any other files.
 - Zero commits is OK if the paragraphs are not applicable or already covered.
 - If unsure whether a change is correct, make your best effort.
 - Be CONCISE in your output. No verbose explanations, checklists, or bullet
@@ -3192,7 +3101,6 @@ fn run_agent_in_slot_internal(
     let mut child = match Command::new("claude")
         .args(&cmd_args)
         .env_remove("CLAUDECODE")
-        .env("CLAUDE_CODE_EFFORT_LEVEL", "high")
         // Pin git operations to the worktree so agents can't accidentally
         // commit to the main repo branch by cd-ing to the main repo path.
         .env("GIT_DIR", slot.path.join(".git"))
@@ -3225,19 +3133,8 @@ fn run_agent_in_slot_internal(
         };
     }
 
-    // Send prompt via stdin, then close pipe.
-    // Prepend a worktree path notice so the agent uses the correct absolute paths.
+    // Send prompt via stdin, then close pipe
     if let Some(mut stdin) = child.stdin.take() {
-        let worktree_notice = format!(
-            "IMPORTANT: Your working directory is `{}`. \
-             When using Read, Edit, or Write tools, ALL file paths MUST start with \
-             this directory. NEVER use paths starting with the main repository root. \
-             For example, use `{}/layout/src/solver3/fc.rs`, \
-             NOT the main repo path.\n\n",
-            slot.path.display(),
-            slot.path.display(),
-        );
-        let _ = stdin.write_all(worktree_notice.as_bytes());
         let _ = stdin.write_all(full_prompt.as_bytes());
     }
 
@@ -3460,30 +3357,6 @@ fn collect_patches(workspace_root: &Path) -> Result<(), String> {
 
 // ── Preflight checks ───────────────────────────────────────────────────
 
-/// Validate that a `--model=` value is accepted by the `claude` CLI.
-/// Call this early (before worktree creation) so the user gets a fast,
-/// clear error instead of 13 cryptic "Agent exited with code 1" failures.
-pub fn validate_claude_model(model: Option<&str>) -> Result<(), String> {
-    let model = match model {
-        Some(m) => m,
-        None => return Ok(()), // default model — nothing to check
-    };
-
-    // Known short aliases accepted by `claude --model`
-    const ALIASES: &[&str] = &["sonnet", "opus", "haiku"];
-
-    // Full model IDs start with "claude-"
-    if ALIASES.contains(&model) || model.starts_with("claude-") {
-        return Ok(());
-    }
-
-    Err(format!(
-        "Invalid --model={model}\n\
-         Valid aliases: sonnet, opus, haiku\n\
-         Or use a full model ID, e.g. claude-sonnet-4-6"
-    ))
-}
-
 fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), String> {
     println!("Preflight checks");
     println!("================\n");
@@ -3657,19 +3530,7 @@ pub fn run_executor(
     args: &[String],
 ) -> Result<(), String> {
     let ea = parse_exec_args(args);
-    validate_claude_model(ea.model.as_deref())?;
     let prompts_dir = config.skill_tree_dir.join("prompts");
-
-    // Build exclude set
-    let exclude = if ea.no_exclude {
-        std::collections::HashSet::new()
-    } else if let Some(ref path) = ea.exclude_file {
-        let text = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read exclude file '{}': {}", path, e))?;
-        parse_exclude_tags(&text)
-    } else {
-        parse_exclude_tags(DEFAULT_EXCLUDE_TXT)
-    };
 
     // --cleanup and --collect don't need preflight
     if ea.cleanup {
@@ -3677,21 +3538,6 @@ pub fn run_executor(
     }
     if ea.collect {
         return collect_patches(workspace_root);
-    }
-    if ea.clear_failed {
-        if prompts_dir.is_dir() {
-            let mut cleared = 0usize;
-            for entry in fs::read_dir(&prompts_dir).into_iter().flatten().flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("failed") {
-                    if fs::remove_file(&path).is_ok() {
-                        cleared += 1;
-                    }
-                }
-            }
-            println!("Cleared {} .failed files", cleared);
-        }
-        return Ok(());
     }
 
     // --status doesn't need preflight either
@@ -3701,8 +3547,8 @@ pub fn run_executor(
                 "No prompts directory found. Run `azul-doc spec build-all` first.".to_string(),
             );
         }
-        let (pending, done_count, failed_count, taken_count, excluded_count) =
-            scan_prompts_dir(&prompts_dir, ea.retry_failed, &exclude);
+        let (pending, done_count, failed_count, taken_count) =
+            scan_prompts_dir(&prompts_dir, ea.retry_failed);
         let total = done_count + failed_count + taken_count + pending.len();
 
         // Scan source for +spec: markers (the real source of truth)
@@ -3714,7 +3560,6 @@ pub fn run_executor(
         println!("  .failed files: {:>4} / {}", failed_count, total);
         println!("  .taken files:  {:>4} / {}", taken_count, total);
         println!("  Pending:       {:>4} / {}", pending.len(), total);
-        println!("  Excluded:      {:>4}", excluded_count);
         println!("\n  +spec: markers in source: {}", found_tags.len());
         println!(
             "  Execution progress: {:.1}%",
@@ -3737,14 +3582,10 @@ pub fn run_executor(
     }
 
     // Scan prompt status (after rebuild)
-    let (pending, done_count, failed_count, taken_count, excluded_count) =
-        scan_prompts_dir(&prompts_dir, ea.retry_failed, &exclude);
+    let (pending, done_count, failed_count, taken_count) =
+        scan_prompts_dir(&prompts_dir, ea.retry_failed);
 
     let total = done_count + failed_count + taken_count + pending.len();
-
-    if !exclude.is_empty() {
-        println!("  Excluded {} prompts ({} tags in exclude list)", excluded_count, exclude.len());
-    }
 
     if pending.is_empty() {
         println!(
@@ -3784,9 +3625,8 @@ pub fn run_executor(
     let completed = Arc::new(Mutex::new(0usize));
     let failed = Arc::new(Mutex::new(0usize));
 
-    // Install SIGINT handler and compiler watchdog
+    // Install SIGINT handler
     install_sigint_handler();
-    let watchdog = CompilerWatchdog::start();
 
     // Create multi-spinner on main thread (MultiSpinnerHandle is !Send)
     let ms = MultiSpinner::new().start();
@@ -3877,7 +3717,6 @@ pub fn run_executor(
         let _ = handle.join();
     }
 
-    watchdog.stop();
     ms.stop();
 
     // Print summary
@@ -3930,57 +3769,6 @@ extern "C" fn sigint_handler(_sig: libc::c_int) {
     let msg = b"\nShutdown requested, finishing current agents...\n";
     unsafe {
         libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len());
-    }
-}
-
-// ── Compiler watchdog ──────────────────────────────────────────────────
-
-/// Spawn a background thread that kills compiler processes every 2s.
-/// Agents must one-shot their patches without compiling.
-/// Returns a handle; drop it or call `stop()` to terminate the watchdog.
-pub struct CompilerWatchdog {
-    stop: Arc<AtomicBool>,
-    handle: Option<std::thread::JoinHandle<()>>,
-}
-
-impl CompilerWatchdog {
-    pub fn start() -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_clone = Arc::clone(&stop);
-        let handle = std::thread::spawn(move || {
-            // Kill any cargo/rustc/rust-analyzer/rustup process system-wide.
-            // This is intentionally aggressive: during agent dispatch, no
-            // compilation should happen anywhere — the user isn't compiling
-            // either (they're waiting for agents to finish).
-            while !stop_clone.load(Ordering::Relaxed) {
-                for target in &["cargo", "rustc", "rust-analyzer", "rustup"] {
-                    let _ = Command::new("killall")
-                        .arg(target)
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-                std::thread::sleep(Duration::from_secs(2));
-            }
-        });
-        CompilerWatchdog {
-            stop,
-            handle: Some(handle),
-        }
-    }
-
-    pub fn stop(mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(h) = self.handle.take() {
-            let _ = h.join();
-        }
-    }
-}
-
-impl Drop for CompilerWatchdog {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        // Don't join on drop — the thread will exit on its own within 2s
     }
 }
 

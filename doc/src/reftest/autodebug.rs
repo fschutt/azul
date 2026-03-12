@@ -9,20 +9,17 @@ use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
-use rayon::prelude::*;
 
 use crate::spec::executor::{
     self, AgentResult, WorktreeSlot, CODEBASE_CONTEXT, SHUTDOWN_REQUESTED,
 };
 
 use super::{
-    generate_azul_rendering_sized,
-    generate_chrome_screenshot, get_chrome_path, find_test_files,
-    pixels_similar, DebugData,
+    generate_azul_rendering_sized, generate_chrome_screenshot_with_debug,
+    get_chrome_path, find_test_files, pixels_similar, DebugData,
 };
 
 // ── Configuration ──────────────────────────────────────────────────────
@@ -56,14 +53,6 @@ pub struct AutodebugConfig {
     pub status_only: bool,
     pub collect_only: bool,
     pub cleanup: bool,
-    pub clear_failed: bool,
-    pub rerun_all: bool,
-    /// Optional human hint describing the visual bug (last positional arg after the dir).
-    pub bug_hint: Option<String>,
-    /// Path to exclude file listing test names to skip (one per line).
-    pub exclude_file: Option<String>,
-    /// Disable exclude filtering entirely.
-    pub no_exclude: bool,
 }
 
 /// Output directory layout.
@@ -85,316 +74,6 @@ fn patches_dir(project_root: &Path) -> PathBuf {
 
 fn reports_dir(project_root: &Path) -> PathBuf {
     output_dir(project_root).join("reports")
-}
-
-// ── Chrome CDP (DevTools Protocol) ─────────────────────────────────────
-//
-// Launches a single Chrome instance and communicates via WebSocket to
-// capture screenshots and extract layout information without respawning
-// Chrome for every test file.
-
-mod cdp {
-    use std::io::{BufRead, BufReader};
-    use std::net::TcpStream;
-    use std::path::Path;
-    use std::process::{Child, Command, Stdio};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{Duration, Instant};
-
-    use tungstenite::{connect, Message, WebSocket, stream::MaybeTlsStream};
-
-    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
-    fn next_id() -> u64 {
-        NEXT_ID.fetch_add(1, Ordering::Relaxed)
-    }
-
-    /// A persistent Chrome instance communicating via CDP over WebSocket.
-    pub struct ChromeCdp {
-        ws: WebSocket<MaybeTlsStream<TcpStream>>,
-        child: Child,
-        page_enabled: bool,
-        /// Cached frame ID for the main frame, used by setDocumentContent.
-        frame_id: Option<String>,
-    }
-
-    impl ChromeCdp {
-        /// Launch Chrome headless with remote debugging and connect via WebSocket.
-        pub fn launch(chrome_path: &str) -> Result<Self, String> {
-            let mut child = Command::new(chrome_path)
-                .arg("--headless")
-                .arg("--disable-gpu")
-                .arg("--no-sandbox")
-                .arg("--remote-debugging-port=0")
-                .arg("--disable-extensions")
-                .arg("--disable-background-networking")
-                .arg("--disable-sync")
-                .arg("--no-first-run")
-                .arg("about:blank")
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("Failed to spawn Chrome: {}", e))?;
-
-            // Parse the debugging port from stderr
-            // Chrome prints: "DevTools listening on ws://127.0.0.1:PORT/devtools/browser/UUID"
-            let stderr = child.stderr.take()
-                .ok_or("No stderr from Chrome")?;
-            let reader = BufReader::new(stderr);
-
-            let mut debug_port = None;
-
-            let start = Instant::now();
-            let timeout = Duration::from_secs(15);
-
-            for line in reader.lines() {
-                if start.elapsed() > timeout { break; }
-                let line = line.map_err(|e| format!("Read stderr: {}", e))?;
-                // Extract port from ws://127.0.0.1:PORT/...
-                if let Some(idx) = line.find("ws://127.0.0.1:") {
-                    let after = &line[idx + "ws://127.0.0.1:".len()..];
-                    if let Some(slash) = after.find('/') {
-                        debug_port = after[..slash].parse::<u16>().ok();
-                    }
-                    break;
-                }
-            }
-
-            let port = debug_port.ok_or("Chrome didn't print debug port within 15s")?;
-
-            // Get the page WebSocket URL from the JSON API
-            // We need to connect to a page target, not the browser target
-            let json_url = format!("http://127.0.0.1:{}/json/list", port);
-            let resp = ureq::get(&json_url).call()
-                .map_err(|e| format!("GET {}: {}", json_url, e))?;
-            let targets: Vec<serde_json::Value> = resp.into_json()
-                .map_err(|e| format!("Parse JSON from {}: {}", json_url, e))?;
-
-            // Find the first page target
-            let page_ws_url = targets.iter()
-                .find(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
-                .and_then(|t| t.get("webSocketDebuggerUrl").and_then(|v| v.as_str()))
-                .ok_or("No page target found in Chrome debug JSON")?
-                .to_string();
-
-            // Connect WebSocket to the page target
-            let (ws, _response) = connect(&page_ws_url)
-                .map_err(|e| format!("WebSocket connect to {}: {}", page_ws_url, e))?;
-
-            Ok(ChromeCdp { ws, child, page_enabled: false, frame_id: None })
-        }
-
-        /// Send a CDP command and return the result JSON.
-        fn send_command(&mut self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-            let id = next_id();
-            let msg = serde_json::json!({
-                "id": id,
-                "method": method,
-                "params": params,
-            });
-
-            self.ws.send(Message::Text(msg.to_string()))
-                .map_err(|e| format!("WS send '{}': {}", method, e))?;
-
-            // Read messages until we get our response
-            let start = Instant::now();
-            let timeout = Duration::from_secs(30);
-
-            loop {
-                if start.elapsed() > timeout {
-                    return Err(format!("Timeout waiting for CDP response to '{}'", method));
-                }
-
-                let msg = self.ws.read()
-                    .map_err(|e| format!("WS read: {}", e))?;
-
-                if let Message::Text(text) = msg {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if json.get("id").and_then(|v| v.as_u64()) == Some(id) {
-                            if let Some(err) = json.get("error") {
-                                return Err(format!("CDP error for '{}': {}", method, err));
-                            }
-                            return Ok(json.get("result").cloned().unwrap_or(serde_json::Value::Null));
-                        }
-                    }
-                }
-            }
-        }
-
-        /// Get (and cache) the main frame ID, needed for setDocumentContent.
-        fn get_frame_id(&mut self) -> Result<String, String> {
-            if let Some(ref id) = self.frame_id {
-                return Ok(id.clone());
-            }
-            let result = self.send_command("Page.getFrameTree", &serde_json::json!({}))?;
-            let id = result
-                .get("frameTree")
-                .and_then(|ft| ft.get("frame"))
-                .and_then(|f| f.get("id"))
-                .and_then(|v| v.as_str())
-                .ok_or("No frameId in Page.getFrameTree response")?
-                .to_string();
-            self.frame_id = Some(id.clone());
-            Ok(id)
-        }
-
-        /// Set the page's HTML content in-place (no navigation, keeps cached fonts).
-        fn set_document_content(&mut self, html: &str) -> Result<(), String> {
-            let frame_id = self.get_frame_id()?;
-            self.send_command("Page.setDocumentContent", &serde_json::json!({
-                "frameId": frame_id,
-                "html": html,
-            }))?;
-            // Small delay for layout/rendering to settle
-            std::thread::sleep(Duration::from_millis(30));
-            Ok(())
-        }
-
-        /// Navigate to a file URL and wait for load to finish.
-        /// Used only for the first page load or when external resources are needed.
-        fn navigate_and_wait(&mut self, url: &str) -> Result<(), String> {
-            self.send_command("Page.navigate", &serde_json::json!({ "url": url }))?;
-
-            // Wait for Page.loadEventFired
-            let start = Instant::now();
-            let timeout = Duration::from_secs(15);
-
-            loop {
-                if start.elapsed() > timeout {
-                    return Ok(()); // Proceed anyway
-                }
-
-                let msg = self.ws.read()
-                    .map_err(|e| format!("WS read during navigate: {}", e))?;
-
-                if let Message::Text(text) = msg {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if json.get("method").and_then(|v| v.as_str()) == Some("Page.loadEventFired") {
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-        }
-
-        /// Capture a screenshot at the given viewport size, saving as PNG.
-        ///
-        /// Uses `Page.setDocumentContent` to swap HTML in-place, avoiding a
-        /// full navigation cycle. This keeps cached fonts and other resources
-        /// warm across test files.
-        pub fn screenshot(
-            &mut self,
-            test_file: &Path,
-            output_file: &Path,
-            width: u32,
-            height: u32,
-        ) -> Result<(), String> {
-            // Enable Page events once
-            if !self.page_enabled {
-                self.send_command("Page.enable", &serde_json::json!({}))?;
-                self.page_enabled = true;
-            }
-
-            // Set viewport size
-            self.send_command("Emulation.setDeviceMetricsOverride", &serde_json::json!({
-                "width": width,
-                "height": height,
-                "deviceScaleFactor": 1,
-                "mobile": false,
-            }))?;
-
-            // Read HTML from disk and set it in-place (no navigation)
-            let html = std::fs::read_to_string(test_file)
-                .map_err(|e| format!("read test file: {}", e))?;
-            self.set_document_content(&html)?;
-
-            // Capture screenshot
-            let result = self.send_command("Page.captureScreenshot", &serde_json::json!({
-                "format": "png",
-                "clip": {
-                    "x": 0,
-                    "y": 0,
-                    "width": width,
-                    "height": height,
-                    "scale": 1,
-                },
-            }))?;
-
-            let data_b64 = result.get("data")
-                .and_then(|v| v.as_str())
-                .ok_or("No screenshot data in CDP response")?;
-
-            let png_bytes = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                data_b64,
-            ).map_err(|e| format!("base64 decode: {}", e))?;
-
-            std::fs::write(output_file, &png_bytes)
-                .map_err(|e| format!("write screenshot: {}", e))?;
-
-            Ok(())
-        }
-
-        /// Extract layout JSON by evaluating JS in the current page.
-        pub fn extract_layout(&mut self) -> Result<String, String> {
-            let js = r#"(function() {
-                var result = { timestamp: new Date().toISOString(), viewport: { width: window.innerWidth, height: window.innerHeight }, elements: [] };
-                var els = document.querySelectorAll('body, body *');
-                for (var i = 0; i < Math.min(els.length, 500); i++) {
-                    var el = els[i];
-                    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
-                    var rect = el.getBoundingClientRect();
-                    var cs = window.getComputedStyle(el);
-                    result.elements.push({
-                        i: i, tag: el.tagName.toLowerCase(), id: el.id || null, cls: el.className || null,
-                        bounds: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
-                        margin: { t: parseFloat(cs.marginTop)||0, r: parseFloat(cs.marginRight)||0, b: parseFloat(cs.marginBottom)||0, l: parseFloat(cs.marginLeft)||0 },
-                        padding: { t: parseFloat(cs.paddingTop)||0, r: parseFloat(cs.paddingRight)||0, b: parseFloat(cs.paddingBottom)||0, l: parseFloat(cs.paddingLeft)||0 },
-                        display: cs.display, position: cs.position
-                    });
-                }
-                return JSON.stringify(result, null, 2);
-            })()"#;
-
-            let result = self.send_command("Runtime.evaluate", &serde_json::json!({
-                "expression": js,
-                "returnByValue": true,
-            }))?;
-
-            let value = result
-                .get("result")
-                .and_then(|r| r.get("value"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("{}");
-
-            Ok(value.to_string())
-        }
-
-        /// Take a screenshot and optionally extract layout for a test at a given size.
-        pub fn screenshot_and_layout(
-            &mut self,
-            test_file: &Path,
-            screenshot_file: &Path,
-            layout_file: Option<&Path>,
-            width: u32,
-            height: u32,
-        ) -> Result<(), String> {
-            self.screenshot(test_file, screenshot_file, width, height)?;
-            if let Some(lf) = layout_file {
-                let json = self.extract_layout()?;
-                std::fs::write(lf, &json)
-                    .map_err(|e| format!("write layout json: {}", e))?;
-            }
-            Ok(())
-        }
-    }
-
-    impl Drop for ChromeCdp {
-        fn drop(&mut self) {
-            let _ = self.send_command("Browser.close", &serde_json::json!({}));
-            let _ = self.child.wait();
-        }
-    }
 }
 
 // ── Pixel Diff Analysis ────────────────────────────────────────────────
@@ -797,380 +476,14 @@ pub struct SizeResult {
     pub diff_analysis: DiffAnalysis,
 }
 
-/// A (test_name, test_file, size) work item for screenshot generation.
-struct ScreenshotJob {
-    test_name: String,
-    test_file: PathBuf,
-    size: ScreenSize,
-    chrome_file: PathBuf,
-    azul_file: PathBuf,
-}
-
-// ── Shared rendering infrastructure ────────────────────────────────────
-
-/// A render job for a single test file across multiple screen sizes.
-pub struct RenderJob {
-    pub test_name: String,
-    pub test_file: PathBuf,
-    pub sizes: Vec<ScreenSize>,
-    pub output_dir: PathBuf,
-}
-
-/// Result of rendering a single test across all sizes.
-pub struct RenderResult {
-    pub test_name: String,
-    pub test_file: PathBuf,
-    pub size_results: Vec<SizeRenderResult>,
-    pub debug_data: Option<DebugData>,
-}
-
-/// Per-size rendering result with diff info.
-pub struct SizeRenderResult {
-    pub size: ScreenSize,
-    pub chrome_screenshot: PathBuf,
-    pub azul_screenshot: PathBuf,
-    pub diff_count: usize,
-    pub diff_percentage: f64,
-}
-
-/// Render all tests using persistent Chrome CDP + rayon-parallel Azul rendering.
-///
-/// This is the shared Phase 1 infrastructure used by both `run_reftests()` and
-/// `discover_failing_tests()`. It handles:
-///   - Phase 1a: Chrome CDP screenshots (sequential, single browser instance)
-///   - Phase 1b: Azul CPU rendering (parallel via rayon, pre-warmed font cache)
-///   - Phase 1c: Pixel diff comparison (parallel via rayon)
-pub fn render_all_tests(
-    jobs: Vec<RenderJob>,
-    chrome_path: &str,
-    skip_chrome: bool,
-) -> Result<Vec<RenderResult>, String> {
-    if jobs.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Flatten into per-size screenshot jobs
-    let mut screenshot_jobs: Vec<ScreenshotJob> = Vec::new();
-    for job in &jobs {
-        fs::create_dir_all(&job.output_dir)
-            .map_err(|e| format!("Failed to create output dir: {}", e))?;
-        for size in &job.sizes {
-            let chrome_file = job.output_dir.join(format!("{}_{}_chrome.png", job.test_name, size.name));
-            let azul_file = job.output_dir.join(format!("{}_{}_azul.webp", job.test_name, size.name));
-            screenshot_jobs.push(ScreenshotJob {
-                test_name: job.test_name.clone(),
-                test_file: job.test_file.clone(),
-                size: *size,
-                chrome_file,
-                azul_file,
-            });
-        }
-    }
-
-    let total_jobs = screenshot_jobs.len();
-    println!("render_all_tests: {} tests, {} screenshot jobs", jobs.len(), total_jobs);
-
-    // Start font discovery in background
-    let font_registry = rust_fontconfig::registry::FcFontRegistry::new();
-    font_registry.spawn_scout_and_builders();
-    println!("  Font registry: scout + builders started in background");
-
-    // ── Phase 1a: Chrome screenshots (persistent CDP instance) ──────────
-
-    if !skip_chrome {
-        let mut chrome_errors = 0usize;
-        let pending_jobs: Vec<&ScreenshotJob> = screenshot_jobs.iter()
-            .filter(|j| !j.chrome_file.exists())
-            .collect();
-        let skipped = screenshot_jobs.len() - pending_jobs.len();
-
-        println!("\n  Phase 1a: Chrome screenshots ({} pending, {} cached)...",
-            pending_jobs.len(), skipped);
-        let start = Instant::now();
-
-        if !pending_jobs.is_empty() {
-            match cdp::ChromeCdp::launch(chrome_path) {
-                Ok(mut chrome) => {
-                    for (i, job) in pending_jobs.iter().enumerate() {
-                        let layout_file = if job.size.name == "desktop" {
-                            let lf = job.chrome_file.parent().unwrap_or(Path::new(".")).join(
-                                format!("{}_desktop_chrome_layout.json", job.test_name)
-                            );
-                            if lf.exists() { None } else { Some(lf) }
-                        } else {
-                            None
-                        };
-
-                        if let Err(e) = chrome.screenshot_and_layout(
-                            &job.test_file,
-                            &job.chrome_file,
-                            layout_file.as_deref(),
-                            job.size.width,
-                            job.size.height,
-                        ) {
-                            eprintln!("  Warning: Chrome CDP failed for {} at {}: {}",
-                                job.test_name, job.size.name, e);
-                            chrome_errors += 1;
-                        }
-
-                        let done = i + 1 + skipped;
-                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
-                            println!("    Chrome: {}/{}", done, screenshot_jobs.len());
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("  Warning: CDP launch failed ({}), falling back to per-process mode", e);
-                    for (i, job) in pending_jobs.iter().enumerate() {
-                        if let Err(e) = generate_chrome_screenshot(
-                            chrome_path, &job.test_file, &job.chrome_file,
-                            job.size.width, job.size.height,
-                        ) {
-                            eprintln!("  Warning: Chrome failed for {} at {}: {}",
-                                job.test_name, job.size.name, e);
-                            chrome_errors += 1;
-                        }
-                        let done = i + 1 + skipped;
-                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
-                            println!("    Chrome: {}/{}", done, screenshot_jobs.len());
-                        }
-                    }
-
-                    // Extract layout JSON for desktop tests
-                    let desktop_tests: Vec<&&ScreenshotJob> = pending_jobs.iter()
-                        .filter(|j| j.size.name == "desktop")
-                        .collect();
-                    for job in &desktop_tests {
-                        let layout_file = job.chrome_file.parent().unwrap_or(Path::new(".")).join(
-                            format!("{}_desktop_chrome_layout.json", job.test_name)
-                        );
-                        if layout_file.exists() { continue; }
-                        if let Err(e) = generate_chrome_layout_with_timeout(
-                            chrome_path, &job.test_file, &layout_file,
-                            job.size.width, job.size.height,
-                        ) {
-                            eprintln!("    Warning: Layout extraction failed for {}: {}",
-                                job.test_name, e);
-                        }
-                    }
-                }
-            }
-        }
-
-        println!("  Phase 1a done in {:.1}s ({} errors)",
-            start.elapsed().as_secs_f64(), chrome_errors);
-    } else {
-        println!("\n  Phase 1a: Chrome screenshots — skipped (--skip-chrome)");
-    }
-
-    // ── Phase 1b: Azul CPU rendering (parallel via rayon) ───────────────
-
-    println!("  Phase 1b: Azul rendering ({} jobs)...", screenshot_jobs.len());
-
-    let fc_cache_start = Instant::now();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while !font_registry.build_complete.load(std::sync::atomic::Ordering::Acquire) {
-        if Instant::now() > deadline {
-            eprintln!("    Warning: font registry build timed out after 30s, proceeding with partial cache");
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    let fc_cache = font_registry.cache.read()
-        .map(|c| c.clone())
-        .map_err(|e| format!("Failed to read font cache: {}", e))?;
-    font_registry.shutdown.store(true, std::sync::atomic::Ordering::Release);
-    font_registry.queue_condvar.notify_all();
-    println!("    Font cache ready in {:.1}s ({} fonts)",
-        fc_cache_start.elapsed().as_secs_f64(),
-        fc_cache.list().len());
-
-    let start = Instant::now();
-    let azul_done = AtomicUsize::new(0);
-    let azul_errors = AtomicUsize::new(0);
-
-    // Shared parsed font pool — fonts parsed during the first render are
-    // reused by all subsequent renders, avoiding repeated disk I/O + parsing.
-    let shared_fonts: super::SharedParsedFonts =
-        Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
-
-    let debug_data_map: Arc<Mutex<std::collections::HashMap<String, DebugData>>> =
-        Arc::new(Mutex::new(std::collections::HashMap::new()));
-
-    screenshot_jobs.par_iter().for_each(|job| {
-
-        match generate_azul_rendering_at_size_cached(
-            &job.test_file,
-            &job.azul_file,
-            job.size.width,
-            job.size.height,
-            &fc_cache,
-            &shared_fonts,
-        ) {
-            Ok(dd) => {
-                // Write debug data to JSON file alongside the screenshot
-                let debug_json_path = job.azul_file.with_extension("debug.json");
-                let debug_json = serde_json::json!({
-                    "render_warnings": dd.render_warnings,
-                    "display_list": dd.display_list,
-                    "solved_layout": dd.solved_layout,
-                    "css_warnings": dd.css_warnings,
-                    "layout_stats": dd.layout_stats,
-                });
-                let _ = std::fs::write(&debug_json_path, serde_json::to_string_pretty(&debug_json).unwrap_or_default());
-
-                let mut map = debug_data_map.lock().unwrap();
-                if job.size.name == "desktop" || !map.contains_key(&job.test_name) {
-                    map.insert(job.test_name.clone(), dd);
-                }
-            }
-            Err(e) => {
-                eprintln!("  Warning: Azul failed for {} at {}: {}", job.test_name, job.size.name, e);
-                azul_errors.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-
-        let done = azul_done.fetch_add(1, Ordering::Relaxed) + 1;
-        if done % 20 == 0 || done == screenshot_jobs.len() {
-            println!("    Azul: {}/{}", done, screenshot_jobs.len());
-        }
-    });
-
-    let errors = azul_errors.load(Ordering::Relaxed);
-    println!("  Phase 1b done in {:.1}s ({} errors)",
-        start.elapsed().as_secs_f64(), errors);
-
-    // ── Phase 1c: Pixel diff comparison (parallel via rayon) ────────────
-
-    println!("  Phase 1c: Pixel diff analysis ({} jobs)...", screenshot_jobs.len());
-    let start = Instant::now();
-
-    struct DiffJobResult {
-        test_name: String,
-        size: ScreenSize,
-        chrome_file: PathBuf,
-        azul_file: PathBuf,
-        diff_count: usize,
-        diff_percentage: f64,
-        skipped: bool,
-    }
-
-    let diff_results: Vec<DiffJobResult> = screenshot_jobs.par_iter().map(|job| {
-        if !job.chrome_file.exists() || !job.azul_file.exists() {
-            return DiffJobResult {
-                test_name: job.test_name.clone(),
-                size: job.size,
-                chrome_file: job.chrome_file.clone(),
-                azul_file: job.azul_file.clone(),
-                diff_count: 0,
-                diff_percentage: 0.0,
-                skipped: true,
-            };
-        }
-        match analyze_pixel_diff(&job.chrome_file, &job.azul_file, job.size.name) {
-            Ok(analysis) => {
-                DiffJobResult {
-                    test_name: job.test_name.clone(),
-                    size: job.size,
-                    chrome_file: job.chrome_file.clone(),
-                    azul_file: job.azul_file.clone(),
-                    diff_count: analysis.diff_pixels,
-                    diff_percentage: analysis.diff_percent,
-                    skipped: false,
-                }
-            }
-            Err(e) => {
-                eprintln!("  Warning: Diff failed for {} at {}: {}", job.test_name, job.size.name, e);
-                DiffJobResult {
-                    test_name: job.test_name.clone(),
-                    size: job.size,
-                    chrome_file: job.chrome_file.clone(),
-                    azul_file: job.azul_file.clone(),
-                    diff_count: 0,
-                    diff_percentage: 0.0,
-                    skipped: true,
-                }
-            }
-        }
-    }).collect();
-
-    println!("  Phase 1c done in {:.1}s", start.elapsed().as_secs_f64());
-
-    // ── Assemble results per test ───────────────────────────────────────
-
-    let mut debug_data_map = match Arc::try_unwrap(debug_data_map) {
-        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
-        Err(arc) => arc.lock().unwrap().clone(),
-    };
-
-    // Group diff results by test name
-    let mut test_map: std::collections::HashMap<String, (PathBuf, Vec<SizeRenderResult>)> =
-        std::collections::HashMap::new();
-
-    for r in diff_results {
-        if r.skipped { continue; }
-        test_map.entry(r.test_name.clone())
-            .or_insert_with(|| (r.azul_file.parent().unwrap_or(Path::new(".")).to_path_buf()
-                .parent().unwrap_or(Path::new(".")).to_path_buf(), Vec::new()));
-        test_map.get_mut(&r.test_name).unwrap().1.push(SizeRenderResult {
-            size: r.size,
-            chrome_screenshot: r.chrome_file,
-            azul_screenshot: r.azul_file,
-            diff_count: r.diff_count,
-            diff_percentage: r.diff_percentage,
-        });
-    }
-
-    // Also include tests that had no diff results (all skipped) so they appear in output
-    for job in &jobs {
-        test_map.entry(job.test_name.clone())
-            .or_insert_with(|| (job.output_dir.clone(), Vec::new()));
-    }
-
-    let mut results: Vec<RenderResult> = test_map.into_iter().map(|(test_name, (_dir, size_results))| {
-        let test_file = jobs.iter()
-            .find(|j| j.test_name == test_name)
-            .map(|j| j.test_file.clone())
-            .unwrap_or_default();
-
-        // Attach Chrome layout JSON to debug data
-        let mut debug_data = debug_data_map.remove(&test_name);
-        if let Some(ref mut dd) = debug_data {
-            // Look for layout JSON in the output dir
-            let output_dir = jobs.iter()
-                .find(|j| j.test_name == test_name)
-                .map(|j| &j.output_dir)
-                .unwrap();
-            let layout_file = output_dir.join(
-                format!("{}_desktop_chrome_layout.json", test_name)
-            );
-            if let Ok(data) = fs::read_to_string(&layout_file) {
-                dd.chrome_layout = data;
-            }
-        }
-
-        RenderResult {
-            test_name,
-            test_file,
-            size_results,
-            debug_data,
-        }
-    }).collect();
-
-    results.sort_by(|a, b| a.test_name.cmp(&b.test_name));
-
-    Ok(results)
-}
-
 /// Discover tests that fail the pixel diff threshold.
-///
-/// Uses `render_all_tests()` for the shared Phase 1 infrastructure, then
-/// filters to only failing tests and runs `DiffAnalysis` for prompt generation.
 pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTestData>, String> {
     let test_dir = &config.test_dir;
     let screenshots = screenshots_dir(&config.project_root);
     fs::create_dir_all(&screenshots)
         .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
+
+    let chrome_path = get_chrome_path();
 
     let mut test_files = find_test_files(test_dir)
         .map_err(|e| format!("Failed to find test files: {}", e))?;
@@ -1186,273 +499,104 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         });
     }
 
-    // Build render jobs
-    let chrome_path = get_chrome_path();
-    let render_jobs: Vec<RenderJob> = test_files.iter().map(|test_file| {
+    println!("Found {} test files", test_files.len());
+
+    let mut failing = Vec::new();
+    let threshold_pct = 0.5; // Fail if >0.5% pixels differ
+
+    for (idx, test_file) in test_files.iter().enumerate() {
         let test_name = test_file
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string();
-        RenderJob {
-            test_name,
-            test_file: test_file.clone(),
-            sizes: config.sizes.to_vec(),
-            output_dir: screenshots.clone(),
-        }
-    }).collect();
 
-    let render_results = render_all_tests(render_jobs, &chrome_path, config.skip_chrome)?;
-
-    // ── Phase 1 Statistics ────────────────────────────────────────────────
-
-    let threshold_pct = 0.5;
-
-    let mut per_test_max: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-
-    for r in &render_results {
-        let max_pct = r.size_results.iter()
-            .map(|sr| sr.diff_percentage)
-            .fold(0.0f64, f64::max);
-        per_test_max.insert(r.test_name.clone(), max_pct);
-    }
-
-    let total_compared = per_test_max.len();
-    let passing = per_test_max.values().filter(|&&v| v <= threshold_pct).count();
-    let failing_count = total_compared - passing;
-    let pass_rate = if total_compared > 0 { 100.0 * passing as f64 / total_compared as f64 } else { 0.0 };
-
-    // Histogram buckets
-    let mut bucket_perfect = 0usize;  // 0%
-    let mut bucket_minor = 0usize;    // 0-0.5%
-    let mut bucket_low = 0usize;      // 0.5-5%
-    let mut bucket_medium = 0usize;   // 5-25%
-    let mut bucket_high = 0usize;     // 25-50%
-    let mut bucket_severe = 0usize;   // >50%
-
-    for &pct in per_test_max.values() {
-        if pct == 0.0 { bucket_perfect += 1; }
-        else if pct <= threshold_pct { bucket_minor += 1; }
-        else if pct <= 5.0 { bucket_low += 1; }
-        else if pct <= 25.0 { bucket_medium += 1; }
-        else if pct <= 50.0 { bucket_high += 1; }
-        else { bucket_severe += 1; }
-    }
-
-    // Top offenders (worst diff_percent)
-    let mut sorted_tests: Vec<(&String, &f64)> = per_test_max.iter().collect();
-    sorted_tests.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Use a helper to pad lines to fixed width inside the box
-    fn box_line(content: &str) {
-        // Box inner width = 60 chars (between ║ and ║)
-        let visible_len = content.chars().count();
-        let pad = if visible_len < 60 { 60 - visible_len } else { 0 };
-        println!("║{}{}║", content, " ".repeat(pad));
-    }
-
-    println!("\n╔════════════════════════════════════════════════════════════════╗");
-    box_line("                     Phase 1 Summary                       ");
-    println!("╠════════════════════════════════════════════════════════════════╣");
-    box_line(&format!("  Tests compared:  {:<6}", total_compared));
-    box_line(&format!("  Passing (≤{:.1}%): {:<6} ({:.1}%)", threshold_pct, passing, pass_rate));
-    box_line(&format!("  Failing (>{:.1}%): {:<6} ({:.1}%)", threshold_pct, failing_count, 100.0 - pass_rate));
-    println!("╠════════════════════════════════════════════════════════════════╣");
-    box_line("  Diff distribution:");
-    box_line(&format!("    Perfect match (0%):    {:>6}", bucket_perfect));
-    box_line(&format!("    Minor (0-{:.1}%):        {:>6}", threshold_pct, bucket_minor));
-    box_line(&format!("    Low ({:.1}-5%):          {:>6}", threshold_pct, bucket_low));
-    box_line(&format!("    Medium (5-25%):        {:>6}", bucket_medium));
-    box_line(&format!("    High (25-50%):         {:>6}", bucket_high));
-    box_line(&format!("    Severe (>50%):         {:>6}", bucket_severe));
-    println!("╠════════════════════════════════════════════════════════════════╣");
-
-    let top_n = sorted_tests.len().min(20);
-    if top_n > 0 {
-        box_line("  Worst offenders:");
-        for (name, pct) in &sorted_tests[..top_n] {
-            let truncated = if name.len() > 44 { &name[..44] } else { name.as_str() };
-            box_line(&format!("    {:>5.1}%  {:<44}", pct, truncated));
-        }
-    }
-    println!("╚════════════════════════════════════════════════════════════════╝\n");
-
-    // ── Assemble failing tests with DiffAnalysis ─────────────────────────
-
-    let mut failing: Vec<FailingTestData> = Vec::new();
-
-    for r in render_results {
-        let max_pct = r.size_results.iter()
-            .map(|sr| sr.diff_percentage)
-            .fold(0.0f64, f64::max);
-
-        if max_pct <= threshold_pct {
-            continue; // passing test
+        if (idx + 1) % 50 == 0 || idx == 0 {
+            println!(
+                "  [{}/{}] Processing {}...",
+                idx + 1,
+                test_files.len(),
+                test_name
+            );
         }
 
-        // Run full DiffAnalysis only for failing sizes (needed for prompts)
         let mut size_results = Vec::new();
-        for sr in &r.size_results {
-            if sr.diff_percentage > threshold_pct {
-                match analyze_pixel_diff(&sr.chrome_screenshot, &sr.azul_screenshot, sr.size.name) {
-                    Ok(analysis) => {
+        let mut any_failing = false;
+        let mut debug_data = None;
+
+        for size in &config.sizes {
+            let chrome_file = screenshots.join(format!("{}_{}_chrome.png", test_name, size.name));
+            let azul_file = screenshots.join(format!("{}_{}_azul.webp", test_name, size.name));
+
+            // Generate Chrome screenshot (skip if cached and --skip-chrome)
+            if !config.skip_chrome || !chrome_file.exists() {
+                let layout_file = screenshots.join(format!("{}_{}_chrome_layout.json", test_name, size.name));
+                if let Err(e) = generate_chrome_screenshot_with_debug(
+                    &chrome_path,
+                    test_file,
+                    &chrome_file,
+                    &layout_file,
+                    size.width,
+                    size.height,
+                ) {
+                    eprintln!("  Warning: Chrome screenshot failed for {} at {}: {}", test_name, size.name, e);
+                    continue;
+                }
+            }
+
+            // Generate Azul rendering — use desktop size for debug data
+            match generate_azul_rendering_at_size(test_file, &azul_file, size.width, size.height) {
+                Ok(dd) => {
+                    if size.name == "desktop" || debug_data.is_none() {
+                        debug_data = Some(dd);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  Warning: Azul rendering failed for {} at {}: {}", test_name, size.name, e);
+                    continue;
+                }
+            }
+
+            // Analyze diff
+            if !chrome_file.exists() || !azul_file.exists() {
+                continue;
+            }
+
+            match analyze_pixel_diff(&chrome_file, &azul_file, size.name) {
+                Ok(analysis) => {
+                    if analysis.diff_percent > threshold_pct {
+                        any_failing = true;
                         size_results.push(SizeResult {
-                            size: sr.size,
-                            chrome_screenshot: sr.chrome_screenshot.clone(),
-                            azul_screenshot: sr.azul_screenshot.clone(),
+                            size: *size,
+                            chrome_screenshot: chrome_file,
+                            azul_screenshot: azul_file,
                             diff_analysis: analysis,
                         });
                     }
-                    Err(e) => {
-                        eprintln!("  Warning: DiffAnalysis failed for {} at {}: {}",
-                            r.test_name, sr.size.name, e);
-                    }
+                }
+                Err(e) => {
+                    eprintln!("  Warning: Diff analysis failed for {} at {}: {}", test_name, size.name, e);
                 }
             }
         }
 
-        if !size_results.is_empty() {
+        if any_failing && !size_results.is_empty() {
             failing.push(FailingTestData {
-                test_name: r.test_name,
-                test_file: r.test_file,
+                test_name,
+                test_file: test_file.clone(),
                 size_results,
-                debug_data: r.debug_data,
+                debug_data,
             });
         }
     }
 
-    failing.sort_by(|a, b| a.test_name.cmp(&b.test_name));
-
     println!(
-        "Discovered {} failing tests (>{:.1}% pixel diff)",
+        "\nDiscovered {} failing tests (>{:.1}% pixel diff)",
         failing.len(),
         threshold_pct
     );
 
     Ok(failing)
-}
-
-/// Extract Chrome layout JSON with a timeout to avoid hangs from dump-dom.
-fn generate_chrome_layout_with_timeout(
-    chrome_path: &str,
-    test_file: &Path,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
-    use std::process::{Command, Stdio};
-
-    let canonical_path = test_file.canonicalize()
-        .map_err(|e| format!("canonicalize failed: {}", e))?;
-
-    // Build temp HTML with inline layout extraction script
-    let original_content = fs::read_to_string(test_file)
-        .map_err(|e| format!("read test file: {}", e))?;
-
-    let simple_script = r#"(function() {
-    var result = { timestamp: new Date().toISOString(), viewport: { width: window.innerWidth, height: window.innerHeight }, elements: [] };
-    var els = document.querySelectorAll('body, body *');
-    for (var i = 0; i < els.length; i++) {
-        var el = els[i];
-        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
-        var rect = el.getBoundingClientRect();
-        var cs = window.getComputedStyle(el);
-        result.elements.push({
-            i: i, tag: el.tagName.toLowerCase(), id: el.id || null, cls: el.className || null,
-            bounds: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
-            margin: { t: parseFloat(cs.marginTop)||0, r: parseFloat(cs.marginRight)||0, b: parseFloat(cs.marginBottom)||0, l: parseFloat(cs.marginLeft)||0 },
-            padding: { t: parseFloat(cs.paddingTop)||0, r: parseFloat(cs.paddingRight)||0, b: parseFloat(cs.paddingBottom)||0, l: parseFloat(cs.paddingLeft)||0 },
-            display: cs.display, position: cs.position
-        });
-    }
-    return JSON.stringify(result, null, 2);
-})()"#;
-
-    let extraction_html = if original_content.contains("</body>") {
-        original_content.replace(
-            "</body>",
-            &format!(
-                r#"<pre id="azul-layout-data" style="display:none"></pre>
-<script>document.getElementById('azul-layout-data').textContent = {};</script>
-</body>"#,
-                simple_script
-            ),
-        )
-    } else {
-        original_content.clone()
-    };
-
-    let temp_dir = std::env::temp_dir();
-    let temp_html = temp_dir.join(format!("chrome_layout_{}.html", std::process::id()));
-    fs::write(&temp_html, &extraction_html)
-        .map_err(|e| format!("write temp html: {}", e))?;
-
-    // Spawn with timeout
-    let mut child = Command::new(chrome_path)
-        .arg("--headless")
-        .arg("--disable-gpu")
-        .arg("--dump-dom")
-        .arg(format!("--window-size={},{}", width, height))
-        .arg(format!("file://{}", temp_html.display()))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("spawn chrome: {}", e))?;
-
-    let timeout = Duration::from_secs(10);
-    let start = Instant::now();
-    let exit = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = fs::remove_file(&temp_html);
-                    break Err("timeout after 10s".to_string());
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                let _ = fs::remove_file(&temp_html);
-                break Err(format!("wait error: {}", e));
-            }
-        }
-    };
-    let _ = fs::remove_file(&temp_html);
-
-    let status = exit?;
-    if !status.success() {
-        return Err("chrome dump-dom failed".to_string());
-    }
-
-    // Parse stdout for layout data
-    let stdout = child.wait_with_output()
-        .map_err(|e| format!("read output: {}", e))?;
-    let dom_output = String::from_utf8_lossy(&stdout.stdout);
-
-    if let Some(start) = dom_output.find("<pre id=\"azul-layout-data\"") {
-        if let Some(content_start) = dom_output[start..].find('>') {
-            let after_tag = &dom_output[start + content_start + 1..];
-            if let Some(end) = after_tag.find("</pre>") {
-                let json_content = &after_tag[..end];
-                let decoded = json_content
-                    .replace("&lt;", "<")
-                    .replace("&gt;", ">")
-                    .replace("&amp;", "&")
-                    .replace("&quot;", "\"");
-                if decoded.starts_with('{') {
-                    fs::write(output_file, &decoded)
-                        .map_err(|e| format!("write layout json: {}", e))?;
-                    return Ok(());
-                }
-            }
-        }
-    }
-
-    // No layout data found — not an error, just skip
-    Ok(())
 }
 
 /// Generate Azul rendering at a specific size.
@@ -1466,107 +610,22 @@ fn generate_azul_rendering_at_size(
         .map_err(|e| format!("{}", e))
 }
 
-fn generate_azul_rendering_at_size_cached(
-    test_file: &Path,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-    fc_cache: &rust_fontconfig::FcFontCache,
-    shared_fonts: &super::SharedParsedFonts,
-) -> Result<DebugData, String> {
-    super::generate_azul_rendering_sized_cached_shared(
-        test_file, output_file, width, height, 1.0, fc_cache, shared_fonts,
-    ).map_err(|e| format!("{}", e))
-}
-
-// ── Levenshtein Distance ────────────────────────────────────────────────
-
-/// Compute Levenshtein edit distance between two strings.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let (m, n) = (a.len(), b.len());
-    let mut prev = (0..=n).collect::<Vec<_>>();
-    let mut curr = vec![0usize; n + 1];
-    for (i, ca) in a.chars().enumerate() {
-        curr[0] = i + 1;
-        for (j, cb) in b.chars().enumerate() {
-            let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j + 1] + 1)
-                .min(curr[j] + 1)
-                .min(prev[j] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[n]
-}
-
-/// Find up to `limit` similar test names by Levenshtein distance.
-/// Returns (test_name, distance) pairs sorted by distance ascending.
-fn find_similar_tests(
-    target: &str,
-    all_test_names: &[String],
-    limit: usize,
-) -> Vec<(String, usize)> {
-    let max_dist = target.len().max(10) / 2;
-    let mut scored: Vec<(String, usize)> = all_test_names
-        .iter()
-        .filter(|name| name.as_str() != target)
-        .map(|name| {
-            let dist = levenshtein(target, name);
-            (name.clone(), dist)
-        })
-        .filter(|(_, dist)| *dist <= max_dist)
-        .collect();
-    scored.sort_by_key(|(_, d)| *d);
-    scored.truncate(limit);
-    scored
-}
-
 // ── Prompt Builder ─────────────────────────────────────────────────────
 
 /// Build the autodebug prompt for a failing test.
-///
-/// `project_root` is needed to locate cross-agent result files.
-/// `all_test_names` is the list of all failing test names in this run,
-/// used for Levenshtein-based "agentic peeking".
-pub fn build_autodebug_prompt(
-    test: &FailingTestData,
-    bug_hint: Option<&str>,
-    project_root: &Path,
-    all_test_names: &[String],
-) -> String {
+pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
     let mut prompt = String::with_capacity(16384);
 
-    // Codebase orientation (general + detailed navigation)
+    // Codebase orientation
     prompt.push_str(CODEBASE_CONTEXT);
-    prompt.push('\n');
-    prompt.push_str(include_str!("../NAVIGATION.md"));
     prompt.push('\n');
 
     // Working directory
     writeln!(
         prompt,
         "## Working Directory\n\n\
-         You are in a git worktree — an isolated copy of the repository.\n\
-         Run `pwd` first to discover your worktree path, then use that as the prefix for \
-         ALL Read/Edit/Write file paths. NEVER use the main repository path.\n\
+         You are in a git worktree. ALL file paths are relative to your current working directory.\n\
          Do NOT `cd` anywhere else — your commits will be lost if you do.\n",
-    ).unwrap();
-
-    // W3C spec reference system
-    writeln!(
-        prompt,
-        "## W3C Spec References\n\n\
-         The source code contains `// +spec:FEATURE:HASH` markers linking code to W3C spec paragraphs.\n\
-         For example: `// +spec:floats:148fcd - floating boxes reduce available line box width`\n\n\
-         The corresponding spec paragraph text is in:\n\
-         `doc/target/skill_tree/prompts/FEATURE_HASH.md`\n\n\
-         So `+spec:floats:148fcd` maps to `doc/target/skill_tree/prompts/floats_148fcd.md`\n\
-         (Some prompts group multiple hashes: `floats_148fcd+49a491.md`)\n\n\
-         **How to use this during debugging:**\n\
-         1. When you find relevant code with `+spec:` markers, read the corresponding `.md` file\n\
-         2. The `.md` file contains the exact W3C spec paragraph text that the code implements\n\
-         3. Compare the spec requirement with what the code actually does to find the bug\n\
-         4. Use `grep -rn '+spec:FEATURE' layout/src/solver3/` to find all related markers\n",
     ).unwrap();
 
     // Test information
@@ -1574,10 +633,24 @@ pub fn build_autodebug_prompt(
     writeln!(prompt, "**Test name:** `{}`", test.test_name).unwrap();
     writeln!(prompt, "**Test file:** `{}`\n", test.test_file.display()).unwrap();
 
-    // XHTML source (small, always inline)
+    // XHTML source
     if let Some(ref dd) = test.debug_data {
         if !dd.xhtml_source.is_empty() {
             writeln!(prompt, "### XHTML Source\n```xml\n{}\n```\n", dd.xhtml_source).unwrap();
+        }
+
+        // CSS warnings
+        if !dd.css_warnings.is_empty() {
+            writeln!(prompt, "### CSS Warnings\n```\n{}\n```\n", dd.css_warnings).unwrap();
+        }
+
+        // Layout debug trace
+        if !dd.render_warnings.is_empty() {
+            writeln!(prompt, "### Layout Debug Trace\n```").unwrap();
+            for (i, w) in dd.render_warnings.iter().enumerate() {
+                writeln!(prompt, "{}. {}", i + 1, w).unwrap();
+            }
+            writeln!(prompt, "```\n").unwrap();
         }
     }
 
@@ -1605,62 +678,17 @@ pub fn build_autodebug_prompt(
         prompt.push('\n');
     }
 
-    // Debug data files — NOT inlined to keep prompt size small.
-    // Tell the agent where the files are and how to extract info.
-    writeln!(prompt, "## Debug Data Files\n").unwrap();
-    writeln!(prompt, "The following files contain detailed debug information. Do NOT read them all at once —").unwrap();
-    writeln!(prompt, "they can be very large (some exceed 500KB). Use targeted `jq` queries to extract what you need.\n").unwrap();
-
-    writeln!(prompt, "### File Structure Reference\n").unwrap();
-    writeln!(prompt, "**Chrome Layout JSON** (`*_chrome_layout.json`): Array of objects, one per DOM element:").unwrap();
-    writeln!(prompt, "```json").unwrap();
-    writeln!(prompt, "[{{ \"nodeName\": \"DIV\", \"x\": 8, \"y\": 100, \"width\": 784, \"height\": 50, ").unwrap();
-    writeln!(prompt, "   \"fontSize\": \"16px\", \"color\": \"rgb(0, 0, 0)\", \"display\": \"block\", ").unwrap();
-    writeln!(prompt, "   \"position\": \"static\", \"className\": \"container\", \"id\": \"\", ").unwrap();
-    writeln!(prompt, "   \"children\": [1, 2] }}, ...]").unwrap();
-    writeln!(prompt, "```\n").unwrap();
-
-    writeln!(prompt, "**Azul Debug JSON** (`*_azul.debug.json`): Object with these top-level keys:").unwrap();
-    writeln!(prompt, "- `render_warnings`: Array of strings — layout debug trace messages from `log_debug!` macros").unwrap();
-    writeln!(prompt, "  These show step-by-step what the layout solver computed (widths, heights, positions).").unwrap();
-    writeln!(prompt, "  **Start here** — compare these values against Chrome's layout to find where they diverge.").unwrap();
-    writeln!(prompt, "- `css_warnings`: String — CSS parsing warnings (missing properties, parse errors)").unwrap();
-    writeln!(prompt, "- `display_list`: String — the final display list (drawing commands) Azul produces").unwrap();
-    writeln!(prompt, "- `solved_layout`: String — the solved layout tree with final positions/sizes").unwrap();
-    writeln!(prompt, "- `layout_stats`: String — timing and sizing statistics\n").unwrap();
-
-    // Chrome layout JSON
-    if let Some(ref sr) = test.size_results.iter().find(|s| s.size.name == "desktop") {
-        let chrome_layout_path = sr.chrome_screenshot.parent().unwrap()
-            .join(format!("{}_desktop_chrome_layout.json", test.test_name));
-        if chrome_layout_path.exists() {
-            writeln!(prompt, "### Chrome Layout (reference)").unwrap();
-            writeln!(prompt, "- File: `{}`", chrome_layout_path.display()).unwrap();
-            writeln!(prompt, "- Extract element positions: `cat '{}' | jq '.[] | {{nodeName, x, y, width, height}}'`", chrome_layout_path.display()).unwrap();
-            writeln!(prompt, "- Find specific element: `cat '{}' | jq '.[] | select(.nodeName == \"DIV\")'`\n", chrome_layout_path.display()).unwrap();
+    // Chrome layout vs Azul display list
+    if let Some(ref dd) = test.debug_data {
+        if !dd.chrome_layout.is_empty() && dd.chrome_layout != "{}" {
+            writeln!(prompt, "## Chrome Layout (reference)\n```json\n{}\n```\n", dd.chrome_layout).unwrap();
         }
-    }
-
-    // Azul debug data (render_warnings, display_list, solved_layout, css_warnings)
-    for sr in &test.size_results {
-        let debug_json_path = sr.azul_screenshot.with_extension("debug.json");
-        if debug_json_path.exists() {
-            writeln!(prompt, "### Azul Debug Data ({})", sr.size.name).unwrap();
-            writeln!(prompt, "- File: `{}`", debug_json_path.display()).unwrap();
-            writeln!(prompt, "- CSS warnings: `cat '{}' | jq '.css_warnings'`", debug_json_path.display()).unwrap();
-            writeln!(prompt, "- Layout debug trace: `cat '{}' | jq '.render_warnings'`", debug_json_path.display()).unwrap();
-            writeln!(prompt, "- Display list: `cat '{}' | jq '.display_list'`", debug_json_path.display()).unwrap();
-            writeln!(prompt, "- Solved layout: `cat '{}' | jq '.solved_layout'`", debug_json_path.display()).unwrap();
-            writeln!(prompt, "- Layout stats: `cat '{}' | jq '.layout_stats'`\n", debug_json_path.display()).unwrap();
+        if !dd.display_list.is_empty() {
+            writeln!(prompt, "## Azul Display List\n```\n{}\n```\n", dd.display_list).unwrap();
         }
-    }
-
-    // Bug hint from user
-    if let Some(hint) = bug_hint {
-        writeln!(prompt, "## Human Bug Description\n").unwrap();
-        writeln!(prompt, "A human reviewer has described the visual bug as:\n").unwrap();
-        writeln!(prompt, "> {}\n", hint).unwrap();
-        writeln!(prompt, "Use this as your starting point for investigation.\n").unwrap();
+        if !dd.solved_layout.is_empty() {
+            writeln!(prompt, "## Azul Solved Layout\n```\n{}\n```\n", dd.solved_layout).unwrap();
+        }
     }
 
     // Instructions for the agent
@@ -1668,119 +696,26 @@ pub fn build_autodebug_prompt(
     writeln!(prompt, "You are debugging a CSS layout rendering bug in the Azul layout engine.").unwrap();
     writeln!(prompt, "The screenshots above show how Chrome renders this test (reference) vs how Azul renders it.").unwrap();
     writeln!(prompt, "The pixel diff analysis highlights which regions differ and why.\n").unwrap();
-    writeln!(prompt, "**IMPORTANT**: If after analyzing the screenshots and code you cannot identify a clear,").unwrap();
-    writeln!(prompt, "specific bug in the layout engine, STOP EARLY. Do not guess. Write a brief report in").unwrap();
-    writeln!(prompt, "`doc/target/autodebug/reports/{}_report.md` explaining what you checked and why you", test.test_name).unwrap();
-    writeln!(prompt, "could not identify the root cause, then commit and exit.\n").unwrap();
-
-    // Cross-agent peeking section (before Phase 1 so agents check similar solutions first)
-    let similar = find_similar_tests(&test.test_name, all_test_names, 5);
-    if !similar.is_empty() {
-        let prompts_path = prompts_dir(project_root);
-        let readable: Vec<_> = similar
-            .iter()
-            .filter(|(name, _)| {
-                let result_path = prompts_path.join(format!("{}.md.result", name));
-                let done_path = prompts_path.join(format!("{}.md.done", name));
-                result_path.exists() || done_path.exists()
-            })
-            .collect();
-
-        if !readable.is_empty() {
-            writeln!(prompt, "### Pre-Phase: Check Similar Agents\n").unwrap();
-            writeln!(prompt, "Other agents are working on (or have completed) tests with similar names.").unwrap();
-            writeln!(prompt, "**Before starting your own investigation**, check if any of these agents").unwrap();
-            writeln!(prompt, "have already found a root cause or fix that applies to your test too.\n").unwrap();
-            writeln!(prompt, "You may READ their output files for insights, but do NOT modify them.").unwrap();
-            writeln!(prompt, "Use `tail -200 <file>` or `grep -i 'root cause\\|fix\\|bug\\|commit' <file>`").unwrap();
-            writeln!(prompt, "to quickly scan for relevant findings.\n").unwrap();
-
-            for (name, dist) in &readable {
-                let result_path = prompts_path.join(format!("{}.md.result", name));
-                let done_path = prompts_path.join(format!("{}.md.done", name));
-                if done_path.exists() {
-                    writeln!(prompt, "- `{}` (completed, edit distance: {})", done_path.display(), dist).unwrap();
-                } else if result_path.exists() {
-                    writeln!(prompt, "- `{}` (in-progress, edit distance: {})", result_path.display(), dist).unwrap();
-                }
-            }
-            writeln!(prompt).unwrap();
-            writeln!(prompt, "If a similar agent already found and fixed the same root cause, you can").unwrap();
-            writeln!(prompt, "apply the same fix pattern to your test. If their fix doesn't apply,").unwrap();
-            writeln!(prompt, "proceed with your own investigation below.\n").unwrap();
-        }
-    }
-
-    writeln!(prompt, "### Phase 1: Find the Root Cause\n").unwrap();
-    writeln!(prompt, "Do NOT jump to a fix. Spend most of your time understanding WHY the bug happens.").unwrap();
-    writeln!(prompt, "1. Compare Chrome vs Azul screenshots using the Read tool.").unwrap();
-    writeln!(prompt, "2. Study the pixel diff analysis above, then extract the layout debug trace from the debug JSON:").unwrap();
-    writeln!(prompt, "   - Run `cat '<debug_json_path>' | jq '.render_warnings'` to see step-by-step layout decisions.").unwrap();
-    writeln!(prompt, "   - Compare Azul's computed positions/sizes with Chrome's via `cat '<chrome_layout_json>' | jq '.[] | {{nodeName, x, y, width, height}}'`.").unwrap();
-    writeln!(prompt, "3. Read the relevant layout code in `layout/src/solver3/`:").unwrap();
-    writeln!(prompt, "   - `fc.rs` — BFC/IFC/table formatting contexts").unwrap();
-    writeln!(prompt, "   - `sizing.rs` — width/height calculation").unwrap();
-    writeln!(prompt, "   - `positioning.rs` — relative/absolute positioning").unwrap();
-    writeln!(prompt, "   - `mod.rs` — entry point, LayoutContext").unwrap();
-    writeln!(prompt, "   - Text layout: `layout/src/text3/`").unwrap();
-    writeln!(prompt, "   - CPU rendering: `layout/src/cpurender.rs`").unwrap();
-    writeln!(prompt, "4. **Use `debug_info!` calls** to understand data flow. This macro is defined in").unwrap();
-    writeln!(prompt, "   `layout/src/solver3/mod.rs` and is already used extensively throughout the solver.").unwrap();
-    writeln!(prompt, "   It only evaluates when `debug_messages` is enabled (it IS enabled for these tests).").unwrap();
-    writeln!(prompt, "   The output appears in the `.debug.json` file under `render_warnings`.\n").unwrap();
-    writeln!(prompt, "   **How it works:** The debug JSON you already have (see Debug Data Files above)").unwrap();
-    writeln!(prompt, "   contains ALL `debug_info!` output from the current code. Search it with:").unwrap();
-    writeln!(prompt, "   ```bash").unwrap();
-    writeln!(prompt, "   cat '<debug_json_path>' | jq '.render_warnings[]' | grep -i 'width\\|height\\|margin'").unwrap();
-    writeln!(prompt, "   ```").unwrap();
-    writeln!(prompt, "   This shows you the actual computed values during layout. Compare these against").unwrap();
-    writeln!(prompt, "   Chrome's layout JSON to find where the values diverge.\n").unwrap();
-    writeln!(prompt, "   **Adding your own traces:** If the existing traces don't cover the code path").unwrap();
-    writeln!(prompt, "   you're investigating, add more `debug_info!` calls. The macro takes a `ctx`").unwrap();
-    writeln!(prompt, "   (LayoutContext) and a format string:\n").unwrap();
-    writeln!(prompt, "   ```rust").unwrap();
-    writeln!(prompt, "   debug_info!(ctx, \"[my_tag] width={{}} margin_left={{}}\", width, margin_left);").unwrap();
-    writeln!(prompt, "   ```\n").unwrap();
-    writeln!(prompt, "   Convention: use a `[Tag]` prefix so you can grep for your traces, e.g.:").unwrap();
-    writeln!(prompt, "   ```rust").unwrap();
-    writeln!(prompt, "   debug_info!(ctx, \"[DisplayList] tree has {{}} nodes, {{}} positions\", tree.nodes.len(), positions.len());").unwrap();
-    writeln!(prompt, "   debug_info!(ctx, \"[BFC] block child {{}} width={{}} x={{}}\", node_id, width, x);").unwrap();
-    writeln!(prompt, "   ```\n").unwrap();
-    writeln!(prompt, "   Note: you can NOT re-render to see your new traces (the binary is pre-compiled).").unwrap();
-    writeln!(prompt, "   But reading the EXISTING traces in the debug JSON is your primary debugging tool.").unwrap();
-    writeln!(prompt, "   Also, `println!` works for quick debugging — output goes to stderr.\n").unwrap();
-
-    writeln!(prompt, "### Phase 2: Fix the Bug\n").unwrap();
-    writeln!(prompt, "Once you understand the root cause, make a minimal, targeted fix.").unwrap();
-    writeln!(prompt, "- Keep changes small — fix only this bug, nothing else.").unwrap();
-    writeln!(prompt, "- Do NOT refactor surrounding code or add features beyond what's needed.\n").unwrap();
-
-    writeln!(prompt, "### Phase 3: Commit for Patch Extraction\n").unwrap();
-    writeln!(prompt, "Create ONE commit with a clear message. The commit message must explain:").unwrap();
-    writeln!(prompt, "- What the visual bug was (e.g. \"margin not collapsing between siblings\")").unwrap();
-    writeln!(prompt, "- What the root cause was (e.g. \"clearance check didn't include last_margin_bottom\")").unwrap();
-    writeln!(prompt, "- What the fix does").unwrap();
-    writeln!(prompt, "Your commit will be extracted as a `.patch` file for human review.\n").unwrap();
-
-    writeln!(prompt, "### Code Style\n").unwrap();
-    writeln!(prompt, "- Prefer iterator chains (`.iter().map().filter()`) over `for` loops").unwrap();
-    writeln!(prompt, "- Use `?` operator for error propagation instead of `if let Some` / early return").unwrap();
-    writeln!(prompt, "- Use method chaining where it improves readability").unwrap();
-    writeln!(prompt, "- Remove any `debug_info!` or `println!` you added for debugging before committing\n").unwrap();
-
+    writeln!(prompt, "### Instructions\n").unwrap();
+    writeln!(prompt, "1. **Analyze the bug**: Compare Chrome vs Azul screenshots using the Read tool.").unwrap();
+    writeln!(prompt, "   Study the pixel diff analysis to understand what's wrong.").unwrap();
+    writeln!(prompt, "2. **Find the root cause**: The layout solver is in `layout/src/solver3/`.").unwrap();
+    writeln!(prompt, "   Key files: `mod.rs` (entry point), `fc.rs` (formatting contexts),").unwrap();
+    writeln!(prompt, "   `sizing.rs` (width/height), `positioning.rs` (positioning).").unwrap();
+    writeln!(prompt, "   Text layout is in `layout/src/text3/`.").unwrap();
+    writeln!(prompt, "   CPU rendering is in `layout/src/cpurender.rs`.").unwrap();
+    writeln!(prompt, "3. **Fix the bug**: Make minimal, targeted changes. Do NOT refactor").unwrap();
+    writeln!(prompt, "   surrounding code or add features beyond what's needed.").unwrap();
+    writeln!(prompt, "4. **Commit your fix**: Create one commit with a clear message describing").unwrap();
+    writeln!(prompt, "   what was wrong and how you fixed it.\n").unwrap();
     writeln!(prompt, "### Important Rules\n").unwrap();
-    writeln!(prompt, "- Do NOT modify `taffy_bridge.rs` (Flex/Grid is handled by Taffy).").unwrap();
-    writeln!(prompt, "- **Flex/Grid layout is computed by the Taffy crate, which is very likely correct.**").unwrap();
-    writeln!(prompt, "  Taffy does not yet support subgrids, but otherwise flex/grid results should be trusted.").unwrap();
-    writeln!(prompt, "  If a test failure looks like a flex/grid issue, the bug is almost certainly in how").unwrap();
-    writeln!(prompt, "  we feed data TO Taffy or read results FROM Taffy (in `taffy_bridge.rs` or `fc.rs`),").unwrap();
-    writeln!(prompt, "  NOT in Taffy's own layout algorithm. Do NOT try to fix Taffy itself.").unwrap();
-    writeln!(prompt, "- Do NOT run `cargo build`, `cargo check`, or any compilation commands.").unwrap();
-    writeln!(prompt, "  A compiler watchdog is running that kills cargo/rustc/rust-analyzer every 2 seconds.").unwrap();
-    writeln!(prompt, "- Your changes must compile — check types and signatures carefully.").unwrap();
+    writeln!(prompt, "- Keep changes minimal — fix only this bug, nothing else.").unwrap();
+    writeln!(prompt, "- Do NOT modify taffy_bridge.rs (Flex/Grid is handled by Taffy).").unwrap();
+    writeln!(prompt, "- Do NOT run `cargo build` or any compilation commands.").unwrap();
+    writeln!(prompt, "- Your changes must compile — check types carefully.").unwrap();
     writeln!(prompt, "- If you cannot determine the fix with confidence, write a").unwrap();
-    writeln!(prompt, "  detailed analysis in `doc/target/autodebug/reports/{}_report.md`", test.test_name).unwrap();
-    writeln!(prompt, "  explaining what you found and your hypothesis, then commit that instead.").unwrap();
+    writeln!(prompt, "  detailed analysis in a file `doc/target/autodebug/reports/{}_report.md`", test.test_name).unwrap();
+    writeln!(prompt, "  explaining what you found, then commit that file instead.").unwrap();
 
     prompt
 }
@@ -1796,7 +731,7 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         project_root: project_root.to_path_buf(),
         test_dir,
         agents: 4,
-        timeout: Duration::from_secs(1500),
+        timeout: Duration::from_secs(600),
         model: None,
         sizes: ALL_SIZES.to_vec(),
         test_filter: None,
@@ -1806,11 +741,6 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         status_only: false,
         collect_only: false,
         cleanup: false,
-        clear_failed: false,
-        rerun_all: false,
-        bug_hint: None,
-        exclude_file: None,
-        no_exclude: false,
     };
 
     for arg in args {
@@ -1846,36 +776,11 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
             config.collect_only = true;
         } else if *arg == "--cleanup" {
             config.cleanup = true;
-        } else if *arg == "--clear-failed" {
-            config.clear_failed = true;
-        } else if *arg == "--rerun-all" {
-            config.rerun_all = true;
-        } else if let Some(val) = arg.strip_prefix("--exclude-file=") {
-            config.exclude_file = Some(val.to_string());
-        } else if *arg == "--no-exclude" {
-            config.no_exclude = true;
         } else if !arg.starts_with('-') {
-            // Positional args: first directory is test dir, remaining text is bug hint
-            let candidate = PathBuf::from(arg);
-            if candidate.is_dir() {
-                config.test_dir = candidate;
-            } else {
-                let resolved = project_root.join(arg);
-                if resolved.is_dir() {
-                    config.test_dir = resolved;
-                } else if *arg != "claude-exec" {
-                    // Not a directory and not the subcommand → treat as bug hint
-                    config.bug_hint = Some(arg.to_string());
-                }
-            }
+            // Positional args ignored (e.g. "claude-exec")
         } else {
             return Err(format!("Unknown option: {}", arg));
         }
-    }
-
-    // Ensure test_dir is absolute
-    if config.test_dir.is_relative() {
-        config.test_dir = project_root.join(&config.test_dir);
     }
 
     Ok(config)
@@ -1902,58 +807,8 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
         return collect_autodebug_patches(&project_root);
     }
 
-    // Handle rerun-all: clear all agent state so everything reruns from scratch
-    if config.rerun_all {
-        let prompts = prompts_dir(&project_root);
-        if prompts.is_dir() {
-            let mut cleared = 0usize;
-            for entry in std::fs::read_dir(&prompts).into_iter().flatten().flatten() {
-                let path = entry.path();
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "taken" | "result" | "failed" | "progress") {
-                    if std::fs::remove_file(&path).is_ok() {
-                        cleared += 1;
-                    }
-                }
-            }
-            println!("Cleared {} agent state files from prompts/", cleared);
-        }
-        let patches = patches_dir(&project_root);
-        if patches.is_dir() {
-            let mut cleared = 0usize;
-            for entry in std::fs::read_dir(&patches).into_iter().flatten().flatten() {
-                if std::fs::remove_file(entry.path()).is_ok() {
-                    cleared += 1;
-                }
-            }
-            println!("Cleared {} patch files", cleared);
-        }
-        // Don't return — fall through to re-run the full pipeline
-    }
-
-    // Handle clear-failed: delete .failed files so prompts become pending again
-    if config.clear_failed {
-        let prompts = prompts_dir(&project_root);
-        if prompts.is_dir() {
-            let mut cleared = 0usize;
-            for entry in std::fs::read_dir(&prompts).into_iter().flatten().flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("failed") {
-                    if std::fs::remove_file(&path).is_ok() {
-                        cleared += 1;
-                    }
-                }
-            }
-            println!("Cleared {} .failed files", cleared);
-        }
-        return Ok(());
-    }
-
-    // Validate model name early (before worktree creation)
-    executor::validate_claude_model(config.model.as_deref())?;
-
-    // Preflight checks (skip agent-specific checks for dry-run)
-    preflight_checks(&project_root, config.dry_run)?;
+    // Preflight checks
+    preflight_checks(&project_root)?;
 
     // Ensure output directories exist
     for dir in &[
@@ -1967,52 +822,9 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
             .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
     }
 
-    // Build exclude set (test names to skip)
-    let exclude_names: std::collections::HashSet<String> = if config.no_exclude {
-        std::collections::HashSet::new()
-    } else if let Some(ref path) = config.exclude_file {
-        let text = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read exclude file '{}': {}", path, e))?;
-        text.lines()
-            .map(|line| line.split('#').next().unwrap_or("").trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
-    } else {
-        // Check for default exclude file at doc/target/autodebug/exclude.txt
-        let default_exclude = project_root.join("doc/target/autodebug/exclude.txt");
-        if default_exclude.is_file() {
-            let text = fs::read_to_string(&default_exclude).unwrap_or_default();
-            text.lines()
-                .map(|line| line.split('#').next().unwrap_or("").trim())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        }
-    };
-
     // Phase 1: Discover failing tests
     println!("\n=== Phase 1: Discovering failing tests ===\n");
-    let all_failing = discover_failing_tests(&config)?;
-
-    // Apply exclude filter
-    let (failing_tests, excluded_count) = if exclude_names.is_empty() {
-        (all_failing, 0usize)
-    } else {
-        let before = all_failing.len();
-        let filtered: Vec<_> = all_failing
-            .into_iter()
-            .filter(|t| !exclude_names.contains(&t.test_name))
-            .collect();
-        let excluded = before - filtered.len();
-        if excluded > 0 {
-            println!("  Excluded {} tests via exclude list", excluded);
-        }
-        (filtered, excluded)
-    };
-    let _ = excluded_count; // used in summary above
+    let failing_tests = discover_failing_tests(&config)?;
 
     if failing_tests.is_empty() {
         println!("No failing tests found. All tests pass the pixel diff threshold.");
@@ -2023,12 +835,6 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
     println!("\n=== Phase 2: Generating prompts ===\n");
     let prompts = prompts_dir(&project_root);
     let mut prompt_count = 0;
-
-    // Collect all test names for cross-agent Levenshtein matching
-    let all_test_names: Vec<String> = failing_tests
-        .iter()
-        .map(|t| t.test_name.clone())
-        .collect();
 
     for test in &failing_tests {
         let prompt_path = prompts.join(format!("{}.md", test.test_name));
@@ -2045,12 +851,7 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
             _ => {}
         }
 
-        let prompt_text = build_autodebug_prompt(
-            test,
-            config.bug_hint.as_deref(),
-            &project_root,
-            &all_test_names,
-        );
+        let prompt_text = build_autodebug_prompt(test);
         fs::write(&prompt_path, &prompt_text)
             .map_err(|e| format!("Failed to write prompt: {}", e))?;
         prompt_count += 1;
@@ -2076,52 +877,33 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
 }
 
 /// Preflight checks before running the pipeline.
-/// `dry_run` skips agent-specific checks (CLAUDECODE env, API key, claude CLI).
-fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> {
+fn preflight_checks(workspace_root: &Path) -> Result<(), String> {
     println!("Preflight checks");
     println!("================\n");
 
-    if !dry_run {
-        // Refuse to run inside an existing Claude Code session
-        if std::env::var("CLAUDECODE").is_ok() {
-            return Err(
-                "Cannot run inside a Claude Code session.\n\
-                 The executor spawns claude CLI subprocesses which would conflict.\n\
-                 Run this command from a regular terminal:\n\
-                 \n\
-                 ./target/release/azul-doc autodebug claude-exec"
-                    .to_string(),
-            );
-        }
-        println!("  [OK] Not running inside Claude Code");
-
-        // Check that ANTHROPIC_API_KEY is NOT set
-        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-            return Err(
-                "ANTHROPIC_API_KEY is set in environment.\n\
-                 This would route claude CLI through the paid API.\n\
-                 Unset it first: unset ANTHROPIC_API_KEY"
-                    .to_string(),
-            );
-        }
-        println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
-
-        // Check claude CLI is available
-        let claude_check = std::process::Command::new("claude")
-            .arg("--version")
-            .output();
-        match claude_check {
-            Ok(o) if o.status.success() => {
-                let version = String::from_utf8_lossy(&o.stdout);
-                println!("  [OK] claude CLI: {}", version.trim());
-            }
-            _ => {
-                return Err("claude CLI not found. Install it first.".to_string());
-            }
-        }
-    } else {
-        println!("  [SKIP] Agent checks skipped (--dry-run)");
+    // Refuse to run inside an existing Claude Code session
+    if std::env::var("CLAUDECODE").is_ok() {
+        return Err(
+            "Cannot run inside a Claude Code session.\n\
+             The executor spawns claude CLI subprocesses which would conflict.\n\
+             Run this command from a regular terminal:\n\
+             \n\
+             ./target/release/azul-doc autodebug claude-exec"
+                .to_string(),
+        );
     }
+    println!("  [OK] Not running inside Claude Code");
+
+    // Check that ANTHROPIC_API_KEY is NOT set
+    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        return Err(
+            "ANTHROPIC_API_KEY is set in environment.\n\
+             This would route claude CLI through the paid API.\n\
+             Unset it first: unset ANTHROPIC_API_KEY"
+                .to_string(),
+        );
+    }
+    println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
 
     // Verify working directory
     let solver_dir = workspace_root.join("layout/src/solver3");
@@ -2134,6 +916,20 @@ fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> 
     }
     println!("  [OK] Working directory: {}", workspace_root.display());
 
+    // Check claude CLI is available
+    let claude_check = std::process::Command::new("claude")
+        .arg("--version")
+        .output();
+    match claude_check {
+        Ok(o) if o.status.success() => {
+            let version = String::from_utf8_lossy(&o.stdout);
+            println!("  [OK] claude CLI: {}", version.trim());
+        }
+        _ => {
+            return Err("claude CLI not found. Install it first.".to_string());
+        }
+    }
+
     println!();
     Ok(())
 }
@@ -2144,9 +940,8 @@ fn dispatch_agents(config: &AutodebugConfig) -> Result<(), String> {
     let prompts = prompts_dir(project_root);
 
     // Scan for pending prompts
-    let exclude = std::collections::HashSet::new();
-    let (pending, done, failed, taken, _excluded) =
-        executor::scan_prompts_dir(&prompts, config.retry_failed, &exclude);
+    let (pending, done, failed, taken) =
+        executor::scan_prompts_dir(&prompts, config.retry_failed);
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
@@ -2166,9 +961,8 @@ fn dispatch_agents(config: &AutodebugConfig) -> Result<(), String> {
     let base_sha = executor::get_head_sha(project_root)?;
     println!("Base SHA: {}", &base_sha[..12]);
 
-    // Install signal handler and compiler watchdog
+    // Install signal handler
     executor::install_sigint_handler();
-    let watchdog = executor::CompilerWatchdog::start();
 
     // Set up work queue
     let work_queue: Arc<Mutex<VecDeque<PathBuf>>> =
@@ -2257,9 +1051,6 @@ fn dispatch_agents(config: &AutodebugConfig) -> Result<(), String> {
         let _ = handle.join();
     }
 
-    // Stop the compiler watchdog
-    watchdog.stop();
-
     // Print results summary
     let results = results.lock().unwrap();
     let total = results.len();
@@ -2283,9 +1074,8 @@ fn show_status(project_root: &Path, retry_failed: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    let exclude = std::collections::HashSet::new();
-    let (pending, done, failed, taken, _excluded) =
-        executor::scan_prompts_dir(&prompts, retry_failed, &exclude);
+    let (pending, done, failed, taken) =
+        executor::scan_prompts_dir(&prompts, retry_failed);
 
     let total = pending.len() + done + failed + taken;
     println!("Autodebug Status");
