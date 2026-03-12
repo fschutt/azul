@@ -35,10 +35,11 @@ use crate::{
     },
     solver3::{
         fc::split_text_for_whitespace,
-        geometry::{BoxProps, BoxSizing, IntrinsicSizes},
+        geometry::{BoxProps, BoxSizing, IntrinsicSizes, WritingModeContext},
         getters::{
             get_css_box_sizing, get_css_height, get_css_width, get_display_property,
-            get_flex_direction, get_float, get_style_properties, get_writing_mode, MultiValue,
+            get_direction_property, get_flex_direction, get_float, get_style_properties,
+            get_text_orientation_property, get_writing_mode, MultiValue,
         },
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree, get_display_type},
         positioning::get_position_type,
@@ -487,10 +488,10 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             .map(|l| l.bounds().height)
             .unwrap_or(0.0);
 
-        // TODO(writing-modes): min_content_width / max_content_width are named for
-        // the physical axis, but in vertical writing modes the "inline" axis is vertical.
-        // These fields should be interpreted as inline/block intrinsic sizes, with the
-        // physical mapping determined by the writing mode.
+        // NOTE(writing-modes): min_content_width / max_content_width are named for
+        // the physical axis. In vertical writing modes the "inline" axis is vertical,
+        // so these are swapped by calculate_block_intrinsic_sizes when computing
+        // the parent's intrinsic sizes. The physical naming is intentional here.
         Ok(IntrinsicSizes {
             min_content_width: min_width,
             max_content_width: max_width,
@@ -1219,12 +1220,14 @@ pub fn calculate_used_size_for_node(
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
         // Anonymous boxes:
-        // - Width fills the containing block (like block-level elements)
-        // - Height is auto (content-based)
-        // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit from their enclosing box
-        // TODO(writing-modes): Anonymous boxes should inherit the writing mode of
-        // their enclosing box. In vertical modes, the inline dimension fills the
-        // containing block height, not width.
+        // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit from their enclosing box.
+        // The inline dimension fills the containing block's inline size,
+        // and the block dimension is auto (content-based).
+        // In horizontal-tb: inline=width, block=height.
+        // In vertical modes: inline=height, block=width.
+        //
+        // Since anonymous boxes don't have a DOM node, we default to horizontal-tb.
+        // The parent's writing mode is already reflected in containing_block_size.
         return Ok(LogicalSize::new(
             containing_block_size.width,
             if intrinsic.max_content_height > 0.0 {
@@ -1243,6 +1246,15 @@ pub fn calculate_used_size_for_node(
     let display = get_display_property(styled_dom, Some(id));
     let position = get_position_type(styled_dom, dom_id);
 
+    // Construct the full WritingModeContext from resolved styles.
+    // This determines how logical dimensions (inline/block) map to physical (width/height).
+    let wm_ctx = WritingModeContext {
+        writing_mode: writing_mode.unwrap_or_default(),
+        direction: get_direction_property(styled_dom, id, node_state).unwrap_or_default(),
+        text_orientation: get_text_orientation_property(styled_dom, id, node_state).unwrap_or_default(),
+    };
+    let is_vertical = !wm_ctx.is_horizontal();
+
     // Determine if this element is a replaced element (images, virtual views)
     let node_data = &styled_dom.node_data.as_container()[id];
     let is_replaced = matches!(node_data.get_node_type(), NodeType::Image(_))
@@ -1258,12 +1270,10 @@ pub fn calculate_used_size_for_node(
     };
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
-    // Percentage values for `width` are resolved against the containing block's width.
-    // TODO(writing-modes): In vertical writing modes (VerticalRl/VerticalLr), CSS `width`
-    // maps to the block dimension, not the inline dimension. The resolution base
-    // (containing_block_size.width) is correct for physical width, but the result
-    // should be assigned to the block size, not inline size. Currently we always treat
-    // width as inline and height as block, which is only correct for HorizontalTb.
+    // CSS `width` always refers to the physical horizontal dimension, regardless of writing mode.
+    // Percentage values resolve against the containing block's physical width.
+    // In horizontal-tb: width = inline size. In vertical modes: width = block size.
+    // The physical-to-logical mapping happens in Step 5 below.
     let resolved_width = match css_width.unwrap_or_default() {
         LayoutWidth::Auto => {
             // CSS 2.2 §10.3.2: If 'width' has a computed value of 'auto', and the element
@@ -1406,11 +1416,10 @@ pub fn calculate_used_size_for_node(
     let resolved_width = resolved_width.max(0.0);
 
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
-    // Percentage values for `height` are resolved against the containing block's height.
-    // TODO(writing-modes): In vertical writing modes, CSS `height` maps to the inline
-    // dimension. The resolution base (containing_block_size.height) is correct for
-    // physical height, but the result should be assigned to the inline size.
-    // See WritingModeContext::inline_size_is_width() for the mapping logic.
+    // CSS `height` always refers to the physical vertical dimension, regardless of writing mode.
+    // Percentage values resolve against the containing block's physical height.
+    // In horizontal-tb: height = block size. In vertical modes: height = inline size.
+    // The physical-to-logical mapping happens in Step 5 below.
     let resolved_height = match css_height.unwrap_or_default() {
         LayoutHeight::Auto => {
             // For 'auto' height, we initially use the intrinsic content height.
@@ -1562,19 +1571,25 @@ pub fn calculate_used_size_for_node(
     };
 
     // Step 5: Map the resolved physical dimensions to logical dimensions.
-    // The `width` property always corresponds to the cross (inline) axis size.
-    // The `height` property always corresponds to the main (block) axis size.
-    // TODO(writing-modes): This mapping (width=cross, height=main) is only correct
-    // for HorizontalTb. In vertical writing modes, width=main (block) and
-    // height=cross (inline). The from_main_cross call below partially handles this
-    // via LayoutWritingMode, but the variable naming and margin/padding calculations
-    // above still assume horizontal layout throughout.
-    let cross_size = border_box_width;
-    let main_size = border_box_height;
+    //
+    // CSS Writing Modes Level 4:
+    // - In horizontal-tb: width = inline (cross) size, height = block (main) size.
+    // - In vertical-rl/lr: width = block (main) size, height = inline (cross) size.
+    //
+    // `from_main_cross` handles this mapping: given (main, cross) and writing mode,
+    // it produces the correct LogicalSize with physical (width, height).
+    let (main_size, cross_size) = if is_vertical {
+        // Vertical writing mode: width is the block (main) dimension,
+        // height is the inline (cross) dimension.
+        (border_box_width, border_box_height)
+    } else {
+        // Horizontal writing mode (default): width is cross, height is main.
+        (border_box_height, border_box_width)
+    };
 
     // Step 6: Construct the final LogicalSize from the logical dimensions.
-    let result =
-        LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
+    let wm = writing_mode.unwrap_or_default();
+    let result = LogicalSize::from_main_cross(main_size, cross_size, wm);
 
     Ok(result)
 }

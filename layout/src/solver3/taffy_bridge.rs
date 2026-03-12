@@ -1603,6 +1603,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let constraints = LayoutConstraints {
             available_size,
             writing_mode: LayoutWritingMode::HorizontalTb,
+            writing_mode_ctx: super::geometry::WritingModeContext::default(),
             bfc_state: None,
             text_align: fc_text_align,
             containing_block_size: available_size,

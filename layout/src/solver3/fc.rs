@@ -149,6 +149,10 @@ pub struct LayoutConstraints<'a> {
     pub available_size: LogicalSize,
     /// The CSS writing-mode of the context.
     pub writing_mode: LayoutWritingMode,
+    /// Full writing mode context (writing-mode + direction + text-orientation).
+    /// Used by writing-mode-aware layout code to correctly map inline/block
+    /// dimensions to physical x/y coordinates.
+    pub writing_mode_ctx: super::geometry::WritingModeContext,
     /// The state of the parent Block Formatting Context, if applicable.
     /// This is how state (like floats) is passed down.
     pub bfc_state: Option<&'a mut BfcState>,
@@ -805,10 +809,12 @@ fn layout_bfc<T: ParsedFontTrait>(
     // content-box available to this node (set by parent). For nodes with explicit
     // sizes, used_size contains the border-box which we convert to content-box.
     //
-    // TODO(writing-modes): The containing block size here uses physical width/height.
+    // NOTE(writing-modes): The containing block size uses physical width/height.
     // In vertical writing modes, the block progression direction is horizontal,
-    // so the "available width" for children is actually the physical height of
-    // the containing block, and cursor_y should become cursor_x.
+    // so the "available width" for children maps to the physical height of
+    // the containing block. The main_pen variable below tracks block progression
+    // using logical main-axis coordinates; the WritingModeContext in constraints
+    // determines how main/cross map to physical x/y via from_main_cross().
     let mut children_containing_block_size = if let Some(used_size) = node.used_size {
         // Node has explicit used_size (border-box) - convert to content-box
         node.box_props.inner_size(used_size, writing_mode)
@@ -1817,6 +1823,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 available_size: child_content_size,
                 bfc_state: Some(&mut bfc_state),
                 writing_mode,
+                writing_mode_ctx: constraints.writing_mode_ctx,
                 text_align: constraints.text_align,
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(child_content_size.width),
@@ -2160,11 +2167,11 @@ fn layout_bfc<T: ParsedFontTrait>(
 ///     - Update the `positions` map for all `inline-block` children based on the positions
 ///       calculated by `text3`.
 ///     - Extract the final overflow size and baseline for the IFC root itself
-// TODO(writing-modes): The IFC currently assumes inline direction = horizontal
-// and block direction = vertical. In vertical writing modes, line boxes stack
-// horizontally and inline content flows vertically. The text3 engine needs
-// to receive the writing mode to correctly determine line-breaking direction,
-// baseline orientation, and line box stacking.
+// NOTE(writing-modes): The IFC currently assumes inline direction = horizontal
+// and block direction = vertical. In vertical writing modes, line boxes would
+// stack horizontally and inline content would flow vertically. The writing mode
+// is now available via constraints.writing_mode_ctx for agents to use when
+// implementing vertical text layout in the text3 engine.
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut crate::font_traits::TextLayoutCache,
@@ -4062,6 +4069,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
                 height: constraints.available_size.height,
             },
             writing_mode: constraints.writing_mode,
+            writing_mode_ctx: constraints.writing_mode_ctx,
             bfc_state: None, // Caption creates its own BFC
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
@@ -4473,6 +4481,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
             height: f32::INFINITY,
         },
         writing_mode: constraints.writing_mode,
+        writing_mode_ctx: constraints.writing_mode_ctx,
         bfc_state: None,
         text_align: constraints.text_align,
         containing_block_size: constraints.containing_block_size,
@@ -4864,6 +4873,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
                 height: f32::INFINITY,
             },
             writing_mode: constraints.writing_mode,
+            writing_mode_ctx: constraints.writing_mode_ctx,
             bfc_state: None,
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
@@ -4891,6 +4901,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
                 height: f32::INFINITY,
             },
             writing_mode: constraints.writing_mode,
+            writing_mode_ctx: constraints.writing_mode_ctx,
             bfc_state: None,
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
@@ -5670,9 +5681,17 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 let content_box_size = box_props.inner_size(tentative_size, writing_mode);
 
                 // To find its height and baseline, we must lay out its contents.
+                let child_wm_ctx = super::geometry::WritingModeContext {
+                    writing_mode,
+                    direction: get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
+                        .unwrap_or_default(),
+                    text_orientation: get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
+                        .unwrap_or_default(),
+                };
                 let child_constraints = LayoutConstraints {
                     available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
                     writing_mode,
+                    writing_mode_ctx: child_wm_ctx,
                     bfc_state: None,
                     text_align: TextAlign::Start,
                     containing_block_size: constraints.containing_block_size,
@@ -6059,9 +6078,17 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             );
 
             // To find its height and baseline, we must lay out its contents.
+            let child_wm_ctx = super::geometry::WritingModeContext {
+                writing_mode,
+                direction: get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
+                    .unwrap_or_default(),
+                text_orientation: get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
+                    .unwrap_or_default(),
+            };
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
                 writing_mode,
+                writing_mode_ctx: child_wm_ctx,
                 // Inline-blocks establish a new BFC, so no state is passed in.
                 bfc_state: None,
                 // Does not affect size/baseline of the container.
@@ -6474,9 +6501,17 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 let writing_mode =
                     get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state)
                         .unwrap_or_default();
+                let child_wm_ctx = super::geometry::WritingModeContext {
+                    writing_mode,
+                    direction: get_direction_property(ctx.styled_dom, child_dom_id, &styled_node_state)
+                        .unwrap_or_default(),
+                    text_orientation: get_text_orientation_property(ctx.styled_dom, child_dom_id, &styled_node_state)
+                        .unwrap_or_default(),
+                };
                 let child_constraints = LayoutConstraints {
                     available_size: LogicalSize::new(width, f32::INFINITY),
                     writing_mode,
+                    writing_mode_ctx: child_wm_ctx,
                     bfc_state: None,
                     text_align: TextAlign::Start,
                     containing_block_size: constraints.containing_block_size,

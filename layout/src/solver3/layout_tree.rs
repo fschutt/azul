@@ -115,9 +115,11 @@ use crate::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
         getters::{
             get_css_height, get_css_max_height, get_css_max_width, get_css_min_height,
-            get_css_min_width, get_css_width, get_display_property, get_float, get_overflow_x,
-            get_overflow_y, get_position, get_text_align, get_white_space_property,
-            get_writing_mode, MultiValue,
+            get_css_min_width, get_css_width, get_direction_property as get_direction,
+            get_display_property, get_float, get_overflow_x,
+            get_overflow_y, get_position, get_text_align,
+            get_text_orientation_property as get_text_orientation,
+            get_white_space_property, get_writing_mode, MultiValue,
         },
         scrollbar::ScrollbarRequirements,
         LayoutContext, Result,
@@ -521,10 +523,14 @@ pub struct ComputedLayoutStyle {
     pub float: LayoutFloat,
     /// CSS `overflow-x` property
     pub overflow_x: LayoutOverflow,
-    /// CSS `overflow-y` property  
+    /// CSS `overflow-y` property
     pub overflow_y: LayoutOverflow,
     /// CSS `writing-mode` property
     pub writing_mode: azul_css::props::layout::LayoutWritingMode,
+    /// CSS `direction` property (ltr/rtl)
+    pub direction: azul_css::props::style::StyleDirection,
+    /// CSS `text-orientation` property (for vertical writing modes)
+    pub text_orientation: azul_css::props::style::effects::StyleTextOrientation,
     /// CSS `width` property (None = auto)
     pub width: Option<azul_css::props::layout::LayoutWidth>,
     /// CSS `height` property (None = auto)
@@ -1669,8 +1675,10 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
     let overflow_x = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
     let overflow_y = get_overflow_y(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
-    // Get writing mode
+    // Get writing mode, direction, and text-orientation
     let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let direction = get_direction(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let text_orientation = get_text_orientation(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
     // Get text-align
     let text_align = get_text_align(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
@@ -1710,6 +1718,8 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
         overflow_x,
         overflow_y,
         writing_mode,
+        direction,
+        text_orientation,
         width,
         height,
         min_width,
