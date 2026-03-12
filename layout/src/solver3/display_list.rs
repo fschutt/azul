@@ -3895,7 +3895,8 @@ where
         let position = get_position_type(self.ctx.styled_dom, Some(dom_id));
         let z_auto = crate::solver3::getters::is_z_index_auto(self.ctx.styled_dom, Some(dom_id));
 
-        if position == LayoutPosition::Fixed {
+        // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
+        if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
             return true;
         }
 
@@ -3964,8 +3965,8 @@ pub fn node_establishes_stacking_context(
     let position = crate::solver3::positioning::get_position_type(styled_dom, Some(dom_id));
     let z_auto = crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id));
 
-    // Fixed positioning always creates stacking context
-    if position == LayoutPosition::Fixed {
+    // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
+    if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
         return true;
     }
     // Absolute with explicit z-index creates stacking context
