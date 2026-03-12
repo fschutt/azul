@@ -1272,6 +1272,24 @@ pub struct InitialLetter {
     pub sink: u32,
     /// How many characters to apply this styling to.
     pub count: NonZeroUsize,
+    // +spec:display-property:4c69bf - alignment points for sizing/positioning initial letter
+    /// Alignment mode for the initial letter (over/under alignment points
+    /// matched to corresponding points of the root inline box).
+    pub align: InitialLetterAlign,
+}
+
+/// Alignment mode for initial letters, controlling which alignment points
+/// are used to size and position the letter relative to the root inline box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InitialLetterAlign {
+    /// UA chooses based on script
+    Auto,
+    /// Alphabetic baseline alignment
+    Alphabetic,
+    /// Hanging baseline alignment
+    Hanging,
+    /// Ideographic baseline alignment
+    Ideographic,
 }
 
 // A type that implements `Hash` must also implement `Eq`.
@@ -1289,6 +1307,7 @@ impl Hash for InitialLetter {
         (self.size.round() as usize).hash(state);
         self.sink.hash(state);
         self.count.hash(state);
+        self.align.hash(state);
     }
 }
 

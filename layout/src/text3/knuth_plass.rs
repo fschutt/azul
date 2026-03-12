@@ -516,10 +516,15 @@ fn position_lines_from_breaks(
             (other, _) => other,
         };
 
-        let mut main_axis_pen = match physical_align {
-            TextAlign::Center => remaining_space / 2.0,
-            TextAlign::Right => remaining_space,
-            _ => 0.0,
+        // +spec:display-contents:5a1b30 - overflowing lines are start-aligned (overflow off end edge)
+        let mut main_axis_pen = if remaining_space < 0.0 {
+            0.0
+        } else {
+            match physical_align {
+                TextAlign::Center => remaining_space / 2.0,
+                TextAlign::Right => remaining_space,
+                _ => 0.0,
+            }
         };
 
         // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line as usual

@@ -52,7 +52,7 @@ use crate::{
         getters::{
             get_background_color, get_background_contents, get_border_info, get_border_radius,
             get_break_after, get_break_before, get_caret_style, get_overflow_x, get_overflow_y,
-            get_scrollbar_info_from_layout, get_scrollbar_style, get_selection_style,
+            get_scrollbar_gutter_property, get_scrollbar_info_from_layout, get_scrollbar_style, get_selection_style,
             get_style_border_radius, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
             ComputedScrollbarStyle, SelectionStyle,
         },
@@ -3163,6 +3163,68 @@ where
             azul_css::props::style::scrollbar::LayoutScrollbarWidth::None
         ) {
             return Ok(());
+        }
+
+        // +spec:overflow:3dfb2c - when scrollbar gutter is present but scrollbar is not,
+        // paint the gutter background as an extension of the padding
+        let scrollbar_gutter = node_id
+            .and_then(|nid| {
+                let node_state =
+                    &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                get_scrollbar_gutter_property(self.ctx.styled_dom, nid, node_state).exact()
+            })
+            .unwrap_or_default();
+        let gutter_is_stable = matches!(
+            scrollbar_gutter,
+            azul_css::props::layout::overflow::StyleScrollbarGutter::Stable
+            | azul_css::props::layout::overflow::StyleScrollbarGutter::StableBothEdges
+        );
+        let gutter_both_edges = matches!(
+            scrollbar_gutter,
+            azul_css::props::layout::overflow::StyleScrollbarGutter::StableBothEdges
+        );
+
+        if gutter_is_stable {
+            let border = &node.box_props.border;
+            let gutter_width = scrollbar_style.visual_width_px;
+            // Paint gutter as padding extension when scrollbar is absent
+            let bg_color = node_id
+                .map(|nid| {
+                    let node_state =
+                        &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                    get_background_color(self.ctx.styled_dom, nid, node_state)
+                })
+                .unwrap_or(ColorU::TRANSPARENT);
+
+            if !scrollbar_info.needs_vertical && gutter_width > 0.0 {
+                // Right-side gutter (inline-end)
+                let gutter_rect = LogicalRect {
+                    origin: LogicalPosition::new(
+                        paint_rect.origin.x + paint_rect.size.width - border.right - gutter_width,
+                        paint_rect.origin.y + border.top,
+                    ),
+                    size: LogicalSize::new(
+                        gutter_width,
+                        (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                    ),
+                };
+                builder.push_rect(gutter_rect, bg_color, BorderRadius::default());
+
+                // Both-edges: also paint left-side gutter (inline-start)
+                if gutter_both_edges {
+                    let left_gutter_rect = LogicalRect {
+                        origin: LogicalPosition::new(
+                            paint_rect.origin.x + border.left,
+                            paint_rect.origin.y + border.top,
+                        ),
+                        size: LogicalSize::new(
+                            gutter_width,
+                            (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                        ),
+                    };
+                    builder.push_rect(left_gutter_rect, bg_color, BorderRadius::default());
+                }
+            }
         }
 
         // Get border dimensions to position scrollbar inside the border-box
