@@ -199,8 +199,11 @@ Each agent receives one failing test, works in an isolated git worktree, and
 produces a commit with the fix (or a diagnostic report if the fix isn't clear).
 
 ```bash
-# Full run: discover failing tests → generate prompts → dispatch 4 agents
+# Full run on the default 'working' directory
 azul-doc autodebug claude-exec
+
+# Run on the xhtml1/ test directory (9000+ tests)
+azul-doc autodebug claude-exec doc/xhtml1
 
 # Generate prompts only (inspect before dispatching agents)
 azul-doc autodebug claude-exec --dry-run
@@ -232,6 +235,23 @@ azul-doc autodebug claude-exec --cleanup
 # Override the Claude model
 azul-doc autodebug claude-exec --model=claude-sonnet-4-6
 ```
+
+The last positional argument is the test directory (defaults to `doc/working/`).
+
+### Performance
+
+Phase 1 uses two key optimizations for large test sets:
+
+- **Chrome CDP (DevTools Protocol)**: A single persistent Chrome instance
+  communicates via WebSocket instead of spawning one process per screenshot.
+  This reduces per-screenshot overhead from ~1-2s to ~130ms.
+  Falls back to per-process mode if CDP launch fails.
+- **Async font registry**: `FcFontRegistry` from rust-fontconfig spawns
+  scout + builder threads in the background during Chrome Phase 1a.  By the
+  time Azul renders start, all system fonts are already loaded (0s wait).
+  The cache is cloned once and shared across all rayon render threads.
+- **Parallel rendering**: Azul CPU renders and pixel diffs run in parallel
+  via rayon.
 
 Output goes to `doc/target/autodebug/`:
 

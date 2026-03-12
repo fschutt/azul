@@ -29,3 +29,6 @@ debug = true      # Full debug info for line-level coverage.
 lto = false       # Disable LTO so grcov can see individual object files.
 codegen-units = 16
 panic = "unwind"  # Tests need unwinding for #[should_panic] etc.
+
+[patch.crates-io]
+rust-fontconfig = { git = "https://github.com/fschutt/rust-fontconfig", branch = "refactor/deduplicate-and-simplify" }
