@@ -3394,9 +3394,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleTextAlign::Justify => text3::cache::TextAlign::Justify,
         },
         // +spec:text-alignment-spacing:0ea31d - text-justify inter-word/inter-character/distribute mapped per §6.4
+        // +spec:text-alignment-spacing:01244f - text-justify: none disables justification, auto uses inter-word as universal default
         text_justify: match text_justify {
             LayoutTextJustify::None => text3::cache::JustifyContent::None,
-            LayoutTextJustify::Auto => text3::cache::JustifyContent::None,
+            LayoutTextJustify::Auto => text3::cache::JustifyContent::InterWord,
             LayoutTextJustify::InterWord => text3::cache::JustifyContent::InterWord,
             LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
             LayoutTextJustify::Distribute => text3::cache::JustifyContent::Distribute,
