@@ -6086,8 +6086,19 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 // Update the node in the tree with its now-known used size.
                 tree.get_mut(child_index).unwrap().used_size = Some(final_size);
 
-                // +spec:inline-formatting-context:fcc686 - synthesize baseline from margin box for atomic inlines with no baseline
-                let baseline_offset = layout_result.output.baseline.unwrap_or(final_height);
+                // CSS 2.2 § 10.8.1: inline-block baseline fallback
+                // If overflow is not 'visible', use bottom margin edge as baseline
+                let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+                let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+                let overflow_is_visible = matches!(
+                    (overflow_x, overflow_y),
+                    (LayoutOverflow::Visible, LayoutOverflow::Visible)
+                );
+                let baseline_offset = if overflow_is_visible {
+                    layout_result.output.baseline.unwrap_or(final_height)
+                } else {
+                    final_height
+                };
 
                 // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for inline-level boxes (no collapsing)
                 // The margin-box size is used so text3 positions inline-blocks with proper spacing
@@ -6499,13 +6510,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Update the node in the tree with its now-known used size.
             tree.get_mut(child_index).unwrap().used_size = Some(final_size);
 
-            // align the bottom margin edge with the parent's baseline"
-            // +spec:display-property:d8e10d - atomic inline baseline synthesis (alphabetic at under margin edge)
-            // +spec:box-model:5d101a - baseline synthesized at line-under (bottom) margin edge for atomic inlines without internal baselines
-            // +spec:box-model:0603bb - first baseline synthesized at line-over (top) margin edge (not yet separately tracked; only last baseline used)
-            // +spec:box-model:2d19db - baseline alignment: use box baseline or fall back to bottom margin edge
             // CSS 2.2 § 10.8.1: For inline-block elements, the baseline is the baseline of the
-            // last line box in the normal flow, unless it has no in-flow line boxes, in which
+            // last line box in the normal flow, unless it has either no in-flow line boxes or
+            // if its 'overflow' property has a computed value other than 'visible', in which
             // case the baseline is the bottom margin edge.
             //
             // `layout_result.output.baseline` returns the Y-position of the baseline measured
@@ -6514,13 +6521,18 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             //
             // Conversion: baseline_offset_from_bottom = height - baseline_from_top
             //
-            // +spec:inline-block:0201e4 - synthesize baseline at bottom margin edge for atomic inlines without content-derived baseline
-            // +spec:inline-block:e3044b - synthesize baseline at bottom margin edge for atomic inlines without a baseline
-            // If no baseline is found (e.g., the inline-block has no text), we fall back to
-            // the bottom margin edge (baseline_offset = 0, meaning baseline at bottom).
+            // If no baseline is found (e.g., the inline-block has no text), or if
+            // overflow is not 'visible', we fall back to the bottom margin edge
+            // (baseline_offset = 0, meaning baseline at bottom).
+            let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+            let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+            let overflow_is_visible = matches!(
+                (overflow_x, overflow_y),
+                (LayoutOverflow::Visible, LayoutOverflow::Visible)
+            );
             let baseline_from_top = layout_result.output.baseline;
             let baseline_offset = match baseline_from_top {
-                Some(baseline_y) => {
+                Some(baseline_y) if overflow_is_visible => {
                     // baseline_y is measured from top of content box
                     // We need to add padding and border to get the position within the border-box
                     let content_box_top = box_props.padding.top + box_props.border.top;
@@ -6528,8 +6540,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     // Convert to distance from bottom
                     (final_height - baseline_from_border_box_top).max(0.0)
                 }
-                None => {
-                    // No baseline found - use bottom margin edge (baseline at bottom)
+                _ => {
+                    // No baseline found or overflow != visible - use bottom margin edge
                     0.0
                 }
             };
@@ -6900,7 +6912,19 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 let final_size = LogicalSize::new(width, final_height);
 
                 tree.get_mut(child_index).unwrap().used_size = Some(final_size);
-                let baseline_offset = layout_result.output.baseline.unwrap_or(final_height);
+
+                // CSS 2.2 § 10.8.1: inline-block baseline fallback
+                let overflow_x = get_overflow_x(ctx.styled_dom, child_dom_id, &styled_node_state).unwrap_or_default();
+                let overflow_y = get_overflow_y(ctx.styled_dom, child_dom_id, &styled_node_state).unwrap_or_default();
+                let overflow_is_visible = matches!(
+                    (overflow_x, overflow_y),
+                    (LayoutOverflow::Visible, LayoutOverflow::Visible)
+                );
+                let baseline_offset = if overflow_is_visible {
+                    layout_result.output.baseline.unwrap_or(final_height)
+                } else {
+                    final_height
+                };
 
                 content.push(InlineContent::Shape(InlineShape {
                     shape_def: ShapeDefinition::Rectangle {
