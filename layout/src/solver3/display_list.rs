@@ -1479,6 +1479,27 @@ where
             .unwrap_or_default()
     }
 
+    // +spec:overflow:visibility - CSS 2.2 §11.2: visibility:hidden makes the box invisible
+    // but still affects layout. Checked per-node because visibility is inherited and a child
+    // with visibility:visible inside a hidden parent must still be painted.
+    fn is_node_hidden(&self, node_index: usize) -> bool {
+        use azul_css::props::style::effects::StyleVisibility;
+        let node = match self.positioned_tree.tree.get(node_index) {
+            Some(n) => n,
+            None => return false,
+        };
+        let dom_id = match node.dom_node_id {
+            Some(id) => id,
+            None => return false,
+        };
+        let node_state = self.get_styled_node_state(dom_id);
+        match get_visibility(self.ctx.styled_dom, dom_id, &node_state) {
+            crate::solver3::getters::MultiValue::Exact(StyleVisibility::Hidden)
+            | crate::solver3::getters::MultiValue::Exact(StyleVisibility::Collapse) => true,
+            _ => false,
+        }
+    }
+
     /// Gets the cursor type for a text node from its CSS properties.
     /// Defaults to Text (I-beam) cursor if no explicit cursor is set.
     fn get_cursor_type_for_text_node(&self, node_id: NodeId) -> CursorType {
