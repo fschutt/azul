@@ -45,7 +45,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 25] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 27] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -71,6 +71,9 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::GridArea, "grid-area"),
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
     (CombinedCssPropertyType::TextBox, "text-box"),
+    // +spec:writing-modes:798cca - inset-block/inset-inline shorthand properties
+    (CombinedCssPropertyType::InsetBlock, "inset-block"),
+    (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
 const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 177] = [
@@ -501,6 +504,12 @@ pub enum CombinedCssPropertyType {
     ColumnRule,
     GridArea,
     TextBox,
+    /// `inset-block` shorthand: sets `inset-block-start` + `inset-block-end`
+    /// (maps to `top` + `bottom` in horizontal-tb writing mode)
+    InsetBlock,
+    /// `inset-inline` shorthand: sets `inset-inline-start` + `inset-inline-end`
+    /// (maps to `left` + `right` in horizontal-tb writing mode)
+    InsetInline,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -3234,6 +3243,15 @@ pub fn parse_combined_css_property<'a>(
                 CssPropertyType::TextBoxEdge,
             ]
         }
+        // +spec:writing-modes:798cca - inset-block/inset-inline shorthand expansion
+        // In horizontal-tb (default), block axis = vertical, inline axis = horizontal.
+        // First value = start side, second = end side; if omitted, second defaults to first.
+        InsetBlock => {
+            vec![CssPropertyType::Top, CssPropertyType::Bottom]
+        }
+        InsetInline => {
+            vec![CssPropertyType::Left, CssPropertyType::Right]
+        }
     };
 
     // For Overflow, "auto" is a typed value (LayoutOverflow::Auto), not the generic CSS keyword,
@@ -3783,6 +3801,32 @@ pub fn parse_combined_css_property<'a>(
             Ok(vec![
                 CssProperty::TextBoxTrim(CssPropertyValue::Exact(trim)),
                 CssProperty::TextBoxEdge(CssPropertyValue::Exact(edge)),
+            ])
+        }
+        // +spec:writing-modes:798cca - inset-block shorthand: first value = start, second = end;
+        // if omitted, second defaults to first. Maps to top/bottom in horizontal-tb.
+        InsetBlock => {
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            let start_val = parts.get(0).ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+            let end_val = parts.get(1).unwrap_or(start_val);
+            let start = parse_layout_top(start_val)?;
+            let end = parse_layout_bottom(end_val)?;
+            Ok(vec![
+                CssProperty::Top(start.into()),
+                CssProperty::Bottom(end.into()),
+            ])
+        }
+        // +spec:writing-modes:798cca - inset-inline shorthand: first value = start, second = end;
+        // if omitted, second defaults to first. Maps to left/right in horizontal-tb.
+        InsetInline => {
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            let start_val = parts.get(0).ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+            let end_val = parts.get(1).unwrap_or(start_val);
+            let start = parse_layout_left(start_val)?;
+            let end = parse_layout_right(end_val)?;
+            Ok(vec![
+                CssProperty::Left(start.into()),
+                CssProperty::Right(end.into()),
             ])
         }
     }
