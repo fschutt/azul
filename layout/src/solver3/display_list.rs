@@ -3334,7 +3334,9 @@ where
         // TODO: Handle z-index within inline content (e.g. background images)
         // NOTE: Text decorations (underline, strikethrough, overline) are handled in push_text_layout_to_display_list
         // TODO: Text shadows not yet implemented
-        // TODO: Handle text overflowing (based on container_rect and overflow behavior)
+        // NOTE: Text-overflow ellipsis is handled via apply_text_overflow_ellipsis()
+        // which can be called as a post-processing step on the display list when
+        // the node has overflow:hidden and text-overflow:ellipsis CSS properties.
 
         // Calculate actual content bounds from the layout
         // Use these bounds instead of container_rect to avoid inflated bounds
@@ -5389,26 +5391,103 @@ pub struct BreakProperties {
 /// (or clip/scroll) and `text-overflow: ellipsis`, the overflowing text should
 /// be replaced with an ellipsis character (U+2026) or a custom string.
 ///
-/// # Parameters
-/// - `_display_list`: The display list to modify (text items may be clipped/replaced)
-/// - `_container_bounds`: The bounds of the containing block (overflow boundary)
-/// - `_ellipsis`: The ellipsis string to use (typically "..." or a custom string)
+/// This is a display-list post-processing step that modifies glyph runs
+/// to show an ellipsis when text overflows its container. It operates on
+/// the assumption that the container already has a PushClip that clips
+/// the overflow -- this function additionally replaces the trailing glyphs
+/// with an ellipsis so the user gets a visual indicator of truncation.
 ///
-/// TODO(text-overflow): Implement the full text-overflow algorithm:
-/// 1. Check if the container has overflow: hidden/clip/scroll
-/// 2. Find text runs that overflow the container's inline-end edge
-/// 3. Measure the ellipsis string width using the font metrics
-/// 4. Replace/clip the last visible characters to make room for the ellipsis
-/// 5. Handle bidi text (ellipsis goes at the inline-end of each line)
-/// 6. Handle `text-overflow: clip` (just clip, no ellipsis)
+/// # Parameters
+/// - `display_list`: The display list to modify (text items may be clipped/replaced)
+/// - `container_bounds`: The bounds of the containing block (overflow boundary)
+/// - `_ellipsis`: The ellipsis string (currently unused; U+2026 glyph index is used)
+///
+/// # Algorithm
+/// 1. For each Text item in the display list, check if any glyphs extend
+///    past the container's right edge (inline-end in LTR).
+/// 2. If so, find the last glyph that fits entirely within the container,
+///    accounting for the width of the ellipsis character.
+/// 3. Remove all glyphs after that point.
+/// 4. Append an ellipsis glyph (U+2026 = glyph index 0x2026 as a fallback;
+///    proper glyph lookup requires font metrics not available here).
+///
+/// Note: This is a best-effort implementation. A pixel-perfect version would
+/// need access to font metrics to measure the exact ellipsis glyph width and
+/// to look up the correct glyph index for the ellipsis in each font.
 pub fn apply_text_overflow_ellipsis(
-    _display_list: &mut DisplayList,
-    _container_bounds: LogicalRect,
+    display_list: &mut DisplayList,
+    container_bounds: LogicalRect,
     _ellipsis: &str,
 ) {
-    // TODO(text-overflow): Implement text-overflow ellipsis rendering.
-    // This is a display-list post-processing step that modifies glyph runs
-    // to show an ellipsis when text overflows its container.
+    let container_right = container_bounds.origin.x + container_bounds.size.width;
+
+    // Approximate ellipsis width as ~0.6 * font_size (typical for "..." in most fonts).
+    // This is a heuristic; proper implementation requires font metric access.
+    for item in display_list.items.iter_mut() {
+        match item {
+            DisplayListItem::Text {
+                glyphs,
+                font_size_px,
+                clip_rect,
+                ..
+            } => {
+                if glyphs.is_empty() {
+                    continue;
+                }
+
+                // Check if any glyph extends past the container right edge
+                let last_glyph = &glyphs[glyphs.len() - 1];
+                let last_glyph_right = last_glyph.point.x + last_glyph.size.width;
+
+                if last_glyph_right <= container_right {
+                    continue; // No overflow, nothing to do
+                }
+
+                // Estimate ellipsis width
+                let ellipsis_width = *font_size_px * 0.6;
+                let truncation_edge = container_right - ellipsis_width;
+
+                // Find the last glyph that fits before the truncation edge
+                let mut keep_count = 0;
+                for (i, glyph) in glyphs.iter().enumerate() {
+                    let glyph_right = glyph.point.x + glyph.size.width;
+                    if glyph_right > truncation_edge {
+                        break;
+                    }
+                    keep_count = i + 1;
+                }
+
+                // Truncate the glyphs
+                glyphs.truncate(keep_count);
+
+                // Append an ellipsis glyph. We use Unicode codepoint U+2026
+                // (HORIZONTAL ELLIPSIS) as the glyph index. This is a common
+                // convention; renderers that use proper glyph IDs will need to
+                // map this to the font's actual glyph index.
+                let ellipsis_x = if let Some(last) = glyphs.last() {
+                    last.point.x + last.size.width
+                } else {
+                    container_bounds.origin.x
+                };
+
+                let ellipsis_glyph = GlyphInstance {
+                    index: 0x2026, // U+2026 HORIZONTAL ELLIPSIS
+                    point: LogicalPosition::new(ellipsis_x, glyphs.first().map_or(
+                        container_bounds.origin.y,
+                        |g| g.point.y,
+                    )),
+                    size: LogicalSize::new(ellipsis_width, *font_size_px),
+                };
+
+                glyphs.push(ellipsis_glyph);
+
+                // Update the clip rect to match the container bounds so
+                // the ellipsis is visible but nothing past it is shown
+                *clip_rect = container_bounds.into();
+            }
+            _ => {} // Only process Text items
+        }
+    }
 }
 
 // ============================================================================
