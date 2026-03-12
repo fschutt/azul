@@ -787,6 +787,282 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// Sticky positioning constraints computed at layout time.
+/// At scroll time, the sticky box's position is clamped so that
+/// it remains within the sticky view rectangle (scrollport inset by these values).
+// +spec:overflow:bac4e5 - sticky view rectangle from inset properties relative to nearest scrollport
+#[derive(Debug, Clone)]
+pub struct StickyConstraints {
+    /// Inset from the top edge of the nearest scrollport (0 if auto).
+    pub top_inset: f32,
+    /// Inset from the right edge of the nearest scrollport (0 if auto).
+    pub right_inset: f32,
+    /// Inset from the bottom edge of the nearest scrollport (0 if auto).
+    pub bottom_inset: f32,
+    /// Inset from the left edge of the nearest scrollport (0 if auto).
+    pub left_inset: f32,
+    /// Normal-flow position of the sticky element (border-box origin).
+    pub normal_flow_position: LogicalPosition,
+    /// Border-box size of the sticky element.
+    pub border_box_size: LogicalSize,
+    /// The scrollport rect (content-box of nearest scroll container).
+    pub scrollport: LogicalRect,
+}
+
+/// Finds the nearest scrollport (ancestor with overflow: scroll or auto) for a node.
+/// Returns the content-box rect of the scrollport, or the viewport if none found.
+fn find_nearest_scrollport(
+    tree: &LayoutTree,
+    node_index: usize,
+    styled_dom: &StyledDom,
+    calculated_positions: &super::PositionVec,
+    viewport: LogicalRect,
+) -> LogicalRect {
+    use crate::solver3::getters::{get_overflow_x, get_overflow_y};
+    use azul_css::props::layout::LayoutOverflow;
+
+    let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
+
+    while let Some(parent_index) = current_parent_idx {
+        let parent_node = match tree.get(parent_index) {
+            Some(n) => n,
+            None => break,
+        };
+        let parent_dom_id = match parent_node.dom_node_id {
+            Some(id) => id,
+            None => {
+                current_parent_idx = parent_node.parent;
+                continue;
+            }
+        };
+
+        let node_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+        let ox = get_overflow_x(styled_dom, parent_dom_id, node_state);
+        let oy = get_overflow_y(styled_dom, parent_dom_id, node_state);
+
+        let is_scrollport = matches!(
+            ox,
+            MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+        ) || matches!(
+            oy,
+            MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+        );
+
+        if is_scrollport {
+            let margin_box_pos = calculated_positions
+                .get(parent_index)
+                .copied()
+                .unwrap_or_default();
+            let border_box_size = parent_node.used_size.unwrap_or_default();
+
+            // Content-box = margin-box pos + border + padding, size - border - padding
+            let content_pos = LogicalPosition::new(
+                margin_box_pos.x
+                    + parent_node.box_props.border.left
+                    + parent_node.box_props.padding.left,
+                margin_box_pos.y
+                    + parent_node.box_props.border.top
+                    + parent_node.box_props.padding.top,
+            );
+            let content_size = LogicalSize::new(
+                (border_box_size.width
+                    - parent_node.box_props.border.left
+                    - parent_node.box_props.border.right
+                    - parent_node.box_props.padding.left
+                    - parent_node.box_props.padding.right)
+                    .max(0.0),
+                (border_box_size.height
+                    - parent_node.box_props.border.top
+                    - parent_node.box_props.border.bottom
+                    - parent_node.box_props.padding.top
+                    - parent_node.box_props.padding.bottom)
+                    .max(0.0),
+            );
+            return LogicalRect::new(content_pos, content_size);
+        }
+
+        current_parent_idx = parent_node.parent;
+    }
+
+    viewport
+}
+
+/// Find the scroll offset of the nearest scroll container ancestor.
+/// Returns the scroll offset as a LogicalPosition (how far the content has scrolled).
+fn find_nearest_scroll_offset(
+    tree: &LayoutTree,
+    node_index: usize,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+) -> LogicalPosition {
+    let mut parent = tree.get(node_index).and_then(|n| n.parent);
+    while let Some(pidx) = parent {
+        if let Some(pnode) = tree.get(pidx) {
+            if let Some(dom_id) = pnode.dom_node_id {
+                if let Some(scroll_pos) = scroll_offsets.get(&dom_id) {
+                    let offset_x = scroll_pos.children_rect.origin.x - scroll_pos.parent_rect.origin.x;
+                    let offset_y = scroll_pos.children_rect.origin.y - scroll_pos.parent_rect.origin.y;
+                    return LogicalPosition::new(offset_x, offset_y);
+                }
+            }
+            parent = pnode.parent;
+        } else {
+            break;
+        }
+    }
+    LogicalPosition::zero()
+}
+
+/// Adjusts positions of sticky-positioned elements based on scroll offset.
+///
+/// Sticky positioning works like relative positioning, but the element's position
+/// is constrained by its inset properties (top/right/bottom/left) relative to the
+/// nearest scrollport (scroll container ancestor). The margin box is further
+/// constrained to remain within the containing block.
+///
+/// +spec:position-sticky:9449f1 - for sticky positioning, insets represent offsets from scrollport edge
+/// +spec:position-sticky:75412d - multiple sticky boxes in same container offset independently
+/// +spec:box-model:af9af8 - sticky positioning: shift element to stay within sticky view rectangle, margin box constrained to containing block
+/// +spec:overflow:bac4e5 - compute sticky view rectangle, clamp end-edge insets to border box size
+pub fn adjust_sticky_positions<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    viewport: LogicalRect,
+) -> Result<()> {
+    for node_index in 0..tree.nodes.len() {
+        let node = &tree.nodes[node_index];
+        let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
+
+        if position_type != LayoutPosition::Sticky {
+            continue;
+        }
+
+        let dom_id = match node.dom_node_id {
+            Some(id) => id,
+            None => continue,
+        };
+
+        // Find the nearest scrollport for this sticky element
+        let scrollport = find_nearest_scrollport(
+            tree,
+            node_index,
+            ctx.styled_dom,
+            calculated_positions,
+            viewport,
+        );
+
+        // The containing block for percentage resolution is the parent's content box
+        let containing_block = node.parent
+            .and_then(|parent_idx| {
+                let parent_node = tree.get(parent_idx)?;
+                let parent_pos = calculated_positions.get(parent_idx).copied().unwrap_or_default();
+                let parent_size = parent_node.used_size.unwrap_or_default();
+                let parent_wm = parent_node.dom_node_id
+                    .map(|pid| {
+                        let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
+                        get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                let content_size = parent_node.box_props.inner_size(parent_size, parent_wm);
+                let content_origin = LogicalPosition::new(
+                    parent_pos.x + parent_node.box_props.border.left + parent_node.box_props.padding.left,
+                    parent_pos.y + parent_node.box_props.border.top + parent_node.box_props.padding.top,
+                );
+                Some(LogicalRect::new(content_origin, content_size))
+            })
+            .unwrap_or(viewport);
+
+        // Resolve inset properties (top, right, bottom, left)
+        let offsets = resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size);
+
+        // Get the scroll offset from the nearest scroll container
+        let scroll_offset = find_nearest_scroll_offset(tree, node_index, scroll_offsets);
+
+        let Some(current_pos) = calculated_positions.get_mut(node_index) else {
+            continue;
+        };
+
+        let static_pos = *current_pos;
+        let element_size = node.used_size.unwrap_or_default();
+        let margin = &node.box_props.margin;
+
+        let mut shift_x = 0.0f32;
+        let mut shift_y = 0.0f32;
+
+        // For each side: if inset is not auto, clamp the border edge to stay
+        // within the sticky view rectangle (scrollport inset by the specified amount).
+        // The scroll offset shifts the effective scrollport position.
+        if let Some(top_inset) = offsets.top {
+            let sticky_edge = scrollport.origin.y + scroll_offset.y + top_inset;
+            let border_top = current_pos.y;
+            if border_top < sticky_edge {
+                shift_y = shift_y.max(sticky_edge - border_top);
+            }
+        }
+
+        if let Some(bottom_inset) = offsets.bottom {
+            let sticky_edge = scrollport.origin.y + scroll_offset.y + scrollport.size.height - bottom_inset;
+            let border_bottom = current_pos.y + element_size.height;
+            if border_bottom > sticky_edge {
+                shift_y = shift_y.min(sticky_edge - border_bottom);
+            }
+        }
+
+        if let Some(left_inset) = offsets.left {
+            let sticky_edge = scrollport.origin.x + scroll_offset.x + left_inset;
+            let border_left = current_pos.x;
+            if border_left < sticky_edge {
+                shift_x = shift_x.max(sticky_edge - border_left);
+            }
+        }
+
+        if let Some(right_inset) = offsets.right {
+            let sticky_edge = scrollport.origin.x + scroll_offset.x + scrollport.size.width - right_inset;
+            let border_right = current_pos.x + element_size.width;
+            if border_right > sticky_edge {
+                shift_x = shift_x.min(sticky_edge - border_right);
+            }
+        }
+
+        // Constrain: the margin box must remain within the containing block
+        if shift_y != 0.0 {
+            let margin_box_top = current_pos.y - margin.top + shift_y;
+            let margin_box_bottom = current_pos.y + element_size.height + margin.bottom + shift_y;
+            if margin_box_top < containing_block.origin.y {
+                shift_y += containing_block.origin.y - margin_box_top;
+            }
+            let cb_bottom = containing_block.origin.y + containing_block.size.height;
+            if margin_box_bottom > cb_bottom {
+                shift_y -= margin_box_bottom - cb_bottom;
+            }
+        }
+
+        if shift_x != 0.0 {
+            let margin_box_left = current_pos.x - margin.left + shift_x;
+            let margin_box_right = current_pos.x + element_size.width + margin.right + shift_x;
+            if margin_box_left < containing_block.origin.x {
+                shift_x += containing_block.origin.x - margin_box_left;
+            }
+            let cb_right = containing_block.origin.x + containing_block.size.width;
+            if margin_box_right > cb_right {
+                shift_x -= margin_box_right - cb_right;
+            }
+        }
+
+        if shift_x != 0.0 || shift_y != 0.0 {
+            current_pos.x += shift_x;
+            current_pos.y += shift_y;
+
+            ctx.debug_log(&format!(
+                "Adjusted sticky element #{} from {:?} to {:?}",
+                node_index, static_pos, *current_pos
+            ));
+        }
+    }
+    Ok(())
+}
+
 // +spec:positioning:22f165 - absolute/fixed containing block: nearest positioned ancestor's padding-box, or initial CB
 /// Helper to find the containing block for an absolutely positioned element.
 /// CSS 2.1 Section 10.1: The containing block for absolutely positioned elements

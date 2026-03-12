@@ -699,6 +699,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         viewport,
     )?;
 
+    // --- Step 3.25: Adjust Sticky Positioned Elements ---
+    // Sticky elements are laid out in normal flow, then their visual position
+    // is clamped based on scroll offset and inset properties relative to the
+    // nearest scrollport. Must happen after relative positioning but before
+    // absolute positioning (sticky elements establish containing blocks).
+    positioning::adjust_sticky_positions(
+        &mut ctx,
+        &new_tree,
+        &mut calculated_positions,
+        scroll_offsets,
+        viewport,
+    )?;
+
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
     // positioned elements are positioned relative to the final (post-adjustment)
