@@ -1187,6 +1187,7 @@ impl CssPropertyType {
     /// Returns whether this CSS property is inherited by default according to CSS specifications.
     ///
     /// Reference: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Inheritance
+    // +spec:display-property:b4cf6d - unicode-bidi does not inherit (removed from inheritable set)
     pub fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::*;
         match self {
@@ -1196,7 +1197,7 @@ impl CssPropertyType {
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
             WordBreak | OverflowWrap | LineBreak | TextAlignLast |
-            TextOrientation | UnicodeBidi |
+            TextOrientation |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
 
             // List properties
