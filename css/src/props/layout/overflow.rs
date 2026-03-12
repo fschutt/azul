@@ -142,7 +142,7 @@ pub fn parse_layout_overflow<'a>(
     let input_trimmed = input.trim();
     match input_trimmed {
         "scroll" => Ok(LayoutOverflow::Scroll),
-        "auto" => Ok(LayoutOverflow::Auto),
+        "auto" | "overlay" => Ok(LayoutOverflow::Auto), // +spec:overflow:6120e6 - "overlay" is a legacy value alias of "auto"
         "hidden" => Ok(LayoutOverflow::Hidden),
         "visible" => Ok(LayoutOverflow::Visible),
         "clip" => Ok(LayoutOverflow::Clip),
