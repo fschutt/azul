@@ -2177,6 +2177,10 @@ struct ExecArgs {
     force_api: bool,
     /// Claude model to use (e.g. "sonnet", "haiku", "opus"). None = default.
     model: Option<String>,
+    /// Path to custom exclude file. None = use built-in exclude.txt.
+    exclude_file: Option<String>,
+    /// Disable exclude filtering entirely.
+    no_exclude: bool,
 }
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
@@ -2189,6 +2193,8 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         cleanup: false,
         force_api: false,
         model: None,
+        exclude_file: None,
+        no_exclude: false,
     };
 
     for arg in args {
@@ -2208,6 +2214,10 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
             ea.force_api = true;
         } else if let Some(val) = arg.strip_prefix("--model=") {
             ea.model = Some(val.to_string());
+        } else if let Some(val) = arg.strip_prefix("--exclude-file=") {
+            ea.exclude_file = Some(val.to_string());
+        } else if arg == "--no-exclude" {
+            ea.no_exclude = true;
         }
     }
 
@@ -2472,14 +2482,54 @@ fn is_pid_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
 }
 
+/// Built-in exclude list for spec paragraphs that are genuinely not applicable.
+const DEFAULT_EXCLUDE_TXT: &str = include_str!("exclude.txt");
+
+/// Parse an exclude file into a set of `feature:hash` tags.
+/// Lines starting with `#` are comments. Format: `feature:hash # optional comment`
+fn parse_exclude_tags(text: &str) -> std::collections::HashSet<String> {
+    text.lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Extract `feature:hash` tags from a prompt filename like `overflow_342f47+38af76.md`.
+fn tags_from_prompt_path(path: &Path) -> Vec<String> {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let (feature_id, hash_part) = match stem.rfind('_') {
+        Some(i) => (&stem[..i], &stem[i + 1..]),
+        None => return Vec::new(),
+    };
+    hash_part
+        .split('+')
+        .map(|h| format!("{}:{}", feature_id, h))
+        .collect()
+}
+
+/// Returns true if ALL tags of a prompt are in the exclude set.
+fn is_prompt_excluded(path: &Path, exclude: &std::collections::HashSet<String>) -> bool {
+    if exclude.is_empty() {
+        return false;
+    }
+    let tags = tags_from_prompt_path(path);
+    if tags.is_empty() {
+        return false;
+    }
+    tags.iter().all(|t| exclude.contains(t))
+}
+
 fn scan_prompts_dir(
     prompts_dir: &Path,
     retry_failed: bool,
-) -> (Vec<PathBuf>, usize, usize, usize) {
+    exclude: &std::collections::HashSet<String>,
+) -> (Vec<PathBuf>, usize, usize, usize, usize) {
     let mut pending = Vec::new();
     let mut done_count = 0usize;
     let mut failed_count = 0usize;
     let mut taken_count = 0usize;
+    let mut excluded_count = 0usize;
 
     let mut entries: Vec<_> = fs::read_dir(prompts_dir)
         .into_iter()
@@ -2495,6 +2545,10 @@ fn scan_prompts_dir(
     entries.sort();
 
     for path in entries {
+        if is_prompt_excluded(&path, exclude) {
+            excluded_count += 1;
+            continue;
+        }
         match classify_prompt(&path, retry_failed) {
             PromptStatus::Done => done_count += 1,
             PromptStatus::Failed => failed_count += 1,
@@ -2503,7 +2557,7 @@ fn scan_prompts_dir(
         }
     }
 
-    (pending, done_count, failed_count, taken_count)
+    (pending, done_count, failed_count, taken_count, excluded_count)
 }
 
 // ── Prompt building ────────────────────────────────────────────────────
@@ -3494,6 +3548,17 @@ pub fn run_executor(
     let ea = parse_exec_args(args);
     let prompts_dir = config.skill_tree_dir.join("prompts");
 
+    // Build exclude set
+    let exclude = if ea.no_exclude {
+        std::collections::HashSet::new()
+    } else if let Some(ref path) = ea.exclude_file {
+        let text = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read exclude file '{}': {}", path, e))?;
+        parse_exclude_tags(&text)
+    } else {
+        parse_exclude_tags(DEFAULT_EXCLUDE_TXT)
+    };
+
     // --cleanup and --collect don't need preflight
     if ea.cleanup {
         return cleanup_worktrees(workspace_root);
@@ -3509,8 +3574,8 @@ pub fn run_executor(
                 "No prompts directory found. Run `azul-doc spec build-all` first.".to_string(),
             );
         }
-        let (pending, done_count, failed_count, taken_count) =
-            scan_prompts_dir(&prompts_dir, ea.retry_failed);
+        let (pending, done_count, failed_count, taken_count, excluded_count) =
+            scan_prompts_dir(&prompts_dir, ea.retry_failed, &exclude);
         let total = done_count + failed_count + taken_count + pending.len();
 
         // Scan source for +spec: markers (the real source of truth)
@@ -3522,6 +3587,7 @@ pub fn run_executor(
         println!("  .failed files: {:>4} / {}", failed_count, total);
         println!("  .taken files:  {:>4} / {}", taken_count, total);
         println!("  Pending:       {:>4} / {}", pending.len(), total);
+        println!("  Excluded:      {:>4}", excluded_count);
         println!("\n  +spec: markers in source: {}", found_tags.len());
         println!(
             "  Execution progress: {:.1}%",
@@ -3544,10 +3610,14 @@ pub fn run_executor(
     }
 
     // Scan prompt status (after rebuild)
-    let (pending, done_count, failed_count, taken_count) =
-        scan_prompts_dir(&prompts_dir, ea.retry_failed);
+    let (pending, done_count, failed_count, taken_count, excluded_count) =
+        scan_prompts_dir(&prompts_dir, ea.retry_failed, &exclude);
 
     let total = done_count + failed_count + taken_count + pending.len();
+
+    if !exclude.is_empty() {
+        println!("  Excluded {} prompts ({} tags in exclude list)", excluded_count, exclude.len());
+    }
 
     if pending.is_empty() {
         println!(

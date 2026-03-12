@@ -1,0 +1,395 @@
+# Spec paragraphs excluded from claude-exec processing.
+# Format: feature:hash # CATEGORY: reason
+# Grouped prompts have multiple hashes; each hash is listed separately.
+#
+# Categories:
+#   METADATA       - W3C boilerplate, copyright, JS tooling, changelogs, abstracts
+#   FLEX_GRID      - Flex/grid behavior handled by Taffy, not our solver
+#   MISMATCHED     - Paragraph matched to wrong feature via keyword overlap
+#   NON_NORMATIVE  - Notes, examples, editorial content with no impl requirement
+#   SECURITY       - Security/privacy advisories, not layout requirements
+#   HISTORICAL     - Legacy/quirks mode, CSS1 backward compat
+#
+# To override: use --exclude-file <path> with claude-exec
+
+# === FLEX_GRID (34) ===
+block-formatting-context:21ec9a # FLEX_GRID: flex container BFC behavior (Taffy)
+block-formatting-context:440282 # FLEX_GRID: flex container BFC behavior (Taffy)
+block-formatting-context:4bbd14 # FLEX_GRID: flex container BFC behavior (Taffy)
+containing-block:bc85ca # FLEX_GRID: flex/grid containing block rules (Taffy)
+containing-block:e78fdd # FLEX_GRID: flex/grid containing block rules (Taffy)
+containing-block:f1e34a # FLEX_GRID: flex/grid containing block rules (Taffy)
+containing-block:1bd3aa # FLEX_GRID: flex/grid containing block rules (Taffy)
+display-property:1dcaab # FLEX_GRID: flex item display fixup (Taffy)
+display-property:34c358 # FLEX_GRID: flex item display fixup (Taffy)
+display-property:3dc2b2 # FLEX_GRID: flex item display fixup (Taffy)
+display-property:400367 # FLEX_GRID: grid item display behavior (Taffy)
+display-property:53ec28 # FLEX_GRID: flex item anonymous boxes (Taffy)
+display-property:6d1a35 # FLEX_GRID: flex item display fixup (Taffy)
+display-property:73e12c # FLEX_GRID: flex item display fixup (Taffy)
+display-property:8b1c37 # FLEX_GRID: flex/grid item blockification (Taffy)
+display-property:9f2f10 # FLEX_GRID: flex/grid item display fixup (Taffy)
+display-property:acc3a8 # FLEX_GRID: flex/grid item display fixup (Taffy)
+display-property:c3e8e3 # FLEX_GRID: flex/grid item display fixup (Taffy)
+display-property:de75ba # FLEX_GRID: grid template area behavior (Taffy)
+display-property:f24a3a # FLEX_GRID: flex container BFC behavior (Taffy)
+floats:0ee40b # FLEX_GRID: floats in flex/grid containers (Taffy)
+floats:e48b0f # FLEX_GRID: floats in flex/grid containers (Taffy)
+height-calculation:34f03e # FLEX_GRID: flex/grid height calculation (Taffy)
+height-calculation:fae9a1 # FLEX_GRID: flex/grid height calculation (Taffy)
+intrinsic-sizing:47a5f2 # FLEX_GRID: flex/grid intrinsic sizing (Taffy)
+intrinsic-sizing:c2f5fd # FLEX_GRID: flex/grid intrinsic sizing (Taffy)
+margin-collapsing:78db70 # FLEX_GRID: margins in flex containers (Taffy)
+min-max-sizing:09aca7 # FLEX_GRID: flex/grid min-max sizing (Taffy)
+overflow:a25539 # FLEX_GRID: flex/grid overflow behavior (Taffy)
+positioning:fd4b6f # FLEX_GRID: flex/grid static position (Taffy)
+positioning:05212c # FLEX_GRID: flex/grid static position (Taffy)
+table-layout:f66d5c # FLEX_GRID: grid/flex table interaction (Taffy)
+width-calculation:49c825 # FLEX_GRID: flex/grid width calculation (Taffy)
+width-calculation:bf2cb4 # FLEX_GRID: flex/grid width calculation (Taffy)
+
+# === HISTORICAL (2) ===
+box-model:dc65ce # HISTORICAL: CSS1 backward compat only
+display-property:c8a95a # HISTORICAL: Legacy CSS2 quirks mode
+
+# === METADATA (100) ===
+block-formatting-context:22b37a # METADATA: Spec title/status/abstract
+block-formatting-context:2d3d36 # METADATA: W3C conformance boilerplate
+block-formatting-context:43dcca # METADATA: W3C copyright/legal
+block-formatting-context:481b77 # METADATA: Editorial note
+block-formatting-context:4dfe42 # METADATA: W3C copyright/legal
+block-formatting-context:573a23 # METADATA: Spec changelog/revision
+block-formatting-context:6a2b3a # METADATA: Spec metadata
+block-formatting-context:77dd66 # METADATA: W3C conformance boilerplate
+block-formatting-context:84ee16 # METADATA: Spec metadata
+block-formatting-context:97bec1 # METADATA: Spec metadata
+block-formatting-context:a817c8 # METADATA: Spec changelog/revision
+block-formatting-context:a98713 # METADATA: Spec metadata
+block-formatting-context:dc6656 # METADATA: W3C copyright/legal
+block-formatting-context:e5c726 # METADATA: Spec title/status/abstract
+block-formatting-context:b66a16 # METADATA: Spec title/status/abstract
+block-formatting-context:afca25 # METADATA: Spec title/status/abstract
+block-formatting-context:f7f612 # METADATA: Spec title/status/abstract
+block-formatting-context:c8334a # METADATA: Spec title/status/abstract
+block-formatting-context:d3744a # METADATA: Spec title/status/abstract
+block-formatting-context:f92733 # METADATA: Spec title/status/abstract
+box-model:206c07 # METADATA: Property index/JSON metadata
+box-model:65e6c4 # METADATA: Spec metadata
+box-model:b0e499 # METADATA: Editorial note
+box-model:b8fd5b # METADATA: Spec metadata
+box-model:4f423b # METADATA: Spec metadata
+box-sizing:8a61b3 # METADATA: Spec metadata
+containing-block:a7d527 # METADATA: Editorial note
+containing-block:c44cd2 # METADATA: Spec changelog/revision
+containing-block:75d635 # METADATA: Spec changelog/revision
+containing-block:631e47 # METADATA: Spec changelog/revision
+display-contents:6cc68c # METADATA: Spec title/status/abstract
+display-contents:b6c26d # METADATA: Spec title/status/abstract
+display-contents:cedb19 # METADATA: W3C copyright/legal
+display-contents:d3be9a # METADATA: W3C conformance boilerplate
+display-contents:ecd256 # METADATA: Spec metadata
+display-property:297dde # METADATA: W3C copyright/legal
+display-property:4cd7b8 # METADATA: Spec changelog/revision
+display-property:d4ff4c # METADATA: Spec changelog/revision
+display-property:232f73 # METADATA: Spec changelog/revision
+display-property:522d08 # METADATA: Spec changelog/revision
+display-property:c87e00 # METADATA: Spec changelog/revision
+display-property:525355 # METADATA: W3C conformance boilerplate
+display-property:590df0 # METADATA: Spec changelog/revision
+display-property:29a047 # METADATA: Spec changelog/revision
+display-property:98a6b8 # METADATA: Spec changelog/revision
+display-property:8540ce # METADATA: Spec changelog/revision
+display-property:a57217 # METADATA: Spec changelog/revision
+display-property:757b3a # METADATA: Spec changelog/revision
+display-property:ea5e83 # METADATA: Spec changelog/revision
+display-property:b8272b # METADATA: Editorial note
+display-property:c03a6b # METADATA: Spec metadata
+display-property:c8598c # METADATA: W3C copyright/legal
+display-property:d39fca # METADATA: W3C copyright/legal
+display-property:d526c5 # METADATA: Spec title/status/abstract
+display-property:da0df4 # METADATA: Editorial note
+display-property:30a935 # METADATA: Editorial note
+display-property:da3fc7 # METADATA: Editorial note
+display-property:dc2132 # METADATA: Spec metadata
+display-property:262f86 # METADATA: Spec metadata
+display-property:e9a142 # METADATA: Spec title/status/abstract
+display-property:f95610 # METADATA: Editorial note
+display-property:fb134e # METADATA: Spec changelog/revision
+display-property:9be88b # METADATA: Spec changelog/revision
+display-property:ff9d60 # METADATA: W3C copyright/legal
+display-property:ffec75 # METADATA: Spec changelog/revision
+floats:213ea4 # METADATA: Spec changelog/revision
+font-metrics:349ca3 # METADATA: Editorial note
+font-metrics:790ce4 # METADATA: Editorial note
+font-metrics:e530fe # METADATA: Editorial note
+font-metrics:85ff7f # METADATA: Spec title/status/abstract
+font-metrics:5ee4dc # METADATA: Spec title/status/abstract
+font-metrics:bbe814 # METADATA: Editorial note
+font-metrics:c55f9b # METADATA: JS tooling/boilerplate
+font-metrics:dc0632 # METADATA: JS tooling/boilerplate
+height-calculation:e7f6fb # METADATA: Spec changelog/revision
+inline-formatting-context:101e51 # METADATA: Spec title/status/abstract
+inline-formatting-context:17b92e # METADATA: Spec metadata
+inline-formatting-context:b88638 # METADATA: Property index/JSON metadata
+inline-formatting-context:c2e884 # METADATA: Spec metadata
+inline-formatting-context:97af40 # METADATA: Spec metadata
+inline-formatting-context:c8d8d9 # METADATA: Spec metadata
+intrinsic-sizing:3ba351 # METADATA: Editorial note
+line-breaking:155a96 # METADATA: JS tooling/boilerplate
+line-breaking:c232b4 # METADATA: JS tooling/boilerplate
+line-breaking:42df94 # METADATA: Spec title/status/abstract
+line-breaking:5b0ee9 # METADATA: W3C copyright/legal
+line-breaking:8980d0 # METADATA: W3C copyright/legal
+line-breaking:565a68 # METADATA: W3C copyright/legal
+line-breaking:de6065 # METADATA: Module scope/interaction
+line-breaking:52ec28 # METADATA: Module scope/interaction
+line-height:513681 # METADATA: Spec metadata
+line-height:cc03df # METADATA: Spec metadata
+line-height:e2253a # METADATA: Spec metadata
+line-height:0078fa # METADATA: Spec metadata
+line-height:09b54e # METADATA: Spec metadata
+min-max-sizing:2f66a6 # METADATA: Spec title/status/abstract
+min-max-sizing:567ee8 # METADATA: Spec title/status/abstract
+overflow:1418bb # METADATA: Spec metadata
+overflow:17d06b # METADATA: JS tooling/boilerplate
+overflow:2376e4 # METADATA: W3C conformance boilerplate
+overflow:2ffaa0 # METADATA: Editorial note
+overflow:46027a # METADATA: Spec title/status/abstract
+overflow:55ac3d # METADATA: Spec title/status/abstract
+overflow:7e8036 # METADATA: Property index/JSON metadata
+overflow:546eac # METADATA: Property index/JSON metadata
+overflow:d1f602 # METADATA: Property index/JSON metadata
+overflow:87489c # METADATA: Spec title/status/abstract
+overflow:7ee3a3 # METADATA: Spec title/status/abstract
+overflow:a76069 # METADATA: JS tooling/boilerplate
+overflow:ab9999 # METADATA: Spec metadata
+overflow:ba7484 # METADATA: Property index/JSON metadata
+overflow:bd4b14 # METADATA: Spec feedback/filing
+overflow:c1443f # METADATA: Spec feedback/filing
+overflow:b5ac54 # METADATA: Spec feedback/filing
+overflow:c8b3bd # METADATA: Spec title/status/abstract
+overflow:da5dc5 # METADATA: Spec changelog/revision
+overflow:c141d5 # METADATA: Spec changelog/revision
+overflow:b731b1 # METADATA: Spec changelog/revision
+overflow:ed23be # METADATA: Spec title/status/abstract
+overflow:ee85d0 # METADATA: JS tooling/boilerplate
+overflow:fd38ce # METADATA: JS tooling/boilerplate
+overflow:da4bbc # METADATA: JS tooling/boilerplate
+overflow:f41f10 # METADATA: Spec changelog/revision
+overflow:fe1c1b # METADATA: Spec changelog/revision
+overflow:a4c82a # METADATA: Spec changelog/revision
+positioning:1e5c69 # METADATA: Spec changelog/revision
+positioning:3ea25e # METADATA: Editorial note
+positioning:460084 # METADATA: W3C conformance boilerplate
+positioning:516137 # METADATA: Editorial note
+positioning:523819 # METADATA: Spec metadata
+positioning:b177ef # METADATA: W3C copyright/legal
+positioning:b59128 # METADATA: Spec title/status/abstract
+positioning:b9f3f2 # METADATA: W3C conformance boilerplate
+positioning:e2d849 # METADATA: JS tooling/boilerplate
+positioning:fbf11b # METADATA: Spec changelog/revision
+positioning:63b3ff # METADATA: Spec changelog/revision
+table-layout:277a05 # METADATA: W3C conformance boilerplate
+table-layout:71e2a2 # METADATA: Spec title/status/abstract
+text-alignment-spacing:27d8b5 # METADATA: Spec metadata
+white-space-processing:c83dbd # METADATA: Property index/JSON metadata
+white-space-processing:fef250 # METADATA: Property index/JSON metadata
+white-space-processing:53e715 # METADATA: Property index/JSON metadata
+width-calculation:313de5 # METADATA: Spec title/status/abstract
+width-calculation:7b049f # METADATA: W3C copyright/legal
+writing-modes:57b561 # METADATA: Module scope/interaction
+writing-modes:5e1fcb # METADATA: Module scope/interaction
+writing-modes:b1765b # METADATA: Module scope/interaction
+writing-modes:c33b74 # METADATA: Module scope/interaction
+writing-modes:607c36 # METADATA: Spec metadata
+writing-modes:7db4b9 # METADATA: Spec title/status/abstract
+writing-modes:cd3200 # METADATA: Module scope/interaction
+
+# === MISMATCHED (56) ===
+block-formatting-context:4b6625 # MISMATCHED: keyword matched wrong feature
+block-formatting-context:655266 # MISMATCHED: keyword matched wrong feature
+block-formatting-context:749dad # MISMATCHED: keyword matched wrong feature
+block-formatting-context:7d7dda # MISMATCHED: keyword matched wrong feature
+block-formatting-context:9d8db6 # MISMATCHED: keyword matched wrong feature
+block-formatting-context:c17409 # MISMATCHED: SVG/MathML specific
+block-formatting-context:f772ae # MISMATCHED: keyword matched wrong feature
+box-model:7b9bf2 # MISMATCHED: text/font shaping, not layout
+box-model:7fc84b # MISMATCHED: keyword matched wrong feature
+box-model:b94cbd # MISMATCHED: text/font shaping, not layout
+box-model:c6699f # MISMATCHED: text/font shaping, not layout
+box-model:fd2b5e # MISMATCHED: text/font shaping, not layout
+containing-block:03528c # MISMATCHED: keyword matched wrong feature
+containing-block:0afddd # MISMATCHED: keyword matched wrong feature
+containing-block:d63ca7 # MISMATCHED: keyword matched wrong feature
+containing-block:dbef58 # MISMATCHED: keyword matched wrong feature
+display-contents:20a28e # MISMATCHED: text/font shaping, not layout
+display-contents:2f80e6 # MISMATCHED: SVG/MathML specific
+display-contents:18e3f2 # MISMATCHED: SVG/MathML specific
+display-contents:852a59 # MISMATCHED: SVG/MathML specific
+display-contents:884e96 # MISMATCHED: keyword matched wrong feature
+display-contents:bc936f # MISMATCHED: keyword matched wrong feature
+display-contents:c03741 # MISMATCHED: SVG/MathML specific
+display-contents:2b08f1 # MISMATCHED: SVG/MathML specific
+display-contents:4a524e # MISMATCHED: SVG/MathML specific
+display-contents:c8f6e5 # MISMATCHED: SVG/MathML specific
+display-contents:19efc9 # MISMATCHED: SVG/MathML specific
+display-contents:d1716b # MISMATCHED: keyword matched wrong feature
+display-contents:e202d5 # MISMATCHED: SVG/MathML specific
+display-contents:6bbdf4 # MISMATCHED: SVG/MathML specific
+display-contents:514064 # MISMATCHED: SVG/MathML specific
+display-contents:e539bb # MISMATCHED: SVG/MathML specific
+display-property:2a8d62 # MISMATCHED: SVG/MathML specific
+display-property:447f4e # MISMATCHED: SVG/MathML specific
+display-property:a469a6 # MISMATCHED: SVG/MathML specific
+display-property:37553c # MISMATCHED: text/font shaping, not layout
+display-property:57a8ef # MISMATCHED: keyword matched wrong feature
+display-property:626c86 # MISMATCHED: text/font shaping, not layout
+display-property:15292f # MISMATCHED: text/font shaping, not layout
+display-property:8e018d # MISMATCHED: text/font shaping, not layout
+display-property:7a70a5 # MISMATCHED: keyword matched wrong feature
+display-property:98fa8e # MISMATCHED: SVG/MathML specific
+display-property:1f71ad # MISMATCHED: SVG/MathML specific
+display-property:89dd7b # MISMATCHED: SVG/MathML specific
+display-property:d67739 # MISMATCHED: keyword matched wrong feature
+display-property:d88ebf # MISMATCHED: text/font shaping, not layout
+font-metrics:f2cd75 # MISMATCHED: text/font shaping, not layout
+font-metrics:e61649 # MISMATCHED: text/font shaping, not layout
+font-metrics:95152b # MISMATCHED: text/font shaping, not layout
+height-calculation:39155f # MISMATCHED: text/font shaping, not layout
+height-calculation:ab6302 # MISMATCHED: text/font shaping, not layout
+inline-formatting-context:0f6442 # MISMATCHED: SVG/MathML specific
+inline-formatting-context:2b8c9c # MISMATCHED: keyword matched wrong feature
+intrinsic-sizing:be7fe7 # MISMATCHED: keyword matched wrong feature
+line-breaking:6684fe # MISMATCHED: text/font shaping, not layout
+margin-collapsing:8a9215 # MISMATCHED: keyword matched wrong feature
+margin-collapsing:a71cf1 # MISMATCHED: keyword matched wrong feature
+min-max-sizing:5d4628 # MISMATCHED: keyword matched wrong feature
+overflow:139949 # MISMATCHED: text/font shaping, not layout
+overflow:342f47 # MISMATCHED: text/font shaping, not layout
+overflow:38af76 # MISMATCHED: text/font shaping, not layout
+overflow:fe839e # MISMATCHED: text/font shaping, not layout
+overflow:3be607 # MISMATCHED: keyword matched wrong feature
+overflow:a2907f # MISMATCHED: keyword matched wrong feature
+positioning:128150 # MISMATCHED: keyword matched wrong feature
+positioning:5c81da # MISMATCHED: keyword matched wrong feature
+positioning:68112a # MISMATCHED: keyword matched wrong feature
+positioning:6c7e53 # MISMATCHED: keyword matched wrong feature
+positioning:6028da # MISMATCHED: keyword matched wrong feature
+positioning:66782a # MISMATCHED: keyword matched wrong feature
+text-alignment-spacing:19088c # MISMATCHED: text/font shaping, not layout
+text-alignment-spacing:3ac3e8 # MISMATCHED: text/font shaping, not layout
+white-space-processing:9d95c2 # MISMATCHED: keyword matched wrong feature
+width-calculation:3ce756 # MISMATCHED: text/font shaping, not layout
+width-calculation:cc5750 # MISMATCHED: keyword matched wrong feature
+writing-modes:313575 # MISMATCHED: SVG/MathML specific
+
+# === NON_NORMATIVE (81) ===
+block-formatting-context:9f7b94 # NON_NORMATIVE: introductory prose only
+block-formatting-context:ea9baf # NON_NORMATIVE: non-normative example
+box-model:24e046 # NON_NORMATIVE: non-normative note
+box-model:3aabdb # NON_NORMATIVE: security advisory for authors
+box-model:4bcbe0 # NON_NORMATIVE: non-normative note
+box-model:d44624 # NON_NORMATIVE: non-normative note
+box-model:63e37a # NON_NORMATIVE: non-normative note
+box-model:6b0fa0 # NON_NORMATIVE: non-normative note
+box-model:82ba77 # NON_NORMATIVE: non-normative note
+box-model:b8fd5b # NON_NORMATIVE: non-normative note
+box-model:c0df26 # NON_NORMATIVE: introductory prose only
+box-model:562dc0 # NON_NORMATIVE: introductory prose only
+box-model:c44f5b # NON_NORMATIVE: non-normative example
+box-model:dd2b04 # NON_NORMATIVE: non-normative note
+containing-block:0649dc # NON_NORMATIVE: non-normative note
+containing-block:12d549 # NON_NORMATIVE: non-normative note
+containing-block:1d38ca # NON_NORMATIVE: non-normative example
+containing-block:c583c4 # NON_NORMATIVE: non-normative note
+containing-block:d2ba39 # NON_NORMATIVE: non-normative note
+display-contents:3c7066 # NON_NORMATIVE: non-normative note
+display-contents:3f4884 # NON_NORMATIVE: non-normative note
+display-contents:4f9129 # NON_NORMATIVE: non-normative note
+display-contents:61a7f1 # NON_NORMATIVE: non-normative note
+display-contents:7ddfd5 # NON_NORMATIVE: introductory prose only
+display-property:1f8179 # NON_NORMATIVE: non-normative note
+display-property:593b40 # NON_NORMATIVE: non-normative note
+display-property:98e0fb # NON_NORMATIVE: print-specific UA hint
+display-property:a15ae9 # NON_NORMATIVE: browser interop note
+display-property:b0f0c9 # NON_NORMATIVE: non-normative note
+display-property:c147b0 # NON_NORMATIVE: non-normative note
+display-property:cfe31d # NON_NORMATIVE: introductory prose only
+display-property:e00f3c # NON_NORMATIVE: non-normative note
+display-property:f23538 # NON_NORMATIVE: non-normative note
+floats:03a43a # NON_NORMATIVE: non-normative note
+floats:ca04c6 # NON_NORMATIVE: non-normative note
+font-metrics:015c6b # NON_NORMATIVE: non-normative note
+font-metrics:1d6ca9 # NON_NORMATIVE: non-normative note
+font-metrics:992ff9 # NON_NORMATIVE: non-normative note
+font-metrics:42624f # NON_NORMATIVE: non-normative note
+font-metrics:34679d # NON_NORMATIVE: non-normative note
+font-metrics:637595 # NON_NORMATIVE: non-normative note
+font-metrics:bfd441 # NON_NORMATIVE: non-normative note
+height-calculation:789703 # NON_NORMATIVE: non-normative note
+height-calculation:ce2835 # NON_NORMATIVE: non-normative note
+height-calculation:fe2f59 # NON_NORMATIVE: non-normative note
+inline-block:3714ad # NON_NORMATIVE: non-normative note
+inline-block:e4ccad # NON_NORMATIVE: non-normative example
+inline-block:7aa0aa # NON_NORMATIVE: non-normative example
+inline-formatting-context:0f6442 # NON_NORMATIVE: non-normative example
+inline-formatting-context:670e50 # NON_NORMATIVE: non-normative example
+inline-formatting-context:fe563c # NON_NORMATIVE: non-normative example
+inline-formatting-context:32a9c3 # NON_NORMATIVE: print-specific UA hint
+inline-formatting-context:7d8ab8 # NON_NORMATIVE: print-specific UA hint
+inline-formatting-context:af591a # NON_NORMATIVE: print-specific UA hint
+inline-formatting-context:ca71c0 # NON_NORMATIVE: non-normative note
+line-breaking:341597 # NON_NORMATIVE: non-normative note
+line-breaking:f428b0 # NON_NORMATIVE: non-normative note
+margin-collapsing:4d5fa2 # NON_NORMATIVE: non-normative note
+margin-collapsing:6eaf22 # NON_NORMATIVE: non-normative note
+margin-collapsing:6706c1 # NON_NORMATIVE: non-normative note
+overflow:1e301f # NON_NORMATIVE: print-specific UA hint
+overflow:1f17dd # NON_NORMATIVE: non-normative note
+overflow:1f388d # NON_NORMATIVE: non-normative example
+overflow:25bb60 # NON_NORMATIVE: non-normative example
+overflow:27d544 # NON_NORMATIVE: introductory prose only
+overflow:49031c # NON_NORMATIVE: non-normative note
+overflow:512709 # NON_NORMATIVE: non-normative example
+overflow:629ba6 # NON_NORMATIVE: non-normative note
+overflow:69b3d6 # NON_NORMATIVE: non-normative example
+overflow:76f35a # NON_NORMATIVE: non-normative note
+overflow:7d9ef0 # NON_NORMATIVE: print-specific UA hint
+overflow:94d80c # NON_NORMATIVE: non-normative note
+overflow:ba15dd # NON_NORMATIVE: non-normative note
+overflow:bf3831 # NON_NORMATIVE: non-normative example
+overflow:c1d791 # NON_NORMATIVE: non-normative note
+overflow:c22866 # NON_NORMATIVE: non-normative example
+overflow:cba678 # NON_NORMATIVE: non-normative example
+overflow:e559ba # NON_NORMATIVE: print-specific UA hint
+positioning:272bf3 # NON_NORMATIVE: non-normative note
+positioning:448a3a # NON_NORMATIVE: non-normative example
+positioning:55971e # NON_NORMATIVE: non-normative note
+positioning:602a86 # NON_NORMATIVE: non-normative note
+positioning:63dc56 # NON_NORMATIVE: non-normative note
+positioning:930891 # NON_NORMATIVE: non-normative example
+positioning:b780d3 # NON_NORMATIVE: non-normative example
+positioning:9df3f9 # NON_NORMATIVE: non-normative example
+positioning:9fae9b # NON_NORMATIVE: non-normative note
+positioning:d39822 # NON_NORMATIVE: non-normative note
+positioning:d58083 # NON_NORMATIVE: non-normative note
+positioning:f4892f # NON_NORMATIVE: print-specific UA hint
+positioning:f60387 # NON_NORMATIVE: non-normative note
+positioning:ffb81c # NON_NORMATIVE: non-normative note
+table-layout:6ccaf3 # NON_NORMATIVE: non-normative example
+text-alignment-spacing:8924be # NON_NORMATIVE: non-normative example
+text-alignment-spacing:cfd493 # NON_NORMATIVE: non-normative note
+text-alignment-spacing:206406 # NON_NORMATIVE: non-normative note
+
+# === SECURITY (11) ===
+block-formatting-context:86d802 # SECURITY: security/privacy considerations
+box-model:ef2d56 # SECURITY: security/privacy considerations
+box-model:f08ad2 # SECURITY: security/privacy considerations
+height-calculation:22ca67 # SECURITY: security/privacy considerations
+overflow:729676 # SECURITY: security/privacy considerations
+overflow:e2d58f # SECURITY: security/privacy considerations
+overflow:f2f342 # SECURITY: security/privacy considerations
+positioning:556aeb # SECURITY: security/privacy advisory
+positioning:a7225d # SECURITY: security/privacy advisory
+positioning:ba4d0b # SECURITY: security/privacy advisory
+positioning:fb8117 # SECURITY: security/privacy advisory
