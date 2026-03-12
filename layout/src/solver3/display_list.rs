@@ -298,6 +298,9 @@ pub struct DisplayList {
     /// These are absolute Y coordinates in the infinite canvas coordinate system.
     /// The slicer will ensure page boundaries align with these positions.
     pub forced_page_breaks: Vec<f32>,
+    /// Index ranges (start, end) of display list items that belong to fixed-position elements.
+    /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
+    pub fixed_position_item_ranges: Vec<(usize, usize)>,
 }
 
 impl DisplayList {
@@ -789,6 +792,10 @@ struct DisplayListBuilder {
     debug_enabled: bool,
     /// Y-positions where forced page breaks should occur
     forced_page_breaks: Vec<f32>,
+    /// Index ranges of items from fixed-position elements (for paged media replication)
+    fixed_position_item_ranges: Vec<(usize, usize)>,
+    /// Start index of the current fixed-position element being built, if any
+    fixed_position_start: Option<usize>,
 }
 
 impl DisplayListBuilder {
@@ -804,6 +811,8 @@ impl DisplayListBuilder {
             debug_messages: Vec::new(),
             debug_enabled,
             forced_page_breaks: Vec::new(),
+            fixed_position_item_ranges: Vec::new(),
+            fixed_position_start: None,
         }
     }
 
@@ -827,12 +836,29 @@ impl DisplayListBuilder {
             items: self.items,
             node_mapping: self.node_mapping,
             forced_page_breaks: self.forced_page_breaks,
+            fixed_position_item_ranges: self.fixed_position_item_ranges,
         }
     }
 
     /// Set the current node context for subsequent push operations
     pub fn set_current_node(&mut self, node_id: Option<NodeId>) {
         self.current_node = node_id;
+    }
+
+    /// Mark the start of a fixed-position element's display items.
+    pub fn begin_fixed_position_element(&mut self) {
+        self.fixed_position_start = Some(self.items.len());
+    }
+
+    /// Mark the end of a fixed-position element's display items.
+    /// Records the (start, end) index range for paged media replication.
+    pub fn end_fixed_position_element(&mut self) {
+        if let Some(start) = self.fixed_position_start.take() {
+            let end = self.items.len();
+            if end > start {
+                self.fixed_position_item_ranges.push((start, end));
+            }
+        }
     }
 
     /// Register a forced page break at the given Y position.
@@ -856,6 +882,7 @@ impl DisplayListBuilder {
             items: self.items,
             node_mapping: self.node_mapping,
             forced_page_breaks: self.forced_page_breaks,
+            fixed_position_item_ranges: self.fixed_position_item_ranges,
         }
     }
 
@@ -1846,6 +1873,14 @@ where
         // This is critical for drag visual offset matching.
         builder.set_current_node(node.dom_node_id);
 
+        // Track fixed-position elements for paged media replication (CSS Positioned Layout §2.1)
+        let is_fixed_position = node.dom_node_id
+            .map(|dom_id| get_position_type(self.ctx.styled_dom, Some(dom_id)) == LayoutPosition::Fixed)
+            .unwrap_or(false);
+        if is_fixed_position {
+            builder.begin_fixed_position_element();
+        }
+
         // Check if this node has a GPU-accelerated transform (CSS transform or drag).
         // If so, wrap in a reference frame so WebRender can animate it on the GPU.
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
@@ -2029,6 +2064,11 @@ where
         // Pop reference frame if we pushed one
         if has_reference_frame.is_some() {
             builder.pop_reference_frame();
+        }
+
+        // End fixed-position tracking (records the item range for paged media replication)
+        if is_fixed_position {
+            builder.end_fixed_position_element();
         }
 
         // After painting the node and all its descendants, pop any contexts it pushed.
