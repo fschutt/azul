@@ -5192,8 +5192,14 @@ pub fn paginate_display_list_with_slicer_and_breaks(
         // 3. Calculate content offset (after header and repeated table headers)
         let content_y_offset = header_space + thead_total_height;
 
-        // 4. Slice and offset content items
+        // 4. Slice and offset content items (skip fixed-position items, they are added in step 4b)
         for (item_idx, item) in full_display_list.items.iter().enumerate() {
+            // Skip items that belong to fixed-position elements (they are replicated separately)
+            let is_fixed = full_display_list.fixed_position_item_ranges.iter()
+                .any(|&(start, end)| item_idx >= start && item_idx < end);
+            if is_fixed {
+                continue;
+            }
             if let Some(clipped_item) =
                 clip_and_offset_display_item(item, content_start_y, content_end_y)
             {
@@ -5209,6 +5215,28 @@ pub fn paginate_display_list_with_slicer_and_breaks(
                     .copied()
                     .flatten();
                 page_node_mapping.push(node_mapping);
+            }
+        }
+
+        // 4b. Replicate fixed-position items on every page (CSS Positioned Layout §2.1)
+        // Fixed-position boxes are fixed relative to the page box, so they appear
+        // at the same position on every page without Y-offset adjustment.
+        for &(start, end) in &full_display_list.fixed_position_item_ranges {
+            for item_idx in start..end {
+                if let Some(item) = full_display_list.items.get(item_idx) {
+                    let final_item = if content_y_offset > 0.0 {
+                        offset_display_item_y(item, content_y_offset)
+                    } else {
+                        item.clone()
+                    };
+                    page_items.push(final_item);
+                    let node_mapping = full_display_list
+                        .node_mapping
+                        .get(item_idx)
+                        .copied()
+                        .flatten();
+                    page_node_mapping.push(node_mapping);
+                }
             }
         }
 
@@ -5243,7 +5271,8 @@ pub fn paginate_display_list_with_slicer_and_breaks(
         pages.push(DisplayList {
             items: page_items,
             node_mapping: page_node_mapping,
-            forced_page_breaks: Vec::new(), // Per-page lists don't need this
+            forced_page_breaks: Vec::new(),
+            fixed_position_item_ranges: Vec::new(), // Already handled during pagination
         });
     }
 
