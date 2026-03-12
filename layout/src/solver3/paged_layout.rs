@@ -81,6 +81,7 @@ pub fn layout_document_paged<T, F>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
     font_loader: F,
+    image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<Vec<DisplayList>>
 where
@@ -106,6 +107,7 @@ where
         dom_id,
         font_loader,
         page_config,
+        image_cache,
         get_system_time_fn,
         false,
     )
@@ -136,6 +138,7 @@ pub fn layout_document_paged_with_config<T, F>(
     dom_id: DomId,
     font_loader: F,
     page_config: FakePageConfig,
+    image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     print_timing: bool,
 ) -> Result<Vec<DisplayList>>
@@ -197,6 +200,7 @@ where
             font_manager,
             selections,
             debug_messages,
+            image_cache,
             get_system_time_fn,
             print_timing,
         )?;
@@ -217,6 +221,7 @@ where
             cursor_is_visible: true,
             cursor_location: None,
             cache_map: std::mem::take(&mut cache.cache_map),
+            image_cache,
             system_style: None,
             get_system_time_fn,
         };
@@ -250,6 +255,7 @@ where
         font_manager,
         selections,
         debug_messages,
+        image_cache,
         get_system_time_fn,
         print_timing,
     )?;
@@ -286,6 +292,7 @@ where
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         cache_map: std::mem::take(&mut cache.cache_map),
+        image_cache,
         system_style: None,
         get_system_time_fn,
     };
@@ -396,6 +403,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     font_manager: &crate::font_traits::FontManager<T>,
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     print_timing: bool,
 ) -> Result<FragmentationLayoutResult> {
@@ -419,6 +427,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         cache_map: cache::LayoutCacheMap::default(),
+        image_cache,
         system_style: None,
         get_system_time_fn,
     };
@@ -475,6 +484,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         cache_map,
+        image_cache,
         system_style: None,
         get_system_time_fn,
     };

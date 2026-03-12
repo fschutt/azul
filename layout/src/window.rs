@@ -817,6 +817,7 @@ impl LayoutWindow {
             dom_id,
             cursor_is_visible,
             cursor_location,
+            &self.image_cache,
             self.system_style.clone(),
             system_callbacks.get_system_time_fn,
         )?;
@@ -4494,10 +4495,12 @@ impl LayoutWindow {
         };
 
         // Use the proper CSS property resolution from solver3::getters
+        let vp = layout_result.viewport.size;
         let props = crate::solver3::getters::get_style_properties(
             &layout_result.styled_dom,
             node_id,
             self.system_style.as_ref(),
+            azul_css::props::basic::PhysicalSize::new(vp.width, vp.height),
         );
 
         Arc::new(props)
@@ -4774,6 +4777,7 @@ impl LayoutWindow {
             cursor_is_visible,
             cursor_location,
             cache_map,
+            image_cache: &self.image_cache,
             system_style: self.system_style.clone(),
             get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,

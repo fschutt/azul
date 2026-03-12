@@ -948,6 +948,7 @@ impl DisplayListBuilder {
         border_info: &BorderInfo,
         simple_border_radius: BorderRadius,
         style_border_radius: StyleBorderRadius,
+        image_cache: &azul_core::resources::ImageCache,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
 
@@ -966,8 +967,10 @@ impl DisplayListBuilder {
                 StyleBackgroundContent::ConicGradient(gradient) => {
                     self.push_conic_gradient(bounds, gradient.clone(), simple_border_radius);
                 }
-                StyleBackgroundContent::Image(_image_id) => {
-                    // TODO: Implement image backgrounds
+                StyleBackgroundContent::Image(image_id) => {
+                    if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
+                        self.push_image(bounds, image_ref.clone(), simple_border_radius);
+                    }
                 }
             }
         }
@@ -994,6 +997,7 @@ impl DisplayListBuilder {
         background_color: Option<ColorU>,
         background_contents: &[azul_css::props::style::StyleBackgroundContent],
         border: Option<&crate::text3::cache::InlineBorderInfo>,
+        image_cache: &azul_core::resources::ImageCache,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
 
@@ -1017,8 +1021,10 @@ impl DisplayListBuilder {
                 StyleBackgroundContent::ConicGradient(gradient) => {
                     self.push_conic_gradient(bounds, gradient.clone(), BorderRadius::default());
                 }
-                StyleBackgroundContent::Image(_image_id) => {
-                    // TODO: Implement image backgrounds for inline text
+                StyleBackgroundContent::Image(image_id) => {
+                    if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
+                        self.push_image(bounds, image_ref.clone(), BorderRadius::default());
+                    }
                 }
             }
         }
@@ -2887,6 +2893,7 @@ where
                 &border_info,
                 simple_border_radius,
                 style_border_radius,
+                self.ctx.image_cache,
             );
 
             simple_border_radius
@@ -2999,7 +3006,9 @@ where
 
         // Borders are painted separately after all backgrounds
         // This is handled by the normal rendering flow for each element
-        // TODO: Implement border-collapse conflict resolution using BorderInfo::resolve_conflict()
+        // TODO: For border-collapse: collapse tables, resolve conflicts between
+        // adjacent cell borders using BorderInfo::resolve_conflict() from fc.rs.
+        // Currently all cells paint their own borders (separate model behavior).
 
         Ok(())
     }
@@ -3695,6 +3704,7 @@ where
                     glyph_run.background_color,
                     &glyph_run.background_content,
                     glyph_run.border.as_ref(),
+                    self.ctx.image_cache,
                 );
             }
         }
@@ -3965,6 +3975,7 @@ where
             &border_info,
             simple_border_radius,
             style_border_radius,
+            self.ctx.image_cache,
         );
 
         // Push hit-test area for this inline-block element

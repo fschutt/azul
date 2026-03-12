@@ -223,6 +223,8 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// Moved out of LayoutCache via std::mem::take for the duration of layout,
     /// then moved back after the layout pass completes.
     pub cache_map: cache::LayoutCacheMap,
+    /// Image cache for resolving `background-image: url(...)` references.
+    pub image_cache: &'a azul_core::resources::ImageCache,
     /// System style containing colors, fonts, metrics, and theme information.
     /// Used for selection colors, caret styling, and other system-themed elements.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -415,6 +417,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     dom_id: azul_core::dom::DomId,
     cursor_is_visible: bool,
     cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    image_cache: &azul_core::resources::ImageCache,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<DisplayList> {
@@ -447,6 +450,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
+        image_cache,
         system_style: system_style.clone(),
         get_system_time_fn,
     };
@@ -492,6 +496,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location,
         cache_map, // Moved from LayoutCache; will be moved back after layout
+        image_cache,
         system_style,
         get_system_time_fn,
     };

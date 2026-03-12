@@ -1373,6 +1373,7 @@ pub fn render_component_preview(
         dom_id,
         false, // cursor not visible
         None,  // no cursor location
+        &azul_core::resources::ImageCache::default(),
         system_style,
         get_system_time_fn,
     ).map_err(|e| format!("Layout failed: {:?}", e))?;
