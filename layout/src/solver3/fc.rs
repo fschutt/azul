@@ -804,6 +804,11 @@ fn layout_bfc<T: ParsedFontTrait>(
     // We use constraints.available_size directly as this already represents the
     // content-box available to this node (set by parent). For nodes with explicit
     // sizes, used_size contains the border-box which we convert to content-box.
+    //
+    // TODO(writing-modes): The containing block size here uses physical width/height.
+    // In vertical writing modes, the block progression direction is horizontal,
+    // so the "available width" for children is actually the physical height of
+    // the containing block, and cursor_y should become cursor_x.
     let mut children_containing_block_size = if let Some(used_size) = node.used_size {
         // Node has explicit used_size (border-box) - convert to content-box
         node.box_props.inner_size(used_size, writing_mode)
@@ -2155,6 +2160,11 @@ fn layout_bfc<T: ParsedFontTrait>(
 ///     - Update the `positions` map for all `inline-block` children based on the positions
 ///       calculated by `text3`.
 ///     - Extract the final overflow size and baseline for the IFC root itself
+// TODO(writing-modes): The IFC currently assumes inline direction = horizontal
+// and block direction = vertical. In vertical writing modes, line boxes stack
+// horizontally and inline content flows vertically. The text3 engine needs
+// to receive the writing mode to correctly determine line-breaking direction,
+// baseline orientation, and line box stacking.
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut crate::font_traits::TextLayoutCache,
