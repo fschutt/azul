@@ -7,6 +7,7 @@ use azul_core::{
 use azul_css::props::{
     basic::{pixel::PixelValue, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric},
     layout::LayoutWritingMode,
+    style::{StyleDirection, StyleTextOrientation},
 };
 
 /// Represents the CSS `box-sizing` property.
@@ -406,5 +407,85 @@ impl IntrinsicSizes {
     /// Creates a zero-sized IntrinsicSizes.
     pub fn zero() -> Self {
         Self::default()
+    }
+}
+
+// ============================================================================
+// WRITING MODE SUPPORT
+// ============================================================================
+
+/// Returns true if the writing mode is horizontal (HorizontalTb).
+///
+/// This is the main entry point for code that needs to check whether layout
+/// should proceed in horizontal or vertical mode. In horizontal mode, the
+/// inline axis is horizontal (left-to-right or right-to-left) and the block
+/// axis is vertical (top-to-bottom). In vertical modes, these are swapped.
+pub fn is_horizontal(writing_mode: LayoutWritingMode) -> bool {
+    matches!(writing_mode, LayoutWritingMode::HorizontalTb)
+}
+
+/// Captures the resolved writing mode context for a node.
+///
+/// This struct bundles together all the CSS properties that affect how
+/// logical directions (inline/block) map to physical directions (x/y).
+/// Spec agents should use this struct to implement writing-mode-aware layout.
+///
+/// # CSS Writing Modes Level 4
+///
+/// - `writing-mode` determines the block flow direction and inline base direction
+/// - `direction` determines the inline base direction (ltr or rtl)
+/// - `text-orientation` determines glyph orientation in vertical writing modes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WritingModeContext {
+    pub writing_mode: LayoutWritingMode,
+    pub direction: StyleDirection,
+    pub text_orientation: StyleTextOrientation,
+}
+
+impl Default for WritingModeContext {
+    fn default() -> Self {
+        Self {
+            writing_mode: LayoutWritingMode::HorizontalTb,
+            direction: StyleDirection::Ltr,
+            text_orientation: StyleTextOrientation::Mixed,
+        }
+    }
+}
+
+impl WritingModeContext {
+    /// Returns true if the writing mode is horizontal (HorizontalTb).
+    ///
+    /// When true, the inline axis is horizontal and the block axis is vertical.
+    pub fn is_horizontal(&self) -> bool {
+        is_horizontal(self.writing_mode)
+    }
+
+    /// Returns true if the inline size corresponds to the physical width.
+    ///
+    /// In horizontal writing modes, inline size = width.
+    /// In vertical writing modes, inline size = height.
+    pub fn inline_size_is_width(&self) -> bool {
+        self.is_horizontal()
+    }
+
+    /// Returns true if the block size corresponds to the physical height.
+    ///
+    /// In horizontal writing modes, block size = height.
+    /// In vertical writing modes, block size = width.
+    pub fn block_size_is_height(&self) -> bool {
+        self.is_horizontal()
+    }
+
+    /// Returns true if the inline direction is reversed (RTL in horizontal,
+    /// or bottom-to-top in certain vertical modes).
+    pub fn is_inline_reversed(&self) -> bool {
+        match self.writing_mode {
+            LayoutWritingMode::HorizontalTb => self.direction == StyleDirection::Rtl,
+            // TODO(writing-modes): In vertical modes, the inline direction
+            // is top-to-bottom by default; RTL reverses it to bottom-to-top
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => {
+                self.direction == StyleDirection::Rtl
+            }
+        }
     }
 }
