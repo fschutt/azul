@@ -2599,6 +2599,15 @@ The layout solver is in `layout/src/solver3/`.
 - `layout/position.rs` — Position enum (static, relative, absolute, fixed, sticky)
 - `style/text.rs` — StyleLineHeight, StyleWhiteSpace, StyleHyphens, StyleLineBreak, StyleTextIndent
 
+### Writing modes (layout/src/solver3/geometry.rs):
+- `WritingModeContext` — bundles writing-mode + direction + text-orientation
+  - `is_horizontal()` — true for HorizontalTb, false for VerticalRl/VerticalLr
+  - `inline_size_is_width()` — true when inline axis maps to physical width
+  - Construct via getters: `get_writing_mode()`, `get_direction()`, `get_text_orientation()`
+- In vertical writing modes, CSS `width` = block dimension, CSS `height` = inline dimension
+- `StyleUnicodeBidi` — Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext
+- `StyleTextCombineUpright` — None, All (horizontal-in-vertical composition)
+
 ### Core types (core/src/):
 - `dom.rs` — FormattingContext enum, NodeType
 - `styled_dom.rs` — StyledDom, styled node access
