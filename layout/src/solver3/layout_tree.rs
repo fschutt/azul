@@ -960,6 +960,27 @@ impl LayoutTreeBuilder {
         // +spec:display-contents:353e71 - display:contents box generation behavior
         // +spec:display-contents:b0a76b - display:contents generates no box; children promoted to parent
         // +spec:display-property:e370af - display:contents generates no box; children promoted to parent
+        //
+        // +spec:display-contents:852a59 - display:contents computes to display:none for replaced elements
+        // +spec:display-contents:4a524e - display:contents computes to display:none on replaced elements
+        // +spec:replaced-elements:af1e68 - display:contents on replaced elements has no effect (element renders normally)
+        // Per CSS Display 3 §2.5 / Appendix B: replaced elements (img, canvas, embed, object,
+        // audio, iframe, video, input, textarea, select, br, wbr, meter, progress)
+        // and similar cannot be "un-boxed" — display:contents becomes display:none.
+        if display_type == LayoutDisplay::Contents && is_replaced_element(node_data) {
+            // Treat as display:none — remove node from parent and skip children
+            if let Some(parent) = parent_idx {
+                if let Some(p) = self.nodes.get_mut(parent) {
+                    p.children.retain(|&c| c != node_idx);
+                }
+            }
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.display = LayoutDisplay::None;
+                node.formatting_context = FormattingContext::None;
+            }
+            return Ok(node_idx);
+        }
+
         if display_type == LayoutDisplay::Contents {
             // Remove the node we just created — it shouldn't generate a box
             if let Some(parent) = parent_idx {
@@ -2519,6 +2540,12 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
                 return true;
             }
         }
+    }
+
+    // +spec:replaced-elements:4f494d - replaced elements always establish an independent formatting context
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if is_replaced_element(node_data) {
+        return true;
     }
 
     // The root element (<html>) also establishes a BFC.
