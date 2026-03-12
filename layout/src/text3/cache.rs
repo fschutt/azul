@@ -756,6 +756,8 @@ pub struct UnifiedConstraints {
     pub word_break: WordBreak,
     pub white_space_mode: WhiteSpaceMode,
     pub line_break: LineBreakStrictness,
+    // CSS unicode-bidi property; Plaintext causes per-paragraph auto-detection
+    pub unicode_bidi: UnicodeBidi,
 }
 
 impl Default for UnifiedConstraints {
@@ -803,6 +805,7 @@ impl Default for UnifiedConstraints {
             word_break: WordBreak::default(),
             white_space_mode: WhiteSpaceMode::default(),
             line_break: LineBreakStrictness::default(),
+            unicode_bidi: UnicodeBidi::default(),
         }
     }
 }
@@ -842,6 +845,7 @@ impl Hash for UnifiedConstraints {
         self.word_break.hash(state);
         self.white_space_mode.hash(state);
         self.line_break.hash(state);
+        self.unicode_bidi.hash(state);
     }
 }
 
@@ -881,6 +885,7 @@ impl PartialEq for UnifiedConstraints {
             && self.word_break == other.word_break
             && self.white_space_mode == other.white_space_mode
             && self.line_break == other.line_break
+            && self.unicode_bidi == other.unicode_bidi
     }
 }
 
@@ -3023,6 +3028,26 @@ impl BidiDirection {
     }
 }
 
+/// CSS `unicode-bidi` property values relevant to layout.
+/// When `Plaintext`, the bidi algorithm uses P2/P3 heuristics to auto-detect
+/// paragraph direction from text content, instead of the HL1 override from
+/// the CSS `direction` property.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UnicodeBidi {
+    Normal,
+    Embed,
+    Isolate,
+    BidiOverride,
+    IsolateOverride,
+    Plaintext,
+}
+
+impl Default for UnicodeBidi {
+    fn default() -> Self {
+        UnicodeBidi::Normal
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum FontVariantCaps {
     #[default]
@@ -4991,12 +5016,32 @@ impl LayoutCache {
         // +spec:display-property:e8584a - Apply Unicode bidi algorithm to inline-level box sequences per CSS Writing Modes §2.4
         // Stage 2: Bidi Reordering (LogicalItem -> VisualItem)
         // +spec:containing-block:961e3c - bidi paragraph level from containing block direction, not UAX9 heuristic
-        // Use CSS direction property from constraints instead of auto-detecting from text content.
-        // This fixes issues with mixed-direction text (e.g., "Arabic - Latin") where auto-detection
-        // would treat the entire paragraph as RTL if the first strong character is Arabic.
-        // Per HTML/CSS spec, base direction should come from the 'direction' CSS property,
-        // defaulting to LTR if not specified.
-        let base_direction = first_constraints.direction.unwrap_or(BidiDirection::Ltr);
+        // +spec:writing-modes:0a5368 - unicode-bidi: plaintext auto-detects direction from text content
+        // Per CSS Writing Modes §8.3: when unicode-bidi is plaintext, the paragraph's
+        // base direction is determined from text content (first strong character), ignoring
+        // the containing block's direction property. Empty paragraphs fall back to
+        // the containing block's direction.
+        let unicode_bidi_val = first_constraints.unicode_bidi;
+        let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
+            // Auto-detect from text content; fall back to containing block direction
+            let has_strong = logical_items.iter().any(|item| {
+                if let LogicalItem::Text { text, .. } = item {
+                    matches!(unicode_bidi::get_base_direction(text.as_str()),
+                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl)
+                } else {
+                    false
+                }
+            });
+            if has_strong {
+                get_base_direction_from_logical(&logical_items)
+            } else {
+                // Empty paragraph: use containing block's direction
+                first_constraints.direction.unwrap_or(BidiDirection::Ltr)
+            }
+        } else {
+            // Normal case: use CSS direction property
+            first_constraints.direction.unwrap_or(BidiDirection::Ltr)
+        };
         let visual_key = VisualItemsKey {
             logical_items_id,
             base_direction,
@@ -5007,7 +5052,7 @@ impl LayoutCache {
             .entry(visual_items_id)
             .or_insert_with(|| {
                 Arc::new(
-                    reorder_logical_items(&logical_items, base_direction, debug_messages).unwrap(),
+                    reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
                 )
             })
             .clone();
@@ -5375,6 +5420,7 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDir
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
+    unicode_bidi: UnicodeBidi,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<VisualItem>, LayoutError> {
     if let Some(msgs) = debug_messages {
@@ -5441,7 +5487,12 @@ pub fn reorder_logical_items(
     }
 
     // +spec:display-property:1a6075 - paragraph embedding level set from direction property per UAX9 HL1
-    let bidi_level = if base_direction == BidiDirection::Rtl {
+    // +spec:containing-block:0d4914 - unicode-bidi: plaintext exception
+    // When the containing block has unicode-bidi: plaintext, use None so the
+    // Unicode bidi algorithm applies P2/P3 heuristics instead of the HL1 override
+    let bidi_level = if unicode_bidi == UnicodeBidi::Plaintext {
+        None
+    } else if base_direction == BidiDirection::Rtl {
         Some(Level::rtl())
     } else {
         Some(Level::ltr())
@@ -6700,8 +6751,25 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     // Use the CSS direction from constraints instead of auto-detecting from text
     // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
-    // correct paragraph-level direction for alignment purposes
-    let base_direction = fragment_constraints.direction.unwrap_or(BidiDirection::Ltr);
+    // correct paragraph-level direction for alignment purposes.
+    // With unicode-bidi: plaintext, direction is auto-detected from text content
+    // per CSS Writing Modes §8.3.
+    let base_direction = if fragment_constraints.unicode_bidi == UnicodeBidi::Plaintext {
+        // Auto-detect from remaining shaped items' text content
+        let remaining = &cursor.items[cursor.next_item_index..];
+        let text: String = remaining.iter()
+            .filter_map(|i| i.as_cluster())
+            .map(|c| c.text.as_str())
+            .collect();
+        match unicode_bidi::get_base_direction(text.as_str()) {
+            unicode_bidi::Direction::Ltr => BidiDirection::Ltr,
+            unicode_bidi::Direction::Rtl => BidiDirection::Rtl,
+            // No strong character: fall back to containing block direction
+            unicode_bidi::Direction::Mixed => fragment_constraints.direction.unwrap_or(BidiDirection::Ltr),
+        }
+    } else {
+        fragment_constraints.direction.unwrap_or(BidiDirection::Ltr)
+    };
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(

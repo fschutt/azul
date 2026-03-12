@@ -4830,7 +4830,7 @@ impl LayoutWindow {
 
         // Stage 2: Bidi reordering
         let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-        let visual_items = match reorder_logical_items(&logical_items, base_direction, &mut None) {
+        let visual_items = match reorder_logical_items(&logical_items, base_direction, crate::text3::cache::UnicodeBidi::Normal, &mut None) {
             Ok(v) => { v }
             Err(e) => { return None; }
         };

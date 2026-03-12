@@ -53,8 +53,8 @@ use azul_css::{
         style::{
             BorderStyle, StyleDirection, StyleHyphens, StyleLineBreak, StyleListStylePosition,
             StyleListStyleType, StyleOverflowWrap, StyleTextAlign, StyleTextAlignLast,
-            StyleTextCombineUpright, StyleTextOrientation, StyleVerticalAlign, StyleVisibility,
-            StyleWhiteSpace, StyleWordBreak,
+            StyleTextCombineUpright, StyleTextOrientation, StyleUnicodeBidi, StyleVerticalAlign,
+            StyleVisibility, StyleWhiteSpace, StyleWordBreak,
         },
     },
 };
@@ -74,7 +74,7 @@ use crate::{
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{
-            get_css_height, get_css_width, get_direction_property,
+            get_css_height, get_css_width, get_direction_property, get_unicode_bidi_property,
             get_display_property, get_element_font_size, get_float, get_clear,
             get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
             get_parent_font_size, get_root_font_size, get_style_properties,
@@ -3116,6 +3116,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
     };
 
+    // Get unicode-bidi property for bidi algorithm configuration
+    // +spec:containing-block:0d4914 - unicode-bidi: plaintext causes P2/P3 heuristics instead of HL1 override
+    let unicode_bidi_val = match get_unicode_bidi_property(styled_dom, id, node_state) {
+        MultiValue::Exact(u) => match u {
+            StyleUnicodeBidi::Normal => text3::cache::UnicodeBidi::Normal,
+            StyleUnicodeBidi::Embed => text3::cache::UnicodeBidi::Embed,
+            StyleUnicodeBidi::Isolate => text3::cache::UnicodeBidi::Isolate,
+            StyleUnicodeBidi::BidiOverride => text3::cache::UnicodeBidi::BidiOverride,
+            StyleUnicodeBidi::IsolateOverride => text3::cache::UnicodeBidi::IsolateOverride,
+            StyleUnicodeBidi::Plaintext => text3::cache::UnicodeBidi::Plaintext,
+        },
+        _ => text3::cache::UnicodeBidi::Normal,
+    };
+
     debug_info!(
         ctx,
         "dom_id={:?}, available_size={}x{}, setting available_width={}",
@@ -3412,6 +3426,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutWritingMode::VerticalLr => text3::cache::WritingMode::VerticalLr,
         }),
         direction, // Use the CSS direction property (currently defaulting to LTR)
+        unicode_bidi: unicode_bidi_val,
         // +spec:overflow:7ff7d1 - hyphens property: none/manual/auto hyphenation control
         hyphenation: match hyphenation {
             StyleHyphens::None => text3::cache::Hyphens::None,
