@@ -3400,7 +3400,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutTextJustify::Auto => text3::cache::JustifyContent::InterWord,
             LayoutTextJustify::InterWord => text3::cache::JustifyContent::InterWord,
             LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
-            LayoutTextJustify::Distribute => text3::cache::JustifyContent::Distribute,
+            LayoutTextJustify::Distribute => text3::cache::JustifyContent::InterCharacter, // distribute computes to inter-character
         },
         // +spec:line-height:79f3aa - line-height resolved: normal defaults to 1.2, <number>/<percentage> × font-size
         line_height: line_height_value.inner.normalized() * font_size,

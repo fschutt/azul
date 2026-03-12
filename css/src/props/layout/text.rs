@@ -90,7 +90,9 @@ pub fn parse_layout_text_justify<'a>(
         "none" => Ok(LayoutTextJustify::None),
         "inter-word" => Ok(LayoutTextJustify::InterWord),
         "inter-character" => Ok(LayoutTextJustify::InterCharacter),
-        "distribute" => Ok(LayoutTextJustify::Distribute),
+        // +spec:text-alignment-spacing:4a88c2 - distribute computes to inter-character (legacy value alias)
+        // +spec:text-alignment-spacing:58c33f - distribute computes to inter-character per spec clarification
+        "distribute" => Ok(LayoutTextJustify::InterCharacter),
         other => Err(TextJustifyParseError::InvalidValue(other)),
     }
 }
@@ -118,7 +120,7 @@ mod tests {
         );
         assert_eq!(
             parse_layout_text_justify("distribute"),
-            Ok(LayoutTextJustify::Distribute)
+            Ok(LayoutTextJustify::InterCharacter)
         );
         assert!(parse_layout_text_justify("invalid").is_err());
     }
