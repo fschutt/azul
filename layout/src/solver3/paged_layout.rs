@@ -44,6 +44,10 @@ pub struct FragmentationLayoutResult {
 
 /// Layout a document with integrated pagination, returning one DisplayList per page.
 ///
+/// +spec:positioning:a4936a - Absolutely positioned elements positioned relative to containing block ignoring page breaks
+/// Layout is performed on a continuous document; pages are split afterward by Y position,
+/// so absolutely positioned elements are positioned as if the document were continuous.
+///
 /// This function performs CSS Paged Media layout with fragmentation integrated
 /// into the layout process itself, using the new architecture where:
 ///

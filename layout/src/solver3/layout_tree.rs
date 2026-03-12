@@ -909,8 +909,9 @@ impl LayoutTreeBuilder {
         // +spec:display-property:2bb592 - list-item generates ::marker pseudo-element with list-style content
         // +spec:display-property:3b507e - list-item generates ::marker pseudo-element
         // +spec:display-property:a48f00 - additional boxes (marker, table wrapper) placed w.r.t. principal box
+        // +spec:display-property:998063 - list-item generates principal block box + marker box
         // If this is a list-item, inject a ::marker pseudo-element as its first child
-        // Per CSS spec, the ::marker is generated as the first child of the list-item
+        // +spec:display-property:a42905 - list-item generates ::marker pseudo-element with list-style content, principal box outer=block inner=flow
         if display_type == LayoutDisplay::ListItem {
             self.create_marker_pseudo_element(styled_dom, dom_id, node_idx);
         }
@@ -926,6 +927,11 @@ impl LayoutTreeBuilder {
         // +spec:display-property:d7a8de - display:none/contents elements generate no box; anonymous box generation ignores them
         // +spec:display-property:dc2132 - display:none and display:contents control box generation
         // display:contents - element generates no box; promote children to parent
+        // +spec:display-contents:61992e - element itself generates no boxes, children promoted to parent
+        // +spec:display-contents:af8feb - treated as if replaced in element tree by its contents
+        // +spec:display-contents:353e71 - display:contents box generation behavior
+        // +spec:display-contents:b0a76b - display:contents generates no box; children promoted to parent
+        // +spec:display-property:e370af - display:contents generates no box; children promoted to parent
         if display_type == LayoutDisplay::Contents {
             // Remove the node we just created — it shouldn't generate a box
             if let Some(parent) = parent_idx {
@@ -985,6 +991,7 @@ impl LayoutTreeBuilder {
                 // +spec:display-property:1f38b2 - display:none creates no box at all, filter from layout tree
                 // +spec:display-property:eb53f7 - display:none suppresses box generation; visibility:hidden boxes still affect layout
                 // Filter out display: none children - they don't participate in layout
+                // +spec:display-property:d1600a - display:none suppresses box generation; visibility:hidden boxes still affect layout
                 // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
                 // to prevent them from becoming unwanted anonymous items.
                 let children: Vec<NodeId> = dom_id
@@ -1112,6 +1119,7 @@ impl LayoutTreeBuilder {
                 // +spec:display-contents:02a534 - contiguous text sequences with no text don't generate boxes
                 // End the current inline run — but skip if all nodes are whitespace-only text.
                 // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not generate anonymous inline boxes
+                // +spec:white-space-processing:b32f69 - whitespace-only inline runs between blocks don't generate anonymous inline boxes
                 // CSS 2.1 §9.2.2.1: "White space content that would subsequently be collapsed
                 // away according to the 'white-space' property does not generate any anonymous
                 // inline boxes."
@@ -1407,8 +1415,7 @@ impl LayoutTreeBuilder {
     ) -> usize {
         let index = self.nodes.len();
 
-        // CSS 2.2 Section 17.2.1: Anonymous boxes inherit properties from their
-        // enclosing non-anonymous box
+        // +spec:display-property:e67146 - Anonymous boxes inherit from enclosing non-anonymous box; non-inherited props use initial values
         let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context.clone());
 
         self.nodes.push(LayoutNode {
@@ -1952,6 +1959,8 @@ fn collect_box_props(
     // +spec:box-model:8538a9 - Internal table elements do not have margins (CSS 2.2 §17.5)
     // "These boxes have content and borders and cells have padding as well.
     //  Internal table elements do not have margins."
+    // +spec:box-model:b4923a - Internal table elements do not have margins (CSS 2.2 § 17.5)
+    // +spec:box-model:0a9f8e - Internal table elements do not have margins (CSS 2.2 § 17.5)
     let display_type = get_display_type(styled_dom, dom_id);
     let unresolved_margin = match display_type {
         LayoutDisplay::TableRow
@@ -2402,6 +2411,8 @@ fn determine_formatting_context_for_display(
         // +spec:table-layout:6c5039 - row-primary table model: rows/cells/captions/columns mapped here
         // +spec:table-layout:75eea9 - display property values for table elements (table, tr, td, etc.)
         // +spec:table-layout:3ee121 - layout-internal display types map to table formatting context
+        // +spec:display-property:b02b7f - table display types map to table formatting contexts;
+        // table-column/table-column-group not rendered (treated as display:none for box generation)
         LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
         LayoutDisplay::TableRowGroup
         | LayoutDisplay::TableHeaderGroup
@@ -2409,6 +2420,7 @@ fn determine_formatting_context_for_display(
         LayoutDisplay::TableRow => FormattingContext::TableRow,
         LayoutDisplay::TableCell => FormattingContext::TableCell,
         // +spec:display-property:da3fc7 - display:none/contents generate no boxes (no inner/outer display types)
+        // +spec:display-property:e370af - display:none generates no boxes or text sequences
         LayoutDisplay::None => FormattingContext::None,
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
@@ -2423,6 +2435,8 @@ fn determine_formatting_context_for_display(
         // +spec:display-property:ccd4e6 - run-in falls back to block; reparenting not implemented
         // These less common display types default to block behavior
         // +spec:display-property:7d77f5 - run-in treated as block (run-in sequencing fixup not yet implemented)
+        // +spec:display-property:0c30c4 - run-in boxes fall back to block (run-in reparenting not implemented, matches browser behavior)
+        // +spec:display-property:2f5c52 - run-in treated as block (full run-in merging not implemented)
         LayoutDisplay::RunIn | LayoutDisplay::Marker => {
             FormattingContext::Block {
                 establishes_new_context: true,

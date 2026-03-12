@@ -28,6 +28,8 @@ pub enum LayoutDisplay {
     // +spec:display-property:dcf7f5 - table display values (table, inline-table, table-row, etc.) per CSS 2.2 §17
     // +spec:table-layout:7fdc60 - display property maps elements to table roles (CSS 2.2 §17.1)
     // Table layout
+    // +spec:display-property:1554ad - Layout-internal display types for table layout
+    // +spec:table-layout:6cc828 - <display-internal> and <display-legacy> table display types
     Table,
     InlineTable,
     TableRowGroup,
@@ -72,12 +74,14 @@ impl LayoutDisplay {
         matches!(self, LayoutDisplay::Flex | LayoutDisplay::InlineFlex)
     }
 
+    // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
     pub fn creates_table_context(&self) -> bool {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
     }
 
     // +spec:display-property:101f27 - inline-level boxes (InlineBlock, InlineFlex, etc.) vs inline boxes (Inline)
     // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
+    // +spec:display-property:a43e48 - inline-table is inline-level per CSS 2.2 §17.4
     pub fn is_inline_level(&self) -> bool {
         matches!(
             self,

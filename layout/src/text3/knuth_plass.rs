@@ -507,8 +507,7 @@ fn position_lines_from_breaks(
                             .count() as f32)
         };
 
-        // Resolve the physical alignment here, inside the function,
-        // just like in position_one_line
+        // +spec:writing-modes:155a06 - resolve start/end edges of line box per bidi direction
         let physical_align = match (effective_align, base_direction) {
             (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
             (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
@@ -524,6 +523,7 @@ fn position_lines_from_breaks(
         };
 
         // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line as usual
+        // +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
         if constraints.text_indent != 0.0 {
             let is_indent_target = if constraints.text_indent_each_line {
                 line_index == 0 // TODO: also detect lines after forced breaks in KP path

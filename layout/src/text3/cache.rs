@@ -1669,7 +1669,7 @@ pub enum VerticalAlign {
     Sub,
     // Raise baseline to proper superscript position
     Super,
-    // Raise (positive) or lower (negative) by this distance; 0 = baseline
+    // +spec:font-metrics:152df3 - Raise (positive) or lower (negative) by this distance; 0 = baseline
     Offset(f32),
 }
 
@@ -2219,6 +2219,7 @@ impl ShapeDefinition {
     }
 }
 
+// +spec:text-alignment-spacing:25e82a - text-align shorthand resolves text-align-all / text-align-last
 /// Resolve effective text alignment for a line, handling text-align-last per CSS Text §6.3.
 /// For the last line (or lines before forced breaks), text-align-last overrides text-align.
 /// When text-align-last is auto (default), justify falls back to start; others use text-align.
@@ -5153,6 +5154,9 @@ pub fn create_logical_items(
 
                     // +spec:block-formatting-context:9e7c79 - text-combine-upright combines multiple characters into 1em in vertical writing
                     // +spec:containing-block:2b399b - text-combine-upright digits: combine ASCII digit sequences within max_digits limit; box boundaries implicitly prevent cross-box combination
+                    // +spec:display-contents:644c78 - text-combine-upright run boundary check:
+                    // if a combinable run boundary is due only to inline box boundaries,
+                    // and adjacent chars would form a longer combinable sequence, do not combine
                     let is_combinable_chunk = if let Some(TextCombineUpright::Digits(max_digits)) =
                         &style_to_use.text_combine_upright
                     {
@@ -5309,7 +5313,11 @@ pub fn reorder_logical_items(
         // +spec:display-property:89095f - isolate/bidi-override/isolate-override/plaintext semantics
         // +spec:writing-modes:d490bf - direction only affects reordering when unicode-bidi is embed/override (not yet enforced for inline elements)
         // display:inline are also neutral unless unicode-bidi != normal (not yet implemented).
+        // +spec:display-property:b4756e - replaced inline elements treated as neutral bidi chars;
+        // embed/bidi-override exception not yet implemented (would make them strong chars).
         // U+FFFC (OBJECT REPLACEMENT CHARACTER) is a neutral bidi character.
+        // +spec:display-property:df11ef - atomic inlines treated as neutral bidi characters (U+FFFC)
+        // Replaced elements with display:inline are also neutral unless unicode-bidi != normal.
         let text = match item {
             LogicalItem::Text { text, .. } => text.as_str(),
             LogicalItem::CombinedText { text, .. } => text.as_str(),
@@ -6305,6 +6313,7 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
             // +spec:font-metrics:790fd2 - half-leading: L = line-height - (A+D), A' = A + L/2, D' = D + L/2
             // +spec:line-height:1ae6f5 - line-height on non-replaced inline: half-leading model
             // +spec:line-height:0078fa - half-leading: L = line-height - (A+D), distributed equally above/below
+            // +spec:line-height:32b3da - half-leading: L = line-height - AD, A' = A + L/2, D' = D + L/2
             // §10.8.1: for each glyph determine A, D from font metrics,
             // then L = line-height - (A + D), and adjust: A' = A + L/2, D' = D + L/2.
             // Note: L may be negative.
@@ -6767,7 +6776,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 item.position.x += column_start_x;
             }
 
-            // with element's font/line-height; minimum line box height = fragment_constraints.line_height
+            // +spec:display-property:6c4978 - line-height on block container establishes minimum line box height
             line_top_y += line_height.max(fragment_constraints.line_height);
             line_index += 1;
             positioned_items.extend(line_pos_items);
@@ -7266,7 +7275,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
             line_text
         )));
     }
-    // NEW: Resolve the final physical alignment here, inside the function.
+    // +spec:text-alignment-spacing:13b72d - line box start/end determined by inline base direction
+    // +spec:text-alignment-spacing:d497af - line box inline base direction affects text-align resolution
+    // +spec:text-alignment-spacing:68332e - bidi direction determines start/end to left/right mapping
     let physical_align = match (text_align, base_direction) {
         (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
         (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
@@ -7291,6 +7302,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let mut positioned = Vec::new();
     let is_vertical = constraints.is_vertical();
 
+    // +spec:line-height:9ca9d9 - line box height = distance from uppermost box top to lowermost box bottom, including strut
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
@@ -7391,6 +7403,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // +spec:line-breaking:155a96 - pre-wrap hanging spaces: unconditionally hang without forced break, conditionally hang with forced break
         // +spec:white-space-processing:68af09 - Phase II: trailing whitespace hanging/conditional hanging per white-space mode
         // +spec:white-space-processing:75d91e - preserved white space hangs at line end, affecting intrinsic sizing
+        // +spec:overflow:a68394 - Hanging trailing whitespace: unconditionally hang (not considered
+        // during alignment, may overflow) for lines without forced break; conditionally hang for
+        // lines ending with forced break (only hang if would overflow).
         // For normal/nowrap/pre-line: unconditionally hang trailing WS.
         // For pre-wrap: unconditionally hang, unless before forced break (then conditionally hang).
         // For break-spaces: trailing spaces cannot hang.
@@ -7497,6 +7512,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
         // 4. Position the items belonging to this segment.
         //
+        // +spec:inline-formatting-context:267438 - Content positioning: position aligned subtree and baseline-shift values within line box
+        //
         // Vertical alignment positioning (CSS vertical-align)
         //
         // +spec:font-metrics:cae541 - dominant baseline used for inline alignment
@@ -7520,12 +7537,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 .unwrap_or(constraints.vertical_align);
             // +spec:display-property:328cfc - baseline-shift / aligned subtree vertical alignment (sub, super, top, bottom, center)
             // §10.8.1 vertical-align positioning
+            // +spec:line-height:0fcfab - vertical-align property values (baseline, top, middle, bottom, sub, super, text-top, text-bottom, percentage, length)
             let item_baseline_pos = match effective_align {
                 // +spec:display-property:8e018d - aligned subtree edges used for top/bottom line box alignment
                 // +spec:inline-formatting-context:495672 - line-relative vertical-align (top/center/bottom) and aligned subtree positioning
                 // top: align top of aligned subtree with top of line box
                 VerticalAlign::Top => line_top_y + item_ascent,
-                // middle: align vertical midpoint with baseline + half x-height
+                // +spec:font-metrics:70000d - align vertical midpoint of box with baseline + half x-height of parent
                 // Approximation: x-height ≈ 0.5 * ascent (no direct x-height metric available)
                 VerticalAlign::Middle => {
                     let half_x_height = line_ascent * 0.25;
@@ -7533,7 +7551,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 }
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
-                // sub: lower baseline to proper subscript position (~0.3em)
+                // +spec:font-metrics:aa21f7 - sub: lower baseline to proper subscript position
                 VerticalAlign::Sub => line_baseline_y + line_ascent * 0.3,
                 // +spec:display-property:3b0e76 - baseline-shift super raises by ~1/3 font-size; top/bottom align to line box edges
                 // super: raise baseline to proper superscript position (~0.4em)
@@ -7548,6 +7566,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
                 // +spec:display-property:8bf37e - dominant-baseline defaults to alphabetic; baseline alignment matches parent
                 // baseline: align baseline of box with baseline of parent box
+                // +spec:font-metrics:96bbd3 - baseline: align alphabetic baseline of box with parent's alphabetic baseline
                 VerticalAlign::Baseline => line_baseline_y,
             };
 
@@ -7624,7 +7643,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 main_axis_pen += item_measure;
             }
 
-            // Apply calculated spacing to the pen (skip for outside markers)
+            // +spec:text-alignment-spacing:e09bd1 - justification space added on top of letter-spacing/word-spacing
             if !is_outside_marker && extra_char_spacing > 0.0 && can_justify_after(&item) {
                 main_axis_pen += extra_char_spacing;
             }
@@ -8410,7 +8429,7 @@ fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
     Err(LayoutError::HyphenationError("Hyphenation feature not enabled".to_string()))
 }
 
-// take precedence over atomic inline rules (CSS-TEXT-3 recent changes, issue 8972)
+// +spec:inline-block:6e7dd9 - Non-tailorable Unicode line breaking controls take precedence over atomic inline rules (CSS-TEXT-3 recent changes, issue 8972)
 
 fn is_break_suppressing_control(ch: char) -> bool {
     matches!(ch,
@@ -8469,6 +8488,8 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 // +spec:line-breaking:e2b374 - word-break: normal (only at separators) vs break-all (between all letters incl. Ethiopic)
 // +spec:overflow:53a97f - word-break (normal/break-all/keep-all) and line-break strictness rules
 // §5.2 word-break property: break opportunity logic
+// +spec:line-breaking:a75147 - word-break property: normal (CJK breaks), break-all (every cluster), keep-all (suppress CJK breaks)
+// +spec:line-breaking:65ab41 - word-break: normal/break-all/keep-all break opportunity rules
 fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
     // Break after spaces or explicit break items (always, regardless of word-break).
     if is_word_separator(item) {
@@ -8507,19 +8528,15 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
             false
         }
         WordBreak::KeepAll => {
-            // Suppress breaks between CJK characters.
+            // +spec:line-breaking:aa3044 - keep-all suppresses CJK (incl. Korean) inter-character breaks
             // Only break at spaces/hyphens (already handled above).
             false
         }
     }
 }
 
-// CSS Text Level 3 §5.3: Determines whether a break opportunity before a character is
-// allowed based on the line-break strictness level. The spec defines:
-// - strict: forbids breaks before small kana (class CJ), CJK hyphens, and certain punctuation
-// - normal: allows breaks before small kana (CJ); allows CJK hyphen breaks for CJK writing systems
-// - loose: additionally allows breaks before hyphens U+2010/U+2013 after ID-class chars
-// - anywhere: allows soft wrap around every typographic character unit
+// +spec:line-breaking:db0289 - line-break strictness: anywhere allows soft wrap around every typographic character unit
+// +spec:line-breaking:7d242b - line-break strictness levels: loose/normal/strict/anywhere with CJK punctuation rules
 fn is_cjk_break_allowed_by_strictness(
     ch: char,
     _prev_ch: Option<char>,

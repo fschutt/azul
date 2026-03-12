@@ -118,6 +118,7 @@ pub fn resolve_percentage_with_box_model(
 }
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
+/// // +spec:display-contents:f12d4e - intrinsic sizing: size determined by contents, not context
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -215,7 +216,10 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 });
             }
             
-            // but no intrinsic size uses initial CB inline size
+            // +spec:containing-block:bb5a12 - replaced element intrinsic sizes using initial containing block
+            // +spec:display-property:7127f9 - intrinsic sizes of replaced elements without natural sizes (300x150 fallback, aspect ratio)
+            // +spec:display-property:f9cede - replaced elements derive intrinsic size from natural dimensions
+            // +spec:writing-modes:b18121 - stretch fit inline size from available space, calculate block size via aspect ratio
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
                 let size = image_ref.get_size();
                 // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements with aspect ratio but no intrinsic size
@@ -1033,6 +1037,10 @@ fn process_layout_children<T: ParsedFontTrait>(
                         SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
                         // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to intrinsic contribution (css-sizing-3 §5.2.1)
                         // For percentages and viewport units, fall back to intrinsic
+                        // +spec:containing-block:5246c0 - cyclic percentage: when containing block size depends on this box's intrinsic contribution, percentages fall back to intrinsic size
+                        // +spec:containing-block:598124 - cyclic percentage contributions use intrinsic size
+                        // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size as contribution during intrinsic sizing
+                        // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto for intrinsic contributions (cyclic percentage)
                         _ => intrinsic_sizes.max_content_width,
                     }
                 }
@@ -1046,6 +1054,7 @@ fn process_layout_children<T: ParsedFontTrait>(
                 _ => intrinsic_sizes.max_content_width,
             };
 
+            // +spec:containing-block:5145c5 - percentage block-size ignored in content-sized containing blocks during intrinsic sizing
             // Resolve CSS height - use explicit value if set, otherwise fall back to intrinsic
             let used_height = match css_height {
                 MultiValue::Exact(LayoutHeight::Px(px)) => {
@@ -1059,6 +1068,7 @@ fn process_layout_children<T: ParsedFontTrait>(
                         SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
                         // +spec:containing-block:7d5e79 - percentages behave as auto when containing block height is auto (cyclic percentage contribution)
                         // +spec:height-calculation:7d807b - css-sizing-3 §5.2.1: percentage heights behave as auto during intrinsic sizing (cyclic percentage contribution)
+                        // Percentages and viewport units fall back to intrinsic (treated as auto)
                         _ => intrinsic_sizes.max_content_height,
                     }
                 }
@@ -1235,8 +1245,11 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     }
 }
 
+// +spec:height-calculation:1c899b - width and height properties specify the preferred size of the box
 /// Calculates the used size of a single node based on its CSS properties and
 /// the available space provided by its containing block.
+///
+/// // +spec:display-contents:71ccde - extrinsic sizing: size determined by context (containing block), not contents
 ///
 /// This implementation correctly handles writing modes and percentage-based sizes
 /// according to the CSS specification:
@@ -1326,6 +1339,8 @@ pub fn calculate_used_size_for_node(
             // has an intrinsic width, then that intrinsic width is the used value of 'width'.
             // +spec:replaced-elements:992ea5 - block-level replaced elements use inline replaced width rules
             // §10.3.4: "The used value of 'width' is determined as for inline replaced elements."
+            // +spec:replaced-elements:36de3e - §10.3.2/§10.3.4: auto width for inline/block replaced elements uses intrinsic width
+            // +spec:replaced-elements:b9a780 - §10.3.2: inline replaced auto width = intrinsic width (conditions resolved during intrinsic size calc)
             if is_replaced {
                 // +spec:width-calculation:b41dbe - floating/inline replaced: auto width = intrinsic width
                 // +spec:width-calculation:c62d35 - §10.3.2: auto width for replaced elements uses intrinsic width
@@ -1336,8 +1351,13 @@ pub fn calculate_used_size_for_node(
             }
             // +spec:intrinsic-sizing:560697 - shrink-to-fit = clamp(min-content, stretch-fit, max-content)
             else if get_float(styled_dom, id, node_state).unwrap_or(LayoutFloat::None) != LayoutFloat::None {
-                // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
+                // +spec:width-calculation:8d7047 - shrink-to-fit width per CSS2.1§10.3.5
+                // +spec:width-calculation:0bb038 - shrink-to-fit for floating non-replaced elements (§10.3.5)
                 // shrink-to-fit = min(max(preferred minimum width, available width), preferred width)
+                // +spec:table-layout:93b13c - shrink-to-fit for floats, inline-blocks, table-cells;
+                // orthogonal flows would require child block size as input (not yet implemented)
+                // +spec:width-calculation:a6fd29 - shrink-to-fit width for floats: min(max(preferred minimum, available), preferred)
+                // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
                 let available_width = (containing_block_size.width
                     - _box_props.margin.left
                     - _box_props.margin.right
@@ -1354,6 +1374,8 @@ pub fn calculate_used_size_for_node(
                 // +spec:intrinsic-sizing:12a531 - abspos auto size = fit-content (shrink-to-fit)
                 // +spec:width-calculation:0bb038 - shrink-to-fit width for abs-pos non-replaced elements
                 // §10.3.7: abs-pos elements with auto width use shrink-to-fit
+                // +spec:intrinsic-sizing:087b57 - abspos automatic size is fit-content (shrink-to-fit)
+                // +spec:width-calculation:1661b4 - abs-pos non-replaced auto width uses shrink-to-fit (§10.3.7)
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                 let available_width = (containing_block_size.width
                     - _box_props.margin.left
@@ -1367,6 +1389,11 @@ pub fn calculate_used_size_for_node(
                 let preferred = intrinsic.max_content_width;
                 preferred_minimum.max(available_width).min(preferred).max(0.0)
             } else {
+            // +spec:width-calculation:472065 - orthogonal flow auto inline size: if this block
+            // container establishes an orthogonal flow (child writing mode axis differs from
+            // parent), its auto inline size should use the parent's block-axis size as available
+            // space, falling back to the initial containing block size. Currently not implemented;
+            // auto width always resolves against the containing block's width.
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
                 LayoutDisplay::Block
@@ -1395,8 +1422,7 @@ pub fn calculate_used_size_for_node(
                     available_width.max(0.0)
                 }
                 LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
-                    // CSS 2.2 §10.3.9: If 'width' is 'auto', the used value is the
-                    // shrink-to-fit width as for floating elements.
+                    // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)
                     // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                     let available_width = (containing_block_size.width
                         - _box_props.margin.left
@@ -1481,6 +1507,8 @@ pub fn calculate_used_size_for_node(
     // +spec:height-calculation:7880e3 - Distinction between box types for height/margin calculation
     // +spec:height-calculation:753d8d - Height calculation for various box types (§10.6)
     // +spec:positioning:d5184e - percentage height resolved against containing block height
+    // +spec:height-calculation:6a6cac - §10.5 content height resolution (auto, length, percentage)
+    // +spec:height-calculation:d398e4 - §10.5/10.6 height property resolution for different box types
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
     // CSS `height` always refers to the physical vertical dimension, regardless of writing mode.
     // Percentage values resolve against the containing block's physical height.
@@ -1491,6 +1519,7 @@ pub fn calculate_used_size_for_node(
     let resolved_height = match css_height.unwrap_or_default() {
         LayoutHeight::Auto => {
             // +spec:width-calculation:be5eb1 - auto height means available block space is infinite (unconstrained)
+            // +spec:replaced-elements:994ac6 - §10.6.2: auto height for replaced elements uses intrinsic height or (used width)/ratio
             // For 'auto' height, we initially use the intrinsic content height.
             // For block containers, this will be updated later in the layout process
             // after the children's heights are known.
@@ -1518,6 +1547,7 @@ pub fn calculate_used_size_for_node(
 
             match pixels_opt {
                 Some(pixels) => pixels,
+                // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
                 None => match px.to_percent() {
                     Some(p) => resolve_percentage_with_box_model(
                         containing_block_size.height,
@@ -1688,6 +1718,8 @@ pub fn calculate_used_size_for_node(
 // +spec:min-max-sizing:b02ebc - sizing properties min-width/max-width/min-height/max-height and preferred aspect ratio
 // +spec:replaced-elements:740f3e - constraint violation table for replaced elements with intrinsic ratio and both width/height auto
 // with intrinsic ratios. Implements all 10 cases from the spec table, coordinating
+// +spec:min-max-sizing:07620d - CSS 2.2 §10.4 constraint violation table for replaced elements with intrinsic ratios
+// Implements all 11 cases from the spec table, coordinating
 // width and height together to preserve the aspect ratio while respecting min/max constraints.
 fn apply_constraint_violation_table(
     styled_dom: &StyledDom,
@@ -1869,7 +1901,7 @@ fn apply_width_constraints(
 
     use crate::solver3::getters::{get_css_max_width, get_css_min_width, MultiValue};
 
-    // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
+    // +spec:display-property:0c55e5 - auto min-width resolves to 0 for CSS2 display types
     // Resolve min-width (default is 0)
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {

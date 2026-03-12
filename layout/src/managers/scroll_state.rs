@@ -793,7 +793,7 @@ impl ScrollManager {
             // Re-clamp current offset to new bounds
             existing.current_offset = existing.clamp(existing.current_offset);
         } else {
-            // New scrollable node
+            // +spec:overflow:8c7aa1 - initial scroll position is zero (scroll origin for LTR/TTB)
             self.states.insert(
                 key,
                 AnimatedScrollState {

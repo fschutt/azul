@@ -683,6 +683,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // --- Step 3: Adjust Relatively Positioned Elements ---
     // +spec:positioning:a831e8 - inline content width uses pre-relative-offset positions (satisfied by post-layout relative adjustment)
     // +spec:positioning:e2647b - Relative positioning applied after line height calculation, so line height is not adjusted for relative offsets
+    // +spec:positioning:77a2d2 - Relatively positioned boxes considered without their offset during auto height
+    // +spec:positioning:b47ac2 - Relatively positioned boxes considered without their offset for block auto height
+    // Relative offsets applied AFTER layout, so auto-height calculation sees normal-flow positions.
     // This must be done BEFORE positioning out-of-flow elements, because
     // relatively positioned elements establish containing blocks for their
     // absolutely positioned descendants. If we adjust relative positions after
@@ -792,8 +795,16 @@ fn get_containing_block_for_node(
     }
     
     // +spec:containing-block:41bdfc - ICB equals viewport; overflow:hidden on root clips to ICB
+    // +spec:containing-block:1eed60 - Initial containing block establishes a BFC; viewport is the ICB
+    // +spec:containing-block:99866f - Containing block is a rectangle for sizing/positioning; ICB from viewport
+    // +spec:containing-block:22f09b - viewport serves as initial containing block for root element
     // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
-    // for replaced elements with aspect ratio but no intrinsic size.
+    // +spec:containing-block:2fd7b1 - ICB equals viewport; principal writing mode propagated to ICB
+    // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
+    // The principal writing mode is propagated to the ICB and viewport (css-writing-modes-4 §8.1).
+    // +spec:containing-block:5efb84 - Root element's containing block is the initial containing block
+    // +spec:containing-block:6278fb - initial containing block is the viewport; also serves as initial fixed containing block
+    // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
     // For ROOT nodes: the containing block is the viewport (initial containing block).
     // Do NOT subtract margin here - margins are handled in calculate_used_size().
     // The margin creates space between viewport edge and element's border-box,

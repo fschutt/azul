@@ -1186,7 +1186,7 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     content_size: LogicalSize,
     container_size: LogicalSize,
 ) -> ScrollbarRequirements {
-    // Skip scrollbar handling for paged media (PDF)
+    // +spec:overflow:08b60d - non-interactive media: UA may show scroll indicators but we skip them for print
     if ctx.fragmentation_context.is_some() {
         return ScrollbarRequirements::default();
     }
@@ -1548,6 +1548,9 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 
         // +spec:display-property:7cdba4 - static-position rectangle defaults to parent content-box origin
         // Set static position to parent's content-box origin
+        // +spec:display-property:dfabd1 - static position of block-level abs-pos box set to parent content-box origin (hypothetical box)
+        // +spec:positioning:495cec - static position uses parent content-box origin; auto margins treated as zero
+        // +spec:positioning:f94d22 - 10.6.4: static position for absolutely positioned elements set to parent content-box origin
         super::pos_set(calculated_positions, child_index, self_content_box_pos);
 
         // Recursively set static positions for nested out-of-flow descendants

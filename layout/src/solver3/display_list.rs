@@ -1942,6 +1942,8 @@ where
         }
 
         // 2. Push clips and scroll frames AFTER painting background
+        // +spec:positioning:ddc554 - overflow clips apply to absolutely positioned descendants
+        // when this node is their containing block (stacking contexts painted within clip scope)
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
@@ -2370,6 +2372,11 @@ where
     /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
     /// Returns true if any command was pushed.
     ///
+    /// // +spec:containing-block:62aa5c - overflow clipping applies to all content except
+    /// // descendants whose containing block is the viewport or an ancestor of this element
+    /// // (i.e. absolutely positioned elements that escape the overflow container).
+    /// // TODO: exempt abs-pos descendants whose containing block is an ancestor of this node.
+    ///
     /// For VirtualView nodes with `overflow: scroll/auto`, we intentionally skip
     /// `PushScrollFrame` / `PopScrollFrame`. VirtualView scroll state is managed by
     /// `ScrollManager`, not WebRender's APZ. Instead we emit only a `PushClip`
@@ -2402,7 +2409,9 @@ where
             self.ctx.viewport_size,
         );
 
-        // Check for CSS clip-path property.
+        // +spec:positioning:9c261b - clip-path (modern replacement for legacy 'clip' property)
+        // The legacy CSS 2.2 'clip' property applied only to absolutely positioned elements;
+        // clip-path supersedes it and applies to all elements per CSS Masking Level 1.
         // If present, push a clip region derived from the clip-path shape.
         // This is evaluated before overflow clips; both can be active simultaneously.
         let has_clip_path = if let Some(clip_path) = super::getters::get_clip_path(
@@ -2447,8 +2456,11 @@ where
 
         // +spec:overflow:13cacb - clip rect clamped to 0 so zero-size clips hide all pixels
         // +spec:overflow:9207bc - clip rect computed from border-box edges (analogous to CSS 2.2 clip: rect() offsets)
+        // +spec:overflow:3d5b53 - overflow clips to padding edge, scroll mechanism for scroll/auto
         // The clip rect for content should exclude the scrollbar area
         // Scrollbars are drawn inside the border-box, on the right/bottom edges
+        // +spec:overflow:a825a6 - TODO: abs-pos elements with containing block outside this
+        // element should not be clipped (currently all DOM children are clipped)
         let clip_rect = LogicalRect {
             origin: LogicalPosition {
                 x: paint_rect.origin.x + border.left,
@@ -3418,6 +3430,8 @@ where
         // which can be called as a post-processing step on the display list when
         // the node has overflow:hidden and text-overflow:ellipsis CSS properties.
         // +spec:overflow:7807b1 - text-overflow ellipsis side depends on direction (RTL clips left, LTR clips right); not yet implemented
+        // +spec:overflow:bbf9c1 - text-overflow ellipsis should only truncate content
+        // that is actually clipped; as content scrolls into view, show it instead of ellipsis
         // TODO: Handle text overflowing (based on container_rect and overflow behavior)
 
         // Calculate actual content bounds from the layout
@@ -3793,6 +3807,7 @@ where
     /// Determines if a node establishes a new stacking context based on CSS rules.
     // +spec:overflow:47b791 - z-index applies to positioned boxes; z-index:auto does not establish stacking context
     // +spec:positioning:8c6efd - Stacking contexts: positioned elements with z-index != auto establish new stacking context
+    // +spec:positioning:b84cfa - z-index stacking context creation: integer z-index on positioned elements creates SC; auto on fixed/root creates SC
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
             return false;
@@ -3971,6 +3986,8 @@ fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
 
 /// Calculates the actual content size of a node, including all children and text.
 /// This is used to determine if scrollbars should appear for overflow: auto.
+// +spec:overflow:c2ed94 - replaced element overflow is ink overflow (not scrollable);
+// replaced elements (images) don't contribute scrollable overflow here
 fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
     // First check if we have a pre-calculated overflow_content_size (for block children)
     if let Some(overflow_size) = node.overflow_content_size {

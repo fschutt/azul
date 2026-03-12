@@ -2201,6 +2201,7 @@ pub fn get_computed_display(
     if raw_display == LayoutDisplay::None {
         return LayoutDisplay::None;
     }
+    // +spec:positioning:69468c - absolute/fixed blockifies the box
     if is_absolute_or_fixed || is_floated || is_root {
         blockify_display(raw_display)
     } else {
@@ -2230,7 +2231,7 @@ pub fn get_vertical_align_for_node(
         StyleVerticalAlign::Superscript => crate::text3::cache::VerticalAlign::Super,
         StyleVerticalAlign::TextTop => crate::text3::cache::VerticalAlign::TextTop,
         StyleVerticalAlign::TextBottom => crate::text3::cache::VerticalAlign::TextBottom,
-        // §10.8.1: <percentage> refers to line-height of the element itself
+        // +spec:line-height:b41ee3 - percentage vertical-align: raise/lower by % of line-height, 0% = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
             let line_height = get_line_height_value(styled_dom, dom_id, node_state)

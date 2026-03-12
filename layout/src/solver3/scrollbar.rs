@@ -26,6 +26,7 @@ impl ScrollbarRequirements {
 
     // +spec:box-model:20c3c8 - scrollbar space reserved between inner border edge and outer padding edge
     // +spec:box-model:32cd53 - scrollbar space subtracted from containing block dimensions
+    // +spec:overflow:30a49c - scrollbar space subtracted from content area
     /// Takes a size (representing a content-box) and returns a new size
     /// reduced by the dimensions of any active scrollbars.
     pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
