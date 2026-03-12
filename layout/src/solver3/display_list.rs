@@ -2419,8 +2419,11 @@ where
 
         let styled_node_state = self.get_styled_node_state(dom_id);
 
-        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let raw_overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let raw_overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+        // +spec:overflow:833078 - resolve visible/clip to auto/hidden per CSS Overflow 3 §3.1
+        let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
+        let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
 
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
         let element_size = PhysicalSizeImport {
