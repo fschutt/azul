@@ -180,7 +180,49 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         }
 
         // Then calculate this node's intrinsic size based on its children
-        let intrinsic = self.calculate_node_intrinsic_sizes(tree, node_index, &child_intrinsics)?;
+        let mut intrinsic = self.calculate_node_intrinsic_sizes(tree, node_index, &child_intrinsics)?;
+
+        // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for intrinsic sizes
+        if let Some(dom_id) = tree.get(node_index).and_then(|n| n.dom_node_id) {
+            use azul_css::props::basic::{pixel::{DEFAULT_FONT_SIZE, PT_TO_PX}, SizeMetric};
+            use crate::solver3::getters::{get_css_min_width, get_css_min_height, MultiValue};
+
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+
+            if let MultiValue::Exact(mw) = get_css_min_width(self.ctx.styled_dom, dom_id, node_state) {
+                let px = &mw.inner;
+                let resolved = match px.metric {
+                    SizeMetric::Px => Some(px.number.get()),
+                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                    SizeMetric::In => Some(px.number.get() * 96.0),
+                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                    _ => None, // percentages are not <length>
+                };
+                if let Some(min_w) = resolved {
+                    intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
+                    intrinsic.max_content_width = intrinsic.max_content_width.max(min_w);
+                }
+            }
+
+            if let MultiValue::Exact(mh) = get_css_min_height(self.ctx.styled_dom, dom_id, node_state) {
+                let px = &mh.inner;
+                let resolved = match px.metric {
+                    SizeMetric::Px => Some(px.number.get()),
+                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                    SizeMetric::In => Some(px.number.get() * 96.0),
+                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                    _ => None,
+                };
+                if let Some(min_h) = resolved {
+                    intrinsic.min_content_height = intrinsic.min_content_height.max(min_h);
+                    intrinsic.max_content_height = intrinsic.max_content_height.max(min_h);
+                }
+            }
+        }
 
         if let Some(n) = tree.get_mut(node_index) {
             n.intrinsic_sizes = Some(intrinsic);
@@ -1340,6 +1382,16 @@ pub fn calculate_used_size_for_node(
     let width_is_auto = css_width.is_auto() || matches!(&css_width, MultiValue::Exact(LayoutWidth::Auto));
     let height_is_auto = css_height.is_auto() || matches!(&css_height, MultiValue::Exact(LayoutHeight::Auto));
 
+    // +spec:intrinsic-sizing:9e1c9d - non-quantitative values (auto, min-content, max-content) are not influenced by box-sizing
+    let width_is_quantitative = matches!(
+        &css_width,
+        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::FitContent(_) | LayoutWidth::Calc(_))
+    );
+    let height_is_quantitative = matches!(
+        &css_height,
+        MultiValue::Exact(LayoutHeight::Px(_) | LayoutHeight::FitContent(_) | LayoutHeight::Calc(_))
+    );
+
     // +spec:width-calculation:50d67a - automatic sizing concepts (width/height auto resolution)
     // +spec:width-calculation:564315 - §10.3 width calculation dispatch for all box types
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
@@ -1730,8 +1782,28 @@ pub fn calculate_used_size_for_node(
             // border-box: The width/height values already include border and padding
             // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
             // properties) on this element determine the border box of the element"
+            // However, non-quantitative values (auto, min-content, max-content) are not
+            // influenced by box-sizing, so they still need border+padding added.
             // Floor: content-box cannot go negative, so border-box >= padding+border
-            (constrained_width.max(min_border_box_w), constrained_height.max(min_border_box_h))
+            let bw = if width_is_quantitative {
+                constrained_width.max(min_border_box_w)
+            } else {
+                constrained_width
+                    + _box_props.padding.left
+                    + _box_props.padding.right
+                    + _box_props.border.left
+                    + _box_props.border.right
+            };
+            let bh = if height_is_quantitative {
+                constrained_height.max(min_border_box_h)
+            } else {
+                constrained_height
+                    + _box_props.padding.top
+                    + _box_props.padding.bottom
+                    + _box_props.border.top
+                    + _box_props.border.bottom
+            };
+            (bw, bh)
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
             // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding added outside
@@ -1780,6 +1852,7 @@ pub fn calculate_used_size_for_node(
 
 // +spec:min-max-sizing:b02ebc - sizing properties min-width/max-width/min-height/max-height and preferred aspect ratio
 // +spec:replaced-elements:740f3e - constraint violation table for replaced elements with intrinsic ratio and both width/height auto
+// +spec:min-max-sizing:939f2c - use min-width/min-height <length> with aspect ratio for replaced elements
 // with intrinsic ratios. Implements all 10 cases from the spec table, coordinating
 // +spec:min-max-sizing:07620d - CSS 2.2 §10.4 constraint violation table for replaced elements with intrinsic ratios
 // Implements all 11 cases from the spec table, coordinating
