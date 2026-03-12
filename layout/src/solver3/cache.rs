@@ -44,7 +44,7 @@ use crate::{
         geometry::PositionedRectangle,
         getters::{
             get_css_height, get_display_property, get_justify_content, get_overflow_x,
-            get_overflow_y, get_text_align, get_white_space_property, get_wrap, get_writing_mode,
+            get_overflow_y, get_scrollbar_gutter_property, get_text_align, get_white_space_property, get_wrap, get_writing_mode,
             MultiValue,
         },
         layout_tree::{
@@ -1215,6 +1215,38 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
         scrollbar_width_px,
     );
     reqs.visual_width_px = scrollbar_style.visual_width_px;
+
+    // +spec:overflow:e90f12 - scrollbar-gutter reserves space independently of scrollbar presence
+    // +spec:overflow:3c44cc - scrollbar-gutter: stable reserves gutter even when no scrollbar is shown
+    // +spec:overflow:3a6966 - classic scrollbar gutter width == scrollbar width; overlay scrollbars have no gutter
+    //
+    // scrollbar-gutter only applies to scroll containers (overflow: auto or scroll).
+    // "stable" reserves gutter on the inline-end edge even if no scrollbar is needed.
+    // "stable both-edges" reserves gutter on both inline edges.
+    let scrollbar_gutter = get_scrollbar_gutter_property(ctx.styled_dom, dom_id, styled_node_state)
+        .unwrap_or(azul_css::props::layout::overflow::StyleScrollbarGutter::Auto);
+    let ob_y = to_overflow_behavior(overflow_y);
+    let is_scroll_container = matches!(ob_y, fc::OverflowBehavior::Scroll | fc::OverflowBehavior::Auto);
+
+    if is_scroll_container {
+        use azul_css::props::layout::overflow::StyleScrollbarGutter;
+        match scrollbar_gutter {
+            StyleScrollbarGutter::Stable => {
+                // Reserve gutter on inline-end even if no scrollbar is currently needed
+                if !reqs.needs_vertical {
+                    reqs.scrollbar_width = scrollbar_width_px;
+                }
+            }
+            StyleScrollbarGutter::StableBothEdges => {
+                // Reserve gutter on both inline edges
+                reqs.scrollbar_width = scrollbar_width_px * 2.0;
+            }
+            StyleScrollbarGutter::Auto => {
+                // Default: gutter only present when scrollbar is present (already handled)
+            }
+        }
+    }
+
     reqs
 }
 
