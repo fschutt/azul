@@ -2448,8 +2448,12 @@ where
         // +spec:overflow:c52f2a - clipping region is rounded to element's border-radius
         // +spec:overflow:913b23 - when both axes are clip, region is rounded per overflow-clip-margin
         // +spec:overflow:449d69 - when one axis is clip and the other is visible, clipping region is not rounded
-        let border_radius = if (overflow_x == LayoutOverflow::Clip && overflow_y == LayoutOverflow::Visible)
-            || (overflow_y == LayoutOverflow::Clip && overflow_x == LayoutOverflow::Visible)
+        // +spec:overflow:449d69 - when one axis is clip and the other is visible, clipping region is not rounded
+        let ox_clip = overflow_x.is_clipped() && !overflow_x.is_scroll() && !overflow_x.is_auto_overflow();
+        let oy_clip = overflow_y.is_clipped() && !overflow_y.is_scroll() && !overflow_y.is_auto_overflow();
+        let ox_visible = !overflow_x.is_clipped();
+        let oy_visible = !overflow_y.is_clipped();
+        let border_radius = if (ox_clip && oy_visible) || (oy_clip && ox_visible)
         {
             BorderRadius::default()
         } else {

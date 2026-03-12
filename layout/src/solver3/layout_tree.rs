@@ -2394,7 +2394,6 @@ fn determine_formatting_context_for_display(
         // +spec:display-property:0bac26 - list-item limited to flow layout inner types (block/flow-root)
         // +spec:display-property:0beffc - block container with only inline children establishes IFC
         // +spec:display-property:7c49c1 - block container with only inline children establishes an IFC
-        LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
         // +spec:display-property:90ba2a - flow-root always establishes a new BFC
         LayoutDisplay::FlowRoot => FormattingContext::Block {
             establishes_new_context: true,
