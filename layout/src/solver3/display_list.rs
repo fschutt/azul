@@ -1395,7 +1395,10 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
         }
     }
 
+    // +spec:stacking-contexts:33d435 - CSS 2.2 painting order: build stacking context tree then traverse in z-order
+    // +spec:stacking-contexts:887766 - CSS2 §9.9 stacking contexts, z-index layering, and painting order
     // 1. Build a tree of stacking contexts, which defines the global paint order.
+    // +spec:display-property:9a419c - root element always forms a stacking context (it's the tree root)
     let stacking_context_tree = generator.collect_stacking_contexts(tree.root)?;
 
     // 2. Traverse the stacking context tree to generate display items in the correct order.
@@ -1427,6 +1430,7 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     dom_id: DomId,
 }
 
+// +spec:stacking-contexts:9e85a3 - Stacking context tree: hierarchical, nested, atomic painting order
 /// Represents a node in the CSS stacking context tree, not the DOM tree.
 #[derive(Debug)]
 struct StackingContext {
@@ -1737,6 +1741,7 @@ where
     }
 
     /// Recursively builds the tree of stacking contexts starting from a given layout node.
+    // +spec:writing-modes:a86a28 - preorder depth-first traversal of the rendering tree in logical order
     fn collect_stacking_contexts(&mut self, node_index: usize) -> Result<StackingContext> {
         let node = self
             .positioned_tree
@@ -1775,8 +1780,19 @@ where
         })
     }
 
+    // +spec:box-model:de94ab - stacking context painting order (negative z, in-flow, z=0, positive z)
+    // +spec:display-property:337069 - CSS 2.2 E.2 painting order: stacking contexts sorted by z-index, in-flow children in tree order
+    // +spec:display-property:7b0a87 - CSS 2.2 E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
+    // +spec:stacking-contexts:5cbdfb - full CSS painting order (bg, neg-z, in-flow, z0, pos-z)
+    // +spec:stacking-contexts:3ded3a - CSS 2.2 Appendix E painting order: definitions and tree order traversal
+    // +spec:stacking-contexts:973368 - CSS 2.2 Appendix E.2 painting order: bg/border, negative z, in-flow, zero z, positive z
+    // +spec:stacking-contexts:464bb7 - CSS 2.2 §9.9.1 painting order: negative z-index, in-flow, z-index 0, positive z-index (recursive)
     /// Recursively traverses the stacking context tree, emitting drawing commands to the builder
     /// according to the CSS Painting Algorithm specification.
+    // +spec:display-property:39e879 - CSS 2.2 E.2 painting order for block-level and inline-level elements
+    // +spec:display-property:de4c66 - CSS 2.2 E.2 stacking context paint order (canvas bg, negative z, in-flow, floats, inline, positive z)
+    // +spec:overflow:6e48b4 - CSS 2.2 Appendix E painting order: bg/border, negative z-index, in-flow, floats, z-index 0/auto, positive z-index
+    // +spec:stacking-contexts:55ca96 - CSS 2.2 E.2 painting order: backgrounds, negative z-index, in-flow, z-index 0/auto, positive z-index
     fn generate_for_stacking_context(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -1903,9 +1919,11 @@ where
         // This wraps background, border, and all children so the SVG mask clips everything.
         let did_push_image_mask = self.push_image_mask_clip(builder, context.node_index);
 
+        // +spec:box-model:84b238 - CSS 2.2 E.2 painting order: bg/border, negative z, in-flow, z=0, positive z
         // 1. Paint background and borders for the context's root element.
         // This must be BEFORE push_node_clips so the container background
         // is rendered in parent space (stationary), not scroll space.
+        // +spec:overflow:40052b - backgrounds paint at border-box, scrollbars overlay on top (scrollbar-extended background positioning area)
         self.paint_node_background_and_border(builder, context.node_index)?;
 
         // 1b. For scrollable containers, push the hit-test area BEFORE the scroll frame
@@ -1926,6 +1944,7 @@ where
         // 2. Push clips and scroll frames AFTER painting background
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
+        // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
         // 3. Paint child stacking contexts with negative z-indices.
         let mut negative_z_children: Vec<_> = context
             .child_contexts
@@ -1940,11 +1959,13 @@ where
         // 4. Paint the in-flow descendants of the context root.
         self.paint_in_flow_descendants(builder, context.node_index, &context.in_flow_children)?;
 
+        // +spec:stacking-contexts:9a4eb3 - z-index:auto/0 positioned descendants painted in tree order
         // 5. Paint child stacking contexts with z-index: 0 / auto.
         for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
             self.generate_for_stacking_context(builder, child)?;
         }
 
+        // +spec:stacking-contexts:198fa4 - positive z-index stacking contexts painted in z-index order then tree order
         // 6. Paint child stacking contexts with positive z-indices.
         let mut positive_z_children: Vec<_> = context
             .child_contexts
@@ -2026,6 +2047,8 @@ where
         // 3. Paint the node's own content (text, images, hit-test areas).
         self.paint_node_content(builder, node_index)?;
 
+        // +spec:display-property:86a3de - inline-level boxes painted in document order; z-index does not apply
+        // +spec:floats:b8c494 - E.2 painting order: non-positioned floats painted after block-level descendants, in tree order
         // 4. Recursively paint the in-flow children in correct CSS painting order:
         //    - First: Non-float, non-dragging block-level children
         //    - Then: Float, non-dragging children (so they appear on top)
@@ -2154,6 +2177,7 @@ where
             }
         }
 
+        // +spec:positioning:1bcbb5 - floats rendered in front of non-positioned in-flow blocks, but behind in-flow inlines
         // Paint float children AFTER non-floats (so they appear on top)
         for child_index in float_children {
             let child_node = self
@@ -2341,6 +2365,8 @@ where
         }
     }
 
+    // +spec:overflow:531bd2 - ancestor clips accumulate via push_clip/pop_clip stack (cumulative intersection)
+    // +spec:overflow:8098ec - overflow clipping/scrolling; abs-pos elements with containing block outside scroller are not scrolled
     /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
     /// Returns true if any command was pushed.
     ///
@@ -2402,12 +2428,16 @@ where
             false
         };
 
+        // +spec:overflow:6890f2 - text-overflow: clip inline content at end line box edge when overflow != visible
+        // +spec:overflow:77d7ce - clipping region defines visible portion of border box; default is not clipped
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
         if !needs_clip {
             return Ok(has_clip_path);
         }
 
+        // +spec:overflow:c52f2a - clipping region is rounded to element's border-radius
+        // +spec:overflow:913b23 - when both axes are clip, region is rounded per overflow-clip-margin
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let border = &node.box_props.border;
@@ -2415,6 +2445,8 @@ where
         // Get scrollbar info to adjust clip rect for content area
         let scrollbar_info = get_scrollbar_info_from_layout(node);
 
+        // +spec:overflow:13cacb - clip rect clamped to 0 so zero-size clips hide all pixels
+        // +spec:overflow:9207bc - clip rect computed from border-box edges (analogous to CSS 2.2 clip: rect() offsets)
         // The clip rect for content should exclude the scrollbar area
         // Scrollbars are drawn inside the border-box, on the right/bottom edges
         let clip_rect = LogicalRect {
@@ -2439,6 +2471,8 @@ where
 
         let is_virtual_view = self.is_virtual_view_node(dom_id);
 
+        // +spec:overflow:484889 - clip content in unreachable scrollable overflow region
+        // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate system
         if overflow_x.is_scroll() || overflow_y.is_scroll() {
             if is_virtual_view {
                 // VirtualView nodes: only push a clip, NO scroll frame.
@@ -2709,6 +2743,7 @@ where
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
+            // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not affecting layout
             // Check all four sides for box-shadow (azul stores them per-side)
             for get_shadow_fn in [
                 azul_core::prop_cache::CssPropertyCache::get_box_shadow_left,
@@ -2750,6 +2785,10 @@ where
     }
 
     //   backgrounds are invisible, allowing table background to show through
+    // +spec:box-model:124815 - Table layer background painting order (6 layers: table, col-group, col, row-group, row, cell)
+    // +spec:positioning:702985 - Table background painting in 6 layers (17.5.1)
+    // +spec:table-layout:7370dc - Table layers and transparency: 6-layer background painting order
+    // +spec:table-layout:7a5909 - table layers: 6-layer background paint order (table/colgroup/col/rowgroup/row/cell)
     /// CSS 2.2 Section 17.5.1: Table background painting in 6 layers
     ///
     /// Implements the CSS 2.2 specification for table background painting order.
@@ -3033,6 +3072,8 @@ where
                 builder.push_item(DisplayListItem::PopTextShadow);
             }
         } else if let Some(dom_id) = node.dom_node_id {
+            // +spec:replaced-elements:edd21b - block-level replaced element painted atomically per E.2
+            // +spec:replaced-elements:516b2a - replaced content painted atomically in painting order
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
@@ -3376,6 +3417,8 @@ where
         // NOTE: Text-overflow ellipsis is handled via apply_text_overflow_ellipsis()
         // which can be called as a post-processing step on the display list when
         // the node has overflow:hidden and text-overflow:ellipsis CSS properties.
+        // +spec:overflow:7807b1 - text-overflow ellipsis side depends on direction (RTL clips left, LTR clips right); not yet implemented
+        // TODO: Handle text overflowing (based on container_rect and overflow behavior)
 
         // Calculate actual content bounds from the layout
         // Use these bounds instead of container_rect to avoid inflated bounds
@@ -3648,6 +3691,7 @@ where
         Ok(())
     }
 
+    // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per E.2
     /// Paints an inline shape (inline-block background and border)
     fn paint_inline_shape(
         &self,
@@ -3745,7 +3789,10 @@ where
         Ok(())
     }
 
+    // +spec:overflow:d1d5f6 - CSS 2.2 §9.9.1 stacking context creation and 7-layer paint order
     /// Determines if a node establishes a new stacking context based on CSS rules.
+    // +spec:overflow:47b791 - z-index applies to positioned boxes; z-index:auto does not establish stacking context
+    // +spec:positioning:8c6efd - Stacking contexts: positioned elements with z-index != auto establish new stacking context
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
             return false;
@@ -3761,6 +3808,7 @@ where
             return true;
         }
 
+        // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking context
         // z-index:auto on position:absolute does NOT establish stacking context
         if position == LayoutPosition::Absolute {
             return !z_auto;
@@ -5453,6 +5501,7 @@ pub struct BreakProperties {
 /// Note: This is a best-effort implementation. A pixel-perfect version would
 /// need access to font metrics to measure the exact ellipsis glyph width and
 /// to look up the correct glyph index for the ellipsis in each font.
+// +spec:overflow:f175b9 - bidi ellipsis: characters visually at the end edge of the line are hidden for ellipsis
 pub fn apply_text_overflow_ellipsis(
     display_list: &mut DisplayList,
     container_bounds: LogicalRect,

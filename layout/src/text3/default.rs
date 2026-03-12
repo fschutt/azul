@@ -107,6 +107,7 @@ fn get_parsed_font(font_ref: &FontRef) -> &ParsedFont {
 }
 
 impl ParsedFontTrait for FontRef {
+    // +spec:block-formatting-context:21ec9a - bidi direction handled during text shaping for vertical writing modes
     fn shape_text(
         &self,
         text: &str,
@@ -693,6 +694,8 @@ fn shape_text_internal(
     #[cfg(not(feature = "text_layout_hyphenation"))]
     let lang_tag = 0u32;
 
+    // +spec:text-alignment-spacing:4357e6 - non-zero letter-spacing should disable optional ligatures; allsorts API is additive-only so default liga cannot be disabled here
+    // +spec:text-alignment-spacing:24d624 - cursive script letter-spacing behavior is advisory (outside CSS scope per spec note)
     let mut user_features: Vec<FeatureInfo> = style
         .font_features
         .iter()

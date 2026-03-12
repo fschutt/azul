@@ -451,6 +451,7 @@ impl PrintAsCssValue for StyleTextAlignLast {
 // -- StyleDirection --
 
 /// Text direction.
+// +spec:writing-modes:46fed3 - direction property provides explicit bidi controls in CSS
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleDirection {
@@ -2509,9 +2510,11 @@ pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleT
 ///
 /// Specifies the metrics used for determining the over/under edges of text
 /// for the purposes of `text-box-trim`.
+// +spec:writing-modes:daad86 - first value = over edge, second = under edge; single value applies to both (else "text" assumed for missing)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleTextBoxEdge {
+    // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as text
     Auto,
     TextEdge,
     CapHeight,
@@ -2689,9 +2692,13 @@ pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaselin
 
 // -- StyleAlignmentBaseline --
 
+// +spec:display-property:c90924 - alignment-baseline property: values, initial value, and applies-to per CSS Inline 3 §4.2.2
+// +spec:font-metrics:fa4489 - alignment-baseline property: specifies box's alignment baseline used before post-alignment shift
+// +spec:inline-block:939f05 - alignment-baseline property definition with all spec values (baseline, text-bottom, alphabetic, ideographic, middle, central, mathematical, text-top)
 /// Represents the `alignment-baseline` CSS property.
 ///
 /// Specifies which baseline of the element is aligned with the dominant baseline.
+// +spec:writing-modes:cc8e70 - alignment-baseline values for inline baseline alignment
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleAlignmentBaseline {

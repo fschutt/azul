@@ -173,6 +173,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
         runs.push(run);
     }
 
+    // +spec:box-model:6c62d3 - suppress margins/borders/padding at inline box split points
     // CSS 2.2 §9.4.2: When an inline box is split across lines, margins, borders,
     // and padding have no visible effect at the split points.
     // Post-process: for runs from the same source_node_id that have borders,
@@ -612,11 +613,18 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
 }
 
 // ============================================================================
+// +spec:display-property:e124e9 - Line box height sized to include aligned layout bounds of all inline-level boxes
 // LINE BOX METRICS ACCUMULATOR (CSS 2.2 §10.8.1)
+// +spec:height-calculation:18825a - half-leading model for line box height calculation
+// +spec:inline-formatting-context:ce2b15 - line box height from vertical stack of inline-level boxes
 // ============================================================================
 
 /// Accumulates metrics for a single line box during inline layout.
 ///
+// +spec:display-property:61a267 - inline-sizing default (normal): content area height = font metrics (ascent+descent), no layout effect
+// +spec:display-property:a15ae9 - line-height determines layout bounds (contribution to line box logical height)
+// +spec:display-property:adc520 - inline-level baseline alignment: each glyph/inline-box aligned to parent baseline, then shifted by vertical-align
+// +spec:display-property:e2e64f - line box block-axis sizing from inline-level contents via line-height
 /// Implements the CSS 2.2 §10.8.1 "half-leading" model:
 /// - Each inline item has a content area (ascent + descent from font metrics)
 /// - CSS `line-height` distributes "half-leading" equally above and below
@@ -646,7 +654,15 @@ impl LineBoxMetrics {
     /// - `descent`: font descent (positive, distance from baseline to bottom of text)
     /// - `line_height`: the computed CSS `line-height` for this item
     ///
+    // +spec:font-metrics:05193a - half-leading model: L = line-height - AD, split above/below
     /// Half-leading = (line_height - (ascent + descent)) / 2, added above and below.
+    // +spec:box-model:533ca2 - line-fit-edge:leading: line box height uses half-leading, not inline box margin/padding/border
+    // +spec:box-model:04846b - line-fit-edge:leading mode only uses line-height for layout bounds (non-leading modes not yet implemented)
+    // +spec:display-property:a15ae9 - line-height determines inline box layout bounds (contribution to line box height)
+    // +spec:font-metrics:5c5f79 - leading value: ascent/descent plus positive half-leading sizes line box
+    // +spec:font-metrics:3d59af - leading value uses half-leading; margin/padding/border ignored for line box sizing
+    /// // +spec:line-height:b3be30 - half-leading distributed above/below; line box grows to accommodate overflow
+    // +spec:overflow:196059 - half-leading model: L = line-height - AD, half added above A and below D
     pub fn add_item(&mut self, ascent: f32, descent: f32, line_height: f32) {
         let content_height = ascent + descent;
         let half_leading = (line_height - content_height) / 2.0;

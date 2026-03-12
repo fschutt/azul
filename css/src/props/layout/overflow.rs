@@ -5,9 +5,12 @@ use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
+// +spec:overflow:647a7b - overflow property (visible/hidden/clip/scroll/auto), overflow-clip-margin, text-overflow defined in CSS Overflow 3
 /// Represents an `overflow-x` or `overflow-y` property.
 ///
 /// Determines what to do when content overflows an element's box.
+// +spec:overflow:3526f7 - overflow property with scroll/clip/hidden/visible/auto values
+// +spec:overflow:36c4f6 - overflow-x/overflow-y properties with clip value
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutOverflow {
@@ -18,6 +21,7 @@ pub enum LayoutOverflow {
     /// Clips overflowing content. The rest of the content will be invisible.
     Hidden,
     /// Content is not clipped and renders outside the element's box. This is the CSS default.
+    // +spec:overflow:236100 - initial value of 'overflow' is 'visible'
     #[default]
     Visible,
     /// Similar to `hidden`, clips the content at the box's edge.
@@ -30,6 +34,9 @@ impl LayoutOverflow {
     /// - `overflow: scroll` always shows the scrollbar.
     /// - `overflow: auto` only shows the scrollbar if the content is currently overflowing.
     /// - `overflow: hidden`, `overflow: visible`, and `overflow: clip` do not show any scrollbars.
+    // +spec:overflow:2bf182 - overflow:scroll always shows scrollbar whether or not content is clipped
+    // +spec:overflow:84cd40 - scroll value always displays scrollbar for accessing clipped content
+    // +spec:overflow:8fcdd8 - auto causes scrolling mechanism for overflowing boxes (table exception is UA-level)
     pub fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
         match self {
             LayoutOverflow::Scroll => true,
@@ -38,6 +45,10 @@ impl LayoutOverflow {
         }
     }
 
+    // +spec:overflow:145749 - overflow:hidden clips content to containing element box
+    // +spec:overflow:3dc18e - overflow:hidden clips content with no scrolling UI
+    // +spec:overflow:81e306 - clipping region clips all aspects outside it; clipped content does not cause overflow
+    // +spec:overflow:fd38ce - overflow properties specify whether a box's content is clipped / scroll container
     pub fn is_clipped(&self) -> bool {
         // All overflow values except 'visible' clip their content
         matches!(
@@ -49,6 +60,7 @@ impl LayoutOverflow {
         )
     }
 
+    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
     pub fn is_scroll(&self) -> bool {
         matches!(self, LayoutOverflow::Scroll)
     }
@@ -139,11 +151,13 @@ pub fn parse_layout_overflow<'a>(
 }
 
 // -- StyleScrollbarGutter --
+// +spec:box-model:e98b7c - scrollbar gutter: space between inner border edge and outer padding edge
 
 /// Represents the `scrollbar-gutter` CSS property.
 ///
 /// Controls whether space is reserved for the scrollbar, preventing
 /// layout shifts when content overflows.
+// +spec:overflow:da4bbc - scrollbar-gutter affects gutter presence, not scrollbar visibility
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleScrollbarGutter {
@@ -231,6 +245,7 @@ pub fn parse_style_scrollbar_gutter<'a>(
 ///
 /// Determines how far outside the element's box the content may paint
 /// before being clipped when `overflow: clip` is used.
+// +spec:overflow:455786 - overflow-clip-margin has no effect on hidden/scroll, only on clip
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleOverflowClipMargin {

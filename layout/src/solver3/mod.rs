@@ -678,7 +678,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         break;
     }
 
+    // +spec:positioning:8d1286 - normal flow, relative, float, absolute positioning dispatch
+    // +spec:positioning:bdfc81 - Layout divided into sizing (Step 2) then positioning (Step 3)
     // --- Step 3: Adjust Relatively Positioned Elements ---
+    // +spec:positioning:a831e8 - inline content width uses pre-relative-offset positions (satisfied by post-layout relative adjustment)
+    // +spec:positioning:e2647b - Relative positioning applied after line height calculation, so line height is not adjusted for relative offsets
     // This must be done BEFORE positioning out-of-flow elements, because
     // relatively positioned elements establish containing blocks for their
     // absolutely positioned descendants. If we adjust relative positions after
@@ -735,6 +739,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     Ok(display_list)
 }
 
+// +spec:containing-block:159830 - Containing block chain: parent content-box for in-flow, viewport for initial containing block
+// +spec:containing-block:22fbaa - computes the element's original containing block (before positioning effects)
+// +spec:containing-block:238fc5 - containing block dimensions calculated here (CSS 2.2 §9.1.2 forward ref to §10)
+// +spec:containing-block:263629 - block element's content-box establishes the containing block for its line boxes
+// +spec:containing-block:2a5280 - boxes act as containing blocks for descendants; CB = parent's content box
+// +spec:containing-block:6776cb - boxes positioned w.r.t. containing block but not confined; overflow allowed
+// +spec:containing-block:718894 - CB derived from parent content-box edges; root uses initial CB (viewport)
+// +spec:containing-block:a2aa37 - box edges act as containing block for descendants; initial containing block = viewport
+// +spec:containing-block:e23b3f - CSS 2.2 §10.1: initial containing block = viewport; static/relative = parent content-box; fixed = viewport
+// +spec:containing-block:e8fdb2 - Containing block resolution (CSS2 §9.1.2, §10.1)
+// +spec:overflow:9a2b11 - containing block is content-box of parent; boxes may overflow it
+// +spec:positioning:acc663 - containing block definition: element boxes positioned relative to containing block
 fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
@@ -764,6 +780,7 @@ fn get_containing_block_for_node(
                     .map(|n| &n.styled_node_state)
                     .cloned()
                     .unwrap_or_default();
+                // +spec:containing-block:c205e5 - writing mode of containing block used for inner_size (orthogonal flow awareness)
                 let writing_mode =
                     get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
                 let content_size = parent_node.box_props.inner_size(size, writing_mode);
@@ -774,6 +791,7 @@ fn get_containing_block_for_node(
         }
     }
     
+    // +spec:containing-block:41bdfc - ICB equals viewport; overflow:hidden on root clips to ICB
     // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
     // for replaced elements with aspect ratio but no intrinsic size.
     // For ROOT nodes: the containing block is the viewport (initial containing block).

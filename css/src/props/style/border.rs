@@ -23,6 +23,7 @@ use crate::{
 /// Style of a `border`: solid, double, dash, ridge, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
+// +spec:box-model:28fad6 - Border style variants including groove/ridge/inset/outset for separated/collapsing border models
 pub enum BorderStyle {
     None,
     Solid,
@@ -153,6 +154,7 @@ macro_rules! define_border_side_property {
 
 // --- Individual Property Structs ---
 
+// +spec:box-model:8c49fe - Border style properties (none, solid, double, dashed, etc.) and border color defaulting to element's color
 // Border Style (border-*-style)
 define_border_side_property!(StyleBorderTopStyle, BorderStyle, BorderStyle::None);
 define_border_side_property!(StyleBorderRightStyle, BorderStyle, BorderStyle::None);

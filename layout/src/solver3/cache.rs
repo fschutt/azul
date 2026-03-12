@@ -459,6 +459,7 @@ pub fn reposition_clean_subtrees(
 
 /// Convert LayoutOverflow to OverflowBehavior
 /// CSS Overflow Module Level 3: initial value of `overflow` is `visible`.
+// +spec:overflow:3a6297 - initial value 'visible', maps hidden/scroll/auto overflow behaviors
 pub fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
     match overflow.unwrap_or(LayoutOverflow::Visible) {
         LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
@@ -469,6 +470,7 @@ pub fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::Overflo
 }
 
 /// Convert StyleTextAlign to fc::TextAlign
+// +spec:text-alignment-spacing:43ea0a - text-align-all shorthand: aligns all lines except last (overridden by text-align-last)
 pub const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
     match text_align {
         StyleTextAlign::Start | StyleTextAlign::Left => fc::TextAlign::Start,
@@ -851,6 +853,8 @@ pub fn reconcile_recursive(
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
     let mut new_child_hashes = Vec::new();
 
+    // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container has mixed block/inline children
+    // +spec:display-property:757898 - Anonymous block boxes around inline content in mixed block/inline containers
     // CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
     // "When an inline box contains an in-flow block-level box, the inline box
     // (and its inline ancestors within the same line box) are broken around
@@ -913,6 +917,7 @@ pub fn reconcile_recursive(
                     // whitespace-only text nodes (and white-space doesn't preserve it),
                     // skip creating the anonymous IFC wrapper. This prevents inter-block
                     // whitespace from creating empty blocks that take up vertical space.
+                    // +spec:display-property:bef3fc - anonymous blocks of only collapsible whitespace removed from rendering tree
                     if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
                         if let Some(msgs) = debug_messages.as_mut() {
                             msgs.push(LayoutDebugMessage::info(format!(
@@ -1541,6 +1546,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             continue;
         }
 
+        // +spec:display-property:7cdba4 - static-position rectangle defaults to parent content-box origin
         // Set static position to parent's content-box origin
         super::pos_set(calculated_positions, child_index, self_content_box_pos);
 
@@ -1752,6 +1758,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         None => MultiValue::Auto, // Anonymous boxes have auto height
     };
 
+    // +spec:overflow:44ef3b - scroll container detection: overflow scroll/auto makes box a scroll container
     // Check if this node is a scroll container (overflow: scroll/auto).
     // Scroll containers must NOT expand to fit content — their height is
     // determined by the containing block, and overflow is scrollable.
@@ -1819,6 +1826,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         }
         current_node.scrollbar_info = Some(merged_scrollbar_info.clone());
         // Store overflow content size for scroll frame calculation
+        // +spec:overflow:f28d6a - hanging glyphs should be ink overflow, not scrollable overflow (not yet subtracted from content_size)
         current_node.overflow_content_size = Some(content_size);
 
         // self_content_box_pos is [CoordinateSpace::Window] - the absolute position of this node's content-box

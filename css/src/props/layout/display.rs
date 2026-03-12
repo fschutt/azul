@@ -6,11 +6,14 @@ use crate::corety::AzString;
 use crate::props::formatter::PrintAsCssValue;
 
 /// Represents a `display` CSS property value
+// +spec:display-property:472a62 - display property controls box generation types per CSS 2.2 §9.2
+// +spec:display-property:cf1820 - display type enum defining box generation qualities
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutDisplay {
     // Basic display types
     None,
+    // +spec:display-property:7d945d - outer display defaults to block, inner defaults to flow
     #[default]
     Block,
     Inline,
@@ -20,6 +23,10 @@ pub enum LayoutDisplay {
     Flex,
     InlineFlex,
 
+    // +spec:display-property:03b26a - Table display types mapping document elements to CSS table model
+    // +spec:display-property:d40388 - layout-internal display types set both inner and outer display
+    // +spec:display-property:dcf7f5 - table display values (table, inline-table, table-row, etc.) per CSS 2.2 §17
+    // +spec:table-layout:7fdc60 - display property maps elements to table roles (CSS 2.2 §17.1)
     // Table layout
     Table,
     InlineTable,
@@ -69,6 +76,8 @@ impl LayoutDisplay {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
     }
 
+    // +spec:display-property:101f27 - inline-level boxes (InlineBlock, InlineFlex, etc.) vs inline boxes (Inline)
+    // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
     pub fn is_inline_level(&self) -> bool {
         matches!(
             self,
@@ -81,6 +90,7 @@ impl LayoutDisplay {
     }
 }
 
+// +spec:display-property:cabaec - serialization uses short display keywords per CSSOM precedence rules
 impl PrintAsCssValue for LayoutDisplay {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -186,6 +196,7 @@ pub fn parse_layout_display<'a>(
         "none" => Ok(LayoutDisplay::None),
         "block" => Ok(LayoutDisplay::Block),
         "inline" => Ok(LayoutDisplay::Inline),
+        // +spec:display-property:f704ef - legacy single-keyword inline-level display values (inline-block, inline-table, inline-flex, inline-grid)
         "inline-block" => Ok(LayoutDisplay::InlineBlock),
         "flex" => Ok(LayoutDisplay::Flex),
         "inline-flex" => Ok(LayoutDisplay::InlineFlex),

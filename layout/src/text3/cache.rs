@@ -661,10 +661,14 @@ pub struct CursorBoundsError {
 /// ## \u00a7 5 Line Spacing (line-height property)
 /// - `line_height`: \u2705 Implemented
 /// - \u274c MISSING: line-fit-edge for controlling which edges contribute to line height
+/// +spec:box-model:51342f - inline box margins/borders/padding do not affect line box height (default leading mode)
+/// +spec:font-metrics:618776 - line-fit-edge (cap, ex, ideographic, alphabetic edge selection) not yet implemented
 ///
 /// ## \u00a7 6 Trimming Leading (text-box-trim)
 /// - \u274c NOT IMPLEMENTED: text-box-trim property
 /// - \u274c NOT IMPLEMENTED: text-box-edge property
+/// +spec:box-model:c09331 - text-box-trim trims block container first/last line to font metrics
+/// // +spec:overflow:dc2196 - text-box-trim overflow handled as normal overflow (no special handling needed)
 ///
 /// ## CSS Text Module Level 3
 /// - `text_indent`: \u2705 First line indentation
@@ -692,6 +696,9 @@ pub struct CursorBoundsError {
 /// 1. [ISSUE] available_width defaults to Definite(0.0) instead of containing block width
 /// 2. [ISSUE] vertical_align only supports baseline
 /// 3. [TODO] initial-letter (drop caps) not implemented
+// +spec:box-model:415ef3 - initial letters use standard margin/padding/border box model; exclusion area = margin box
+// +spec:box-model:d53ea3 - when block-start padding+border are zero, content edge coincides with over alignment point
+/// +spec:positioning:fb233a - initial letter block-axis: if size < sink, use over alignment
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
@@ -704,11 +711,13 @@ pub struct UnifiedConstraints {
 
     // Text layout
     pub writing_mode: Option<WritingMode>,
+    // +spec:writing-modes:6c5ab9 - blocks inherit base direction from parent via CSS direction property
     // Base direction from CSS, overrides auto-detection
     pub direction: Option<BidiDirection>,
     pub text_orientation: TextOrientation,
     pub text_align: TextAlign,
     pub text_justify: JustifyContent,
+    // +spec:display-property:3bcac8 - inline boxes sized in block axis based on font metrics (ascent/descent)
     pub line_height: f32,
     pub vertical_align: VerticalAlign,
     // block container's first available font, used for minimum line box height
@@ -1081,8 +1090,16 @@ pub struct VerticalMetrics {
     pub origin_y: f32,
 }
 
+// +spec:font-metrics:df51b1 - font metrics (ascent, descent, line_gap) used as baselines for inline layout alignment and box sizing
 /// Layout-specific font metrics extracted from FontMetrics
 /// Contains only the metrics needed for text layout and rendering
+// +spec:box-model:a2f1c1 - inline box content area sized from first available font metrics (ascent/descent)
+// +spec:font-metrics:9c2ca5 - ascent and descent metrics per font for inline layout
+// +spec:font-metrics:797593 - font metrics (ascent, descent, line-gap) used for baseline calculations
+// +spec:font-metrics:842d6a - font metrics (ascent, descent) used for precise spacing control
+// +spec:font-metrics:eb97e0 - Font baseline metrics (ascent/descent) from font tables used for baseline alignment
+// +spec:font-metrics:f2cd75 - em-over/em-under baselines intentionally not included (not used by CSS per spec)
+// +spec:inline-formatting-context:76cd57 - ascent/descent font metrics for inline formatting context layout
 #[derive(Debug, Clone)]
 pub struct LayoutFontMetrics {
     pub ascent: f32,
@@ -1092,15 +1109,29 @@ pub struct LayoutFontMetrics {
 }
 
 impl LayoutFontMetrics {
+    // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font size
+    // +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for horizontal text
+    // +spec:writing-modes:098958 - baseline is along the inline axis, used to align glyphs
     pub fn baseline_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / self.units_per_em as f32;
         self.ascent * scale
     }
 
+    // +spec:line-height:471816 - line gap metric extracted from font for optional use when line-height is normal
     /// Convert from full FontMetrics to layout-specific metrics.
     ///
+    // +spec:font-metrics:05193a - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
+    // +spec:font-metrics:17a71c - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
+    // +spec:font-metrics:62c659 - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     /// Per CSS 2.2 §10.8.1: prefer OS/2 sTypoAscender/sTypoDescender,
     /// fall back to HHEA Ascent/Descent if OS/2 metrics are absent.
+    // +spec:font-metrics:3dc8c1 - text-over/text-under baselines from font ascent/descent metrics
+    // +spec:font-metrics:332c16 - text-over/text-under baseline metrics derived from font ascent/descent
+    // +spec:font-metrics:9895e2 - baseline table is a font-level property; metrics apply uniformly to all glyphs
+    // +spec:font-metrics:e05c40 - font ascent/descent metric extraction (text edge metrics)
+    // +spec:font-metrics:21a3de - ascent/descent used as basis for em-over/em-under normalization
+    // +spec:font-metrics:1257b7 - font ascent/descent ensure text fits within line box
+    // +spec:table-layout:6bbd10 - use sTypoAscender/sTypoDescender as ascent/descent metrics per spec recommendation
     pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
         let ascent = metrics.s_typo_ascender
             .as_option()
@@ -1158,6 +1189,8 @@ pub enum OverflowWrap {
     BreakWord,
 }
 
+// +spec:line-breaking:841a87 - hyphens property: manual (U+00AD/U+2010 only) and auto (language-aware automatic hyphenation)
+// +spec:line-breaking:68c6ad - hyphens property controls hyphenation opportunities (none/manual/auto)
 /// Controls whether hyphenation is allowed to create soft wrap opportunities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Hyphens {
@@ -1170,6 +1203,9 @@ pub enum Hyphens {
     Auto,
 }
 
+// +spec:line-breaking:ce5258 - white-space property controls collapsing, wrapping, and forced breaks
+// +spec:line-breaking:35817b - normal/pre/nowrap/pre-wrap/break-spaces/pre-line behaviors
+// +spec:white-space-processing:dec7aa - White space not removed/collapsed is "preserved white space"
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum WhiteSpaceMode {
     #[default]
@@ -1213,11 +1249,18 @@ pub enum WordBreak {
     KeepAll,
 }
 
+// +spec:display-property:162c99 - Initial letter box: in-flow inline-level box with special layout behavior
+// +spec:display-property:72a797 - Initial letter handled like inline-level content in originating line box
 // initial-letter
+// +spec:containing-block:46a499 - subsequent block must clear previous block's initial letter if it starts with its own initial letter, establishes independent FC, or specifies clear in initial letter's CB start direction
+// +spec:font-metrics:1e5325 - drop initial cap-height = (N-1)*line_height + surrounding cap-height
+// +spec:font-metrics:3aa518 - initial-letter-align: cap-height/ideographic/hanging/leading/border-box baseline alignment
+// +spec:writing-modes:9698b0 - Han-derived scripts: initial letter extends from block-start to block-end of Nth line
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct InitialLetter {
     /// How many lines tall the initial letter should be.
     pub size: f32,
+    // +spec:font-metrics:dc0632 - raised initial "sinks" to first text baseline (sink=1)
     /// How many lines the letter should sink into.
     pub sink: u32,
     /// How many characters to apply this styling to.
@@ -1602,7 +1645,11 @@ impl Ord for ImageSource {
     }
 }
 
+// +spec:font-metrics:fa104e - vertical-align values; baseline-source defaults to auto (first baseline)
+// +spec:inline-formatting-context:340729 - alignment-baseline values for IFC baseline alignment (only baseline/top/bottom/middle implemented)
 // CSS 2.2 §10.8.1 vertical-align property values
+// +spec:display-property:0b1deb - inline boxes use dominant baseline to align text and inline-level children
+// +spec:inline-formatting-context:3996a6 - dominant-baseline defaults to alphabetic in horizontal mode; vertical-align handles baseline alignment and super/sub shifting
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum VerticalAlign {
     // Align baseline of box with baseline of parent box
@@ -1681,6 +1728,7 @@ pub struct InlineBorderInfo {
     pub padding_right: f32,
     pub padding_bottom: f32,
     pub padding_left: f32,
+    // +spec:box-model:c5723b - inline box split: suppress margin/border/padding at split points
     /// CSS 2.2 §9.4.2 / §8.6: when an inline box is split across line boxes,
     /// margins, borders, and padding have no visible effect at the split points.
     /// True if this is the first fragment of the inline box.
@@ -1731,8 +1779,14 @@ impl InlineBorderInfo {
             || self.padding_left > 0.0
     }
 
+    // +spec:box-model:da0ba2 - RTL bidi inline box split: left/right edges assigned to correct fragments
+    // +spec:box-model:e9144f - visual-order margin/border/padding for inline boxes in bidi context
+    // +spec:box-model:fac66f - Assigns margins/borders/padding in visual order for bidi inline fragments
+    // +spec:box-model:720688 - LTR: left on first, right on last; RTL: right on first, left on last
+    // +spec:positioning:1fcad6 - bidi-aware margin/border/padding on inline box fragments per visual order
     /// Total left inset (border + padding), suppressed at split points per §8.6.
     /// In LTR: left edge drawn on first fragment. In RTL: left edge drawn on last fragment.
+    // +spec:box-model:bae97f - visual-order margin/border/padding assignment for bidi inline fragments
     pub fn left_inset(&self) -> f32 {
         let show = if self.is_rtl { self.is_last_fragment } else { self.is_first_fragment };
         if show { self.left + self.padding_left } else { 0.0 }
@@ -2168,6 +2222,8 @@ impl ShapeDefinition {
 /// Resolve effective text alignment for a line, handling text-align-last per CSS Text §6.3.
 /// For the last line (or lines before forced breaks), text-align-last overrides text-align.
 /// When text-align-last is auto (default), justify falls back to start; others use text-align.
+// +spec:line-breaking:9b10d2 - text-align-last applies to last line and lines before forced breaks
+/// +spec:text-alignment-spacing:8d88ce - text-align-last overrides justify on last line/forced break
 pub(crate) fn resolve_effective_alignment(
     text_align: TextAlign,
     text_align_last: TextAlign,
@@ -2490,6 +2546,7 @@ pub struct InlineBreak {
     pub content_index: usize,
 }
 
+// +spec:line-breaking:d70ffd - Defines forced line break (Hard) vs soft wrap break (Soft) types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BreakType {
     Soft,   // Soft wrap break: UA creates unforced line breaks to fit content within the measure
@@ -2559,6 +2616,7 @@ pub enum TextAlign {
     JustifyAll, // Justify including last line
 }
 
+// +spec:block-formatting-context:458d31 - vertical text orientation: upright for horizontal scripts, intrinsic for vertical scripts
 // Vertical text orientation for individual characters
 #[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
 pub enum TextOrientation {
@@ -3131,6 +3189,7 @@ pub enum LogicalItem {
         /// None for generated content (list markers, ::before/::after, etc.)
         source_node_id: Option<NodeId>,
     },
+    // +spec:display-property:b1533f - text-combine-upright tate-chu-yoko horizontal-in-vertical composition
     /// Tate-chu-yoko: Run of text to be laid out horizontally within a vertical context.
     CombinedText {
         source: ContentIndex,
@@ -4838,7 +4897,12 @@ impl LayoutCache {
             .map(|f| &f.constraints)
             .unwrap_or(&default_constraints);
 
+        // +spec:containing-block:e7a271 - paragraph embedding level set from containing block's 'direction' property
+        // +spec:display-property:7665cb - inline boxes split into multiple visual runs due to bidi text processing
+        // +spec:display-property:929d6b - applies Unicode bidi algorithm to inline-level box sequences
+        // +spec:display-property:e8584a - Apply Unicode bidi algorithm to inline-level box sequences per CSS Writing Modes §2.4
         // Stage 2: Bidi Reordering (LogicalItem -> VisualItem)
+        // +spec:containing-block:961e3c - bidi paragraph level from containing block direction, not UAX9 heuristic
         // Use CSS direction property from constraints instead of auto-detecting from text content.
         // This fixes issues with mixed-direction text (e.g., "Arabic - Latin") where auto-detection
         // would treat the entire paragraph as RTL if the first strong character is Arabic.
@@ -5001,7 +5065,10 @@ pub fn create_logical_items(
 
                     let current_char = text[scan_cursor..].chars().next().unwrap();
 
+                    // +spec:containing-block:e4d9de - text-combine-upright digit run rules: digits sharing an ancestor with same value form one sequence across box boundaries
+                    // +spec:inline-formatting-context:f65029 - text-combine-upright text run rules: combine consecutive digits not interrupted by box boundary
                     // Rule 1: Multi-character features take precedence.
+                    // +spec:containing-block:9a26bd - text-combine-upright digit runs scoped by ancestor style boundaries
                     if let Some(TextCombineUpright::Digits(max_digits)) =
                         style_at_cursor.text_combine_upright
                     {
@@ -5084,6 +5151,8 @@ pub fn create_logical_items(
                         run.style.clone()
                     };
 
+                    // +spec:block-formatting-context:9e7c79 - text-combine-upright combines multiple characters into 1em in vertical writing
+                    // +spec:containing-block:2b399b - text-combine-upright digits: combine ASCII digit sequences within max_digits limit; box boundaries implicitly prevent cross-box combination
                     let is_combinable_chunk = if let Some(TextCombineUpright::Digits(max_digits)) =
                         &style_to_use.text_combine_upright
                     {
@@ -5175,6 +5244,8 @@ pub fn create_logical_items(
 
 // --- Stage 2 Implementation ---
 
+// +spec:inline-block:d47971 - unicode-bidi:plaintext uses P2/P3 heuristic for base direction (implemented via get_base_direction)
+// +spec:writing-modes:287491 - BiDi reordering and base direction detection (Appendix A text processing order)
 // when determining base direction, consistent with their neutral bidi treatment
 pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
@@ -5191,6 +5262,17 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDir
     }
 }
 
+// +spec:containing-block:149255 - bidi reordering produces inline box fragments that may separate in wide containing blocks
+// +spec:containing-block:c7c08f - bidi reordering produces inline box fragments that may be adjacent in narrow containing blocks
+// +spec:containing-block:2936ae - bidi reordering splits inline boxes into visual fragments (CSS Writing Modes 4 §2.4.5)
+// +spec:display-property:0cdbd3 - bidi reordering splits inline boxes into visual runs; each run is shaped/formatted independently
+// +spec:display-property:0d62a2 - bidi reordering of inline content respects block direction and unicode-bidi embedding
+// +spec:display-property:10f9cd - bidi reordering splits and reorders inline box fragments
+// +spec:display-property:58b30a - bidi paragraph breaks within inline boxes: each IFC does independent bidi analysis, so splitting an inline box at a paragraph boundary naturally closes/reopens bidi embeddings
+// +spec:display-property:ecd935 - inline boxes split and reordered for uniform bidi flow
+// +spec:writing-modes:330b8f - text ordered according to Unicode bidi algorithm after white-space processing
+// +spec:writing-modes:7a9e7d - bidi control translation: text passed to unicode_bidi for reordering
+// +spec:writing-modes:8e7281 - unicode-bidi property: bidi control codes inserted via BidiInfo
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
@@ -5210,10 +5292,22 @@ pub fn reorder_logical_items(
         )));
     }
 
+    // +spec:writing-modes:809513 - bidi string built across inline element boundaries; unicode-bidi:normal adds no extra embedding levels
     let mut bidi_str = String::new();
     let mut item_map = Vec::new();
     for (idx, item) in logical_items.iter().enumerate() {
+        // +spec:containing-block:1fdc31 - inline boxes with unicode-bidi:normal are transparent to bidi algorithm
+        // +spec:display-property:074abf - inline boxes transparent to bidi when unicode-bidi:normal
+        // +spec:display-property:354966 - unicode-bidi control code injection for inline boxes
+        // +spec:display-property:8409d3 - inline-level elements with unicode-bidi:normal have no effect on bidi ordering; embed creates an embedding
+        // +spec:display-property:89464a - inline boxes with unicode-bidi:normal don't open embedding levels, so direction has no effect on bidi reordering
+        // +spec:display-property:d47971 - bidi control codes should be injected at inline box boundaries based on unicode-bidi + direction
+        // +spec:display-property:de657b - bidi control codes injected for display:inline boxes per unicode-bidi value
+        // +spec:display-property:f01a81 - bidi-override should prepend LRO/RLO and append PDF per unicode-bidi CSS property (not yet implemented)
         // are treated as neutral characters in the bidi algorithm. Replaced elements with
+        // +spec:display-property:fcb011 - unicode-bidi values on inline boxes insert bidi control codes
+        // +spec:display-property:89095f - isolate/bidi-override/isolate-override/plaintext semantics
+        // +spec:writing-modes:d490bf - direction only affects reordering when unicode-bidi is embed/override (not yet enforced for inline elements)
         // display:inline are also neutral unless unicode-bidi != normal (not yet implemented).
         // U+FFFC (OBJECT REPLACEMENT CHARACTER) is a neutral bidi character.
         let text = match item {
@@ -5243,11 +5337,13 @@ pub fn reorder_logical_items(
         )));
     }
 
+    // +spec:display-property:1a6075 - paragraph embedding level set from direction property per UAX9 HL1
     let bidi_level = if base_direction == BidiDirection::Rtl {
         Some(Level::rtl())
     } else {
         Some(Level::ltr())
     };
+    // +spec:writing-modes:15bf17 - bidi isolation handled by unicode_bidi UAX #9 implementation
     let bidi_info = BidiInfo::new(&bidi_str, bidi_level);
     let para = &bidi_info.paragraphs[0];
     let (levels, visual_runs) = bidi_info.visual_runs(para, para.range.clone());
@@ -5326,6 +5422,8 @@ pub fn reorder_logical_items(
 ///
 /// **Optimization: Inline Run Coalescing**
 ///
+/// // +spec:display-property:9c6d59 - text shaping not broken across inline box boundaries when no effective formatting change
+/// // +spec:display-property:cf8917 - text shaping not broken across inline box boundaries
 /// When consecutive text `VisualItem`s share the same layout-affecting properties
 /// (font, size, spacing, etc.) but differ only in rendering properties (color,
 /// background), they are coalesced into a single shaping call. This dramatically
@@ -5362,6 +5460,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let bidi_level = item.bidi_level;
                 let script = item.script;
 
+                // +spec:display-property:ca95f6 - text shaping breaks at inline box boundaries when layout-affecting properties differ
                 // when layout-affecting properties (font weight, family, size, etc.) change
                 // across element boundaries, preventing ligatures from forming across such changes.
                 // Look ahead: find consecutive text items with the same layout-affecting
@@ -5614,6 +5713,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
             }
+            // +spec:display-property:df076b - tab-size rendering and inline-level line breaking
             // "If the tab size is zero, preserved tabs are not rendered."
             // "Otherwise, each preserved tab is rendered as a horizontal shift that lines up
             //  the start edge of the next glyph with the next tab stop."
@@ -5790,6 +5890,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     })
                     .collect::<Vec<_>>();
 
+                // +spec:block-formatting-context:dc4549 - text-combine-upright compression: UA may scale composition to match 水 advance height
                 let total_width: f32 = shaped_glyphs.iter().map(|g| g.advance + g.kerning).sum();
                 let bounds = Rect {
                     x: 0.0,
@@ -5830,6 +5931,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 }
 
 /// Helper to check if a cluster contains only hanging punctuation.
+// +spec:box-model:8bbcd1 - non-zero inline-axis borders/padding between hangable glyph and line edge prevent hanging
+/// +spec:inline-formatting-context:135be2 - hanging punctuation placed outside the line box
+/// +spec:intrinsic-sizing:407d8b - hanging glyphs not counted in intrinsic size computation
 fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         if c.glyphs.len() == 1 {
@@ -6049,6 +6153,8 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
 // --- Stage 4 Implementation: Vertical Text ---
 
 /// Applies orientation and vertical metrics to glyphs if the writing mode is vertical.
+// +spec:block-formatting-context:227171 - vertical glyph orientation with fallback vertical metrics
+// +spec:block-formatting-context:df20a5 - mixed vertical orientation dispatch (TextOrientation::Mixed)
 fn apply_text_orientation(
     items: Arc<Vec<ShapedItem>>,
     constraints: &UnifiedConstraints,
@@ -6168,11 +6274,23 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
+// +spec:box-model:37aeb2 - inline box margins/borders/padding do not affect line box height (leading model)
+// +spec:display-property:184f0d - Inline box baseline derives from first available font metrics
+// +spec:display-property:238bf5 - Inline box layout bounds from own text metrics, not child boxes
+// +spec:display-property:29b194 - baseline determination for inline boxes (CSS Box Alignment 3 §9.1)
+// +spec:display-property:2987db - per-glyph font metrics impact inline box layout bounds (line-height: normal caveat not yet distinguished)
+/// +spec:display-property:fd42a9 - line-height affects line box contribution, not inline box size
+// +spec:font-metrics:506abb - A/D from font metrics with half-leading: L = line-height - (A+D), A' = A + L/2, D' = D + L/2
+// +spec:font-metrics:773029 - ascent/descent font metrics used for baseline calculations (visual centering depends on these)
+// +spec:font-metrics:f42870 - half-leading model: leading = line-height - (ascent + descent), distributed equally above/below
+// +spec:writing-modes:531c2e - UAs should use vertical baseline tables in vertical typographic modes
 pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstraints) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
             if c.glyphs.is_empty() {
+                // +spec:display-property:626c86 - strut for inline box with no glyphs uses first available font metrics
+                // +spec:line-height:0078fa - strut: zero-width inline box with element's font/line-height
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
                 // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
@@ -6180,9 +6298,17 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
                 let half_leading = (c.style.line_height - ad) / 2.0;
                 return (constraints.strut_ascent + half_leading, constraints.strut_descent + half_leading);
             }
+            // +spec:box-model:0b3e1f - inline non-replaced box height uses only line-height, not vertical padding/border/margin
+            // +spec:display-property:80b900 - fallback glyphs affect line box size via per-glyph metrics
+            // +spec:display-property:d52f26 - layout bounds enclose all glyphs from highest A to deepest D
+            // +spec:font-metrics:387751 - content area uses max ascenders/descenders across all fonts
+            // +spec:font-metrics:790fd2 - half-leading: L = line-height - (A+D), A' = A + L/2, D' = D + L/2
+            // +spec:line-height:1ae6f5 - line-height on non-replaced inline: half-leading model
+            // +spec:line-height:0078fa - half-leading: L = line-height - (A+D), distributed equally above/below
             // §10.8.1: for each glyph determine A, D from font metrics,
             // then L = line-height - (A + D), and adjust: A' = A + L/2, D' = D + L/2.
             // Note: L may be negative.
+            // +spec:height-calculation:eb98b5 - multi-font normal line-height uses max across glyph metrics
             c.glyphs
                 .iter()
                 .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
@@ -6228,8 +6354,11 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
     }
 }
 
+// +spec:block-formatting-context:861155 - vertical-align affects vertical positioning inside line box for inline-level elements
 /// Calculates the maximum ascent and descent for an entire line of items.
 /// This determines the "line box" used for vertical alignment.
+/// // +spec:display-contents:66d910 - line box height fitted to contents, controlled by line-height
+// +spec:inline-formatting-context:c3fc54 - line box tall enough for all boxes, vertical-align determines alignment within line box
 ///
 /// Per CSS 2.2 §10.8: Inline-level boxes aligned 'top' or 'bottom' must be aligned
 /// so as to minimize the line box height. The algorithm is:
@@ -6237,11 +6366,13 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
 ///    (baseline, sub, super, middle, text-top, text-bottom, offset).
 /// 2. Second pass: check if any top/bottom-aligned items are taller than the
 ///    line box from pass 1, and expand if necessary.
+// +spec:box-model:c9bcd7 - when line-fit-edge is not leading, layout bounds inflated by margin+border+padding (not yet implemented; default leading behavior is correct)
 fn calculate_line_metrics(
     items: &[ShapedItem],
     default_vertical_align: VerticalAlign,
     constraints: &UnifiedConstraints,
 ) -> (f32, f32) {
+    // +spec:font-metrics:95152b - baseline alignment: items with different font sizes aligned by matching alphabetic baselines
     // Pass 1: Compute ascent/descent from baseline-aligned items only
     // (i.e., items that are NOT vertical-align: top or bottom).
     let (mut max_asc, mut max_desc) = items
@@ -6358,6 +6489,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // Get the shaped items from the cursor
         let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
 
+        // +spec:line-breaking:90c1bd - only auto-hyphenate when language is known and hyphenation resource available
         let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
             fragment_constraints
                 .hyphenation_language
@@ -6376,6 +6508,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         );
     }
 
+    // +spec:intrinsic-sizing:57e02d - hyphenation opportunities considered in min-content sizing
     let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
         fragment_constraints
             .hyphenation_language
@@ -6560,6 +6693,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // Reset counter when we find valid segments
             empty_segment_count = 0;
 
+            // +spec:line-breaking:3bb032 - break-word not considered for min-content intrinsic sizes
+            // +spec:overflow:b932c4 - overflow-wrap/word-wrap (normal/break-word/anywhere) and hyphens interaction
             // `anywhere` introduces soft wrap opportunities (min-content = widest cluster),
             // but `break-word` does NOT (min-content = widest unbreakable word).
             let effective_overflow_wrap = if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::Anywhere {
@@ -6572,6 +6707,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
             // CSS Text Module Level 3 § 5 Line Breaking and Word Boundaries
             // https://www.w3.org/TR/css-text-3/#line-breaking
+            // +spec:display-property:2608cc - inline box splitting across line boxes, overflow for unsplittable boxes
+            // +spec:display-property:ea615c - inline boxes split and distributed across line boxes
             // "When an inline box exceeds the logical width of a line box, it is split
             // into several fragments, which are partitioned across multiple line boxes."
             let (mut line_items, was_hyphenated) =
@@ -6598,6 +6735,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 )));
             }
 
+            // +spec:line-breaking:c59944 - forced line breaks detected for bidi-aware alignment
             let line_ends_with_forced_break = line_items.iter().any(|item| matches!(item, ShapedItem::Break { .. }));
 
             // uses text-align-last (last line of block, or line right before forced break)
@@ -6694,6 +6832,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// \u26a0\ufe0f PARTIAL: Basic punctuation handling
 /// - \u274c TODO: hanging-punctuation is declared in UnifiedConstraints but not used here
 /// - \u274c TODO: Should implement punctuation trimming at line edges
+/// // +spec:intrinsic-sizing:6085cf - hanging glyphs must be excluded from intrinsic size computation
 ///
 /// ## \u00a7 5.4 Hyphenation
 /// \u2705 IMPLEMENTED: Automatic hyphenation with hyphenator library
@@ -6715,6 +6854,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// - \u2705 white-space: break-spaces handling
 // around every typographic character unit including preserved white spaces; with break-spaces
 // it allows breaking before the first space of a sequence
+// +spec:line-breaking:722f3b - wrapping only at soft wrap opportunities, minimizing overflow
 pub fn break_one_line<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     line_constraints: &LineConstraints,
@@ -6732,6 +6872,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
         return (Vec::new(), false);
     }
 
+    // +spec:white-space-processing:c83dbd - Phase II: collapsible spaces at line start removed, trailing spaces removed, tab stops
     // CSS Text Module Level 3 § 4.1.2: At the beginning of a line, white space
     // is collapsed away. Skip leading whitespace at line start.
     // https://www.w3.org/TR/css-text-3/#white-space-phase-2
@@ -6837,6 +6978,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
         }
     }
 
+    // +spec:white-space-processing:fef250 - Phase II: trailing collapsible spaces and U+1680 removed at line end
     // as well as any trailing U+1680 OGHAM SPACE MARK whose white-space is normal/nowrap/pre-line.
     // Note: pre-wrap and break-spaces have different handling (hanging/preserving)
     // which is not yet implemented here.
@@ -6907,6 +7049,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
         word_string.push_str(&cluster.text);
     }
 
+    // +spec:line-breaking:d7ed93 - language-specific hyphenation rules apply to both auto and explicit (soft hyphen) opportunities
     // --- 2. Get hyphenation opportunities ---
     let opportunities = hyphenator.hyphenate(&word_string);
     if opportunities.breaks.is_empty() {
@@ -7057,6 +7200,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c MISSING: `<length>`, `<percentage>` values for custom offset
 ///
 /// ### \u00a7 2.2.1 Text Alignment (text-align)
+/// +spec:containing-block:8d5146 - text-align aligns within line box, not viewport/containing block
 /// \u2705 IMPLEMENTED:
 /// - `left`, `right`, `center`: Physical alignment
 /// - `start`, `end`: Logical alignment (respects direction: ltr/rtl)
@@ -7094,8 +7238,10 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
 /// - \u274c \u00a7 3.3 Initial Letters (drop caps)
+/// // +spec:display-property:265c04 - initial letter exclusion area must continue into subsequent blocks when paragraph is shorter than drop cap
 /// - \u274c Full vertical-align support (sub, super, lengths, percentages)
 /// - \u274c white-space: break-spaces alignment behavior
+// +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
@@ -7136,6 +7282,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
         )));
     }
 
+    // +spec:box-model:847003 - Phantom line boxes: empty lines treated as zero-height
+    // +spec:box-model:d781f3 - empty line boxes (no text, no preserved whitespace, no inline elements with non-zero margins/padding/borders, no in-flow content) are treated as zero-height
+    // +spec:display-property:90d782 - Phantom line boxes (containing only empty inline boxes, out-of-flow items, or collapsed whitespace) are ignored
     if line_items.is_empty() {
         return (Vec::new(), 0.0);
     }
@@ -7147,9 +7296,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // minimize line box height; baseline-aligned items determine the initial height.
     let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align, constraints);
 
+    // +spec:box-model:e99f7d - strut: each line box starts with zero-width inline box with block container's font/line-height
+    // +spec:line-height:29c478 - strut: zero-width inline box with block container's font/line-height
     // inline box with the block container's font and line-height. The strut has A (ascent) and
     // D (descent) from the block container's first available font. Half-leading L/2 is applied:
     // L = line-height - (A + D), strut_above = A + L/2, strut_below = D + L/2.
+    // +spec:height-calculation:8e91b2 - specified line-height used in line box height calculation
     let strut_ad = constraints.strut_ascent + constraints.strut_descent;
     let strut_leading_half = (constraints.line_height - strut_ad) / 2.0;
     let strut_above = constraints.strut_ascent + strut_leading_half;
@@ -7189,7 +7341,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
             continue;
         }
 
+        // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify; non-collapsible WS may skip justification
         // 2. Calculate justification spacing *for this segment only*.
+        // +spec:text-alignment-spacing:30d322 - justify lines with justification opportunities when text-align is justify
         let (extra_word_spacing, extra_char_spacing) = if constraints.text_justify
             != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
@@ -7234,21 +7388,27 @@ pub fn position_one_line<T: ParsedFontTrait>(
             .map(|item| get_item_measure(item, is_vertical))
             .sum();
 
+        // +spec:line-breaking:155a96 - pre-wrap hanging spaces: unconditionally hang without forced break, conditionally hang with forced break
+        // +spec:white-space-processing:68af09 - Phase II: trailing whitespace hanging/conditional hanging per white-space mode
+        // +spec:white-space-processing:75d91e - preserved white space hangs at line end, affecting intrinsic sizing
         // For normal/nowrap/pre-line: unconditionally hang trailing WS.
         // For pre-wrap: unconditionally hang, unless before forced break (then conditionally hang).
         // For break-spaces: trailing spaces cannot hang.
         // For pre: no hanging (whitespace preserved as-is).
+        // +spec:intrinsic-sizing:1db683 - conditionally hanging glyphs excluded from min-content, included in max-content
         let trailing_ws_width = match constraints.white_space_mode {
             WhiteSpaceMode::BreakSpaces | WhiteSpaceMode::Pre => 0.0,
             WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine => {
                 measure_trailing_whitespace(&justified_segment_items, is_vertical)
             }
+            // +spec:line-breaking:8aa426 - space before forced break does not hang if it doesn't overflow
             WhiteSpaceMode::PreWrap => {
                 let has_forced_break = justified_segment_items.last()
                     .map(|item| matches!(item, ShapedItem::Break { .. }))
                     .unwrap_or(false);
                 let ws_width = measure_trailing_whitespace(&justified_segment_items, is_vertical);
                 if has_forced_break {
+                    // +spec:display-contents:2704a2 - conditionally hanging chars not considered when measuring line fit
                     // Conditionally hang: only hang if it would overflow
                     let content_width = final_segment_width - ws_width;
                     if content_width + ws_width > segment.width {
@@ -7263,6 +7423,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
         let effective_segment_width = final_segment_width - trailing_ws_width;
 
+        // +spec:text-alignment-spacing:287316 - overflow content is start-aligned; alignment offset within line box
         // 3. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - effective_segment_width;
 
@@ -7338,6 +7499,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         //
         // Vertical alignment positioning (CSS vertical-align)
         //
+        // +spec:font-metrics:cae541 - dominant baseline used for inline alignment
         // Per CSS Inline Layout Level 3 § 4 (Baseline Alignment), each inline
         // element can specify its own `vertical-align`. For Object items
         // (inline-blocks, images), we use their per-item alignment stored in
@@ -7345,14 +7507,22 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // For text clusters or items without a per-item override, we fall back
         // to the global `constraints.vertical_align` from the containing block.
         //
+        // +spec:font-metrics:f29b61 - baseline alignment matches corresponding baseline types (only alphabetic implemented)
         // Reference: https://www.w3.org/TR/css-inline-3/#baseline-alignment
+        // +spec:block-formatting-context:26b535 - In vertical typographic mode, central baseline is dominant when text-orientation is mixed/upright; otherwise alphabetic
+        // +spec:inline-formatting-context:eb735b - alignment-baseline: inline-level boxes aligned to parent's baseline via vertical-align
+        // +spec:inline-formatting-context:da3f34 - baseline alignment of in-flow inline-level boxes in block axis per dominant-baseline/vertical-align
+        // +spec:line-height:e2253a - vertical-align positioning within line boxes
         for item in justified_segment_items {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
                 .unwrap_or(constraints.vertical_align);
+            // +spec:display-property:328cfc - baseline-shift / aligned subtree vertical alignment (sub, super, top, bottom, center)
             // §10.8.1 vertical-align positioning
             let item_baseline_pos = match effective_align {
+                // +spec:display-property:8e018d - aligned subtree edges used for top/bottom line box alignment
+                // +spec:inline-formatting-context:495672 - line-relative vertical-align (top/center/bottom) and aligned subtree positioning
                 // top: align top of aligned subtree with top of line box
                 VerticalAlign::Top => line_top_y + item_ascent,
                 // middle: align vertical midpoint with baseline + half x-height
@@ -7365,6 +7535,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
                 // sub: lower baseline to proper subscript position (~0.3em)
                 VerticalAlign::Sub => line_baseline_y + line_ascent * 0.3,
+                // +spec:display-property:3b0e76 - baseline-shift super raises by ~1/3 font-size; top/bottom align to line box edges
                 // super: raise baseline to proper superscript position (~0.4em)
                 VerticalAlign::Super => line_baseline_y - line_ascent * 0.4,
                 // text-top: align top of box with top of parent's content area (§10.6.1)
@@ -7375,6 +7546,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::TextBottom => (line_baseline_y + constraints.strut_descent) - item_descent,
                 // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
+                // +spec:display-property:8bf37e - dominant-baseline defaults to alphabetic; baseline alignment matches parent
                 // baseline: align baseline of box with baseline of parent box
                 VerticalAlign::Baseline => line_baseline_y,
             };
@@ -7456,13 +7628,24 @@ pub fn position_one_line<T: ParsedFontTrait>(
             if !is_outside_marker && extra_char_spacing > 0.0 && can_justify_after(&item) {
                 main_axis_pen += extra_char_spacing;
             }
+            // +spec:display-property:3a833c - consecutive atomic inlines treated as single unit for letter-spacing
+            // +spec:display-property:49f04f - letter-spacing applied per innermost inline element
+            // +spec:text-alignment-spacing:22bea4 - letter-spacing applied after bidi reordering, additive with kerning and word-spacing; justification may further adjust
             if let ShapedItem::Cluster(c) = &item {
                 if !is_outside_marker {
+                    // +spec:display-property:756454 - letter-spacing applied between typographic character units
+                    // +spec:overflow:e63bc0 - letter-spacing ignores zero-width formatting chars (Cf); handled by shaper merging them into clusters
+                    // +spec:text-alignment-spacing:80f9ec - letter-spacing applied per-cluster using innermost element's style (UA-allowed attachment)
+                    // +spec:text-alignment-spacing:bdd704 - letter-spacing applied after each cluster, not at line start
+                    // +spec:text-alignment-spacing:d3ef6e - single-char element: only trailing space, no inter-char effect
+                    // +spec:text-alignment-spacing:d668fc - letter-spacing only affects characters within the element (per-cluster style)
+                    // +spec:text-alignment-spacing:8dbb78 - zero letter-spacing behaves as normal (Px(0) adds no spacing)
                     let letter_spacing_px = match c.style.letter_spacing {
                         Spacing::Px(px) => px as f32,
                         Spacing::Em(em) => em * c.style.font_size_px,
                     };
                     main_axis_pen += letter_spacing_px;
+                    // +spec:width-calculation:9447d1 - word-spacing only applied to word separators; zero-width chars like U+200B are excluded
                     if is_word_separator(&item) {
                         let word_spacing_px = match c.style.word_spacing {
                             Spacing::Px(px) => px as f32,
@@ -7530,6 +7713,9 @@ fn calculate_alignment_offset(
 /// # Returns
 /// A tuple `(extra_per_word, extra_per_char)` containing the extra space in pixels
 /// to add at each word or character justification opportunity.
+// +spec:display-contents:654278 - distributes remaining space to fill line box when justifying
+// +spec:text-alignment-spacing:56c7f4 - equal distribution of justification space within priority level
+// +spec:text-alignment-spacing:f17bbc - justification opportunities controlled by text-justify value (inter-word = word separators, inter-character = character juxtaposition)
 fn calculate_justification_spacing(
     items: &[ShapedItem],
     line_constraints: &LineConstraints,
@@ -7549,6 +7735,7 @@ fn calculate_justification_spacing(
 
     let extra_space = available_width - total_width;
 
+    // +spec:text-alignment-spacing:71314a - script categories for justification: inter-word for clustered, kashida for cursive (Arabic), inter-character for block (CJK)
     match text_justify {
         JustifyContent::InterWord => {
             // Count justification opportunities (spaces).
@@ -7843,6 +8030,7 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
     }
 }
 
+// +spec:margin-collapsing:6706c1 - fixed-width spaces (U+2000–U+200A, U+3000) excluded from word separators
 /// Returns true if the character is a word-separator character per CSS Text §7.1.
 /// Punctuation and fixed-width spaces (U+3000, U+2000 through U+200A) are NOT
 /// word-separator characters even though they may visually separate words.
@@ -7870,6 +8058,7 @@ fn is_word_separator_char(c: char) -> bool {
 /// Helper to identify if an item is a zero-width space (U+200B),
 /// which provides a soft wrap opportunity with no visible width.
 /// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
+// +spec:line-breaking:fd3164 - U+200B as explicit word delimiter for scripts without space-separated words
 pub fn is_zero_width_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.text.contains('\u{200B}')
@@ -7892,6 +8081,7 @@ fn can_justify_after(item: &ShapedItem) -> bool {
     }
 }
 
+// +spec:font-metrics:b8eb97 - Script group classification for justification/letter-spacing behavior
 /// Classifies a character for layout purposes (e.g., justification behavior).
 /// Copied from `mod.rs`.
 fn classify_character(codepoint: u32) -> CharacterClass {
@@ -7966,6 +8156,7 @@ fn get_line_constraints(
         // The segment_width is determined by available_width, NOT by TextWrap.
         // TextWrap::NoWrap only affects whether the LineBreaker can insert soft breaks,
         // it should NOT override a definite width constraint from CSS.
+        // +spec:overflow:b06c3e - text overflows when wrapping is prevented (e.g. white-space: nowrap)
         // CSS Text Level 3: For 'white-space: pre/nowrap', text overflows horizontally
         // if it doesn't fit, rather than expanding the container.
         //
@@ -8237,6 +8428,7 @@ fn is_break_forcing_control(ch: char) -> bool {
     )
 }
 
+// +spec:line-breaking:495247 - CJK/syllabic writing systems allow breaks between typographic letter units with varying strictness
 // §5.2 word-break: determines if a character is CJK ideograph/kana
 fn is_cjk_character(ch: char) -> bool {
     let cp = ch as u32;
@@ -8269,6 +8461,13 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
     cluster.text.chars().any(is_cjk_character)
 }
 
+// +spec:line-breaking:e1fc9d - word-break normal/break-all/keep-all break opportunity rules
+// +spec:line-breaking:73d5fe - word-break break-point determination for CJK and Latin text
+// +spec:line-breaking:31ef1a - word-break property controls soft wrap opportunities between letters (NU/AL/AI/ID classes as letter units)
+// +spec:line-breaking:798252 - word-break property affects break opportunities (normal/break-all/keep-all)
+// +spec:line-breaking:8fed57 - word-break: break-all treats all clusters as break opportunities, keep-all suppresses CJK breaks
+// +spec:line-breaking:e2b374 - word-break: normal (only at separators) vs break-all (between all letters incl. Ethiopic)
+// +spec:overflow:53a97f - word-break (normal/break-all/keep-all) and line-break strictness rules
 // §5.2 word-break property: break opportunity logic
 fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
     // Break after spaces or explicit break items (always, regardless of word-break).
@@ -8278,6 +8477,8 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
     if let ShapedItem::Break { .. } = item {
         return true;
     }
+    // +spec:line-breaking:432d5b - hyphens property controls soft wrap opportunities via hyphenation
+    // +spec:line-breaking:5a32a1 - soft hyphen (U+00AD) creates break opportunity; glyph styled per surrounding text properties
     // only when hyphens != none. With hyphens:none, soft hyphens do not create break points.
     if hyphens != Hyphens::None {
         if let ShapedItem::Cluster(c) = item {
@@ -8287,6 +8488,7 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
         }
     }
 
+    // +spec:line-breaking:2bbda0 - word-break does not affect soft wrap opportunities around punctuation
     match word_break {
         WordBreak::Normal => {
             // CJK characters are implicit break opportunities in normal mode.
@@ -8410,6 +8612,7 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
         if c.text.chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
             return false;
         }
+        // +spec:line-breaking:05e09a - U+002D/U+2010 always create soft wrap opportunities regardless of hyphens property
         // are always visible and create a soft wrap opportunity after them, but are NOT
         // hyphenation opportunities (no extra glyph is inserted at the break).
         if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') {

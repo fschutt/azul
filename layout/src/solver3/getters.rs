@@ -1,3 +1,4 @@
+// +spec:box-model:b3a79e - box assigned same styles as generating element; getters read from styled DOM per node
 //! Getter functions for CSS properties from the styled DOM
 //!
 //! This module provides clean, consistent access to CSS properties with proper
@@ -1084,6 +1085,7 @@ get_css_property!(
     compact = get_white_space
 );
 
+// +spec:writing-modes:3af12f - unicode-bidi does not affect direction for layout; we use direction property directly
 get_css_property!(
     get_direction_property,
     get_direction,
@@ -1092,6 +1094,9 @@ get_css_property!(
     compact = get_direction
 );
 
+// +spec:display-property:346799 - inline-level elements with unicode-bidi:normal have no effect on text ordering
+// +spec:writing-modes:3e2632 - unicode-bidi property resolves embedding level for bidi algorithm (LRE/RLE/PDF)
+// +spec:writing-modes:d2c94f - direction+unicode-bidi properties map to UAX#9 bidirectional algorithm
 get_css_property!(
     get_unicode_bidi_property,
     get_unicode_bidi,
@@ -1099,6 +1104,8 @@ get_css_property!(
     azul_css::props::property::CssPropertyType::UnicodeBidi
 );
 
+// +spec:display-property:db5125 - text-box-trim on inline boxes trims content box to text-box-edge metric
+// +spec:display-property:dceb24 - text-box-trim on inline boxes: content edges coincide with text baselines
 get_css_property!(
     get_text_box_trim_property,
     get_text_box_trim,
@@ -1141,6 +1148,7 @@ get_css_property!(
     azul_css::props::property::CssPropertyType::InitialLetterWrap
 );
 
+// +spec:overflow:5d15e2 - block-start/block-end scrollbar gutter follows same rules as inline gutters when auto
 get_css_property!(
     get_scrollbar_gutter_property,
     get_scrollbar_gutter,
@@ -1162,6 +1170,7 @@ get_css_property!(
     azul_css::props::property::CssPropertyType::ObjectFit
 );
 
+// +spec:writing-modes:257296 - text-orientation getter for vertical typesetting (upright/sideways)
 get_css_property!(
     get_text_orientation_property,
     get_text_orientation,
@@ -1346,6 +1355,8 @@ pub fn get_border_radius(
     }
 }
 
+// +spec:stacking-contexts:a93e62 - stack level from z-index for stacking context ordering
+// +spec:stacking-contexts:ae50ae - z-index specifies stack level; auto resolves to 0 (inherited from parent stacking context)
 /// Get z-index for stacking context ordering.
 ///
 /// Returns the resolved integer z-index value:
@@ -1390,6 +1401,7 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
         .unwrap_or(0)
 }
 
+// +spec:positioning:c041c4 - positioned elements with z-index != auto establish stacking contexts
 // z-index:<integer> ALWAYS establishes new stacking context on positioned elements
 /// Returns true if z-index is `auto` (the initial value), false if it's an explicit `<integer>`.
 /// This distinction matters for stacking context creation per §9.9.1.
@@ -2113,6 +2125,7 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirement
 /// For **overlay** scrollbars (macOS `WhenScrolling`, or equivalent), this returns `0.0`
 /// because overlay scrollbars are painted on top of content and do not consume layout space.
 /// The scrollbar is still *rendered*, but no space is reserved during layout.
+// +spec:overflow:b83014 - overlay scrollbars do not create scrollbar gutters
 ///
 /// During display-list generation, use `get_scrollbar_style()` instead — that returns
 /// the full visual style including the *paint* width (which may be non-zero for overlay).
@@ -2170,11 +2183,15 @@ pub fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     }
 }
 
+/// // +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root elements
 /// Resolves the computed display value for an element, applying blockification
 /// rules per CSS Display Module Level 3 §2.7.
+// +spec:display-property:641ac5 - computed display value applies blockification/inlinification (not "as specified")
 ///
 /// This centralizes the blockification decision so that all layout phases
 /// (layout_tree, sizing, positioning) use consistent display values.
+// +spec:floats:52aea6 - computed display blockified for floated/positioned/root elements
+// +spec:positioning:ce02a1 - out-of-flow boxes (floated or absolutely positioned) get blockified display
 pub fn get_computed_display(
     raw_display: LayoutDisplay,
     is_absolute_or_fixed: bool,
@@ -2191,8 +2208,10 @@ pub fn get_computed_display(
     }
 }
 
+// +spec:font-metrics:f7affa - vertical-align shorthand: maps CSS vertical-align values to inline layout alignment
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
+// +spec:display-property:24c160 - vertical-align aligns inline-level box within the line
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -2351,6 +2370,7 @@ pub fn get_style_properties(
     // should only be used when referenced through CSS system-color keywords.
     let color = color_from_cache.unwrap_or(ColorU::BLACK);
 
+    // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {
         // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16)
         let mut fast_lh = None;

@@ -2,6 +2,7 @@ use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::dom::ScrollbarOrientation;
 
 /// Information about scrollbar requirements and dimensions
+// +spec:overflow:55c244 - scrollbar appearance, size, and edge placement are UA-defined
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct ScrollbarRequirements {
@@ -23,6 +24,8 @@ impl ScrollbarRequirements {
         self.scrollbar_width > 0.0 || self.scrollbar_height > 0.0
     }
 
+    // +spec:box-model:20c3c8 - scrollbar space reserved between inner border edge and outer padding edge
+    // +spec:box-model:32cd53 - scrollbar space subtracted from containing block dimensions
     /// Takes a size (representing a content-box) and returns a new size
     /// reduced by the dimensions of any active scrollbars.
     pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {

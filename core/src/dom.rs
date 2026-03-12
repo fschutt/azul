@@ -788,6 +788,7 @@ impl NodeType {
 
 /// Represents the CSS formatting context for an element
 #[derive(Clone, PartialEq)]
+// +spec:display-property:844893 - block-level box establishing a new formatting context (BFC) modeled here
 pub enum FormattingContext {
     /// Block-level formatting context
     Block {

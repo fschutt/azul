@@ -96,6 +96,7 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
 }
 
 /// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
+// +spec:line-breaking:16e64c - soft wrap opportunity controls (word-break, overflow-wrap, line-break) threaded via UnifiedConstraints
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
     hyphenator: Option<&Standard>,
@@ -106,6 +107,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
     let mut item_iter = items.iter().peekable();
 
     while let Some(item) = item_iter.next() {
+        // +spec:line-breaking:f12241 - shaping across intra-word breaks: shaped clusters preserve joining forms
         // NOTE: word-break property is not yet threaded through to kp_layout.
         // Currently uses normal break behavior (spaces are break opportunities).
         // To fully support break-all/keep-all, UnifiedConstraints.word_break
@@ -140,6 +142,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
             {
                 let width = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Box(item.clone(), width));
+                // +spec:line-breaking:2d3674 - U+002D/U+2010 are soft wrap opportunities, not hyphenation opportunities (no extra glyph inserted)
                 // Zero-width penalty: allows a line break after the visible
                 // hyphen character without inserting an additional hyphen glyph.
                 nodes.push(LayoutNode::Penalty {
@@ -161,7 +164,10 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     }
                 }
 
+                // +spec:line-breaking:28a40b - Hyphenation is a rendering-only effect (no change to underlying content)
+                // +spec:line-breaking:f23fe8 - UA may use language-tailored heuristics (delegated to hyphenation crate)
                 // 2. Try to find all hyphenation opportunities for this word.
+                // +spec:display-property:508895 - cross-direction hyphenation suppression (LTR in RTL / RTL in LTR) not yet implemented
                 let hyphenation_breaks = hyphenator.and_then(|h| {
                     crate::text3::cache::find_all_hyphenation_breaks(
                         &current_word_clusters,
@@ -449,6 +455,9 @@ fn position_lines_from_breaks(
             is_last_line || ends_with_forced_break,
         );
 
+        // +spec:display-contents:858337 - text-align justification: last line start-aligned, justify-all forces last line justify
+        // +spec:display-property:50e074 - justify stretches spaces/words in inline boxes, not inline-table/inline-block
+        // +spec:display-property:ce8d54 - text-justify selects justification method, inherited from block containers to root inline box
         let should_justify = constraints.text_justify != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll
                 || effective_align == TextAlign::Justify || effective_align == TextAlign::JustifyAll);
@@ -514,6 +523,7 @@ fn position_lines_from_breaks(
             _ => 0.0,
         };
 
+        // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line as usual
         if constraints.text_indent != 0.0 {
             let is_indent_target = if constraints.text_indent_each_line {
                 line_index == 0 // TODO: also detect lines after forced breaks in KP path
@@ -561,6 +571,7 @@ fn position_lines_from_breaks(
             }
         }
 
+        // +spec:box-model:96f5a7 - line box height uses line-height only; inline margins/borders/padding do not enter calculation
         cross_axis_pen += constraints.line_height;
         start_node = end_node;
     }
@@ -572,6 +583,7 @@ fn position_lines_from_breaks(
 }
 
 /// A helper to split a ShapedCluster at a specific glyph index for hyphenation.
+// +spec:line-breaking:ece0f0 - splits already-shaped glyphs, preserving shaping across intra-word breaks
 fn split_cluster_for_hyphenation(
     cluster: &ShapedCluster,
     glyph_break_index: usize,

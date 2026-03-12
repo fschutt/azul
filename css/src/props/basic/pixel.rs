@@ -601,6 +601,8 @@ impl PixelValue {
                     // Height and vertical properties: containing block height (CSS 2.1 §10.5)
                     PropertyContext::Height => context.containing_block_size.height,
 
+                    // +spec:box-model:66e123 - margin/padding % resolved against inline size (= width in horizontal-tb)
+                    // +spec:width-calculation:bef810 - margin percentages refer to containing block width (even top/bottom)
                     // Margins: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.3)
                     // Padding: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.4)
                     PropertyContext::Margin | PropertyContext::Padding => {

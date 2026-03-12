@@ -1,5 +1,6 @@
 //! solver3/positioning.rs
 //! Pass 3: Final positioning of layout nodes
+// +spec:positioning:79d47e - Implements relative, absolute, and fixed positioning schemes
 
 use std::collections::BTreeMap;
 
@@ -42,7 +43,9 @@ pub struct PositionOffsets {
     left: Option<f32>,
 }
 
+// +spec:positioning:94ef0f - position property: static|relative|absolute|sticky|fixed, initial static, applies to all elements except table-column-group/table-column
 /// Looks up the `position` property using the compact-cache-aware getter.
+// +spec:positioning:ba937d - positioned elements have position != static
 pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
@@ -57,9 +60,13 @@ fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosit
     get_position(styled_dom, node_id, node_state).unwrap_or(LayoutPosition::Static)
 }
 
+// +spec:positioning:bda1d5 - resolves inset properties (top/right/bottom/left) as inward offsets per CSS Position 3 §3.1
+// +spec:positioning:bf9168 - resolves inset properties (top/right/bottom/left) to control positioned box location
+// +spec:positioning:f8e0a1 - inset properties (top/right/bottom/left) resolved for positioned elements; auto = unconstrained
 /// **NEW API:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
 /// including percentages relative to the containing block's size, and em/rem units.
 /// Uses the modern resolve_with_context() API.
+// +spec:positioning:7ec143 - top/right/bottom/left offset resolution with percentage against containing block
 fn resolve_position_offsets(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
@@ -94,6 +101,7 @@ fn resolve_position_offsets(
 
     let mut offsets = PositionOffsets::default();
 
+    // +spec:containing-block:d4b3b9 - percentage offsets resolve against CB width (left/right) or height (top/bottom)
     // Resolve offsets using compact-cache-aware getters
     // top/bottom use Height context (% refers to containing block height)
     offsets.top = match get_css_top(styled_dom, id, node_state) {
@@ -120,8 +128,17 @@ fn resolve_position_offsets(
     offsets
 }
 
+// +spec:block-formatting-context:f5f992 - Out-of-flow: floated or absolutely positioned boxes laid out outside normal flow
+// +spec:positioning:bb19f8 - absolute/fixed positioning: out-of-flow, positioned relative to containing block/viewport
 /// After the main layout pass, this function iterates through the tree and correctly
 /// calculates the final positions of out-of-flow elements (`absolute`, `fixed`).
+// +spec:positioning:5bfef3 - abspos elements use static position for auto offsets, resolve against nearest positioned ancestor CB
+// +spec:positioning:7fff75 - Absolute positioning: removed from flow, offset relative to containing block, establishes new CB
+// +spec:positioning:839cbb - absolute elements positioned/sized solely relative to their containing block, modified by inset properties
+// +spec:positioning:898590 - absolute positioning takes elements out of flow and positions them relative to containing block
+// +spec:positioning:c37c1b - abspos boxes laid out in containing block after its final size is determined
+// +spec:positioning:cbe481 - absolute positioning removes elements from flow and positions them relative to containing block
+// +spec:positioning:ebff77 - absolute positioning layout model (replaces old §6 abspos model)
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -137,6 +154,10 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
         let position_type = get_position_type(ctx.styled_dom, Some(dom_id));
 
+        // +spec:positioning:1d87f6 - Fixed/absolute positioning schemes with box offset resolution (top/right/bottom/left)
+        // +spec:positioning:8bde1d - absolute: out of flow, positioned by containing block
+        // +spec:positioning:c11be9 - absolute positioning: effect of box offsets depends on which properties are auto (non-replaced) or intrinsic dimensions (replaced)
+        // +spec:positioning:9020aa - "absolutely positioned" means position:absolute or position:fixed
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             // is a grid container have their CB determined by grid-placement properties;
             // Taffy already handles this during grid layout, so skip re-positioning here.
@@ -177,6 +198,20 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 })
             };
 
+            // +spec:containing-block:17a946 - fixed boxes use viewport as containing block
+            // +spec:containing-block:83a32a - fixed positioning: containing block is viewport; absolute: nearest positioned ancestor or initial CB
+            // +spec:containing-block:9b617d - fixed elements use viewport (initial fixed containing block)
+            // +spec:containing-block:899e47 - fixed elements use viewport (initial fixed containing block)
+            // +spec:containing-block:faa9a3 - fixed positioning falls back to initial containing block (viewport) when no ancestor establishes one
+            // +spec:containing-block:faa9a3 - fixed positioning CB falls back to initial containing block (viewport) when no ancestor establishes one
+            // +spec:positioning:067eab - CB for fixed = viewport, for absolute = nearest positioned ancestor
+            // +spec:positioning:067eab - fixed CB is viewport; absolute CB is nearest positioned ancestor's padding-box
+            // +spec:positioning:9777da - fixed positioning uses viewport as containing block
+            // +spec:positioning:9777da - Fixed positioning uses viewport as containing block
+            // +spec:positioning:9ccf9a - fixed-position CB is viewport (transform/will-change/contain could override, not yet implemented)
+            // +spec:positioning:a68970 - fixed positioning uses viewport as containing block
+            // +spec:positioning:8fff44 - fixed: same as absolute but positioned relative to viewport
+            // +spec:positioning:f0ad47 - fixed elements use viewport as containing block; content outside viewport cannot be scrolled to
             let containing_block_rect = if position_type == LayoutPosition::Fixed {
                 viewport
             } else {
@@ -216,10 +251,15 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 size
             };
 
+            // +spec:positioning:dc23fa - sizing/positioning into inset-modified containing block (§4)
+            // +spec:positioning:623e45 - inset properties reduce the containing block into the inset-modified containing block
             // Resolve offsets using the now-known containing block size.
             let offsets =
                 resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
 
+            // +spec:box-model:ae3899 - static position is the margin-edge position from normal flow
+            // +spec:positioning:9a90a3 - static position: the position the element would have had in normal flow
+            // +spec:positioning:ca3e89 - static-position rectangle uses block-start inline-start alignment (CSS2.1 hypothetical box)
             let mut static_pos = calculated_positions
                 .get(node_index)
                 .copied()
@@ -243,6 +283,10 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
             let mut final_pos = LogicalPosition::zero();
 
+            // +spec:box-model:ea2f43 - top + margin + border + padding + height + bottom = CB height
+            // +spec:box-model:b4f5b3 - vertical constraint equation for abs-pos non-replaced elements
+            // +spec:positioning:16d82c - vertical dimension constraint for abs-positioned non-replaced elements
+            // +spec:positioning:8f474b - §10.6.4 vertical constraint for absolutely positioned non-replaced elements
             // top + margin-top + border-top + padding-top + height + padding-bottom +
             // border-bottom + margin-bottom + bottom = containing block height
             let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
@@ -256,10 +300,12 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                  node.box_props.margin.left, node.box_props.margin.right,
                  node.box_props.margin_auto.left, node.box_props.margin_auto.right)
             };
+            // +spec:positioning:d730e5 - CB height is independent of the abspos element, so percentage heights always resolve
             let cb_height = containing_block_rect.size.height;
 
             let css_height = get_css_height(ctx.styled_dom, dom_id, node_state);
             let height_is_auto = css_height.is_auto();
+            // +spec:overflow:941a06 - resolve auto inset properties: if only one is auto, solved to zero via constraint; if both auto, use static position
             let top_is_auto = offsets.top.is_none();
             let bottom_is_auto = offsets.bottom.is_none();
 
@@ -269,17 +315,31 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // (border-top, padding-top, content-height, padding-bottom, border-bottom
             //  are all inside border-box-height)
             let mut used_height = element_size.height;
+            // +spec:height-calculation:44939a - set auto values for margin-top/margin-bottom to 0
+            // +spec:height-calculation:2f6e10 - if bottom is auto, replace auto margin-top/margin-bottom with 0
             let mut used_margin_top = if margin_auto.top { 0.0 } else { margin_top_val };
             let mut used_margin_bottom = if margin_auto.bottom { 0.0 } else { margin_bottom_val };
 
+            // +spec:box-model:3a9c2a - resolving auto insets: static position fallback when insets are auto
+            // +spec:box-model:bd442c - weaker inset resolves to align margin box with inset-modified CB edge
+            // +spec:height-calculation:93e91c - abs non-replaced height: auto margin centering, single auto margin solve, over-constrained ignore bottom
+            // +spec:positioning:6e7732 - §10.6.4 vertical constraint equation for abspos non-replaced elements
+            // +spec:positioning:b63d0f - absolute positioning with top:auto uses static position (change bars example)
+            // +spec:positioning:da8a0c - resolving auto insets: normal alignment treated as start, so auto insets resolve to static position
             if top_is_auto && height_is_auto && bottom_is_auto {
+                // +spec:positioning:08e0ac - absolute element with top:auto uses static position (current line)
+                // +spec:positioning:aab294 - both inset properties auto: resolve to static position
+                // +spec:positioning:d9bb3c - hypothetical position: UA may guess static position rather than fully computing hypothetical box
                 // All three auto: set top to static position, height from content, solve for bottom
                 final_pos.y = static_pos.y;
             } else if !top_is_auto && !height_is_auto && !bottom_is_auto {
+                // +spec:overflow:fc0c9e - over-constrained abspos: auto margins minimize overflow (CSS2.1 equivalent of Box Alignment 3 safe alignment)
+                // +spec:positioning:88f760 - auto margins of absolutely-positioned boxes (vertical)
                 // None are auto: over-constrained case
                 let top_val = offsets.top.unwrap();
                 let bottom_val = offsets.bottom.unwrap();
                 if margin_auto.top && margin_auto.bottom {
+                    // +spec:height-calculation:5112a4 - both margin-top/bottom auto: solve with equal values
                     let available = cb_height - top_val - used_height - bottom_val;
                     let each = available / 2.0;
                     used_margin_top = each;
@@ -292,6 +352,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 // else: over-constrained, ignore bottom
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if top_is_auto && height_is_auto && !bottom_is_auto {
+                // +spec:height-calculation:909b50 - top and height auto, bottom not auto: height from BFC auto heights, solve for top
                 // Rule 1: height from content, auto margins to 0, solve for top
                 let bottom_val = offsets.bottom.unwrap();
                 let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
@@ -304,15 +365,18 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let top_val = offsets.top.unwrap();
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if top_is_auto && !height_is_auto && !bottom_is_auto {
+                // +spec:height-calculation:33dce8 - top auto, height and bottom not auto: solve for top
                 // Rule 4: auto margins to 0, solve for top
                 let bottom_val = offsets.bottom.unwrap();
                 let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if height_is_auto && !top_is_auto && !bottom_is_auto {
+                // +spec:positioning:62abb5 - automatic size resolved against inset-modified containing block
                 // solve for height from constraint equation:
                 // height = cb_height - top - margin_top - margin_bottom - bottom
                 let top_val = offsets.top.unwrap();
                 let bottom_val = offsets.bottom.unwrap();
+                // +spec:containing-block:b3f0dd - clamp effective CB size to zero when insets exceed it (weaker inset reduced)
                 used_height = (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val).max(0.0);
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
                 // Update the element size with the resolved height
@@ -330,6 +394,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 final_pos.y = static_pos.y;
             }
 
+            // +spec:box-model:984243 - horizontal constraint equation for abs-pos non-replaced elements
+            // +spec:positioning:3be194 - position abs replaced element after establishing width
             // Constraint: left + margin-left + border-left + padding-left + width +
             //   padding-right + border-right + margin-right + right = CB width
             // Since element_size.width is border-box (border + padding + content),
@@ -382,12 +448,16 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let width_is_auto = get_css_width(ctx.styled_dom, dom_id, node_state).is_auto();
 
                 if !left_is_auto && !width_is_auto && !right_is_auto {
+                    // +spec:positioning:88f760 - auto margins of absolutely-positioned boxes (horizontal)
+                    // +spec:width-calculation:942c77 - abs-pos non-replaced width: auto margins, over-constrained resolution
                     // None of left/width/right are auto — solve for margins or handle over-constrained
                     let left = left_val.unwrap();
                     let right = right_val.unwrap();
                     let remaining = cb_width - left - border_box_width - right;
 
+                    // +spec:writing-modes:9c3b40 - abspos auto margins: if negative remaining in inline axis, start margin=0, end margin gets remainder
                     if margin_left_auto && margin_right_auto {
+                        // +spec:positioning:ab47b3 - auto margins can be negative in absolute positioning
                         // Both margins auto: equal values unless negative
                         let each_margin = remaining / 2.0;
                         if each_margin < 0.0 {
@@ -420,10 +490,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         }
                     }
                 } else {
+                    // +spec:overflow:f323cb - auto inset: align margin box to stronger inset edge (may overflow CB)
+                    // +spec:width-calculation:bbf97a - set auto margins to 0 for abspos when left/width/right has auto
                     // Set auto margins to 0, apply six rules
                     let m_left = if margin_left_auto { 0.0 } else { margin_left };
                     let m_right = if margin_right_auto { 0.0 } else { margin_right };
 
+                    // +spec:width-calculation:2b2852 - all three auto: set auto margins to 0, use static position for left (LTR)
                     if left_is_auto && width_is_auto && right_is_auto {
                         // All three auto: use static position
                         final_pos.x = static_pos.x;
@@ -464,11 +537,20 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     Ok(())
 }
 
+// +spec:positioning:5b0d7f - relative positioning: offset from normal flow position, siblings unaffected
+// +spec:positioning:8afbe2 - Relative positioning preserves normal flow size and space; only visual offset applied after layout
+/// +spec:positioning:3502d5 - relative and absolute positioning supported for combined use
+// +spec:positioning:b22222 - relative positioning: offset from static position, purely visual effect
+// +spec:positioning:b814b6 - relative/absolute/fixed positioning scheme (CSS Positioned Layout Module Level 3)
 /// Final pass to shift relatively positioned elements from their static flow position.
+/// +spec:block-formatting-context:60ccf9 - relative positioning shifts inline boxes as a unit after normal flow
+/// +spec:display-property:17239f - relative positioning offsets element after normal flow; abspos elements taken out of flow
+/// +spec:positioning:cbe066 - relative positioning implementation
 ///
 /// This function now correctly resolves percentage-based offsets for `top`, `left`, etc.
 /// According to the CSS spec, for relatively positioned elements, these percentages are
 /// relative to the dimensions of the parent element's content box.
+// +spec:positioning:2d8e15 - relative positioning shifts elements as a unit after normal flow without affecting surrounding content
 pub fn adjust_relative_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -480,15 +562,18 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         let node = &tree.nodes[node_index];
         let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
 
+        // +spec:block-formatting-context:faa1cf - static boxes: top/right/bottom/left do not apply
         // Early continue for non-relative positioning
         if position_type != LayoutPosition::Relative {
             continue;
         }
 
+        // +spec:table-layout:6cb73b - position:relative effect on table elements is undefined; skip them
         {
             use azul_css::props::layout::LayoutDisplay;
             let display = get_display_property(ctx.styled_dom, node.dom_node_id);
             if let MultiValue::Exact(d) = display {
+                // +spec:positioning:4614dd - position does not apply to table-column-group or table-column boxes
                 if matches!(
                     d,
                     LayoutDisplay::TableRowGroup
@@ -534,6 +619,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 
         let initial_pos = *current_pos;
 
+        // +spec:positioning:5eb813 - relative positioning offsets contents from normal flow position
+        // +spec:positioning:a2e5f1 - relative positioning shifts element from static position (vs absolute/float)
         // top/bottom/left/right offsets are applied relative to the static position.
         let mut delta_x = 0.0;
         let mut delta_y = 0.0;
@@ -544,6 +631,11 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         //   - In LTR: if both specified, `left` wins and `right` is ignored
         //   - In RTL: if both specified, `right` wins and `left` is ignored
 
+        // +spec:overflow:53dffd - both left/right auto → used values are 0, boxes stay in original position
+        // +spec:positioning:5a099e - negative offsets can cause overlapping (no clamping applied)
+        // +spec:positioning:d189de - bottom offset for relative positioning is with respect to the box's own bottom edge
+        // +spec:positioning:d80f47 - opposing inset values are negations: top wins over bottom, left/right per direction
+        // +spec:positioning:ecc27c - relative positioning: left/right move box horizontally without changing size, left = -right
         // both auto → 0; one auto → negative of other; neither auto → bottom ignored (top wins)
         // Vertical positioning: `top` takes precedence over `bottom`
         if let Some(top) = offsets.top {
@@ -552,6 +644,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             delta_y = -bottom;
         }
 
+        // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by 9.4.3 rules
         // Spec: "If the 'direction' property of the containing block is 'ltr', the value of 'left' wins"
         // Get the direction of the containing block (parent), not the element itself
         use azul_css::props::style::StyleDirection;
@@ -567,11 +660,13 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 }
             })
             .unwrap_or(StyleDirection::Ltr);
+        // +spec:containing-block:6d4fb1 - over-constrained relative positioning: ltr→left wins, rtl→right wins
         match cb_direction {
             StyleDirection::Ltr => {
                 if let Some(left) = offsets.left {
                     delta_x = left;
                 } else if let Some(right) = offsets.right {
+                    // +spec:overflow:fb426c - left auto: used value is minus the value of right
                     delta_x = -right;
                 }
             }
@@ -584,6 +679,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             }
         }
 
+        // +spec:overflow:f1e1ce - relative positioning may cause overflow:auto/scroll boxes to need scrollbars
         // Only apply the shift if there is a non-zero delta.
         if delta_x != 0.0 || delta_y != 0.0 {
             current_pos.x += delta_x;
@@ -598,15 +694,31 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     Ok(())
 }
 
+// +spec:positioning:22f165 - absolute/fixed containing block: nearest positioned ancestor's padding-box, or initial CB
 /// Helper to find the containing block for an absolutely positioned element.
 /// CSS 2.1 Section 10.1: The containing block for absolutely positioned elements
 /// is the padding box of the nearest positioned ancestor.
+// +spec:containing-block:10af51 - absolutely positioned element's CB is nearest positioned ancestor
+// +spec:positioning:2d0dbb - containing block for abspos is padding-box of nearest positioned ancestor, or initial CB
+// +spec:positioning:3ac06c - abspos positioned relative to containing block ignoring fragmentation breaks
+// +spec:positioning:d7e4b4 - containing block of abspos element is always definite (returns concrete LogicalRect)
+// +spec:positioning:fc9dba - containing block resolution for absolutely positioned boxes
 ///
 /// Returns a `LogicalRect` representing the padding-box of the nearest
 /// positioned ancestor, or the viewport (initial containing block) if none exists.
 /// This is the unified entry point used by both sizing and positioning phases.
+// +spec:containing-block:18ae8e - Absolute positioning: abs-pos box establishes new CB for normal flow and abs-pos (but not fixed) descendants
+// +spec:containing-block:b6cb8b - containing block for abs-pos is nearest positioned ancestor
+// +spec:display-property:5a39bc - containing block for abspos is nearest positioned ancestor or initial containing block
+// +spec:positioning:09a0fa - Absolute positioning: CB is padding-box of nearest positioned ancestor
+// +spec:positioning:467cb1 - Containing block for abs pos = nearest positioned ancestor or initial CB
+// +spec:positioning:99d0bb - containing block for absolute elements is nearest positioned ancestor
+// +spec:positioning:92e099 - containing block for abs pos is nearest positioned ancestor or initial CB
+// +spec:positioning:f57523 - containing block of abspos element is always definite (returns concrete LogicalRect)
+// +spec:width-calculation:bf1aa6 - abspos CB is nearest positioned ancestor, else initial CB
 // Containing block for absolutely positioned elements is established by
 // nearest positioned ancestor (relative/absolute/fixed), or initial containing block if none.
+// +spec:positioning:8f50de - relatively positioned parent serves as containing block for abspos descendants
 pub fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
@@ -616,6 +728,7 @@ pub fn find_absolute_containing_block_rect(
 ) -> Result<LogicalRect> {
     let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
 
+    // +spec:positioning:aa361e - values other than static make a box positioned and establish an abspos containing block
     while let Some(parent_index) = current_parent_idx {
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
 
@@ -650,6 +763,7 @@ pub fn find_absolute_containing_block_rect(
         current_parent_idx = parent_node.parent;
     }
 
+    // +spec:positioning:3d88c9 - abspos available space is always definite (viewport or positioned ancestor padding box)
     // No positioned ancestor found: fall back to initial containing block (viewport)
     Ok(viewport)
 }

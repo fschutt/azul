@@ -740,6 +740,7 @@ pub struct FontMetrics {
     pub us_win_ascent: OptionU16,
     pub us_win_descent: OptionU16,
 
+    // +spec:font-metrics:d3b654 - cap-height and x-height metrics for visual text centering (leading-trim)
     // os/2 version 2 table
     pub sx_height: OptionI16,
     pub s_cap_height: OptionI16,

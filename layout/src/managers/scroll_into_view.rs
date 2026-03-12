@@ -437,6 +437,7 @@ pub fn calculate_axis_delta(
 }
 
 /// Resolve scroll behavior based on options and CSS properties
+// +spec:containing-block:03528c - scroll-behavior on root element applies to viewport
 fn resolve_scroll_behavior(
     requested: ScrollIntoViewBehavior,
     _dom_id: DomId,

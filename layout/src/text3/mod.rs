@@ -13,6 +13,7 @@ use lru::LruCache;
 use rust_fontconfig::{
     FcFontCache, FcPattern, FcWeight, FontId, FontMatch, PatternMatch, UnicodeRange,
 };
+// +spec:writing-modes:b05b03 - CSS relies on Unicode bidi algorithm (UAX #9) for bidirectional rendering
 use unicode_bidi::{get_base_direction, BidiInfo};
 use unicode_segmentation::UnicodeSegmentation;
 

@@ -529,6 +529,7 @@ impl ScrollManager {
         result
     }
 
+    // +spec:overflow:4000a6 - scroll position as offset from scroll origin within scrollport
     /// Sets scroll position immediately (no animation), clamped to valid bounds.
     pub fn set_scroll_position(
         &mut self,
@@ -1088,6 +1089,7 @@ impl ScrollManager {
 // AnimatedScrollState Implementation
 
 impl AnimatedScrollState {
+    // +spec:overflow:60f6a1 - scroll origin defaults to block-start inline-start corner (0,0)
     /// Create a new scroll state initialized at offset (0, 0).
     pub fn new(now: Instant) -> Self {
         Self {

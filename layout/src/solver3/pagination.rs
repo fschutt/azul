@@ -352,6 +352,7 @@ pub fn calculate_pagination_offset(
     let remaining = geometer.remaining_on_page(main_pen);
 
     // 3. Handle monolithic content (cannot be split)
+    // +spec:inline-formatting-context:cb2a20 - initial letter boxes are monolithic for block-axis fragmentation; breaks between lines alongside an initial letter should be avoided (like widows/orphans), but forced breaks take precedence
     if break_eval.behavior == BreakBehavior::Monolithic {
         if child_height <= remaining {
             // Fits on current page

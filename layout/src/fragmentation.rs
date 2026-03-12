@@ -395,6 +395,7 @@ pub struct BreakPoint {
 pub enum BreakClass {
     /// Between sibling block-level boxes
     ClassA,
+    // +spec:block-formatting-context:a019b9 - break opportunities only between line boxes, not inside them
     /// Between line boxes inside a block container
     ClassB,
     /// Between content edge and child margin edge
