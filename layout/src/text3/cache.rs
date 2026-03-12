@@ -2585,7 +2585,7 @@ pub struct ShapeConstraints {
 pub enum WritingMode {
     #[default]
     HorizontalTb, // horizontal-tb (normal horizontal)
-    VerticalRl, // vertical-rl (vertical right-to-left)
+    VerticalRl, // +spec:writing-modes:6e22a7 - vertical-rl (vertical right-to-left, commonly used in East Asia)
     VerticalLr, // vertical-lr (vertical left-to-right)
     SidewaysRl, // sideways-rl (rotated horizontal in vertical context)
     SidewaysLr, // sideways-lr (rotated horizontal in vertical context)
