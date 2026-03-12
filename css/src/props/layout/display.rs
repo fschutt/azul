@@ -79,6 +79,23 @@ impl LayoutDisplay {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
     }
 
+    /// Returns true for layout-internal display types (CSS Display 3 §2.4):
+    /// table-row-group, table-header-group, table-footer-group, table-row,
+    /// table-column-group, table-column, table-cell, table-caption.
+    pub fn is_layout_internal(&self) -> bool {
+        matches!(
+            self,
+            LayoutDisplay::TableRowGroup
+                | LayoutDisplay::TableHeaderGroup
+                | LayoutDisplay::TableFooterGroup
+                | LayoutDisplay::TableRow
+                | LayoutDisplay::TableColumnGroup
+                | LayoutDisplay::TableColumn
+                | LayoutDisplay::TableCell
+                | LayoutDisplay::TableCaption
+        )
+    }
+
     // +spec:display-property:101f27 - inline-level boxes (InlineBlock, InlineFlex, etc.) vs inline boxes (Inline)
     // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
     // +spec:display-property:a43e48 - inline-table is inline-level per CSS 2.2 §17.4

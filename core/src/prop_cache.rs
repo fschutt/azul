@@ -200,6 +200,8 @@ macro_rules! match_property_value {
             CssProperty::BackgroundRepeat($value) => $expr,
             CssProperty::OverflowX($value) => $expr,
             CssProperty::OverflowY($value) => $expr,
+            CssProperty::OverflowBlock($value) => $expr,
+            CssProperty::OverflowInline($value) => $expr,
             CssProperty::PaddingTop($value) => $expr,
             CssProperty::PaddingLeft($value) => $expr,
             CssProperty::PaddingRight($value) => $expr,
@@ -3855,6 +3857,24 @@ impl CssPropertyCache {
     ) -> Option<&'a LayoutOverflowValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowY)
             .and_then(|p| p.as_overflow_y())
+    }
+    pub fn get_overflow_block<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutOverflowValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowBlock)
+            .and_then(|p| p.as_overflow_block())
+    }
+    pub fn get_overflow_inline<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutOverflowValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowInline)
+            .and_then(|p| p.as_overflow_inline())
     }
     pub fn get_flex_direction<'a>(
         &'a self,

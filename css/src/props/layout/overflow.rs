@@ -239,23 +239,63 @@ pub fn parse_style_scrollbar_gutter<'a>(
     }
 }
 
+// -- VisualBox --
+
+// +spec:overflow:f6955f - box edge origin for overflow-clip-margin
+/// Represents the `<visual-box>` value used as the overflow clip edge origin.
+///
+/// Specifies which box edge to use as the starting point for the clip region.
+/// Defaults to `padding-box` per CSS Overflow Module Level 3.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum VisualBox {
+    /// Clip edge starts at the content box edge.
+    ContentBox,
+    /// Clip edge starts at the padding box edge (default).
+    #[default]
+    PaddingBox,
+    /// Clip edge starts at the border box edge.
+    BorderBox,
+}
+
+impl PrintAsCssValue for VisualBox {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            VisualBox::ContentBox => "content-box",
+            VisualBox::PaddingBox => "padding-box",
+            VisualBox::BorderBox => "border-box",
+        })
+    }
+}
+
 // -- StyleOverflowClipMargin --
 
 /// Represents the `overflow-clip-margin` CSS property.
 ///
 /// Determines how far outside the element's box the content may paint
 /// before being clipped when `overflow: clip` is used.
+/// Syntax: `<visual-box> || <length [0,∞]>`
 // +spec:overflow:455786 - overflow-clip-margin has no effect on hidden/scroll, only on clip
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleOverflowClipMargin {
-    /// The clip margin distance.
+    /// The box edge to use as the clip origin (content-box, padding-box, or border-box).
+    pub clip_edge: VisualBox,
+    /// The clip margin distance beyond the clip edge.
     pub inner: crate::props::basic::pixel::PixelValue,
 }
 
 impl PrintAsCssValue for StyleOverflowClipMargin {
     fn print_as_css_value(&self) -> String {
-        self.inner.print_as_css_value()
+        let edge = self.clip_edge.print_as_css_value();
+        let len = self.inner.print_as_css_value();
+        if self.inner.number.get() == 0.0 {
+            edge
+        } else if self.clip_edge == VisualBox::PaddingBox {
+            len
+        } else {
+            format!("{} {}", edge, len)
+        }
     }
 }
 
@@ -299,13 +339,94 @@ impl StyleOverflowClipMarginParseErrorOwned {
 
 #[cfg(feature = "parser")]
 /// Parses a `StyleOverflowClipMargin` from a string slice.
+///
+/// Syntax: `<visual-box> || <length [0,∞]>`
+/// The `<visual-box>` defaults to `padding-box` if omitted.
+/// The `<length>` defaults to `0px` if omitted.
 pub fn parse_style_overflow_clip_margin<'a>(
     input: &'a str,
 ) -> Result<StyleOverflowClipMargin, StyleOverflowClipMarginParseError<'a>> {
     use crate::props::basic::pixel::parse_pixel_value;
-    match parse_pixel_value(input) {
-        Ok(pv) => Ok(StyleOverflowClipMargin { inner: pv }),
-        Err(_) => Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
+
+    let input_trimmed = input.trim();
+    let mut clip_edge = None;
+    let mut length = None;
+
+    for token in input_trimmed.split_whitespace() {
+        match token {
+            "content-box" if clip_edge.is_none() => clip_edge = Some(VisualBox::ContentBox),
+            "padding-box" if clip_edge.is_none() => clip_edge = Some(VisualBox::PaddingBox),
+            "border-box" if clip_edge.is_none() => clip_edge = Some(VisualBox::BorderBox),
+            _ if length.is_none() => {
+                match parse_pixel_value(token) {
+                    Ok(pv) => length = Some(pv),
+                    Err(_) => return Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
+                }
+            }
+            _ => return Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
+        }
+    }
+
+    if clip_edge.is_none() && length.is_none() {
+        return Err(StyleOverflowClipMarginParseError::InvalidValue(input));
+    }
+
+    Ok(StyleOverflowClipMargin {
+        clip_edge: clip_edge.unwrap_or_default(),
+        inner: length.unwrap_or_default(),
+    })
+}
+
+// -- StyleClipRect --
+
+/// Represents the deprecated CSS `clip` property value `rect(top, right, bottom, left)`.
+///
+/// Each edge can be a length or `auto`. When `auto`, the edge matches the
+/// element's generated border box edge:
+/// - `auto` for top/left = 0
+/// - `auto` for bottom = used height + vertical padding + vertical border
+/// - `auto` for right = used width + horizontal padding + horizontal border
+///
+/// Negative lengths are permitted.
+// +spec:overflow:297dc3 - clip rect() auto values resolve to border box edges
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct StyleClipRect {
+    /// Top edge offset. `None` means `auto` (= 0).
+    pub top: Option<f32>,
+    /// Right edge offset. `None` means `auto` (= used width + horiz padding + horiz border).
+    pub right: Option<f32>,
+    /// Bottom edge offset. `None` means `auto` (= used height + vert padding + vert border).
+    pub bottom: Option<f32>,
+    /// Left edge offset. `None` means `auto` (= 0).
+    pub left: Option<f32>,
+}
+
+impl StyleClipRect {
+    /// Resolves `auto` values to border box edges given the element's
+    /// used width/height and padding/border sizes.
+    pub fn resolve(
+        &self,
+        used_width: f32,
+        used_height: f32,
+        padding_left: f32,
+        padding_right: f32,
+        padding_top: f32,
+        padding_bottom: f32,
+        border_left: f32,
+        border_right: f32,
+        border_top: f32,
+        border_bottom: f32,
+    ) -> (f32, f32, f32, f32) {
+        let top = self.top.unwrap_or(0.0);
+        let left = self.left.unwrap_or(0.0);
+        let bottom = self
+            .bottom
+            .unwrap_or(used_height + padding_top + padding_bottom + border_top + border_bottom);
+        let right = self
+            .right
+            .unwrap_or(used_width + padding_left + padding_right + border_left + border_right);
+        (top, right, bottom, left)
     }
 }
 

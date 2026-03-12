@@ -396,6 +396,8 @@ macro_rules! css_property_from_type {
             CssPropertyType::Clear => CssProperty::Clear(CssPropertyValue::$content_type),
             CssPropertyType::OverflowX => CssProperty::OverflowX(CssPropertyValue::$content_type),
             CssPropertyType::OverflowY => CssProperty::OverflowY(CssPropertyValue::$content_type),
+            CssPropertyType::OverflowBlock => CssProperty::OverflowBlock(CssPropertyValue::$content_type),
+            CssPropertyType::OverflowInline => CssProperty::OverflowInline(CssPropertyValue::$content_type),
             CssPropertyType::PaddingTop => CssProperty::PaddingTop(CssPropertyValue::$content_type),
             CssPropertyType::PaddingLeft => {
                 CssProperty::PaddingLeft(CssPropertyValue::$content_type)

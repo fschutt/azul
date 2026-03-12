@@ -45,7 +45,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 24] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 25] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -70,9 +70,10 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::Columns, "columns"),
     (CombinedCssPropertyType::GridArea, "grid-area"),
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
+    (CombinedCssPropertyType::TextBox, "text-box"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 175] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 177] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -158,6 +159,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 175] = [
     (CssPropertyType::Clear, "clear"),
     (CssPropertyType::OverflowX, "overflow-x"),
     (CssPropertyType::OverflowY, "overflow-y"),
+    // +spec:overflow:17654b - overflow-block and overflow-inline logical properties
+    (CssPropertyType::OverflowBlock, "overflow-block"),
+    (CssPropertyType::OverflowInline, "overflow-inline"),
     (CssPropertyType::PaddingTop, "padding-top"),
     (CssPropertyType::PaddingLeft, "padding-left"),
     (CssPropertyType::PaddingRight, "padding-right"),
@@ -496,6 +500,7 @@ pub enum CombinedCssPropertyType {
     Columns,
     ColumnRule,
     GridArea,
+    TextBox,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -630,6 +635,8 @@ pub enum CssProperty {
     BackgroundRepeat(StyleBackgroundRepeatVecValue),
     OverflowX(LayoutOverflowValue),
     OverflowY(LayoutOverflowValue),
+    OverflowBlock(LayoutOverflowValue),
+    OverflowInline(LayoutOverflowValue),
     GridAutoFlow(LayoutGridAutoFlowValue),
     JustifySelf(LayoutJustifySelfValue),
     JustifyItems(LayoutJustifyItemsValue),
@@ -883,6 +890,8 @@ pub enum CssPropertyType {
     BackgroundRepeat,
     OverflowX,
     OverflowY,
+    OverflowBlock,
+    OverflowInline,
     PaddingTop,
     PaddingLeft,
     PaddingRight,
@@ -1086,6 +1095,8 @@ impl CssPropertyType {
             CssPropertyType::BackgroundRepeat => "background-repeat",
             CssPropertyType::OverflowX => "overflow-x",
             CssPropertyType::OverflowY => "overflow-y",
+            CssPropertyType::OverflowBlock => "overflow-block",
+            CssPropertyType::OverflowInline => "overflow-inline",
             CssPropertyType::PaddingTop => "padding-top",
             CssPropertyType::PaddingLeft => "padding-left",
             CssPropertyType::PaddingRight => "padding-right",
@@ -2640,6 +2651,8 @@ pub fn parse_css_property<'a>(
         CssPropertyType::TextAlignLast | // text-align-last: auto means StyleTextAlignLast::Auto
         CssPropertyType::OverflowX |
         CssPropertyType::OverflowY |
+        CssPropertyType::OverflowBlock |
+        CssPropertyType::OverflowInline |
         CssPropertyType::UserSelect | // user-select: auto is a typed value
         CssPropertyType::AspectRatio // aspect-ratio: auto means StyleAspectRatio::Auto
     );
@@ -2811,6 +2824,12 @@ pub fn parse_css_property<'a>(
             }
             CssPropertyType::OverflowY => {
                 CssProperty::OverflowY(parse_layout_overflow(value)?.into())
+            }
+            CssPropertyType::OverflowBlock => {
+                CssProperty::OverflowBlock(parse_layout_overflow(value)?.into())
+            }
+            CssPropertyType::OverflowInline => {
+                CssProperty::OverflowInline(parse_layout_overflow(value)?.into())
             }
 
             CssPropertyType::PaddingTop => parse_layout_padding_top(value)?.into(),
@@ -3209,6 +3228,12 @@ pub fn parse_combined_css_property<'a>(
                 CssPropertyType::ColumnRuleColor,
             ]
         }
+        TextBox => {
+            vec![
+                CssPropertyType::TextBoxTrim,
+                CssPropertyType::TextBoxEdge,
+            ]
+        }
     };
 
     // For Overflow, "auto" is a typed value (LayoutOverflow::Auto), not the generic CSS keyword,
@@ -3268,12 +3293,27 @@ pub fn parse_combined_css_property<'a>(
                 ),
             ])
         }
+        // +spec:overflow:ff5ea4 - overflow shorthand sets overflow-x and overflow-y; second value copied from first if omitted
         Overflow => {
-            let overflow = parse_layout_overflow(value)?;
-            Ok(vec![
-                CssProperty::OverflowX(overflow.into()),
-                CssProperty::OverflowY(overflow.into()),
-            ])
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            match parts.len() {
+                1 => {
+                    let overflow = parse_layout_overflow(value)?;
+                    Ok(vec![
+                        CssProperty::OverflowX(overflow.into()),
+                        CssProperty::OverflowY(overflow.into()),
+                    ])
+                }
+                2 => {
+                    let overflow_x = parse_layout_overflow(parts[0])?;
+                    let overflow_y = parse_layout_overflow(parts[1])?;
+                    Ok(vec![
+                        CssProperty::OverflowX(overflow_x.into()),
+                        CssProperty::OverflowY(overflow_y.into()),
+                    ])
+                }
+                _ => Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
+            }
         }
         Padding => {
             let padding = parse_layout_padding(value)?;
@@ -3714,6 +3754,37 @@ pub fn parse_combined_css_property<'a>(
                 ),
             ])
         }
+        // +spec:overflow:33aaf7 - text-box shorthand: "normal" sets trim=none/edge=auto,
+        // omitting trim defaults to "both", omitting edge defaults to "auto"
+        TextBox => {
+            let trimmed = value.trim();
+            if trimmed == "normal" {
+                return Ok(vec![
+                    CssProperty::TextBoxTrim(CssPropertyValue::Exact(StyleTextBoxTrim::None)),
+                    CssProperty::TextBoxEdge(CssPropertyValue::Exact(StyleTextBoxEdge::Auto)),
+                ]);
+            }
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            let mut trim_val = None;
+            let mut edge_val = None;
+            for part in &parts {
+                if let Ok(t) = parse_style_text_box_trim(part) {
+                    trim_val = Some(t);
+                } else if let Ok(e) = parse_style_text_box_edge(part) {
+                    edge_val = Some(e);
+                } else {
+                    return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+                }
+            }
+            // Per spec: omitting trim defaults to "both" (not the initial "none")
+            let trim = trim_val.unwrap_or(StyleTextBoxTrim::TrimBoth);
+            // Per spec: omitting edge defaults to "auto" (the initial value)
+            let edge = edge_val.unwrap_or(StyleTextBoxEdge::Auto);
+            Ok(vec![
+                CssProperty::TextBoxTrim(CssPropertyValue::Exact(trim)),
+                CssProperty::TextBoxEdge(CssPropertyValue::Exact(edge)),
+            ])
+        }
     }
 }
 
@@ -3975,6 +4046,8 @@ impl CssProperty {
             CssProperty::BackgroundRepeat(v) => v.get_css_value_fmt(),
             CssProperty::OverflowX(v) => v.get_css_value_fmt(),
             CssProperty::OverflowY(v) => v.get_css_value_fmt(),
+            CssProperty::OverflowBlock(v) => v.get_css_value_fmt(),
+            CssProperty::OverflowInline(v) => v.get_css_value_fmt(),
             CssProperty::PaddingTop(v) => v.get_css_value_fmt(),
             CssProperty::PaddingLeft(v) => v.get_css_value_fmt(),
             CssProperty::PaddingRight(v) => v.get_css_value_fmt(),
@@ -4447,6 +4520,8 @@ impl CssProperty {
             CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
             CssProperty::OverflowX(_) => CssPropertyType::OverflowX,
             CssProperty::OverflowY(_) => CssPropertyType::OverflowY,
+            CssProperty::OverflowBlock(_) => CssPropertyType::OverflowBlock,
+            CssProperty::OverflowInline(_) => CssPropertyType::OverflowInline,
             CssProperty::PaddingTop(_) => CssPropertyType::PaddingTop,
             CssProperty::PaddingLeft(_) => CssPropertyType::PaddingLeft,
             CssProperty::PaddingRight(_) => CssPropertyType::PaddingRight,
@@ -4725,6 +4800,12 @@ impl CssProperty {
     }
     pub const fn overflow_y(input: LayoutOverflow) -> Self {
         CssProperty::OverflowY(CssPropertyValue::Exact(input))
+    }
+    pub const fn overflow_block(input: LayoutOverflow) -> Self {
+        CssProperty::OverflowBlock(CssPropertyValue::Exact(input))
+    }
+    pub const fn overflow_inline(input: LayoutOverflow) -> Self {
+        CssProperty::OverflowInline(CssPropertyValue::Exact(input))
     }
     pub const fn padding_top(input: LayoutPaddingTop) -> Self {
         CssProperty::PaddingTop(CssPropertyValue::Exact(input))
@@ -5657,6 +5738,18 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_overflow_block(&self) -> Option<&LayoutOverflowValue> {
+        match self {
+            CssProperty::OverflowBlock(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_overflow_inline(&self) -> Option<&LayoutOverflowValue> {
+        match self {
+            CssProperty::OverflowInline(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_flex_direction(&self) -> Option<&LayoutFlexDirectionValue> {
         match self {
             CssProperty::FlexDirection(f) => Some(f),
@@ -6081,6 +6174,8 @@ impl CssProperty {
             BackgroundRepeat(c) => c.is_initial(),
             OverflowX(c) => c.is_initial(),
             OverflowY(c) => c.is_initial(),
+            OverflowBlock(c) => c.is_initial(),
+            OverflowInline(c) => c.is_initial(),
             PaddingTop(c) => c.is_initial(),
             PaddingLeft(c) => c.is_initial(),
             PaddingRight(c) => c.is_initial(),
@@ -6307,6 +6402,12 @@ impl CssProperty {
     }
     pub const fn const_overflow_y(input: LayoutOverflow) -> Self {
         CssProperty::OverflowY(LayoutOverflowValue::Exact(input))
+    }
+    pub const fn const_overflow_block(input: LayoutOverflow) -> Self {
+        CssProperty::OverflowBlock(LayoutOverflowValue::Exact(input))
+    }
+    pub const fn const_overflow_inline(input: LayoutOverflow) -> Self {
+        CssProperty::OverflowInline(LayoutOverflowValue::Exact(input))
     }
     pub const fn const_padding_top(input: LayoutPaddingTop) -> Self {
         CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(input))
@@ -6750,6 +6851,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         ),
         CssProperty::OverflowY(p) => format!(
             "CssProperty::OverflowY({})",
+            print_css_property_value(p, tabs, "LayoutOverflow")
+        ),
+        CssProperty::OverflowBlock(p) => format!(
+            "CssProperty::OverflowBlock({})",
+            print_css_property_value(p, tabs, "LayoutOverflow")
+        ),
+        CssProperty::OverflowInline(p) => format!(
+            "CssProperty::OverflowInline({})",
             print_css_property_value(p, tabs, "LayoutOverflow")
         ),
         CssProperty::PaddingTop(p) => format!(
