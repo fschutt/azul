@@ -51,7 +51,8 @@ use crate::{
     solver3::{
         getters::{
             get_background_color, get_background_contents, get_border_info, get_border_radius,
-            get_break_after, get_break_before, get_caret_style, get_overflow_x, get_overflow_y,
+            get_break_after, get_break_before, get_caret_style,
+            get_overflow_clip_margin_property, get_overflow_x, get_overflow_y,
             get_scrollbar_gutter_property, get_scrollbar_info_from_layout, get_scrollbar_style, get_selection_style,
             get_style_border_radius, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
             ComputedScrollbarStyle, SelectionStyle,
@@ -2474,7 +2475,7 @@ where
         // Scrollbars are drawn inside the border-box, on the right/bottom edges
         // +spec:overflow:a825a6 - TODO: abs-pos elements with containing block outside this
         // element should not be clipped (currently all DOM children are clipped)
-        let clip_rect = LogicalRect {
+        let mut clip_rect = LogicalRect {
             origin: LogicalPosition {
                 x: paint_rect.origin.x + border.left,
                 y: paint_rect.origin.y + border.top,
@@ -2493,6 +2494,18 @@ where
                     .max(0.0),
             },
         };
+
+        // +spec:overflow:342f47 - overflow-clip-margin expands clip edge for overflow:clip only
+        // Per CSS Overflow 3 §3.2: overflow-clip-margin has no effect on overflow:hidden
+        // or overflow:scroll. It only expands the overflow clip edge when overflow:clip is used.
+        apply_overflow_clip_margin(
+            &mut clip_rect,
+            &overflow_x,
+            &overflow_y,
+            self.ctx.styled_dom,
+            dom_id,
+            &styled_node_state,
+        );
 
         let is_virtual_view = self.is_virtual_view_node(dom_id);
 
@@ -4054,6 +4067,39 @@ impl OverflowBehavior {
     /// overflowing content.
     pub fn is_scroll(&self) -> bool {
         matches!(self, Self::Scroll | Self::Auto)
+    }
+}
+
+/// Expands `clip_rect` outward by the `overflow-clip-margin` value on axes that use `overflow: clip`.
+///
+/// Per CSS Overflow 3 §3.2, `overflow-clip-margin` only applies to `overflow: clip` —
+/// it has no effect on `overflow: hidden`, `scroll`, or `auto`.
+fn apply_overflow_clip_margin(
+    clip_rect: &mut LogicalRect,
+    overflow_x: &super::getters::MultiValue<LayoutOverflow>,
+    overflow_y: &super::getters::MultiValue<LayoutOverflow>,
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    styled_node_state: &azul_core::styled_dom::StyledNodeState,
+) {
+    if !overflow_x.is_clip() && !overflow_y.is_clip() {
+        return;
+    }
+    let clip_margin = get_overflow_clip_margin_property(styled_dom, dom_id, styled_node_state);
+    let Some(margin_val) = clip_margin.exact() else {
+        return;
+    };
+    let m = margin_val.inner.to_pixels_internal(0.0, 0.0).max(0.0);
+    if m <= 0.0 {
+        return;
+    }
+    if overflow_x.is_clip() {
+        clip_rect.origin.x -= m;
+        clip_rect.size.width += m * 2.0;
+    }
+    if overflow_y.is_clip() {
+        clip_rect.origin.y -= m;
+        clip_rect.size.height += m * 2.0;
     }
 }
 
