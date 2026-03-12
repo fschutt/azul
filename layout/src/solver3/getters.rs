@@ -270,6 +270,19 @@ impl MultiValue<LayoutOverflow> {
             MultiValue::Exact(LayoutOverflow::Visible | LayoutOverflow::Clip)
         )
     }
+
+    // +spec:overflow:833078 - visible/clip compute to auto/hidden if other axis is scrollable
+    /// Resolves the computed value per CSS Overflow 3 § 3.1:
+    /// visible/clip values compute to auto/hidden (respectively)
+    /// if the other axis is neither visible nor clip.
+    pub fn resolve_computed(&self, other_axis: &MultiValue<LayoutOverflow>) -> MultiValue<LayoutOverflow> {
+        match (self, other_axis) {
+            (MultiValue::Exact(val), MultiValue::Exact(other)) => {
+                MultiValue::Exact(val.resolve_computed(*other))
+            }
+            _ => *self,
+        }
+    }
 }
 
 // Implement helper methods for LayoutPosition

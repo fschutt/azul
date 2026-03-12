@@ -75,6 +75,23 @@ impl LayoutOverflow {
     pub fn is_overflow_hidden(&self) -> bool {
         *self == LayoutOverflow::Hidden
     }
+
+    // +spec:overflow:833078 - visible/clip compute to auto/hidden if other axis is scrollable
+    /// Resolves the computed value per CSS Overflow 3 § 3.1:
+    /// visible/clip values compute to auto/hidden (respectively)
+    /// if the other axis is neither visible nor clip.
+    pub fn resolve_computed(self, other_axis: LayoutOverflow) -> LayoutOverflow {
+        let other_is_scrollable = !matches!(other_axis, LayoutOverflow::Visible | LayoutOverflow::Clip);
+        if other_is_scrollable {
+            match self {
+                LayoutOverflow::Visible => LayoutOverflow::Auto,
+                LayoutOverflow::Clip => LayoutOverflow::Hidden,
+                other => other,
+            }
+        } else {
+            self
+        }
+    }
 }
 
 impl PrintAsCssValue for LayoutOverflow {
