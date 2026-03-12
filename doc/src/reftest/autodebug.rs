@@ -9,18 +9,20 @@ use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use rayon::prelude::*;
 
 use crate::spec::executor::{
     self, AgentResult, WorktreeSlot, CODEBASE_CONTEXT, SHUTDOWN_REQUESTED,
 };
 
 use super::{
-    generate_azul_rendering_sized, generate_chrome_screenshot,
-    generate_chrome_screenshot_with_debug,
-    get_chrome_path, find_test_files, pixels_similar, DebugData,
+    generate_azul_rendering_sized, generate_azul_rendering_sized_cached,
+    generate_chrome_screenshot, get_chrome_path, find_test_files,
+    pixels_similar, DebugData,
 };
 
 // ── Configuration ──────────────────────────────────────────────────────
@@ -75,6 +77,284 @@ fn patches_dir(project_root: &Path) -> PathBuf {
 
 fn reports_dir(project_root: &Path) -> PathBuf {
     output_dir(project_root).join("reports")
+}
+
+// ── Chrome CDP (DevTools Protocol) ─────────────────────────────────────
+//
+// Launches a single Chrome instance and communicates via WebSocket to
+// capture screenshots and extract layout information without respawning
+// Chrome for every test file.
+
+mod cdp {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpStream;
+    use std::path::Path;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, Instant};
+
+    use tungstenite::{connect, Message, WebSocket, stream::MaybeTlsStream};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+    fn next_id() -> u64 {
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// A persistent Chrome instance communicating via CDP over WebSocket.
+    pub struct ChromeCdp {
+        ws: WebSocket<MaybeTlsStream<TcpStream>>,
+        child: Child,
+        page_enabled: bool,
+    }
+
+    impl ChromeCdp {
+        /// Launch Chrome headless with remote debugging and connect via WebSocket.
+        pub fn launch(chrome_path: &str) -> Result<Self, String> {
+            let mut child = Command::new(chrome_path)
+                .arg("--headless")
+                .arg("--disable-gpu")
+                .arg("--no-sandbox")
+                .arg("--remote-debugging-port=0")
+                .arg("--disable-extensions")
+                .arg("--disable-background-networking")
+                .arg("--disable-sync")
+                .arg("--no-first-run")
+                .arg("about:blank")
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to spawn Chrome: {}", e))?;
+
+            // Parse the debugging port from stderr
+            // Chrome prints: "DevTools listening on ws://127.0.0.1:PORT/devtools/browser/UUID"
+            let stderr = child.stderr.take()
+                .ok_or("No stderr from Chrome")?;
+            let reader = BufReader::new(stderr);
+
+            let mut debug_port = None;
+
+            let start = Instant::now();
+            let timeout = Duration::from_secs(15);
+
+            for line in reader.lines() {
+                if start.elapsed() > timeout { break; }
+                let line = line.map_err(|e| format!("Read stderr: {}", e))?;
+                // Extract port from ws://127.0.0.1:PORT/...
+                if let Some(idx) = line.find("ws://127.0.0.1:") {
+                    let after = &line[idx + "ws://127.0.0.1:".len()..];
+                    if let Some(slash) = after.find('/') {
+                        debug_port = after[..slash].parse::<u16>().ok();
+                    }
+                    break;
+                }
+            }
+
+            let port = debug_port.ok_or("Chrome didn't print debug port within 15s")?;
+
+            // Get the page WebSocket URL from the JSON API
+            // We need to connect to a page target, not the browser target
+            let json_url = format!("http://127.0.0.1:{}/json/list", port);
+            let resp = ureq::get(&json_url).call()
+                .map_err(|e| format!("GET {}: {}", json_url, e))?;
+            let targets: Vec<serde_json::Value> = resp.into_json()
+                .map_err(|e| format!("Parse JSON from {}: {}", json_url, e))?;
+
+            // Find the first page target
+            let page_ws_url = targets.iter()
+                .find(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
+                .and_then(|t| t.get("webSocketDebuggerUrl").and_then(|v| v.as_str()))
+                .ok_or("No page target found in Chrome debug JSON")?
+                .to_string();
+
+            // Connect WebSocket to the page target
+            let (ws, _response) = connect(&page_ws_url)
+                .map_err(|e| format!("WebSocket connect to {}: {}", page_ws_url, e))?;
+
+            Ok(ChromeCdp { ws, child, page_enabled: false })
+        }
+
+        /// Send a CDP command and return the result JSON.
+        fn send_command(&mut self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+            let id = next_id();
+            let msg = serde_json::json!({
+                "id": id,
+                "method": method,
+                "params": params,
+            });
+
+            self.ws.send(Message::Text(msg.to_string()))
+                .map_err(|e| format!("WS send '{}': {}", method, e))?;
+
+            // Read messages until we get our response
+            let start = Instant::now();
+            let timeout = Duration::from_secs(30);
+
+            loop {
+                if start.elapsed() > timeout {
+                    return Err(format!("Timeout waiting for CDP response to '{}'", method));
+                }
+
+                let msg = self.ws.read()
+                    .map_err(|e| format!("WS read: {}", e))?;
+
+                if let Message::Text(text) = msg {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if json.get("id").and_then(|v| v.as_u64()) == Some(id) {
+                            if let Some(err) = json.get("error") {
+                                return Err(format!("CDP error for '{}': {}", method, err));
+                            }
+                            return Ok(json.get("result").cloned().unwrap_or(serde_json::Value::Null));
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Navigate to a file URL and wait for load to finish.
+        fn navigate_and_wait(&mut self, url: &str) -> Result<(), String> {
+            self.send_command("Page.navigate", &serde_json::json!({ "url": url }))?;
+
+            // Wait for Page.loadEventFired
+            let start = Instant::now();
+            let timeout = Duration::from_secs(15);
+
+            loop {
+                if start.elapsed() > timeout {
+                    return Ok(()); // Proceed anyway
+                }
+
+                let msg = self.ws.read()
+                    .map_err(|e| format!("WS read during navigate: {}", e))?;
+
+                if let Message::Text(text) = msg {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if json.get("method").and_then(|v| v.as_str()) == Some("Page.loadEventFired") {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Capture a screenshot at the given viewport size, saving as PNG.
+        pub fn screenshot(
+            &mut self,
+            test_file: &Path,
+            output_file: &Path,
+            width: u32,
+            height: u32,
+        ) -> Result<(), String> {
+            // Enable Page events once (needed for loadEventFired)
+            if !self.page_enabled {
+                self.send_command("Page.enable", &serde_json::json!({}))?;
+                self.page_enabled = true;
+            }
+
+            // Set viewport size
+            self.send_command("Emulation.setDeviceMetricsOverride", &serde_json::json!({
+                "width": width,
+                "height": height,
+                "deviceScaleFactor": 1,
+                "mobile": false,
+            }))?;
+
+            // Navigate to test file
+            let canonical = test_file.canonicalize()
+                .map_err(|e| format!("canonicalize: {}", e))?;
+            let url = format!("file://{}", canonical.display());
+            self.navigate_and_wait(&url)?;
+
+            // Small delay for rendering to settle
+            std::thread::sleep(Duration::from_millis(50));
+
+            // Capture screenshot
+            let result = self.send_command("Page.captureScreenshot", &serde_json::json!({
+                "format": "png",
+                "clip": {
+                    "x": 0,
+                    "y": 0,
+                    "width": width,
+                    "height": height,
+                    "scale": 1,
+                },
+            }))?;
+
+            let data_b64 = result.get("data")
+                .and_then(|v| v.as_str())
+                .ok_or("No screenshot data in CDP response")?;
+
+            let png_bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                data_b64,
+            ).map_err(|e| format!("base64 decode: {}", e))?;
+
+            std::fs::write(output_file, &png_bytes)
+                .map_err(|e| format!("write screenshot: {}", e))?;
+
+            Ok(())
+        }
+
+        /// Extract layout JSON by evaluating JS in the current page.
+        pub fn extract_layout(&mut self) -> Result<String, String> {
+            let js = r#"(function() {
+                var result = { timestamp: new Date().toISOString(), viewport: { width: window.innerWidth, height: window.innerHeight }, elements: [] };
+                var els = document.querySelectorAll('body, body *');
+                for (var i = 0; i < Math.min(els.length, 500); i++) {
+                    var el = els[i];
+                    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+                    var rect = el.getBoundingClientRect();
+                    var cs = window.getComputedStyle(el);
+                    result.elements.push({
+                        i: i, tag: el.tagName.toLowerCase(), id: el.id || null, cls: el.className || null,
+                        bounds: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                        margin: { t: parseFloat(cs.marginTop)||0, r: parseFloat(cs.marginRight)||0, b: parseFloat(cs.marginBottom)||0, l: parseFloat(cs.marginLeft)||0 },
+                        padding: { t: parseFloat(cs.paddingTop)||0, r: parseFloat(cs.paddingRight)||0, b: parseFloat(cs.paddingBottom)||0, l: parseFloat(cs.paddingLeft)||0 },
+                        display: cs.display, position: cs.position
+                    });
+                }
+                return JSON.stringify(result, null, 2);
+            })()"#;
+
+            let result = self.send_command("Runtime.evaluate", &serde_json::json!({
+                "expression": js,
+                "returnByValue": true,
+            }))?;
+
+            let value = result
+                .get("result")
+                .and_then(|r| r.get("value"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}");
+
+            Ok(value.to_string())
+        }
+
+        /// Take a screenshot and optionally extract layout for a test at a given size.
+        pub fn screenshot_and_layout(
+            &mut self,
+            test_file: &Path,
+            screenshot_file: &Path,
+            layout_file: Option<&Path>,
+            width: u32,
+            height: u32,
+        ) -> Result<(), String> {
+            self.screenshot(test_file, screenshot_file, width, height)?;
+            if let Some(lf) = layout_file {
+                let json = self.extract_layout()?;
+                std::fs::write(lf, &json)
+                    .map_err(|e| format!("write layout json: {}", e))?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for ChromeCdp {
+        fn drop(&mut self) {
+            let _ = self.send_command("Browser.close", &serde_json::json!({}));
+            let _ = self.child.wait();
+        }
+    }
 }
 
 // ── Pixel Diff Analysis ────────────────────────────────────────────────
@@ -477,14 +757,26 @@ pub struct SizeResult {
     pub diff_analysis: DiffAnalysis,
 }
 
+/// A (test_name, test_file, size) work item for screenshot generation.
+struct ScreenshotJob {
+    test_name: String,
+    test_file: PathBuf,
+    size: ScreenSize,
+    chrome_file: PathBuf,
+    azul_file: PathBuf,
+}
+
 /// Discover tests that fail the pixel diff threshold.
+///
+/// Runs in 3 parallel phases:
+///   Phase 1a: Chrome screenshots (parallel Chrome processes)
+///   Phase 1b: Azul CPU rendering (parallel via rayon)
+///   Phase 1c: Pixel diff analysis (parallel via rayon)
 pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTestData>, String> {
     let test_dir = &config.test_dir;
     let screenshots = screenshots_dir(&config.project_root);
     fs::create_dir_all(&screenshots)
         .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
-
-    let chrome_path = get_chrome_path();
 
     let mut test_files = find_test_files(test_dir)
         .map_err(|e| format!("Failed to find test files: {}", e))?;
@@ -500,119 +792,269 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         });
     }
 
-    println!("Found {} test files", test_files.len());
+    let total_tests = test_files.len();
+    let total_jobs = total_tests * config.sizes.len();
+    println!("Found {} test files, {} screenshot jobs ({}x {} sizes)",
+        total_tests, total_jobs, total_tests, config.sizes.len());
 
-    let mut failing = Vec::new();
-    let threshold_pct = 0.5; // Fail if >0.5% pixels differ
-
-    for (idx, test_file) in test_files.iter().enumerate() {
+    // Build job list: (test_name, test_file, size, chrome_path, azul_path)
+    let mut jobs: Vec<ScreenshotJob> = Vec::with_capacity(total_jobs);
+    for test_file in &test_files {
         let test_name = test_file
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string();
-
-        if (idx + 1) % 50 == 0 || idx == 0 {
-            println!(
-                "  [{}/{}] Processing {}...",
-                idx + 1,
-                test_files.len(),
-                test_name
-            );
-        }
-
-        let mut size_results = Vec::new();
-        let mut any_failing = false;
-        let mut debug_data = None;
-
         for size in &config.sizes {
             let chrome_file = screenshots.join(format!("{}_{}_chrome.png", test_name, size.name));
             let azul_file = screenshots.join(format!("{}_{}_azul.webp", test_name, size.name));
-
-            // Generate Chrome screenshot (skip if cached and --skip-chrome)
-            if !config.skip_chrome || !chrome_file.exists() {
-                // Use simple screenshot for all sizes (fast, no dump-dom hang risk).
-                // Extract Chrome layout JSON only for desktop (used in the prompt).
-                if size.name == "desktop" {
-                    let layout_file = screenshots.join(format!("{}_{}_chrome_layout.json", test_name, size.name));
-                    if let Err(e) = generate_chrome_screenshot_with_debug(
-                        &chrome_path,
-                        test_file,
-                        &chrome_file,
-                        &layout_file,
-                        size.width,
-                        size.height,
-                    ) {
-                        eprintln!("  Warning: Chrome screenshot failed for {} at {}: {}", test_name, size.name, e);
-                        continue;
-                    }
-                } else {
-                    if let Err(e) = generate_chrome_screenshot(
-                        &chrome_path,
-                        test_file,
-                        &chrome_file,
-                        size.width,
-                        size.height,
-                    ) {
-                        eprintln!("  Warning: Chrome screenshot failed for {} at {}: {}", test_name, size.name, e);
-                        continue;
-                    }
-                }
-            }
-
-            // Generate Azul rendering — use desktop size for debug data
-            match generate_azul_rendering_at_size(test_file, &azul_file, size.width, size.height) {
-                Ok(dd) => {
-                    if size.name == "desktop" || debug_data.is_none() {
-                        debug_data = Some(dd);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("  Warning: Azul rendering failed for {} at {}: {}", test_name, size.name, e);
-                    continue;
-                }
-            }
-
-            // Analyze diff
-            if !chrome_file.exists() || !azul_file.exists() {
-                continue;
-            }
-
-            match analyze_pixel_diff(&chrome_file, &azul_file, size.name) {
-                Ok(analysis) => {
-                    if analysis.diff_percent > threshold_pct {
-                        any_failing = true;
-                        size_results.push(SizeResult {
-                            size: *size,
-                            chrome_screenshot: chrome_file,
-                            azul_screenshot: azul_file,
-                            diff_analysis: analysis,
-                        });
-                    }
-                }
-                Err(e) => {
-                    eprintln!("  Warning: Diff analysis failed for {} at {}: {}", test_name, size.name, e);
-                }
-            }
-        }
-
-        if any_failing && !size_results.is_empty() {
-            // Attach Chrome layout JSON to debug data (only available for desktop)
-            if let Some(ref mut dd) = debug_data {
-                let layout_file = screenshots.join(format!("{}_desktop_chrome_layout.json", test_name));
-                if let Ok(data) = fs::read_to_string(&layout_file) {
-                    dd.chrome_layout = data;
-                }
-            }
-
-            failing.push(FailingTestData {
-                test_name,
+            jobs.push(ScreenshotJob {
+                test_name: test_name.clone(),
                 test_file: test_file.clone(),
-                size_results,
-                debug_data,
+                size: *size,
+                chrome_file,
+                azul_file,
             });
         }
     }
+
+    // Start font discovery in the background — scout enumerates system font
+    // directories while builder threads parse font files concurrently.
+    // This runs during Phase 1a (Chrome screenshots) so that by the time
+    // Phase 1b (Azul rendering) starts, the font cache is mostly populated.
+    let font_registry = rust_fontconfig::registry::FcFontRegistry::new();
+    font_registry.spawn_scout_and_builders();
+    println!("  Font registry: scout + builders started in background");
+
+    // ── Phase 1a: Chrome screenshots (persistent CDP instance) ──────────
+
+    if !config.skip_chrome {
+        let chrome_path = get_chrome_path();
+        let mut chrome_errors = 0usize;
+
+        // Filter to only jobs that need Chrome screenshots
+        let pending_jobs: Vec<&ScreenshotJob> = jobs.iter()
+            .filter(|j| !j.chrome_file.exists())
+            .collect();
+        let skipped = jobs.len() - pending_jobs.len();
+
+        println!("\n  Phase 1a: Chrome screenshots ({} pending, {} cached)...",
+            pending_jobs.len(), skipped);
+        let start = Instant::now();
+
+        if !pending_jobs.is_empty() {
+            // Launch a single persistent Chrome instance via CDP
+            match cdp::ChromeCdp::launch(&chrome_path) {
+                Ok(mut chrome) => {
+                    for (i, job) in pending_jobs.iter().enumerate() {
+                        // For desktop, also extract layout JSON
+                        let layout_file = if job.size.name == "desktop" {
+                            let lf = screenshots.join(
+                                format!("{}_desktop_chrome_layout.json", job.test_name)
+                            );
+                            if lf.exists() { None } else { Some(lf) }
+                        } else {
+                            None
+                        };
+
+                        if let Err(e) = chrome.screenshot_and_layout(
+                            &job.test_file,
+                            &job.chrome_file,
+                            layout_file.as_deref(),
+                            job.size.width,
+                            job.size.height,
+                        ) {
+                            eprintln!("  Warning: Chrome CDP failed for {} at {}: {}",
+                                job.test_name, job.size.name, e);
+                            chrome_errors += 1;
+                        }
+
+                        let done = i + 1 + skipped;
+                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
+                            println!("    Chrome: {}/{}", done, jobs.len());
+                        }
+                    }
+                    // Chrome is dropped here, closing the browser
+                }
+                Err(e) => {
+                    eprintln!("  Warning: CDP launch failed ({}), falling back to per-process mode", e);
+                    // Fallback: spawn one Chrome per screenshot (original behavior)
+                    for (i, job) in pending_jobs.iter().enumerate() {
+                        if let Err(e) = generate_chrome_screenshot(
+                            &chrome_path, &job.test_file, &job.chrome_file,
+                            job.size.width, job.size.height,
+                        ) {
+                            eprintln!("  Warning: Chrome failed for {} at {}: {}",
+                                job.test_name, job.size.name, e);
+                            chrome_errors += 1;
+                        }
+                        let done = i + 1 + skipped;
+                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
+                            println!("    Chrome: {}/{}", done, jobs.len());
+                        }
+                    }
+
+                    // Extract Chrome layout JSON for desktop tests with timeout fallback
+                    let desktop_tests: Vec<&&ScreenshotJob> = pending_jobs.iter()
+                        .filter(|j| j.size.name == "desktop")
+                        .collect();
+                    for job in &desktop_tests {
+                        let layout_file = screenshots.join(
+                            format!("{}_desktop_chrome_layout.json", job.test_name)
+                        );
+                        if layout_file.exists() { continue; }
+                        if let Err(e) = generate_chrome_layout_with_timeout(
+                            &chrome_path, &job.test_file, &layout_file,
+                            job.size.width, job.size.height,
+                        ) {
+                            eprintln!("    Warning: Layout extraction failed for {}: {}",
+                                job.test_name, e);
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("  Phase 1a done in {:.1}s ({} errors)",
+            start.elapsed().as_secs_f64(), chrome_errors);
+    } else {
+        println!("\n  Phase 1a: Chrome screenshots — skipped (--skip-chrome)");
+    }
+
+    // ── Phase 1b: Azul CPU rendering (parallel via rayon) ───────────────
+
+    println!("  Phase 1b: Azul rendering ({} jobs)...", jobs.len());
+
+    // Wait for font registry to finish scanning (typically < 100ms if it
+    // was started during Phase 1a). Then snapshot the cache for renders.
+    let fc_cache_start = Instant::now();
+    // Wait for scout+builders to complete (they've been running since before Phase 1a)
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !font_registry.build_complete.load(std::sync::atomic::Ordering::Acquire) {
+        if Instant::now() > deadline {
+            eprintln!("    Warning: font registry build timed out after 30s, proceeding with partial cache");
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Snapshot the cache — clone once, reuse for all renders
+    let fc_cache = font_registry.cache.read()
+        .map(|c| c.clone())
+        .map_err(|e| format!("Failed to read font cache: {}", e))?;
+    // Signal shutdown so background threads exit cleanly
+    font_registry.shutdown.store(true, std::sync::atomic::Ordering::Release);
+    font_registry.queue_condvar.notify_all();
+    println!("    Font cache ready in {:.1}s ({} fonts)",
+        fc_cache_start.elapsed().as_secs_f64(),
+        fc_cache.list().len());
+
+    let start = Instant::now();
+    let azul_done = AtomicUsize::new(0);
+    let azul_errors = AtomicUsize::new(0);
+
+    // Collect debug data per test (keyed by test_name, prefer desktop)
+    let debug_data_map: Arc<Mutex<std::collections::HashMap<String, DebugData>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
+
+    jobs.par_iter().for_each(|job| {
+        if job.azul_file.exists() {
+            azul_done.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+
+        match generate_azul_rendering_at_size_cached(
+            &job.test_file,
+            &job.azul_file,
+            job.size.width,
+            job.size.height,
+            &fc_cache,
+        ) {
+            Ok(dd) => {
+                let mut map = debug_data_map.lock().unwrap();
+                // Prefer desktop debug data, but store any if none yet
+                if job.size.name == "desktop" || !map.contains_key(&job.test_name) {
+                    map.insert(job.test_name.clone(), dd);
+                }
+            }
+            Err(e) => {
+                eprintln!("  Warning: Azul failed for {} at {}: {}", job.test_name, job.size.name, e);
+                azul_errors.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let done = azul_done.fetch_add(1, Ordering::Relaxed) + 1;
+        if done % 20 == 0 || done == jobs.len() {
+            println!("    Azul: {}/{}", done, jobs.len());
+        }
+    });
+
+    let errors = azul_errors.load(Ordering::Relaxed);
+    println!("  Phase 1b done in {:.1}s ({} errors)",
+        start.elapsed().as_secs_f64(), errors);
+
+    // ── Phase 1c: Pixel diff analysis (parallel via rayon) ──────────────
+
+    println!("  Phase 1c: Pixel diff analysis ({} jobs)...", jobs.len());
+    let start = Instant::now();
+    let threshold_pct = 0.5; // Fail if >0.5% pixels differ
+
+    // Collect per-job results in parallel
+    let diff_results: Vec<Option<(String, PathBuf, SizeResult)>> = jobs.par_iter().map(|job| {
+        if !job.chrome_file.exists() || !job.azul_file.exists() {
+            return None;
+        }
+        match analyze_pixel_diff(&job.chrome_file, &job.azul_file, job.size.name) {
+            Ok(analysis) if analysis.diff_percent > threshold_pct => {
+                Some((job.test_name.clone(), job.test_file.clone(), SizeResult {
+                    size: job.size,
+                    chrome_screenshot: job.chrome_file.clone(),
+                    azul_screenshot: job.azul_file.clone(),
+                    diff_analysis: analysis,
+                }))
+            }
+            Ok(_) => None, // Below threshold
+            Err(e) => {
+                eprintln!("  Warning: Diff failed for {} at {}: {}", job.test_name, job.size.name, e);
+                None
+            }
+        }
+    }).collect();
+
+    println!("  Phase 1c done in {:.1}s", start.elapsed().as_secs_f64());
+
+    // ── Assemble results per test ───────────────────────────────────────
+
+    let mut debug_data_map = match Arc::try_unwrap(debug_data_map) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        Err(arc) => arc.lock().unwrap().clone(),
+    };
+
+    // Group failing size results by test name
+    let mut test_map: std::collections::HashMap<String, (PathBuf, Vec<SizeResult>)> =
+        std::collections::HashMap::new();
+
+    for item in diff_results.into_iter().flatten() {
+        let (test_name, test_file, size_result) = item;
+        test_map.entry(test_name)
+            .or_insert_with(|| (test_file, Vec::new()))
+            .1.push(size_result);
+    }
+
+    let mut failing: Vec<FailingTestData> = test_map.into_iter().map(|(test_name, (test_file, size_results))| {
+        // Attach Chrome layout JSON to debug data (only available for desktop)
+        let mut debug_data = debug_data_map.remove(&test_name);
+        if let Some(ref mut dd) = debug_data {
+            let layout_file = screenshots_dir(&config.project_root)
+                .join(format!("{}_desktop_chrome_layout.json", test_name));
+            if let Ok(data) = fs::read_to_string(&layout_file) {
+                dd.chrome_layout = data;
+            }
+        }
+        FailingTestData { test_name, test_file, size_results, debug_data }
+    }).collect();
+
+    // Sort by name for deterministic output
+    failing.sort_by(|a, b| a.test_name.cmp(&b.test_name));
 
     println!(
         "\nDiscovered {} failing tests (>{:.1}% pixel diff)",
@@ -623,6 +1065,128 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     Ok(failing)
 }
 
+/// Extract Chrome layout JSON with a timeout to avoid hangs from dump-dom.
+fn generate_chrome_layout_with_timeout(
+    chrome_path: &str,
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    let canonical_path = test_file.canonicalize()
+        .map_err(|e| format!("canonicalize failed: {}", e))?;
+
+    // Build temp HTML with inline layout extraction script
+    let original_content = fs::read_to_string(test_file)
+        .map_err(|e| format!("read test file: {}", e))?;
+
+    let simple_script = r#"(function() {
+    var result = { timestamp: new Date().toISOString(), viewport: { width: window.innerWidth, height: window.innerHeight }, elements: [] };
+    var els = document.querySelectorAll('body, body *');
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+        var rect = el.getBoundingClientRect();
+        var cs = window.getComputedStyle(el);
+        result.elements.push({
+            i: i, tag: el.tagName.toLowerCase(), id: el.id || null, cls: el.className || null,
+            bounds: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+            margin: { t: parseFloat(cs.marginTop)||0, r: parseFloat(cs.marginRight)||0, b: parseFloat(cs.marginBottom)||0, l: parseFloat(cs.marginLeft)||0 },
+            padding: { t: parseFloat(cs.paddingTop)||0, r: parseFloat(cs.paddingRight)||0, b: parseFloat(cs.paddingBottom)||0, l: parseFloat(cs.paddingLeft)||0 },
+            display: cs.display, position: cs.position
+        });
+    }
+    return JSON.stringify(result, null, 2);
+})()"#;
+
+    let extraction_html = if original_content.contains("</body>") {
+        original_content.replace(
+            "</body>",
+            &format!(
+                r#"<pre id="azul-layout-data" style="display:none"></pre>
+<script>document.getElementById('azul-layout-data').textContent = {};</script>
+</body>"#,
+                simple_script
+            ),
+        )
+    } else {
+        original_content.clone()
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let temp_html = temp_dir.join(format!("chrome_layout_{}.html", std::process::id()));
+    fs::write(&temp_html, &extraction_html)
+        .map_err(|e| format!("write temp html: {}", e))?;
+
+    // Spawn with timeout
+    let mut child = Command::new(chrome_path)
+        .arg("--headless")
+        .arg("--disable-gpu")
+        .arg("--dump-dom")
+        .arg(format!("--window-size={},{}", width, height))
+        .arg(format!("file://{}", temp_html.display()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawn chrome: {}", e))?;
+
+    let timeout = Duration::from_secs(10);
+    let start = Instant::now();
+    let exit = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = fs::remove_file(&temp_html);
+                    break Err("timeout after 10s".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                let _ = fs::remove_file(&temp_html);
+                break Err(format!("wait error: {}", e));
+            }
+        }
+    };
+    let _ = fs::remove_file(&temp_html);
+
+    let status = exit?;
+    if !status.success() {
+        return Err("chrome dump-dom failed".to_string());
+    }
+
+    // Parse stdout for layout data
+    let stdout = child.wait_with_output()
+        .map_err(|e| format!("read output: {}", e))?;
+    let dom_output = String::from_utf8_lossy(&stdout.stdout);
+
+    if let Some(start) = dom_output.find("<pre id=\"azul-layout-data\"") {
+        if let Some(content_start) = dom_output[start..].find('>') {
+            let after_tag = &dom_output[start + content_start + 1..];
+            if let Some(end) = after_tag.find("</pre>") {
+                let json_content = &after_tag[..end];
+                let decoded = json_content
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&")
+                    .replace("&quot;", "\"");
+                if decoded.starts_with('{') {
+                    fs::write(output_file, &decoded)
+                        .map_err(|e| format!("write layout json: {}", e))?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // No layout data found — not an error, just skip
+    Ok(())
+}
+
 /// Generate Azul rendering at a specific size.
 fn generate_azul_rendering_at_size(
     test_file: &Path,
@@ -631,6 +1195,17 @@ fn generate_azul_rendering_at_size(
     height: u32,
 ) -> Result<DebugData, String> {
     generate_azul_rendering_sized(test_file, output_file, width, height, 1.0)
+        .map_err(|e| format!("{}", e))
+}
+
+fn generate_azul_rendering_at_size_cached(
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    fc_cache: &rust_fontconfig::FcFontCache,
+) -> Result<DebugData, String> {
+    generate_azul_rendering_sized_cached(test_file, output_file, width, height, 1.0, fc_cache)
         .map_err(|e| format!("{}", e))
 }
 
@@ -801,10 +1376,26 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         } else if *arg == "--cleanup" {
             config.cleanup = true;
         } else if !arg.starts_with('-') {
-            // Positional args ignored (e.g. "claude-exec")
+            // Last positional arg that is a directory → test dir override
+            let candidate = PathBuf::from(arg);
+            if candidate.is_dir() {
+                config.test_dir = candidate;
+            } else {
+                // Try relative to project root
+                let resolved = project_root.join(arg);
+                if resolved.is_dir() {
+                    config.test_dir = resolved;
+                }
+                // Otherwise ignore (e.g. "claude-exec")
+            }
         } else {
             return Err(format!("Unknown option: {}", arg));
         }
+    }
+
+    // Ensure test_dir is absolute
+    if config.test_dir.is_relative() {
+        config.test_dir = project_root.join(&config.test_dir);
     }
 
     Ok(config)
