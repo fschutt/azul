@@ -1323,6 +1323,19 @@ pub fn calculate_used_size_for_node(
         css_width
     };
 
+    // +spec:box-model:1197a5 - height does not apply to non-replaced inline elements
+    // +spec:display-property:9cb33d - height does not apply to inline boxes
+    // +spec:height-calculation:c03717 - height does not apply to inline non-replaced elements
+    // CSS 2.2 §10.6.1 / CSS Inline 3 §6.4: height property does not apply to
+    // inline, non-replaced elements. Override any explicit height to Auto.
+    let css_height = if display.unwrap_or_default() == LayoutDisplay::Inline
+        && !is_replaced
+    {
+        MultiValue::Exact(LayoutHeight::Auto)
+    } else {
+        css_height
+    };
+
     // +spec:width-calculation:50d67a - automatic sizing concepts (width/height auto resolution)
     // +spec:width-calculation:564315 - §10.3 width calculation dispatch for all box types
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
