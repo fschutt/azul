@@ -1100,6 +1100,7 @@ pub struct VerticalMetrics {
 // +spec:font-metrics:eb97e0 - Font baseline metrics (ascent/descent) from font tables used for baseline alignment
 // +spec:font-metrics:f2cd75 - em-over/em-under baselines intentionally not included (not used by CSS per spec)
 // +spec:inline-formatting-context:76cd57 - ascent/descent font metrics for inline formatting context layout
+// +spec:font-metrics:207e6b - ascent/descent metrics used for baseline calculations
 #[derive(Debug, Clone)]
 pub struct LayoutFontMetrics {
     pub ascent: f32,
@@ -1132,6 +1133,8 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:21a3de - ascent/descent used as basis for em-over/em-under normalization
     // +spec:font-metrics:1257b7 - font ascent/descent ensure text fits within line box
     // +spec:table-layout:6bbd10 - use sTypoAscender/sTypoDescender as ascent/descent metrics per spec recommendation
+    // +spec:font-metrics:5346d2 - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
+    // +spec:font-metrics:e16941 - line gap metric floored at zero per spec
     pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
         let ascent = metrics.s_typo_ascender
             .as_option()
@@ -1141,10 +1144,12 @@ impl LayoutFontMetrics {
             .as_option()
             .map(|v| *v as f32)
             .unwrap_or(metrics.descender as f32);
+        // UAs must floor the line gap metric at zero (css-inline-3 §3.2.2)
         let line_gap = metrics.s_typo_line_gap
             .as_option()
             .map(|v| *v as f32)
-            .unwrap_or(metrics.line_gap as f32);
+            .unwrap_or(metrics.line_gap as f32)
+            .max(0.0);
         Self {
             ascent,
             descent,
