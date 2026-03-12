@@ -998,29 +998,148 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     let start = Instant::now();
     let threshold_pct = 0.5; // Fail if >0.5% pixels differ
 
-    // Collect per-job results in parallel
-    let diff_results: Vec<Option<(String, PathBuf, SizeResult)>> = jobs.par_iter().map(|job| {
+    // Collect ALL per-job diff results in parallel (including passing)
+    struct DiffJobResult {
+        test_name: String,
+        test_file: PathBuf,
+        size_name: &'static str,
+        diff_percent: f64,
+        skipped: bool,
+        error: bool,
+        size_result: Option<SizeResult>,
+    }
+
+    let diff_results: Vec<DiffJobResult> = jobs.par_iter().map(|job| {
         if !job.chrome_file.exists() || !job.azul_file.exists() {
-            return None;
+            return DiffJobResult {
+                test_name: job.test_name.clone(),
+                test_file: job.test_file.clone(),
+                size_name: job.size.name,
+                diff_percent: 0.0,
+                skipped: true,
+                error: false,
+                size_result: None,
+            };
         }
         match analyze_pixel_diff(&job.chrome_file, &job.azul_file, job.size.name) {
-            Ok(analysis) if analysis.diff_percent > threshold_pct => {
-                Some((job.test_name.clone(), job.test_file.clone(), SizeResult {
-                    size: job.size,
-                    chrome_screenshot: job.chrome_file.clone(),
-                    azul_screenshot: job.azul_file.clone(),
-                    diff_analysis: analysis,
-                }))
+            Ok(analysis) => {
+                let pct = analysis.diff_percent;
+                let sr = if pct > threshold_pct {
+                    Some(SizeResult {
+                        size: job.size,
+                        chrome_screenshot: job.chrome_file.clone(),
+                        azul_screenshot: job.azul_file.clone(),
+                        diff_analysis: analysis,
+                    })
+                } else {
+                    None
+                };
+                DiffJobResult {
+                    test_name: job.test_name.clone(),
+                    test_file: job.test_file.clone(),
+                    size_name: job.size.name,
+                    diff_percent: pct,
+                    skipped: false,
+                    error: false,
+                    size_result: sr,
+                }
             }
-            Ok(_) => None, // Below threshold
             Err(e) => {
                 eprintln!("  Warning: Diff failed for {} at {}: {}", job.test_name, job.size.name, e);
-                None
+                DiffJobResult {
+                    test_name: job.test_name.clone(),
+                    test_file: job.test_file.clone(),
+                    size_name: job.size.name,
+                    diff_percent: 0.0,
+                    skipped: false,
+                    error: true,
+                    size_result: None,
+                }
             }
         }
     }).collect();
 
     println!("  Phase 1c done in {:.1}s", start.elapsed().as_secs_f64());
+
+    // ── Phase 1 Statistics ────────────────────────────────────────────────
+
+    // Per-test: max diff_percent across all sizes
+    let mut per_test_max: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::new();
+    let mut skipped_count = 0usize;
+    let mut error_count = 0usize;
+
+    for r in &diff_results {
+        if r.skipped { skipped_count += 1; continue; }
+        if r.error { error_count += 1; continue; }
+        let entry = per_test_max.entry(r.test_name.clone()).or_insert(0.0);
+        if r.diff_percent > *entry {
+            *entry = r.diff_percent;
+        }
+    }
+
+    let total_compared = per_test_max.len();
+    let passing = per_test_max.values().filter(|&&v| v <= threshold_pct).count();
+    let failing_count = total_compared - passing;
+    let pass_rate = if total_compared > 0 { 100.0 * passing as f64 / total_compared as f64 } else { 0.0 };
+
+    // Histogram buckets
+    let mut bucket_perfect = 0usize;  // 0%
+    let mut bucket_minor = 0usize;    // 0-0.5%
+    let mut bucket_low = 0usize;      // 0.5-5%
+    let mut bucket_medium = 0usize;   // 5-25%
+    let mut bucket_high = 0usize;     // 25-50%
+    let mut bucket_severe = 0usize;   // >50%
+
+    for &pct in per_test_max.values() {
+        if pct == 0.0 { bucket_perfect += 1; }
+        else if pct <= threshold_pct { bucket_minor += 1; }
+        else if pct <= 5.0 { bucket_low += 1; }
+        else if pct <= 25.0 { bucket_medium += 1; }
+        else if pct <= 50.0 { bucket_high += 1; }
+        else { bucket_severe += 1; }
+    }
+
+    // Top offenders (worst diff_percent)
+    let mut sorted_tests: Vec<(&String, &f64)> = per_test_max.iter().collect();
+    sorted_tests.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Use a helper to pad lines to fixed width inside the box
+    fn box_line(content: &str) {
+        // Box inner width = 60 chars (between ║ and ║)
+        let visible_len = content.chars().count();
+        let pad = if visible_len < 60 { 60 - visible_len } else { 0 };
+        println!("║{}{}║", content, " ".repeat(pad));
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    box_line("                     Phase 1 Summary                       ");
+    println!("╠════════════════════════════════════════════════════════════════╣");
+    box_line(&format!("  Tests compared:  {:<6}", total_compared));
+    box_line(&format!("  Passing (≤{:.1}%): {:<6} ({:.1}%)", threshold_pct, passing, pass_rate));
+    box_line(&format!("  Failing (>{:.1}%): {:<6} ({:.1}%)", threshold_pct, failing_count, 100.0 - pass_rate));
+    if skipped_count > 0 || error_count > 0 {
+        box_line(&format!("  Skipped/errors:  {} / {}", skipped_count, error_count));
+    }
+    println!("╠════════════════════════════════════════════════════════════════╣");
+    box_line("  Diff distribution:");
+    box_line(&format!("    Perfect match (0%):    {:>6}", bucket_perfect));
+    box_line(&format!("    Minor (0-{:.1}%):        {:>6}", threshold_pct, bucket_minor));
+    box_line(&format!("    Low ({:.1}-5%):          {:>6}", threshold_pct, bucket_low));
+    box_line(&format!("    Medium (5-25%):        {:>6}", bucket_medium));
+    box_line(&format!("    High (25-50%):         {:>6}", bucket_high));
+    box_line(&format!("    Severe (>50%):         {:>6}", bucket_severe));
+    println!("╠════════════════════════════════════════════════════════════════╣");
+
+    let top_n = sorted_tests.len().min(20);
+    if top_n > 0 {
+        box_line("  Worst offenders:");
+        for (name, pct) in &sorted_tests[..top_n] {
+            let truncated = if name.len() > 44 { &name[..44] } else { name.as_str() };
+            box_line(&format!("    {:>5.1}%  {:<44}", pct, truncated));
+        }
+    }
+    println!("╚════════════════════════════════════════════════════════════════╝\n");
 
     // ── Assemble results per test ───────────────────────────────────────
 
@@ -1033,11 +1152,12 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     let mut test_map: std::collections::HashMap<String, (PathBuf, Vec<SizeResult>)> =
         std::collections::HashMap::new();
 
-    for item in diff_results.into_iter().flatten() {
-        let (test_name, test_file, size_result) = item;
-        test_map.entry(test_name)
-            .or_insert_with(|| (test_file, Vec::new()))
-            .1.push(size_result);
+    for r in diff_results {
+        if let Some(sr) = r.size_result {
+            test_map.entry(r.test_name)
+                .or_insert_with(|| (r.test_file, Vec::new()))
+                .1.push(sr);
+        }
     }
 
     let mut failing: Vec<FailingTestData> = test_map.into_iter().map(|(test_name, (test_file, size_results))| {
@@ -1057,7 +1177,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     failing.sort_by(|a, b| a.test_name.cmp(&b.test_name));
 
     println!(
-        "\nDiscovered {} failing tests (>{:.1}% pixel diff)",
+        "Discovered {} failing tests (>{:.1}% pixel diff)",
         failing.len(),
         threshold_pct
     );
