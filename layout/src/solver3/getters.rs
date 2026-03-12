@@ -4613,3 +4613,20 @@ pub fn get_grid_template_areas_prop(
             }
         })
 }
+
+/// Get clip-path property. Returns the ClipPath value for the node.
+///
+/// CSS Masking Module Level 1, section 3:
+/// The clip-path property creates a clipping region that determines which parts
+/// of an element are visible. Returns None for `clip-path: none` (default).
+pub fn get_clip_path(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::layout::shape::ClipPath> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_clip_path(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}

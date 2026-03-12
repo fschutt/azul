@@ -2376,10 +2376,36 @@ where
             self.ctx.viewport_size,
         );
 
+        // Check for CSS clip-path property.
+        // If present, push a clip region derived from the clip-path shape.
+        // This is evaluated before overflow clips; both can be active simultaneously.
+        let has_clip_path = if let Some(clip_path) = super::getters::get_clip_path(
+            self.ctx.styled_dom, dom_id, &styled_node_state,
+        ) {
+            if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
+                let br = if radius > 0.0 {
+                    BorderRadius {
+                        top_left: radius,
+                        top_right: radius,
+                        bottom_left: radius,
+                        bottom_right: radius,
+                    }
+                } else {
+                    BorderRadius::default()
+                };
+                builder.push_clip(clip_rect, br);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
         if !needs_clip {
-            return Ok(false);
+            return Ok(has_clip_path);
         }
 
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
@@ -2484,6 +2510,19 @@ where
                 builder.pop_clip();
             }
         }
+
+        // Pop the clip-path clip if one was pushed.
+        // This mirrors the push_node_clips logic: if clip-path is set,
+        // a PushClip was emitted before any overflow clips.
+        // We pop it last (stack order: clip-path pushed first, popped last).
+        if let Some(clip_path) = super::getters::get_clip_path(
+            self.ctx.styled_dom, dom_id, &styled_node_state,
+        ) {
+            if resolve_clip_path(&clip_path, paint_rect).is_some() {
+                builder.pop_clip();
+            }
+        }
+
         Ok(())
     }
 
@@ -5494,35 +5533,153 @@ pub fn apply_text_overflow_ellipsis(
 // CLIP-PATH STUB
 // ============================================================================
 
-/// Applies a CSS clip-path to a display list item.
+/// Resolves a CSS clip-path shape to a clipping rectangle.
 ///
 /// CSS Masking Module Level 1, section 3 (clip-path):
 /// The clip-path property creates a clipping region that determines which parts
 /// of an element are visible. Content outside the clipping region is hidden.
 ///
-/// Supported clip-path values (to be implemented):
+/// Currently supported clip-path values:
 /// - `inset()` - rectangular clip with optional rounding
-/// - `circle()` - circular clip
-/// - `ellipse()` - elliptical clip
-/// - `polygon()` - arbitrary polygon clip
-/// - `url()` - reference to an SVG `<clipPath>` element
-/// - `none` - no clipping (default)
+/// - `circle()` - approximated as bounding box rectangle
+/// - `ellipse()` - approximated as bounding box rectangle
+/// - `polygon()` - approximated as axis-aligned bounding box
+/// - `none` - no clipping (returns None)
 ///
 /// # Parameters
-/// - `_display_list`: The display list to apply clipping to
-/// - `_node_bounds`: The reference box for resolving clip-path percentages
+/// - `clip_path`: The resolved clip-path CSS property value
+/// - `node_bounds`: The reference box for resolving clip-path values
 ///
-/// TODO(clip-path): Implement clip-path rendering:
-/// 1. Read the clip-path CSS property for the node
-/// 2. Resolve the basic shape against the reference box
-/// 3. Generate clip instructions in the display list
-/// 4. Handle geometry-box (margin-box, border-box, padding-box, content-box)
-/// 5. Integrate with the renderer's clipping pipeline
+/// # Returns
+/// A `(LogicalRect, f32)` tuple: the clip rectangle and border radius,
+/// or `None` if no clipping should be applied.
+///
+/// Note: Circle, ellipse, and polygon shapes are approximated as axis-aligned
+/// bounding boxes. A full implementation would use path-based clipping in the
+/// renderer, but rectangular clips work for the most common use cases.
+pub fn resolve_clip_path(
+    clip_path: &azul_css::props::layout::shape::ClipPath,
+    node_bounds: LogicalRect,
+) -> Option<(LogicalRect, f32)> {
+    use azul_css::props::layout::shape::ClipPath;
+    use azul_css::shape::CssShape;
+
+    match clip_path {
+        ClipPath::None => None,
+        ClipPath::Shape(shape) => {
+            match shape {
+                CssShape::Inset(inset) => {
+                    // CSS inset() creates a rectangular clip inset from each edge.
+                    // inset(top right bottom left round border-radius)
+                    let x = node_bounds.origin.x + inset.inset_left;
+                    let y = node_bounds.origin.y + inset.inset_top;
+                    let w = (node_bounds.size.width - inset.inset_left - inset.inset_right).max(0.0);
+                    let h = (node_bounds.size.height - inset.inset_top - inset.inset_bottom).max(0.0);
+                    let radius = match inset.border_radius {
+                        azul_css::corety::OptionF32::Some(r) => r,
+                        azul_css::corety::OptionF32::None => 0.0,
+                    };
+                    Some((LogicalRect {
+                        origin: LogicalPosition::new(x, y),
+                        size: LogicalSize::new(w, h),
+                    }, radius))
+                }
+                CssShape::Circle(circle) => {
+                    // Approximate circle as a square bounding box centered at the circle center.
+                    // CSS circle(radius at cx cy). The center point coordinates are in
+                    // absolute units (pre-resolved by the CSS parser).
+                    let cx = node_bounds.origin.x + circle.center.x;
+                    let cy = node_bounds.origin.y + circle.center.y;
+                    let r = circle.radius;
+                    Some((LogicalRect {
+                        origin: LogicalPosition::new(cx - r, cy - r),
+                        size: LogicalSize::new(r * 2.0, r * 2.0),
+                    }, r))
+                }
+                CssShape::Ellipse(ellipse) => {
+                    // Approximate ellipse as its bounding box.
+                    let cx = node_bounds.origin.x + ellipse.center.x;
+                    let cy = node_bounds.origin.y + ellipse.center.y;
+                    let rx = ellipse.radius_x;
+                    let ry = ellipse.radius_y;
+                    let radius = rx.min(ry);
+                    Some((LogicalRect {
+                        origin: LogicalPosition::new(cx - rx, cy - ry),
+                        size: LogicalSize::new(rx * 2.0, ry * 2.0),
+                    }, radius))
+                }
+                CssShape::Polygon(polygon) => {
+                    // Compute the axis-aligned bounding box of the polygon.
+                    if polygon.points.is_empty() {
+                        return None;
+                    }
+                    let mut min_x = f32::INFINITY;
+                    let mut min_y = f32::INFINITY;
+                    let mut max_x = f32::NEG_INFINITY;
+                    let mut max_y = f32::NEG_INFINITY;
+                    for point in polygon.points.iter() {
+                        // Polygon points are in absolute coordinates (pre-resolved)
+                        let px = node_bounds.origin.x + point.x;
+                        let py = node_bounds.origin.y + point.y;
+                        min_x = min_x.min(px);
+                        min_y = min_y.min(py);
+                        max_x = max_x.max(px);
+                        max_y = max_y.max(py);
+                    }
+                    Some((LogicalRect {
+                        origin: LogicalPosition::new(min_x, min_y),
+                        size: LogicalSize::new((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+                    }, 0.0))
+                }
+                CssShape::Path(_) => {
+                    // SVG paths are not supported for clip-path yet.
+                    // Return the full node bounds (no clipping).
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// Applies a CSS clip-path to the display list by inserting PushClip/PopClip.
+///
+/// This is a post-processing step that wraps all items between `start_index`
+/// and the current end of the display list in a clip region derived from
+/// the clip-path shape.
+///
+/// # Parameters
+/// - `display_list`: The display list to modify
+/// - `start_index`: The index of the first item belonging to this node
+/// - `clip_rect`: The resolved clip rectangle
+/// - `border_radius`: The border radius for the clip (from inset round, or circle)
 pub fn apply_clip_path(
-    _display_list: &mut DisplayList,
-    _node_bounds: LogicalRect,
+    display_list: &mut DisplayList,
+    start_index: usize,
+    clip_rect: LogicalRect,
+    border_radius: f32,
 ) {
-    // TODO(clip-path): Implement CSS clip-path clipping.
-    // The clip-path property value needs to be read from the styled DOM
-    // and converted into renderer-specific clip instructions.
+    let br = if border_radius > 0.0 {
+        BorderRadius {
+            top_left: border_radius,
+            top_right: border_radius,
+            bottom_left: border_radius,
+            bottom_right: border_radius,
+        }
+    } else {
+        BorderRadius::default()
+    };
+
+    // Insert PushClip at start_index
+    display_list.items.insert(start_index, DisplayListItem::PushClip {
+        bounds: clip_rect.into(),
+        border_radius: br,
+    });
+    // Insert a corresponding None in node_mapping
+    if display_list.node_mapping.len() >= start_index {
+        display_list.node_mapping.insert(start_index, None);
+    }
+
+    // Append PopClip at the end
+    display_list.items.push(DisplayListItem::PopClip);
+    display_list.node_mapping.push(None);
 }
