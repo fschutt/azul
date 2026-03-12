@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
-    dom::NodeId,
+    dom::{NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     resources::RendererResources,
@@ -26,7 +26,7 @@ use crate::{
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
         getters::{
-            get_direction_property, get_display_property, get_writing_mode, get_position, MultiValue,
+            get_aspect_ratio_property, get_direction_property, get_display_property, get_writing_mode, get_position, MultiValue,
             get_css_top, get_css_bottom, get_css_left, get_css_right,
             get_css_height, get_css_width,
         },
@@ -307,7 +307,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             let cb_height = containing_block_rect.size.height;
 
             let css_height = get_css_height(ctx.styled_dom, dom_id, node_state);
-            let height_is_auto = css_height.is_auto();
+            // +spec:replaced-elements:7d8ba8 - §10.6.5: for absolutely positioned replaced
+            // elements, height is determined first (as for inline replaced elements), so treat
+            // it as "not auto" in the constraint equation even if CSS says auto.
+            let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+            let is_replaced = matches!(node_data.node_type, NodeType::Image(_))
+                || node_data.is_virtual_view_node();
+            let height_is_auto = css_height.is_auto() && !is_replaced;
             // +spec:overflow:941a06 - resolve auto inset properties: if only one is auto, solved to zero via constraint; if both auto, use static position
             let top_is_auto = offsets.top.is_none();
             let bottom_is_auto = offsets.bottom.is_none();
@@ -378,13 +384,21 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if height_is_auto && !top_is_auto && !bottom_is_auto {
-                // +spec:positioning:62abb5 - automatic size resolved against inset-modified containing block
-                // solve for height from constraint equation:
-                // height = cb_height - top - margin_top - margin_bottom - bottom
+                // +spec:intrinsic-sizing:566a43 - abspos auto height with non-auto insets: stretch-fit size
+                // +spec:intrinsic-sizing:c7227f - except: if box has aspect-ratio, ratio-dependent axis uses max-content
+                let has_aspect_ratio = matches!(
+                    get_aspect_ratio_property(ctx.styled_dom, dom_id, node_state),
+                    MultiValue::Exact(azul_css::props::style::effects::StyleAspectRatio::Ratio(_))
+                );
                 let top_val = offsets.top.unwrap();
                 let bottom_val = offsets.bottom.unwrap();
-                // +spec:containing-block:b3f0dd - clamp effective CB size to zero when insets exceed it (weaker inset reduced)
-                used_height = (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val).max(0.0);
+                if !has_aspect_ratio {
+                    // solve for height from constraint equation (stretch-fit):
+                    // height = cb_height - top - margin_top - margin_bottom - bottom
+                    // +spec:containing-block:b3f0dd - clamp effective CB size to zero when insets exceed it (weaker inset reduced)
+                    used_height = (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val).max(0.0);
+                }
+                // else: keep content-based height (max-content) per aspect-ratio exception
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
                 // Update the element size with the resolved height
                 if let Some(node_mut) = tree.get_mut(node_index) {
@@ -454,7 +468,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     }
                 };
 
-                let width_is_auto = get_css_width(ctx.styled_dom, dom_id, node_state).is_auto();
+                // +spec:replaced-elements:7d8ba8 - §10.3.8: for absolutely positioned replaced elements, width is determined
+                // first (as for inline replaced), so treat as "not auto" in the constraint.
+                let width_is_auto = get_css_width(ctx.styled_dom, dom_id, node_state).is_auto() && !is_replaced;
 
                 if !left_is_auto && !width_is_auto && !right_is_auto {
                     // +spec:positioning:88f760 - auto margins of absolutely-positioned boxes (horizontal)
@@ -510,9 +526,21 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     let m_right = if margin_right_auto { 0.0 } else { margin_right };
 
                     // +spec:width-calculation:2b2852 - all three auto: set auto margins to 0, use static position for left (LTR)
+                    // +spec:width-calculation:c120b3 - all three of left/width/right auto: set auto margins to 0, then use direction to pick static position
                     if left_is_auto && width_is_auto && right_is_auto {
-                        // All three auto: use static position
-                        final_pos.x = static_pos.x;
+                        match cb_direction {
+                            StyleDirection::Ltr => {
+                                // Set left to static position, apply rule 3 (width from content, solve for right)
+                                final_pos.x = static_pos.x;
+                            }
+                            StyleDirection::Rtl => {
+                                // Set right to static position, apply rule 1 (width from content, solve for left)
+                                let static_offset = static_pos.x - containing_block_rect.origin.x;
+                                let right_static = (cb_width - static_offset - border_box_width).max(0.0);
+                                let solved_left = cb_width - m_left - border_box_width - m_right - right_static;
+                                final_pos.x = containing_block_rect.origin.x + solved_left + m_left;
+                            }
+                        }
                     } else if left_is_auto && width_is_auto && !right_is_auto {
                         // left+width auto, right not auto: width from content, solve for left
                         let right = right_val.unwrap();
@@ -531,8 +559,24 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         let solved_left = cb_width - m_left - border_box_width - m_right - right;
                         final_pos.x = containing_block_rect.origin.x + solved_left + m_left;
                     } else if !left_is_auto && width_is_auto && !right_is_auto {
-                        // width auto: position from left (width already resolved from content)
+                        // +spec:intrinsic-sizing:566a43 - abspos auto width with non-auto insets: stretch-fit size
+                        // +spec:intrinsic-sizing:c7227f - except: if box has aspect-ratio, ratio-dependent axis uses max-content
+                        let has_aspect_ratio = matches!(
+                            get_aspect_ratio_property(ctx.styled_dom, dom_id, node_state),
+                            MultiValue::Exact(azul_css::props::style::effects::StyleAspectRatio::Ratio(_))
+                        );
                         let left = left_val.unwrap();
+                        let right = right_val.unwrap();
+                        if !has_aspect_ratio {
+                            // width = cb_width - left - margin_left - margin_right - right
+                            let used_width = (cb_width - left - m_left - m_right - right).max(0.0);
+                            if let Some(node_mut) = tree.get_mut(node_index) {
+                                if let Some(ref mut size) = node_mut.used_size {
+                                    size.width = used_width;
+                                }
+                            }
+                        }
+                        // else: keep content-based width (max-content) per aspect-ratio exception
                         final_pos.x = containing_block_rect.origin.x + left + m_left;
                     } else if !left_is_auto && !width_is_auto && right_is_auto {
                         // right auto: position from left
@@ -707,6 +751,36 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
                 node_index, initial_pos, *current_pos, delta_x, delta_y
             ));
+
+            // +spec:table-layout:ec2600 - For table-row-group, table-header-group, table-footer-group, or table-row,
+            // the relative shift affects all contents of the box including table cells.
+            // Propagate the delta to all descendant nodes.
+            {
+                use azul_css::props::layout::LayoutDisplay;
+                let display = get_display_property(ctx.styled_dom, node.dom_node_id);
+                let is_table_row_like = matches!(
+                    display,
+                    MultiValue::Exact(
+                        LayoutDisplay::TableRowGroup
+                        | LayoutDisplay::TableHeaderGroup
+                        | LayoutDisplay::TableFooterGroup
+                        | LayoutDisplay::TableRow
+                    )
+                );
+                if is_table_row_like {
+                    // Shift all children (and their descendants) by the same delta
+                    let mut stack = node.children.clone();
+                    while let Some(child_idx) = stack.pop() {
+                        if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
+                            child_pos.x += delta_x;
+                            child_pos.y += delta_y;
+                        }
+                        if let Some(child_node) = tree.get(child_idx) {
+                            stack.extend_from_slice(&child_node.children);
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(())
