@@ -2383,13 +2383,10 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
 // +spec:display-property:ee2d65 - blockification of inline-level display types (CSS Display 3 §2.7)
 // +spec:inline-formatting-context:c48c31 - blockification per CSS Display 3 §2.7
 // +spec:table-layout:359ee0 - blockification of display values (CSS Display 3 §2.7)
-/// Inline-level display types become their block-level equivalents:
-/// - `inline` → `block`
-/// - `inline-block` → `block` (legacy: loses flow-root nature per §2.7)
-/// - `inline-table` → `table`
-/// - `inline-flex` → `flex`
-/// - `inline-grid` → `grid`
-/// Block-level types are returned unchanged.
+// +spec:table-layout:cfc60a - CSS 2.2 §9.7: display/position/float interaction
+/// Blockifies display types per CSS Display 3 §2.7 and CSS 2.2 §9.7.
+/// Inline-level types become their block-level equivalents, and table-internal
+/// display values become `block` for absolutely positioned, floated, or root elements.
 pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
     match display {
         LayoutDisplay::Inline => LayoutDisplay::Block,
@@ -2400,6 +2397,15 @@ pub fn blockify_display(display: LayoutDisplay) -> LayoutDisplay {
         LayoutDisplay::InlineTable => LayoutDisplay::Table,
         LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
         LayoutDisplay::InlineGrid => LayoutDisplay::Grid,
+        // CSS 2.2 §9.7: table-internal display values blockify to block
+        LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::TableColumnGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup
+        | LayoutDisplay::TableRow
+        | LayoutDisplay::TableCell
+        | LayoutDisplay::TableCaption => LayoutDisplay::Block,
         other => other,
     }
 }

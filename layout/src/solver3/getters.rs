@@ -2192,10 +2192,23 @@ pub fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents
         LayoutDisplay::Inline => LayoutDisplay::Block,
+        // Per CSS Display 3 §2.7: inline-block blockifies to block
+        // (for legacy reasons, loses its flow-root nature)
         LayoutDisplay::InlineBlock => LayoutDisplay::Block,
         LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
         LayoutDisplay::InlineTable => LayoutDisplay::Table,
-        // Already block-level or internal table types are unchanged
+        LayoutDisplay::InlineGrid => LayoutDisplay::Grid,
+        // CSS 2.2 §9.7: table-internal display values blockify to block
+        // for absolutely positioned, floated, or root elements
+        LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::TableColumnGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup
+        | LayoutDisplay::TableRow
+        | LayoutDisplay::TableCell
+        | LayoutDisplay::TableCaption => LayoutDisplay::Block,
+        // Already block-level types are unchanged
         other => other,
     }
 }
