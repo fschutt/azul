@@ -526,7 +526,7 @@ impl_enum_fmt!(
 );
 
 impl_enum_fmt!(StyleHyphens, None, Manual, Auto);
-impl_enum_fmt!(StyleWordBreak, Normal, BreakAll, KeepAll);
+impl_enum_fmt!(StyleWordBreak, Normal, BreakAll, KeepAll, BreakWord);
 impl_enum_fmt!(StyleOverflowWrap, Normal, Anywhere, BreakWord);
 impl_enum_fmt!(StyleLineBreak, Auto, Loose, Normal, Strict, Anywhere);
 impl_enum_fmt!(StyleObjectFit, Fill, Contain, Cover, None, ScaleDown);

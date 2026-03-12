@@ -341,6 +341,9 @@ pub enum StyleWordBreak {
     BreakAll,
     /// Forbid break opportunities within CJK character sequences.
     KeepAll,
+    // +spec:line-breaking:815882 - deprecated break-word keyword: same as normal + overflow-wrap: anywhere
+    /// Deprecated: equivalent to word-break: normal and overflow-wrap: anywhere.
+    BreakWord,
 }
 impl Default for StyleWordBreak {
     fn default() -> Self {
@@ -358,6 +361,7 @@ impl PrintAsCssValue for StyleWordBreak {
             StyleWordBreak::Normal => "normal",
             StyleWordBreak::BreakAll => "break-all",
             StyleWordBreak::KeepAll => "keep-all",
+            StyleWordBreak::BreakWord => "break-word",
         })
     }
 }
@@ -1747,6 +1751,7 @@ pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBr
         "normal" => Ok(StyleWordBreak::Normal),
         "break-all" => Ok(StyleWordBreak::BreakAll),
         "keep-all" => Ok(StyleWordBreak::KeepAll),
+        "break-word" => Ok(StyleWordBreak::BreakWord),
         other => Err(StyleWordBreakParseError::InvalidValue(InvalidValueErr(other))),
     }
 }

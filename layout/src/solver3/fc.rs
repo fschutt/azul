@@ -3411,6 +3411,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleHyphens::Auto => text3::cache::Hyphens::Auto,
         },
         text_orientation,
+        // +spec:text-alignment-spacing:6cb965 - text-align shorthand sets text-align-all (mapped here from computed value)
         // +spec:text-alignment-spacing:838967 - map text-align values (start/end/left/right/center/justify) to inline alignment
         // +spec:text-alignment-spacing:d9ea45 - property index: text-align, text-justify, letter-spacing mapped to layout
         // +spec:text-alignment-spacing:600fda - text-align values (left/right/center/justify) mapped per CSS Text §6.1
@@ -3442,10 +3443,15 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise disallowed points to prevent overflow
         // +spec:line-breaking:bbb5f7 - overflow-wrap: anywhere vs break-word distinction for min-content
-        overflow_wrap: match overflow_wrap_css {
-            StyleOverflowWrap::Normal => text3::cache::OverflowWrap::Normal,
-            StyleOverflowWrap::Anywhere => text3::cache::OverflowWrap::Anywhere,
-            StyleOverflowWrap::BreakWord => text3::cache::OverflowWrap::BreakWord,
+        overflow_wrap: if word_break_css == StyleWordBreak::BreakWord {
+            // +spec:line-breaking:815882 - break-word forces overflow-wrap: anywhere
+            text3::cache::OverflowWrap::Anywhere
+        } else {
+            match overflow_wrap_css {
+                StyleOverflowWrap::Normal => text3::cache::OverflowWrap::Normal,
+                StyleOverflowWrap::Anywhere => text3::cache::OverflowWrap::Anywhere,
+                StyleOverflowWrap::BreakWord => text3::cache::OverflowWrap::BreakWord,
+            }
         },
         text_align_last: match text_align_last_css {
             StyleTextAlignLast::Auto => text3::cache::TextAlign::default(),
@@ -3456,8 +3462,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleTextAlignLast::Center => text3::cache::TextAlign::Center,
             StyleTextAlignLast::Justify => text3::cache::TextAlign::Justify,
         },
+        // +spec:line-breaking:815882 - word-break: break-word => normal + overflow-wrap: anywhere
         word_break: match word_break_css {
-            StyleWordBreak::Normal => text3::cache::WordBreak::Normal,
+            StyleWordBreak::Normal | StyleWordBreak::BreakWord => text3::cache::WordBreak::Normal,
             StyleWordBreak::BreakAll => text3::cache::WordBreak::BreakAll,
             StyleWordBreak::KeepAll => text3::cache::WordBreak::KeepAll,
         },
