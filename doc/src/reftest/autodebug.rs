@@ -57,6 +57,7 @@ pub struct AutodebugConfig {
     pub collect_only: bool,
     pub cleanup: bool,
     pub clear_failed: bool,
+    pub rerun_all: bool,
     /// Optional human hint describing the visual bug (last positional arg after the dir).
     pub bug_hint: Option<String>,
     /// Path to exclude file listing test names to skip (one per line).
@@ -969,6 +970,17 @@ pub fn render_all_tests(
             &fc_cache,
         ) {
             Ok(dd) => {
+                // Write debug data to JSON file alongside the screenshot
+                let debug_json_path = job.azul_file.with_extension("debug.json");
+                let debug_json = serde_json::json!({
+                    "render_warnings": dd.render_warnings,
+                    "display_list": dd.display_list,
+                    "solved_layout": dd.solved_layout,
+                    "css_warnings": dd.css_warnings,
+                    "layout_stats": dd.layout_stats,
+                });
+                let _ = std::fs::write(&debug_json_path, serde_json::to_string_pretty(&debug_json).unwrap_or_default());
+
                 let mut map = debug_data_map.lock().unwrap();
                 if job.size.name == "desktop" || !map.contains_key(&job.test_name) {
                     map.insert(job.test_name.clone(), dd);
@@ -1469,24 +1481,10 @@ pub fn build_autodebug_prompt(test: &FailingTestData, bug_hint: Option<&str>) ->
     writeln!(prompt, "**Test name:** `{}`", test.test_name).unwrap();
     writeln!(prompt, "**Test file:** `{}`\n", test.test_file.display()).unwrap();
 
-    // XHTML source
+    // XHTML source (small, always inline)
     if let Some(ref dd) = test.debug_data {
         if !dd.xhtml_source.is_empty() {
             writeln!(prompt, "### XHTML Source\n```xml\n{}\n```\n", dd.xhtml_source).unwrap();
-        }
-
-        // CSS warnings
-        if !dd.css_warnings.is_empty() {
-            writeln!(prompt, "### CSS Warnings\n```\n{}\n```\n", dd.css_warnings).unwrap();
-        }
-
-        // Layout debug trace
-        if !dd.render_warnings.is_empty() {
-            writeln!(prompt, "### Layout Debug Trace\n```").unwrap();
-            for (i, w) in dd.render_warnings.iter().enumerate() {
-                writeln!(prompt, "{}. {}", i + 1, w).unwrap();
-            }
-            writeln!(prompt, "```\n").unwrap();
         }
     }
 
@@ -1514,16 +1512,53 @@ pub fn build_autodebug_prompt(test: &FailingTestData, bug_hint: Option<&str>) ->
         prompt.push('\n');
     }
 
-    // Chrome layout vs Azul display list
-    if let Some(ref dd) = test.debug_data {
-        if !dd.chrome_layout.is_empty() && dd.chrome_layout != "{}" {
-            writeln!(prompt, "## Chrome Layout (reference)\n```json\n{}\n```\n", dd.chrome_layout).unwrap();
+    // Debug data files — NOT inlined to keep prompt size small.
+    // Tell the agent where the files are and how to extract info.
+    writeln!(prompt, "## Debug Data Files\n").unwrap();
+    writeln!(prompt, "The following files contain detailed debug information. Do NOT read them all at once —").unwrap();
+    writeln!(prompt, "they can be very large (some exceed 500KB). Use targeted `jq` queries to extract what you need.\n").unwrap();
+
+    writeln!(prompt, "### File Structure Reference\n").unwrap();
+    writeln!(prompt, "**Chrome Layout JSON** (`*_chrome_layout.json`): Array of objects, one per DOM element:").unwrap();
+    writeln!(prompt, "```json").unwrap();
+    writeln!(prompt, "[{{ \"nodeName\": \"DIV\", \"x\": 8, \"y\": 100, \"width\": 784, \"height\": 50, ").unwrap();
+    writeln!(prompt, "   \"fontSize\": \"16px\", \"color\": \"rgb(0, 0, 0)\", \"display\": \"block\", ").unwrap();
+    writeln!(prompt, "   \"position\": \"static\", \"className\": \"container\", \"id\": \"\", ").unwrap();
+    writeln!(prompt, "   \"children\": [1, 2] }}, ...]").unwrap();
+    writeln!(prompt, "```\n").unwrap();
+
+    writeln!(prompt, "**Azul Debug JSON** (`*_azul.debug.json`): Object with these top-level keys:").unwrap();
+    writeln!(prompt, "- `render_warnings`: Array of strings — layout debug trace messages from `log_debug!` macros").unwrap();
+    writeln!(prompt, "  These show step-by-step what the layout solver computed (widths, heights, positions).").unwrap();
+    writeln!(prompt, "  **Start here** — compare these values against Chrome's layout to find where they diverge.").unwrap();
+    writeln!(prompt, "- `css_warnings`: String — CSS parsing warnings (missing properties, parse errors)").unwrap();
+    writeln!(prompt, "- `display_list`: String — the final display list (drawing commands) Azul produces").unwrap();
+    writeln!(prompt, "- `solved_layout`: String — the solved layout tree with final positions/sizes").unwrap();
+    writeln!(prompt, "- `layout_stats`: String — timing and sizing statistics\n").unwrap();
+
+    // Chrome layout JSON
+    if let Some(ref sr) = test.size_results.iter().find(|s| s.size.name == "desktop") {
+        let chrome_layout_path = sr.chrome_screenshot.parent().unwrap()
+            .join(format!("{}_desktop_chrome_layout.json", test.test_name));
+        if chrome_layout_path.exists() {
+            writeln!(prompt, "### Chrome Layout (reference)").unwrap();
+            writeln!(prompt, "- File: `{}`", chrome_layout_path.display()).unwrap();
+            writeln!(prompt, "- Extract element positions: `cat '{}' | jq '.[] | {{nodeName, x, y, width, height}}'`", chrome_layout_path.display()).unwrap();
+            writeln!(prompt, "- Find specific element: `cat '{}' | jq '.[] | select(.nodeName == \"DIV\")'`\n", chrome_layout_path.display()).unwrap();
         }
-        if !dd.display_list.is_empty() {
-            writeln!(prompt, "## Azul Display List\n```\n{}\n```\n", dd.display_list).unwrap();
-        }
-        if !dd.solved_layout.is_empty() {
-            writeln!(prompt, "## Azul Solved Layout\n```\n{}\n```\n", dd.solved_layout).unwrap();
+    }
+
+    // Azul debug data (render_warnings, display_list, solved_layout, css_warnings)
+    for sr in &test.size_results {
+        let debug_json_path = sr.azul_screenshot.with_extension("debug.json");
+        if debug_json_path.exists() {
+            writeln!(prompt, "### Azul Debug Data ({})", sr.size.name).unwrap();
+            writeln!(prompt, "- File: `{}`", debug_json_path.display()).unwrap();
+            writeln!(prompt, "- CSS warnings: `cat '{}' | jq '.css_warnings'`", debug_json_path.display()).unwrap();
+            writeln!(prompt, "- Layout debug trace: `cat '{}' | jq '.render_warnings'`", debug_json_path.display()).unwrap();
+            writeln!(prompt, "- Display list: `cat '{}' | jq '.display_list'`", debug_json_path.display()).unwrap();
+            writeln!(prompt, "- Solved layout: `cat '{}' | jq '.solved_layout'`", debug_json_path.display()).unwrap();
+            writeln!(prompt, "- Layout stats: `cat '{}' | jq '.layout_stats'`\n", debug_json_path.display()).unwrap();
         }
     }
 
@@ -1548,7 +1583,9 @@ pub fn build_autodebug_prompt(test: &FailingTestData, bug_hint: Option<&str>) ->
     writeln!(prompt, "### Phase 1: Find the Root Cause\n").unwrap();
     writeln!(prompt, "Do NOT jump to a fix. Spend most of your time understanding WHY the bug happens.").unwrap();
     writeln!(prompt, "1. Compare Chrome vs Azul screenshots using the Read tool.").unwrap();
-    writeln!(prompt, "2. Study the pixel diff analysis and the layout debug trace above.").unwrap();
+    writeln!(prompt, "2. Study the pixel diff analysis above, then extract the layout debug trace from the debug JSON:").unwrap();
+    writeln!(prompt, "   - Run `cat '<debug_json_path>' | jq '.render_warnings'` to see step-by-step layout decisions.").unwrap();
+    writeln!(prompt, "   - Compare Azul's computed positions/sizes with Chrome's via `cat '<chrome_layout_json>' | jq '.[] | {{nodeName, x, y, width, height}}'`.").unwrap();
     writeln!(prompt, "3. Read the relevant layout code in `layout/src/solver3/`:").unwrap();
     writeln!(prompt, "   - `fc.rs` — BFC/IFC/table formatting contexts").unwrap();
     writeln!(prompt, "   - `sizing.rs` — width/height calculation").unwrap();
@@ -1620,6 +1657,7 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         collect_only: false,
         cleanup: false,
         clear_failed: false,
+        rerun_all: false,
         bug_hint: None,
         exclude_file: None,
         no_exclude: false,
@@ -1660,6 +1698,8 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
             config.cleanup = true;
         } else if *arg == "--clear-failed" {
             config.clear_failed = true;
+        } else if *arg == "--rerun-all" {
+            config.rerun_all = true;
         } else if let Some(val) = arg.strip_prefix("--exclude-file=") {
             config.exclude_file = Some(val.to_string());
         } else if *arg == "--no-exclude" {
@@ -1710,6 +1750,35 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
     // Handle collect
     if config.collect_only {
         return collect_autodebug_patches(&project_root);
+    }
+
+    // Handle rerun-all: clear all agent state so everything reruns from scratch
+    if config.rerun_all {
+        let prompts = prompts_dir(&project_root);
+        if prompts.is_dir() {
+            let mut cleared = 0usize;
+            for entry in std::fs::read_dir(&prompts).into_iter().flatten().flatten() {
+                let path = entry.path();
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if matches!(ext, "taken" | "result" | "failed" | "progress") {
+                    if std::fs::remove_file(&path).is_ok() {
+                        cleared += 1;
+                    }
+                }
+            }
+            println!("Cleared {} agent state files from prompts/", cleared);
+        }
+        let patches = patches_dir(&project_root);
+        if patches.is_dir() {
+            let mut cleared = 0usize;
+            for entry in std::fs::read_dir(&patches).into_iter().flatten().flatten() {
+                if std::fs::remove_file(entry.path()).is_ok() {
+                    cleared += 1;
+                }
+            }
+            println!("Cleared {} patch files", cleared);
+        }
+        // Don't return — fall through to re-run the full pipeline
     }
 
     // Handle clear-failed: delete .failed files so prompts become pending again
