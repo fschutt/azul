@@ -57,6 +57,12 @@ pub struct AutodebugConfig {
     pub collect_only: bool,
     pub cleanup: bool,
     pub clear_failed: bool,
+    /// Optional human hint describing the visual bug (last positional arg after the dir).
+    pub bug_hint: Option<String>,
+    /// Path to exclude file listing test names to skip (one per line).
+    pub exclude_file: Option<String>,
+    /// Disable exclude filtering entirely.
+    pub no_exclude: bool,
 }
 
 /// Output directory layout.
@@ -1333,7 +1339,7 @@ fn generate_azul_rendering_at_size_cached(
 // ── Prompt Builder ─────────────────────────────────────────────────────
 
 /// Build the autodebug prompt for a failing test.
-pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
+pub fn build_autodebug_prompt(test: &FailingTestData, bug_hint: Option<&str>) -> String {
     let mut prompt = String::with_capacity(16384);
 
     // Codebase orientation
@@ -1413,11 +1419,23 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
         }
     }
 
+    // Bug hint from user
+    if let Some(hint) = bug_hint {
+        writeln!(prompt, "## Human Bug Description\n").unwrap();
+        writeln!(prompt, "A human reviewer has described the visual bug as:\n").unwrap();
+        writeln!(prompt, "> {}\n", hint).unwrap();
+        writeln!(prompt, "Use this as your starting point for investigation.\n").unwrap();
+    }
+
     // Instructions for the agent
     writeln!(prompt, "## Your Task\n").unwrap();
     writeln!(prompt, "You are debugging a CSS layout rendering bug in the Azul layout engine.").unwrap();
     writeln!(prompt, "The screenshots above show how Chrome renders this test (reference) vs how Azul renders it.").unwrap();
     writeln!(prompt, "The pixel diff analysis highlights which regions differ and why.\n").unwrap();
+    writeln!(prompt, "**IMPORTANT**: If after analyzing the screenshots and code you cannot identify a clear,").unwrap();
+    writeln!(prompt, "specific bug in the layout engine, STOP EARLY. Do not guess. Write a brief report in").unwrap();
+    writeln!(prompt, "`doc/target/autodebug/reports/{}_report.md` explaining what you checked and why you", test.test_name).unwrap();
+    writeln!(prompt, "could not identify the root cause, then commit and exit.\n").unwrap();
 
     writeln!(prompt, "### Phase 1: Find the Root Cause\n").unwrap();
     writeln!(prompt, "Do NOT jump to a fix. Spend most of your time understanding WHY the bug happens.").unwrap();
@@ -1489,6 +1507,9 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         collect_only: false,
         cleanup: false,
         clear_failed: false,
+        bug_hint: None,
+        exclude_file: None,
+        no_exclude: false,
     };
 
     for arg in args {
@@ -1526,18 +1547,23 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
             config.cleanup = true;
         } else if *arg == "--clear-failed" {
             config.clear_failed = true;
+        } else if let Some(val) = arg.strip_prefix("--exclude-file=") {
+            config.exclude_file = Some(val.to_string());
+        } else if *arg == "--no-exclude" {
+            config.no_exclude = true;
         } else if !arg.starts_with('-') {
-            // Last positional arg that is a directory → test dir override
+            // Positional args: first directory is test dir, remaining text is bug hint
             let candidate = PathBuf::from(arg);
             if candidate.is_dir() {
                 config.test_dir = candidate;
             } else {
-                // Try relative to project root
                 let resolved = project_root.join(arg);
                 if resolved.is_dir() {
                     config.test_dir = resolved;
+                } else if *arg != "claude-exec" {
+                    // Not a directory and not the subcommand → treat as bug hint
+                    config.bug_hint = Some(arg.to_string());
                 }
-                // Otherwise ignore (e.g. "claude-exec")
             }
         } else {
             return Err(format!("Unknown option: {}", arg));
@@ -1609,9 +1635,52 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
             .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
     }
 
+    // Build exclude set (test names to skip)
+    let exclude_names: std::collections::HashSet<String> = if config.no_exclude {
+        std::collections::HashSet::new()
+    } else if let Some(ref path) = config.exclude_file {
+        let text = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read exclude file '{}': {}", path, e))?;
+        text.lines()
+            .map(|line| line.split('#').next().unwrap_or("").trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        // Check for default exclude file at doc/target/autodebug/exclude.txt
+        let default_exclude = project_root.join("doc/target/autodebug/exclude.txt");
+        if default_exclude.is_file() {
+            let text = fs::read_to_string(&default_exclude).unwrap_or_default();
+            text.lines()
+                .map(|line| line.split('#').next().unwrap_or("").trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        }
+    };
+
     // Phase 1: Discover failing tests
     println!("\n=== Phase 1: Discovering failing tests ===\n");
-    let failing_tests = discover_failing_tests(&config)?;
+    let all_failing = discover_failing_tests(&config)?;
+
+    // Apply exclude filter
+    let (failing_tests, excluded_count) = if exclude_names.is_empty() {
+        (all_failing, 0usize)
+    } else {
+        let before = all_failing.len();
+        let filtered: Vec<_> = all_failing
+            .into_iter()
+            .filter(|t| !exclude_names.contains(&t.test_name))
+            .collect();
+        let excluded = before - filtered.len();
+        if excluded > 0 {
+            println!("  Excluded {} tests via exclude list", excluded);
+        }
+        (filtered, excluded)
+    };
+    let _ = excluded_count; // used in summary above
 
     if failing_tests.is_empty() {
         println!("No failing tests found. All tests pass the pixel diff threshold.");
@@ -1638,7 +1707,7 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
             _ => {}
         }
 
-        let prompt_text = build_autodebug_prompt(test);
+        let prompt_text = build_autodebug_prompt(test, config.bug_hint.as_deref());
         fs::write(&prompt_path, &prompt_text)
             .map_err(|e| format!("Failed to write prompt: {}", e))?;
         prompt_count += 1;

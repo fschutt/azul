@@ -3192,6 +3192,7 @@ fn run_agent_in_slot_internal(
     let mut child = match Command::new("claude")
         .args(&cmd_args)
         .env_remove("CLAUDECODE")
+        .env("CLAUDE_CODE_EFFORT_LEVEL", "high")
         // Pin git operations to the worktree so agents can't accidentally
         // commit to the main repo branch by cd-ing to the main repo path.
         .env("GIT_DIR", slot.path.join(".git"))
