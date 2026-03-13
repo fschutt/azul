@@ -1588,6 +1588,11 @@ pub fn build_autodebug_prompt(test: &FailingTestData, bug_hint: Option<&str>) ->
 
     writeln!(prompt, "### Important Rules\n").unwrap();
     writeln!(prompt, "- Do NOT modify `taffy_bridge.rs` (Flex/Grid is handled by Taffy).").unwrap();
+    writeln!(prompt, "- **Flex/Grid layout is computed by the Taffy crate, which is very likely correct.**").unwrap();
+    writeln!(prompt, "  Taffy does not yet support subgrids, but otherwise flex/grid results should be trusted.").unwrap();
+    writeln!(prompt, "  If a test failure looks like a flex/grid issue, the bug is almost certainly in how").unwrap();
+    writeln!(prompt, "  we feed data TO Taffy or read results FROM Taffy (in `taffy_bridge.rs` or `fc.rs`),").unwrap();
+    writeln!(prompt, "  NOT in Taffy's own layout algorithm. Do NOT try to fix Taffy itself.").unwrap();
     writeln!(prompt, "- Do NOT run `cargo build`, `cargo check`, or any compilation commands.").unwrap();
     writeln!(prompt, "- Your changes must compile — check types and signatures carefully.").unwrap();
     writeln!(prompt, "- If you cannot determine the fix with confidence, write a").unwrap();
