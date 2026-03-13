@@ -155,6 +155,55 @@
       color: #666;
       margin-left: 0.5rem;
     }
+    .size-dots {
+      display: inline-flex;
+      gap: 0.3rem;
+      margin-left: 0.5rem;
+      align-items: center;
+    }
+    .size-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.15rem;
+      font-size: 0.7rem;
+      color: #666;
+    }
+    .size-dot .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .size-dot .dot.pass { background: var(--color-pass); }
+    .size-dot .dot.fail { background: var(--color-fail); }
+    .size-dot .dot.warning { background: var(--color-warning); }
+    .size-tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 0.75rem;
+    }
+    .size-tab {
+      padding: 0.3rem 0.6rem;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: all 0.15s;
+    }
+    .size-tab:hover { background: #e0e0e0; }
+    .size-tab.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+    .size-tab .tab-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 0.3rem;
+    }
+    .size-tab .tab-dot.pass { background: var(--color-pass); }
+    .size-tab .tab-dot.fail { background: var(--color-fail); }
+    .size-panel { display: none; }
+    .size-panel.active { display: block; }
 
     .test-body { padding: 0.8rem; border-top: 1px solid #eee; }
     .test-images {
@@ -451,24 +500,55 @@
     function createTestCard(test) {
       const status = getTestStatus(test);
       const statusLabel = status.toUpperCase();
-      
+      const hasSizes = test.size_results && test.size_results.length > 0;
+
       const card = document.createElement('div');
       card.className = `test-card ${status} collapsed`;
       card.dataset.name = test.test_name;
       card.dataset.status = status;
 
-      card.innerHTML = `
-        <div class="test-header" onclick="toggleCard(this)">
-          <div class="test-header-left">
-            <span class="collapse-icon">▼</span>
-            <h3 class="test-title">${escapeHtml(test.test_name)}</h3>
-          </div>
-          <div>
-            <span class="test-badge ${status}">${statusLabel}</span>
-            <span class="diff-count">${test.diff_count.toLocaleString()} px</span>
-          </div>
-        </div>
-        <div class="test-body">
+      // Build per-size dots for header
+      let sizeDotsHtml = '';
+      if (hasSizes) {
+        sizeDotsHtml = '<span class="size-dots">';
+        test.size_results.forEach(sr => {
+          const dotClass = sr.passed ? 'pass' : 'fail';
+          sizeDotsHtml += `<span class="size-dot"><span class="dot ${dotClass}"></span>${sr.size_name[0].toUpperCase()}</span>`;
+        });
+        sizeDotsHtml += '</span>';
+      }
+
+      // Build size tabs + panels for body
+      let sizeTabsHtml = '';
+      let sizePanelsHtml = '';
+      if (hasSizes) {
+        sizeTabsHtml = '<div class="size-tabs">';
+        test.size_results.forEach((sr, i) => {
+          const tabDotClass = sr.passed ? 'pass' : 'fail';
+          const activeClass = i === 0 ? ' active' : '';
+          sizeTabsHtml += `<button class="size-tab${activeClass}" data-size-idx="${i}" onclick="switchSizeTab(this)"><span class="tab-dot ${tabDotClass}"></span>${sr.size_name} (${sr.diff_percentage.toFixed(2)}%)</button>`;
+        });
+        sizeTabsHtml += '</div>';
+
+        test.size_results.forEach((sr, i) => {
+          const activeClass = i === 0 ? ' active' : '';
+          sizePanelsHtml += `
+            <div class="size-panel${activeClass}" data-size-idx="${i}">
+              <div class="test-images">
+                <div class="test-img-box">
+                  <img class="lazy" data-src="./reftest_img/${test.test_name}_${sr.size_name}_chrome.png" alt="Chrome ${sr.size_name}">
+                  <div class="test-img-label">Chrome ${sr.size_name} (${sr.width}x${sr.height})</div>
+                </div>
+                <div class="test-img-box">
+                  <img class="lazy" data-src="./reftest_img/${test.test_name}_${sr.size_name}_azul.webp" alt="Azul ${sr.size_name}">
+                  <div class="test-img-label">Azul ${sr.size_name} — ${sr.diff_count.toLocaleString()} px diff</div>
+                </div>
+              </div>
+            </div>`;
+        });
+      } else {
+        // Legacy single-size fallback
+        sizePanelsHtml = `
           <div class="test-images">
             <div class="test-img-box">
               <img class="lazy" data-src="./reftest_img/${test.test_name}_chrome.webp" alt="Chrome">
@@ -478,7 +558,24 @@
               <img class="lazy" data-src="./reftest_img/${test.test_name}_azul.webp" alt="Azul">
               <div class="test-img-label">Azul (Tested)</div>
             </div>
+          </div>`;
+      }
+
+      card.innerHTML = `
+        <div class="test-header" onclick="toggleCard(this)">
+          <div class="test-header-left">
+            <span class="collapse-icon">▼</span>
+            <h3 class="test-title">${escapeHtml(test.test_name)}</h3>
+            ${sizeDotsHtml}
           </div>
+          <div>
+            <span class="test-badge ${status}">${statusLabel}</span>
+            <span class="diff-count">${test.diff_count.toLocaleString()} px</span>
+          </div>
+        </div>
+        <div class="test-body">
+          ${sizeTabsHtml}
+          ${sizePanelsHtml}
           <div class="test-actions">
             <button class="action-btn" onclick="showData('${test.test_name}', 'xhtml')">XHTML</button>
             <button class="action-btn" onclick="showData('${test.test_name}', 'warnings')">CSS Warnings</button>
@@ -492,6 +589,21 @@
         </div>
       `;
       return card;
+    }
+
+    function switchSizeTab(btn) {
+      const card = btn.closest('.test-card');
+      const idx = btn.dataset.sizeIdx;
+      card.querySelectorAll('.size-tab').forEach(t => t.classList.remove('active'));
+      card.querySelectorAll('.size-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const panel = card.querySelector(`.size-panel[data-size-idx="${idx}"]`);
+      if (panel) {
+        panel.classList.add('active');
+        panel.querySelectorAll('img.lazy').forEach(img => {
+          if (img.dataset.src && !img.src) img.src = img.dataset.src;
+        });
+      }
     }
 
     function toggleCard(headerEl) {

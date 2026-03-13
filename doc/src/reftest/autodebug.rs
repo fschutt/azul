@@ -773,51 +773,60 @@ struct ScreenshotJob {
     azul_file: PathBuf,
 }
 
-/// Discover tests that fail the pixel diff threshold.
+// ── Shared rendering infrastructure ────────────────────────────────────
+
+/// A render job for a single test file across multiple screen sizes.
+pub struct RenderJob {
+    pub test_name: String,
+    pub test_file: PathBuf,
+    pub sizes: Vec<ScreenSize>,
+    pub output_dir: PathBuf,
+}
+
+/// Result of rendering a single test across all sizes.
+pub struct RenderResult {
+    pub test_name: String,
+    pub test_file: PathBuf,
+    pub size_results: Vec<SizeRenderResult>,
+    pub debug_data: Option<DebugData>,
+}
+
+/// Per-size rendering result with diff info.
+pub struct SizeRenderResult {
+    pub size: ScreenSize,
+    pub chrome_screenshot: PathBuf,
+    pub azul_screenshot: PathBuf,
+    pub diff_count: usize,
+    pub diff_percentage: f64,
+}
+
+/// Render all tests using persistent Chrome CDP + rayon-parallel Azul rendering.
 ///
-/// Runs in 3 parallel phases:
-///   Phase 1a: Chrome screenshots (parallel Chrome processes)
-///   Phase 1b: Azul CPU rendering (parallel via rayon)
-///   Phase 1c: Pixel diff analysis (parallel via rayon)
-pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTestData>, String> {
-    let test_dir = &config.test_dir;
-    let screenshots = screenshots_dir(&config.project_root);
-    fs::create_dir_all(&screenshots)
-        .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
-
-    let mut test_files = find_test_files(test_dir)
-        .map_err(|e| format!("Failed to find test files: {}", e))?;
-    test_files.sort();
-
-    // Apply filter if specified
-    if let Some(ref filter) = config.test_filter {
-        test_files.retain(|p| {
-            p.file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s.contains(filter.as_str()))
-                .unwrap_or(false)
-        });
+/// This is the shared Phase 1 infrastructure used by both `run_reftests()` and
+/// `discover_failing_tests()`. It handles:
+///   - Phase 1a: Chrome CDP screenshots (sequential, single browser instance)
+///   - Phase 1b: Azul CPU rendering (parallel via rayon, pre-warmed font cache)
+///   - Phase 1c: Pixel diff comparison (parallel via rayon)
+pub fn render_all_tests(
+    jobs: Vec<RenderJob>,
+    chrome_path: &str,
+    skip_chrome: bool,
+) -> Result<Vec<RenderResult>, String> {
+    if jobs.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let total_tests = test_files.len();
-    let total_jobs = total_tests * config.sizes.len();
-    println!("Found {} test files, {} screenshot jobs ({}x {} sizes)",
-        total_tests, total_jobs, total_tests, config.sizes.len());
-
-    // Build job list: (test_name, test_file, size, chrome_path, azul_path)
-    let mut jobs: Vec<ScreenshotJob> = Vec::with_capacity(total_jobs);
-    for test_file in &test_files {
-        let test_name = test_file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-        for size in &config.sizes {
-            let chrome_file = screenshots.join(format!("{}_{}_chrome.png", test_name, size.name));
-            let azul_file = screenshots.join(format!("{}_{}_azul.webp", test_name, size.name));
-            jobs.push(ScreenshotJob {
-                test_name: test_name.clone(),
-                test_file: test_file.clone(),
+    // Flatten into per-size screenshot jobs
+    let mut screenshot_jobs: Vec<ScreenshotJob> = Vec::new();
+    for job in &jobs {
+        fs::create_dir_all(&job.output_dir)
+            .map_err(|e| format!("Failed to create output dir: {}", e))?;
+        for size in &job.sizes {
+            let chrome_file = job.output_dir.join(format!("{}_{}_chrome.png", job.test_name, size.name));
+            let azul_file = job.output_dir.join(format!("{}_{}_azul.webp", job.test_name, size.name));
+            screenshot_jobs.push(ScreenshotJob {
+                test_name: job.test_name.clone(),
+                test_file: job.test_file.clone(),
                 size: *size,
                 chrome_file,
                 azul_file,
@@ -825,38 +834,33 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
     }
 
-    // Start font discovery in the background — scout enumerates system font
-    // directories while builder threads parse font files concurrently.
-    // This runs during Phase 1a (Chrome screenshots) so that by the time
-    // Phase 1b (Azul rendering) starts, the font cache is mostly populated.
+    let total_jobs = screenshot_jobs.len();
+    println!("render_all_tests: {} tests, {} screenshot jobs", jobs.len(), total_jobs);
+
+    // Start font discovery in background
     let font_registry = rust_fontconfig::registry::FcFontRegistry::new();
     font_registry.spawn_scout_and_builders();
     println!("  Font registry: scout + builders started in background");
 
     // ── Phase 1a: Chrome screenshots (persistent CDP instance) ──────────
 
-    if !config.skip_chrome {
-        let chrome_path = get_chrome_path();
+    if !skip_chrome {
         let mut chrome_errors = 0usize;
-
-        // Filter to only jobs that need Chrome screenshots
-        let pending_jobs: Vec<&ScreenshotJob> = jobs.iter()
+        let pending_jobs: Vec<&ScreenshotJob> = screenshot_jobs.iter()
             .filter(|j| !j.chrome_file.exists())
             .collect();
-        let skipped = jobs.len() - pending_jobs.len();
+        let skipped = screenshot_jobs.len() - pending_jobs.len();
 
         println!("\n  Phase 1a: Chrome screenshots ({} pending, {} cached)...",
             pending_jobs.len(), skipped);
         let start = Instant::now();
 
         if !pending_jobs.is_empty() {
-            // Launch a single persistent Chrome instance via CDP
-            match cdp::ChromeCdp::launch(&chrome_path) {
+            match cdp::ChromeCdp::launch(chrome_path) {
                 Ok(mut chrome) => {
                     for (i, job) in pending_jobs.iter().enumerate() {
-                        // For desktop, also extract layout JSON
                         let layout_file = if job.size.name == "desktop" {
-                            let lf = screenshots.join(
+                            let lf = job.chrome_file.parent().unwrap_or(Path::new(".")).join(
                                 format!("{}_desktop_chrome_layout.json", job.test_name)
                             );
                             if lf.exists() { None } else { Some(lf) }
@@ -878,17 +882,15 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
 
                         let done = i + 1 + skipped;
                         if done % 20 == 0 || i + 1 == pending_jobs.len() {
-                            println!("    Chrome: {}/{}", done, jobs.len());
+                            println!("    Chrome: {}/{}", done, screenshot_jobs.len());
                         }
                     }
-                    // Chrome is dropped here, closing the browser
                 }
                 Err(e) => {
                     eprintln!("  Warning: CDP launch failed ({}), falling back to per-process mode", e);
-                    // Fallback: spawn one Chrome per screenshot (original behavior)
                     for (i, job) in pending_jobs.iter().enumerate() {
                         if let Err(e) = generate_chrome_screenshot(
-                            &chrome_path, &job.test_file, &job.chrome_file,
+                            chrome_path, &job.test_file, &job.chrome_file,
                             job.size.width, job.size.height,
                         ) {
                             eprintln!("  Warning: Chrome failed for {} at {}: {}",
@@ -897,21 +899,21 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
                         }
                         let done = i + 1 + skipped;
                         if done % 20 == 0 || i + 1 == pending_jobs.len() {
-                            println!("    Chrome: {}/{}", done, jobs.len());
+                            println!("    Chrome: {}/{}", done, screenshot_jobs.len());
                         }
                     }
 
-                    // Extract Chrome layout JSON for desktop tests with timeout fallback
+                    // Extract layout JSON for desktop tests
                     let desktop_tests: Vec<&&ScreenshotJob> = pending_jobs.iter()
                         .filter(|j| j.size.name == "desktop")
                         .collect();
                     for job in &desktop_tests {
-                        let layout_file = screenshots.join(
+                        let layout_file = job.chrome_file.parent().unwrap_or(Path::new(".")).join(
                             format!("{}_desktop_chrome_layout.json", job.test_name)
                         );
                         if layout_file.exists() { continue; }
                         if let Err(e) = generate_chrome_layout_with_timeout(
-                            &chrome_path, &job.test_file, &layout_file,
+                            chrome_path, &job.test_file, &layout_file,
                             job.size.width, job.size.height,
                         ) {
                             eprintln!("    Warning: Layout extraction failed for {}: {}",
@@ -930,12 +932,9 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
 
     // ── Phase 1b: Azul CPU rendering (parallel via rayon) ───────────────
 
-    println!("  Phase 1b: Azul rendering ({} jobs)...", jobs.len());
+    println!("  Phase 1b: Azul rendering ({} jobs)...", screenshot_jobs.len());
 
-    // Wait for font registry to finish scanning (typically < 100ms if it
-    // was started during Phase 1a). Then snapshot the cache for renders.
     let fc_cache_start = Instant::now();
-    // Wait for scout+builders to complete (they've been running since before Phase 1a)
     let deadline = Instant::now() + Duration::from_secs(30);
     while !font_registry.build_complete.load(std::sync::atomic::Ordering::Acquire) {
         if Instant::now() > deadline {
@@ -944,11 +943,9 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    // Snapshot the cache — clone once, reuse for all renders
     let fc_cache = font_registry.cache.read()
         .map(|c| c.clone())
         .map_err(|e| format!("Failed to read font cache: {}", e))?;
-    // Signal shutdown so background threads exit cleanly
     font_registry.shutdown.store(true, std::sync::atomic::Ordering::Release);
     font_registry.queue_condvar.notify_all();
     println!("    Font cache ready in {:.1}s ({} fonts)",
@@ -959,11 +956,10 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     let azul_done = AtomicUsize::new(0);
     let azul_errors = AtomicUsize::new(0);
 
-    // Collect debug data per test (keyed by test_name, prefer desktop)
     let debug_data_map: Arc<Mutex<std::collections::HashMap<String, DebugData>>> =
         Arc::new(Mutex::new(std::collections::HashMap::new()));
 
-    jobs.par_iter().for_each(|job| {
+    screenshot_jobs.par_iter().for_each(|job| {
         if job.azul_file.exists() {
             azul_done.fetch_add(1, Ordering::Relaxed);
             return;
@@ -978,7 +974,6 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         ) {
             Ok(dd) => {
                 let mut map = debug_data_map.lock().unwrap();
-                // Prefer desktop debug data, but store any if none yet
                 if job.size.name == "desktop" || !map.contains_key(&job.test_name) {
                     map.insert(job.test_name.clone(), dd);
                 }
@@ -990,8 +985,8 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
 
         let done = azul_done.fetch_add(1, Ordering::Relaxed) + 1;
-        if done % 20 == 0 || done == jobs.len() {
-            println!("    Azul: {}/{}", done, jobs.len());
+        if done % 20 == 0 || done == screenshot_jobs.len() {
+            println!("    Azul: {}/{}", done, screenshot_jobs.len());
         }
     });
 
@@ -999,68 +994,55 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     println!("  Phase 1b done in {:.1}s ({} errors)",
         start.elapsed().as_secs_f64(), errors);
 
-    // ── Phase 1c: Pixel diff analysis (parallel via rayon) ──────────────
+    // ── Phase 1c: Pixel diff comparison (parallel via rayon) ────────────
 
-    println!("  Phase 1c: Pixel diff analysis ({} jobs)...", jobs.len());
+    println!("  Phase 1c: Pixel diff analysis ({} jobs)...", screenshot_jobs.len());
     let start = Instant::now();
-    let threshold_pct = 0.5; // Fail if >0.5% pixels differ
 
-    // Collect ALL per-job diff results in parallel (including passing)
     struct DiffJobResult {
         test_name: String,
-        test_file: PathBuf,
-        size_name: &'static str,
-        diff_percent: f64,
+        size: ScreenSize,
+        chrome_file: PathBuf,
+        azul_file: PathBuf,
+        diff_count: usize,
+        diff_percentage: f64,
         skipped: bool,
-        error: bool,
-        size_result: Option<SizeResult>,
     }
 
-    let diff_results: Vec<DiffJobResult> = jobs.par_iter().map(|job| {
+    let diff_results: Vec<DiffJobResult> = screenshot_jobs.par_iter().map(|job| {
         if !job.chrome_file.exists() || !job.azul_file.exists() {
             return DiffJobResult {
                 test_name: job.test_name.clone(),
-                test_file: job.test_file.clone(),
-                size_name: job.size.name,
-                diff_percent: 0.0,
+                size: job.size,
+                chrome_file: job.chrome_file.clone(),
+                azul_file: job.azul_file.clone(),
+                diff_count: 0,
+                diff_percentage: 0.0,
                 skipped: true,
-                error: false,
-                size_result: None,
             };
         }
         match analyze_pixel_diff(&job.chrome_file, &job.azul_file, job.size.name) {
             Ok(analysis) => {
-                let pct = analysis.diff_percent;
-                let sr = if pct > threshold_pct {
-                    Some(SizeResult {
-                        size: job.size,
-                        chrome_screenshot: job.chrome_file.clone(),
-                        azul_screenshot: job.azul_file.clone(),
-                        diff_analysis: analysis,
-                    })
-                } else {
-                    None
-                };
                 DiffJobResult {
                     test_name: job.test_name.clone(),
-                    test_file: job.test_file.clone(),
-                    size_name: job.size.name,
-                    diff_percent: pct,
+                    size: job.size,
+                    chrome_file: job.chrome_file.clone(),
+                    azul_file: job.azul_file.clone(),
+                    diff_count: analysis.diff_pixels,
+                    diff_percentage: analysis.diff_percent,
                     skipped: false,
-                    error: false,
-                    size_result: sr,
                 }
             }
             Err(e) => {
                 eprintln!("  Warning: Diff failed for {} at {}: {}", job.test_name, job.size.name, e);
                 DiffJobResult {
                     test_name: job.test_name.clone(),
-                    test_file: job.test_file.clone(),
-                    size_name: job.size.name,
-                    diff_percent: 0.0,
-                    skipped: false,
-                    error: true,
-                    size_result: None,
+                    size: job.size,
+                    chrome_file: job.chrome_file.clone(),
+                    azul_file: job.azul_file.clone(),
+                    diff_count: 0,
+                    diff_percentage: 0.0,
+                    skipped: true,
                 }
             }
         }
@@ -1068,21 +1050,126 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
 
     println!("  Phase 1c done in {:.1}s", start.elapsed().as_secs_f64());
 
+    // ── Assemble results per test ───────────────────────────────────────
+
+    let mut debug_data_map = match Arc::try_unwrap(debug_data_map) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        Err(arc) => arc.lock().unwrap().clone(),
+    };
+
+    // Group diff results by test name
+    let mut test_map: std::collections::HashMap<String, (PathBuf, Vec<SizeRenderResult>)> =
+        std::collections::HashMap::new();
+
+    for r in diff_results {
+        if r.skipped { continue; }
+        test_map.entry(r.test_name.clone())
+            .or_insert_with(|| (r.azul_file.parent().unwrap_or(Path::new(".")).to_path_buf()
+                .parent().unwrap_or(Path::new(".")).to_path_buf(), Vec::new()));
+        test_map.get_mut(&r.test_name).unwrap().1.push(SizeRenderResult {
+            size: r.size,
+            chrome_screenshot: r.chrome_file,
+            azul_screenshot: r.azul_file,
+            diff_count: r.diff_count,
+            diff_percentage: r.diff_percentage,
+        });
+    }
+
+    // Also include tests that had no diff results (all skipped) so they appear in output
+    for job in &jobs {
+        test_map.entry(job.test_name.clone())
+            .or_insert_with(|| (job.output_dir.clone(), Vec::new()));
+    }
+
+    let mut results: Vec<RenderResult> = test_map.into_iter().map(|(test_name, (_dir, size_results))| {
+        let test_file = jobs.iter()
+            .find(|j| j.test_name == test_name)
+            .map(|j| j.test_file.clone())
+            .unwrap_or_default();
+
+        // Attach Chrome layout JSON to debug data
+        let mut debug_data = debug_data_map.remove(&test_name);
+        if let Some(ref mut dd) = debug_data {
+            // Look for layout JSON in the output dir
+            let output_dir = jobs.iter()
+                .find(|j| j.test_name == test_name)
+                .map(|j| &j.output_dir)
+                .unwrap();
+            let layout_file = output_dir.join(
+                format!("{}_desktop_chrome_layout.json", test_name)
+            );
+            if let Ok(data) = fs::read_to_string(&layout_file) {
+                dd.chrome_layout = data;
+            }
+        }
+
+        RenderResult {
+            test_name,
+            test_file,
+            size_results,
+            debug_data,
+        }
+    }).collect();
+
+    results.sort_by(|a, b| a.test_name.cmp(&b.test_name));
+
+    Ok(results)
+}
+
+/// Discover tests that fail the pixel diff threshold.
+///
+/// Uses `render_all_tests()` for the shared Phase 1 infrastructure, then
+/// filters to only failing tests and runs `DiffAnalysis` for prompt generation.
+pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTestData>, String> {
+    let test_dir = &config.test_dir;
+    let screenshots = screenshots_dir(&config.project_root);
+    fs::create_dir_all(&screenshots)
+        .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
+
+    let mut test_files = find_test_files(test_dir)
+        .map_err(|e| format!("Failed to find test files: {}", e))?;
+    test_files.sort();
+
+    // Apply filter if specified
+    if let Some(ref filter) = config.test_filter {
+        test_files.retain(|p| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.contains(filter.as_str()))
+                .unwrap_or(false)
+        });
+    }
+
+    // Build render jobs
+    let chrome_path = get_chrome_path();
+    let render_jobs: Vec<RenderJob> = test_files.iter().map(|test_file| {
+        let test_name = test_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        RenderJob {
+            test_name,
+            test_file: test_file.clone(),
+            sizes: config.sizes.to_vec(),
+            output_dir: screenshots.clone(),
+        }
+    }).collect();
+
+    let render_results = render_all_tests(render_jobs, &chrome_path, config.skip_chrome)?;
+
     // ── Phase 1 Statistics ────────────────────────────────────────────────
 
-    // Per-test: max diff_percent across all sizes
+    let threshold_pct = 0.5;
+
     let mut per_test_max: std::collections::HashMap<String, f64> =
         std::collections::HashMap::new();
-    let mut skipped_count = 0usize;
-    let mut error_count = 0usize;
 
-    for r in &diff_results {
-        if r.skipped { skipped_count += 1; continue; }
-        if r.error { error_count += 1; continue; }
-        let entry = per_test_max.entry(r.test_name.clone()).or_insert(0.0);
-        if r.diff_percent > *entry {
-            *entry = r.diff_percent;
-        }
+    for r in &render_results {
+        let max_pct = r.size_results.iter()
+            .map(|sr| sr.diff_percentage)
+            .fold(0.0f64, f64::max);
+        per_test_max.insert(r.test_name.clone(), max_pct);
     }
 
     let total_compared = per_test_max.len();
@@ -1125,9 +1212,6 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     box_line(&format!("  Tests compared:  {:<6}", total_compared));
     box_line(&format!("  Passing (≤{:.1}%): {:<6} ({:.1}%)", threshold_pct, passing, pass_rate));
     box_line(&format!("  Failing (>{:.1}%): {:<6} ({:.1}%)", threshold_pct, failing_count, 100.0 - pass_rate));
-    if skipped_count > 0 || error_count > 0 {
-        box_line(&format!("  Skipped/errors:  {} / {}", skipped_count, error_count));
-    }
     println!("╠════════════════════════════════════════════════════════════════╣");
     box_line("  Diff distribution:");
     box_line(&format!("    Perfect match (0%):    {:>6}", bucket_perfect));
@@ -1148,39 +1232,50 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     }
     println!("╚════════════════════════════════════════════════════════════════╝\n");
 
-    // ── Assemble results per test ───────────────────────────────────────
+    // ── Assemble failing tests with DiffAnalysis ─────────────────────────
 
-    let mut debug_data_map = match Arc::try_unwrap(debug_data_map) {
-        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
-        Err(arc) => arc.lock().unwrap().clone(),
-    };
+    let mut failing: Vec<FailingTestData> = Vec::new();
 
-    // Group failing size results by test name
-    let mut test_map: std::collections::HashMap<String, (PathBuf, Vec<SizeResult>)> =
-        std::collections::HashMap::new();
+    for r in render_results {
+        let max_pct = r.size_results.iter()
+            .map(|sr| sr.diff_percentage)
+            .fold(0.0f64, f64::max);
 
-    for r in diff_results {
-        if let Some(sr) = r.size_result {
-            test_map.entry(r.test_name)
-                .or_insert_with(|| (r.test_file, Vec::new()))
-                .1.push(sr);
+        if max_pct <= threshold_pct {
+            continue; // passing test
+        }
+
+        // Run full DiffAnalysis only for failing sizes (needed for prompts)
+        let mut size_results = Vec::new();
+        for sr in &r.size_results {
+            if sr.diff_percentage > threshold_pct {
+                match analyze_pixel_diff(&sr.chrome_screenshot, &sr.azul_screenshot, sr.size.name) {
+                    Ok(analysis) => {
+                        size_results.push(SizeResult {
+                            size: sr.size,
+                            chrome_screenshot: sr.chrome_screenshot.clone(),
+                            azul_screenshot: sr.azul_screenshot.clone(),
+                            diff_analysis: analysis,
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("  Warning: DiffAnalysis failed for {} at {}: {}",
+                            r.test_name, sr.size.name, e);
+                    }
+                }
+            }
+        }
+
+        if !size_results.is_empty() {
+            failing.push(FailingTestData {
+                test_name: r.test_name,
+                test_file: r.test_file,
+                size_results,
+                debug_data: r.debug_data,
+            });
         }
     }
 
-    let mut failing: Vec<FailingTestData> = test_map.into_iter().map(|(test_name, (test_file, size_results))| {
-        // Attach Chrome layout JSON to debug data (only available for desktop)
-        let mut debug_data = debug_data_map.remove(&test_name);
-        if let Some(ref mut dd) = debug_data {
-            let layout_file = screenshots_dir(&config.project_root)
-                .join(format!("{}_desktop_chrome_layout.json", test_name));
-            if let Ok(data) = fs::read_to_string(&layout_file) {
-                dd.chrome_layout = data;
-            }
-        }
-        FailingTestData { test_name, test_file, size_results, debug_data }
-    }).collect();
-
-    // Sort by name for deterministic output
     failing.sort_by(|a, b| a.test_name.cmp(&b.test_name));
 
     println!(
