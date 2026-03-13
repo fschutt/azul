@@ -1513,7 +1513,7 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         project_root: project_root.to_path_buf(),
         test_dir,
         agents: 4,
-        timeout: Duration::from_secs(720),
+        timeout: Duration::from_secs(1500),
         model: None,
         sizes: ALL_SIZES.to_vec(),
         test_filter: None,
