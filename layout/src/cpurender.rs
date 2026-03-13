@@ -735,8 +735,9 @@ fn render_text(
     }
 
     let scale = (font_size_px * dpi_factor) / units_per_em;
+    let ppem = (font_size_px * dpi_factor).round() as u16;
 
-    // Draw each glyph using cached paths (path is in font units, transform applied at render)
+    // Draw each glyph using cached paths
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -745,19 +746,26 @@ fn render_text(
             None => continue,
         };
 
-        let path = match glyph_cache.get_or_build(font_hash.font_hash, glyph_index, glyph_data) {
-            Some(p) => p,
+        let cached = match glyph_cache.get_or_build(
+            font_hash.font_hash, glyph_index, glyph_data, parsed_font, ppem,
+        ) {
+            Some(c) => c,
             None => continue,
         };
 
-        // Path is in font units (Y negated). Apply scale + translate to position.
         let glyph_x = glyph.point.x * dpi_factor;
         let glyph_baseline_y = glyph.point.y * dpi_factor;
-        let glyph_transform =
-            Transform::from_scale(scale, scale).post_translate(glyph_x, glyph_baseline_y);
+
+        let glyph_transform = if cached.is_hinted {
+            // Hinted path is in pixel coordinates — only translate, no scale
+            Transform::from_translate(glyph_x, glyph_baseline_y)
+        } else {
+            // Unhinted path is in font units — apply scale + translate
+            Transform::from_scale(scale, scale).post_translate(glyph_x, glyph_baseline_y)
+        };
 
         pixmap.fill_path(
-            path,
+            cached.path,
             &paint,
             tiny_skia::FillRule::Winding,
             glyph_transform,

@@ -237,7 +237,6 @@ pub mod parsed {
     /// - Text layout (via GSUB/GPOS tables)
     /// - Glyph rendering (via glyf/CFF outlines)
     /// - PDF font embedding (via font metrics and subsetting)
-    #[derive(Clone)]
     pub struct ParsedFont {
         /// Hash of the font bytes for caching and equality checks.
         pub hash: u64,
@@ -285,6 +284,43 @@ pub mod parsed {
         pub font_type: FontType,
         /// PostScript font name from the NAME table.
         pub font_name: Option<String>,
+        /// TrueType bytecode hinting instance (mutable interpreter state).
+        /// Wrapped in Mutex because hinting mutates internal state.
+        /// None for CFF fonts or fonts without hinting data.
+        pub hint_instance: Option<std::sync::Mutex<allsorts::hinting::HintInstance>>,
+    }
+
+    impl Clone for ParsedFont {
+        fn clone(&self) -> Self {
+            ParsedFont {
+                hash: self.hash,
+                font_metrics: self.font_metrics.clone(),
+                pdf_font_metrics: self.pdf_font_metrics,
+                num_glyphs: self.num_glyphs,
+                hhea_table: self.hhea_table.clone(),
+                hmtx_data: self.hmtx_data.clone(),
+                vmtx_data: self.vmtx_data.clone(),
+                vhea_table: self.vhea_table.clone(),
+                maxp_table: self.maxp_table.clone(),
+                gsub_cache: self.gsub_cache.clone(),
+                gpos_cache: self.gpos_cache.clone(),
+                opt_gdef_table: self.opt_gdef_table.clone(),
+                opt_kern_table: self.opt_kern_table.clone(),
+                glyph_records_decoded: self.glyph_records_decoded.clone(),
+                space_width: self.space_width,
+                cmap_subtable: self.cmap_subtable.clone(),
+                mock: self.mock.clone(),
+                reverse_glyph_cache: self.reverse_glyph_cache.clone(),
+                original_bytes: self.original_bytes.clone(),
+                original_index: self.original_index,
+                index_to_cid: self.index_to_cid.clone(),
+                font_type: self.font_type.clone(),
+                font_name: self.font_name.clone(),
+                // HintInstance has mutable interpreter state and is not Clone.
+                // Clones are used for PDF/serialization where hinting isn't needed.
+                hint_instance: None,
+            }
+        }
     }
 
     /// Distinguishes TrueType fonts from OpenType CFF fonts.
@@ -669,40 +705,63 @@ pub mod parsed {
                         let var_context = var_store.as_ref()
                             .and_then(|store| VariableGlyfContext::new(store).ok());
 
-                        let mut visitor = GlyfVisitorContext::new(
-                            &mut loca_glyf,
-                            var_context,
-                        );
-
+                        // First pass: extract outlines via visitor
                         let mut map = BTreeMap::new();
+                        {
+                            let mut visitor = GlyfVisitorContext::new(
+                                &mut loca_glyf,
+                                var_context,
+                            );
+
+                            for glyph_index in 0..num_glyphs.min(u16::MAX as usize) {
+                                let gid = glyph_index as u16;
+                                let horz_advance = allsorts::glyph_info::advance(
+                                    &maxp_table, &hhea_table, &hmtx_data, gid,
+                                ).unwrap_or_default();
+
+                                let mut collector = GlyphOutlineCollector::new();
+                                let visit_result = visitor.visit(gid, None, &mut collector);
+
+                                let outlines = match visit_result {
+                                    Ok(()) => collector.into_outlines(),
+                                    Err(_) => Vec::new(),
+                                };
+
+                                let (min_x, min_y, max_x, max_y) = compute_outline_bbox(&outlines);
+
+                                map.insert(gid, OwnedGlyph {
+                                    horz_advance,
+                                    bounding_box: OwnedGlyphBoundingBox {
+                                        min_x, min_y, max_x, max_y,
+                                    },
+                                    outline: outlines,
+                                    phantom_points: None,
+                                    raw_points: None,
+                                    raw_on_curve: None,
+                                    raw_contour_ends: None,
+                                    instructions: None,
+                                });
+                            }
+                        }
+                        // visitor is dropped here, releasing the &mut loca_glyf borrow
+
+                        // Second pass: extract raw SimpleGlyph data for TrueType hinting
                         for glyph_index in 0..num_glyphs.min(u16::MAX as usize) {
                             let gid = glyph_index as u16;
-                            let horz_advance = allsorts::glyph_info::advance(
-                                &maxp_table, &hhea_table, &hmtx_data, gid,
-                            ).unwrap_or_default();
-
-                            // Visit the glyph outline via allsorts (handles composites + transforms)
-                            let mut collector = GlyphOutlineCollector::new();
-                            // Use default variation instance (no user tuple)
-                            let visit_result = visitor.visit(gid, None, &mut collector);
-
-                            let outlines = match visit_result {
-                                Ok(()) => collector.into_outlines(),
-                                Err(_) => Vec::new(),
-                            };
-
-                            // Get bounding box from the collected outlines
-                            let (min_x, min_y, max_x, max_y) = compute_outline_bbox(&outlines);
-
-                            map.insert(gid, OwnedGlyph {
-                                horz_advance,
-                                bounding_box: OwnedGlyphBoundingBox {
-                                    min_x, min_y, max_x, max_y,
-                                },
-                                outline: outlines,
-                                phantom_points: None,
-                            });
+                            if let Ok(glyph_arc) = loca_glyf.glyph(gid) {
+                                if let allsorts::tables::glyf::Glyph::Simple(sg) = glyph_arc.as_ref() {
+                                    if let Some(record) = map.get_mut(&gid) {
+                                        record.raw_points = Some(sg.coordinates.iter()
+                                            .map(|(_, pt)| (pt.0, pt.1)).collect());
+                                        record.raw_on_curve = Some(sg.coordinates.iter()
+                                            .map(|(f, _)| f.is_on_curve()).collect());
+                                        record.raw_contour_ends = Some(sg.end_pts_of_contours.clone());
+                                        record.instructions = Some(sg.instructions.to_vec());
+                                    }
+                                }
+                            }
                         }
+
                         map
                     }
                     Err(e) => {
@@ -724,6 +783,10 @@ pub mod parsed {
                                     },
                                     outline: Vec::new(),
                                     phantom_points: None,
+                                    raw_points: None,
+                                    raw_on_curve: None,
+                                    raw_contour_ends: None,
+                                    instructions: None,
                                 })
                             })
                             .collect()
@@ -750,12 +813,21 @@ pub mod parsed {
                             },
                             outline: Vec::new(),
                             phantom_points: None,
+                            raw_points: None,
+                            raw_on_curve: None,
+                            raw_contour_ends: None,
+                            instructions: None,
                         })
                     })
                     .collect::<BTreeMap<_, _>>()
             };
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
+
+            // Create TrueType hinting instance from font tables
+            let hint_instance = allsorts::hinting::HintInstance::new(
+                &font_data_impl.font_table_provider
+            ).ok().flatten().map(|h| std::sync::Mutex::new(h));
 
             // Required for font layout: gsub_cache, gpos_cache and gdef_table
             let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
@@ -805,6 +877,7 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
                 font_type: FontType::TrueType, // Default, will be updated if CFF
                 font_name,
+                hint_instance,
             };
 
             // Calculate space width
@@ -828,6 +901,10 @@ pub mod parsed {
                     horz_advance: space_width_val as u16,
                     outline: Vec::new(),
                     phantom_points: None,
+                    raw_points: None,
+                    raw_on_curve: None,
+                    raw_contour_ends: None,
+                    instructions: None,
                 };
                 font.glyph_records_decoded.insert(space_gid, space_record);
                 Some(())
@@ -1180,6 +1257,14 @@ pub mod parsed {
         pub horz_advance: u16,
         pub outline: Vec<GlyphOutline>,
         pub phantom_points: Option<[Point; 4]>,
+        /// Raw TrueType points in font units (for hinting). None for composite/CFF glyphs.
+        pub raw_points: Option<Vec<(i16, i16)>>,
+        /// On-curve flags for each raw point.
+        pub raw_on_curve: Option<Vec<bool>>,
+        /// Contour end-point indices (TrueType).
+        pub raw_contour_ends: Option<Vec<u16>>,
+        /// Per-glyph TrueType hinting instructions.
+        pub instructions: Option<Vec<u8>>,
     }
 
     // --- ParsedFontTrait Implementation for ParsedFont ---
