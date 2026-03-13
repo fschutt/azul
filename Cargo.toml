@@ -9,6 +9,9 @@ members = [
     "css", # CSS parser, does not depend on anything else
     # "workbench", # azul workbench, HTML to Rust compiler
 ]
+exclude = [
+    ".claude-agents",
+]
 
 [workspace.dependencies]
 glean = "60.5.0"

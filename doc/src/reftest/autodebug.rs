@@ -1344,7 +1344,9 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
     writeln!(
         prompt,
         "## Working Directory\n\n\
-         You are in a git worktree. ALL file paths are relative to your current working directory.\n\
+         You are in a git worktree — an isolated copy of the repository.\n\
+         Run `pwd` first to discover your worktree path, then use that as the prefix for \
+         ALL Read/Edit/Write file paths. NEVER use the main repository path.\n\
          Do NOT `cd` anywhere else — your commits will be lost if you do.\n",
     ).unwrap();
 
@@ -1416,26 +1418,51 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
     writeln!(prompt, "You are debugging a CSS layout rendering bug in the Azul layout engine.").unwrap();
     writeln!(prompt, "The screenshots above show how Chrome renders this test (reference) vs how Azul renders it.").unwrap();
     writeln!(prompt, "The pixel diff analysis highlights which regions differ and why.\n").unwrap();
-    writeln!(prompt, "### Instructions\n").unwrap();
-    writeln!(prompt, "1. **Analyze the bug**: Compare Chrome vs Azul screenshots using the Read tool.").unwrap();
-    writeln!(prompt, "   Study the pixel diff analysis to understand what's wrong.").unwrap();
-    writeln!(prompt, "2. **Find the root cause**: The layout solver is in `layout/src/solver3/`.").unwrap();
-    writeln!(prompt, "   Key files: `mod.rs` (entry point), `fc.rs` (formatting contexts),").unwrap();
-    writeln!(prompt, "   `sizing.rs` (width/height), `positioning.rs` (positioning).").unwrap();
-    writeln!(prompt, "   Text layout is in `layout/src/text3/`.").unwrap();
-    writeln!(prompt, "   CPU rendering is in `layout/src/cpurender.rs`.").unwrap();
-    writeln!(prompt, "3. **Fix the bug**: Make minimal, targeted changes. Do NOT refactor").unwrap();
-    writeln!(prompt, "   surrounding code or add features beyond what's needed.").unwrap();
-    writeln!(prompt, "4. **Commit your fix**: Create one commit with a clear message describing").unwrap();
-    writeln!(prompt, "   what was wrong and how you fixed it.\n").unwrap();
+
+    writeln!(prompt, "### Phase 1: Find the Root Cause\n").unwrap();
+    writeln!(prompt, "Do NOT jump to a fix. Spend most of your time understanding WHY the bug happens.").unwrap();
+    writeln!(prompt, "1. Compare Chrome vs Azul screenshots using the Read tool.").unwrap();
+    writeln!(prompt, "2. Study the pixel diff analysis and the layout debug trace above.").unwrap();
+    writeln!(prompt, "3. Read the relevant layout code in `layout/src/solver3/`:").unwrap();
+    writeln!(prompt, "   - `fc.rs` — BFC/IFC/table formatting contexts").unwrap();
+    writeln!(prompt, "   - `sizing.rs` — width/height calculation").unwrap();
+    writeln!(prompt, "   - `positioning.rs` — relative/absolute positioning").unwrap();
+    writeln!(prompt, "   - `mod.rs` — entry point, LayoutContext").unwrap();
+    writeln!(prompt, "   - Text layout: `layout/src/text3/`").unwrap();
+    writeln!(prompt, "   - CPU rendering: `layout/src/cpurender.rs`").unwrap();
+    writeln!(prompt, "4. **Add `debug_info!` calls** to trace values at runtime. The macro is:").unwrap();
+    writeln!(prompt, "   ```rust").unwrap();
+    writeln!(prompt, "   debug_info!(ctx, \"[my_tag] var_name={{}} other={{}}\", var_name, other);").unwrap();
+    writeln!(prompt, "   ```").unwrap();
+    writeln!(prompt, "   It only evaluates when debug_messages is enabled (it's enabled for these tests).").unwrap();
+    writeln!(prompt, "   The output appears in the Layout Debug Trace above. You can also use `println!`").unwrap();
+    writeln!(prompt, "   for quick debugging — the output goes to stderr.\n").unwrap();
+
+    writeln!(prompt, "### Phase 2: Fix the Bug\n").unwrap();
+    writeln!(prompt, "Once you understand the root cause, make a minimal, targeted fix.").unwrap();
+    writeln!(prompt, "- Keep changes small — fix only this bug, nothing else.").unwrap();
+    writeln!(prompt, "- Do NOT refactor surrounding code or add features beyond what's needed.\n").unwrap();
+
+    writeln!(prompt, "### Phase 3: Commit for Patch Extraction\n").unwrap();
+    writeln!(prompt, "Create ONE commit with a clear message. The commit message must explain:").unwrap();
+    writeln!(prompt, "- What the visual bug was (e.g. \"margin not collapsing between siblings\")").unwrap();
+    writeln!(prompt, "- What the root cause was (e.g. \"clearance check didn't include last_margin_bottom\")").unwrap();
+    writeln!(prompt, "- What the fix does").unwrap();
+    writeln!(prompt, "Your commit will be extracted as a `.patch` file for human review.\n").unwrap();
+
+    writeln!(prompt, "### Code Style\n").unwrap();
+    writeln!(prompt, "- Prefer iterator chains (`.iter().map().filter()`) over `for` loops").unwrap();
+    writeln!(prompt, "- Use `?` operator for error propagation instead of `if let Some` / early return").unwrap();
+    writeln!(prompt, "- Use method chaining where it improves readability").unwrap();
+    writeln!(prompt, "- Remove any `debug_info!` or `println!` you added for debugging before committing\n").unwrap();
+
     writeln!(prompt, "### Important Rules\n").unwrap();
-    writeln!(prompt, "- Keep changes minimal — fix only this bug, nothing else.").unwrap();
-    writeln!(prompt, "- Do NOT modify taffy_bridge.rs (Flex/Grid is handled by Taffy).").unwrap();
-    writeln!(prompt, "- Do NOT run `cargo build` or any compilation commands.").unwrap();
-    writeln!(prompt, "- Your changes must compile — check types carefully.").unwrap();
+    writeln!(prompt, "- Do NOT modify `taffy_bridge.rs` (Flex/Grid is handled by Taffy).").unwrap();
+    writeln!(prompt, "- Do NOT run `cargo build`, `cargo check`, or any compilation commands.").unwrap();
+    writeln!(prompt, "- Your changes must compile — check types and signatures carefully.").unwrap();
     writeln!(prompt, "- If you cannot determine the fix with confidence, write a").unwrap();
-    writeln!(prompt, "  detailed analysis in a file `doc/target/autodebug/reports/{}_report.md`", test.test_name).unwrap();
-    writeln!(prompt, "  explaining what you found, then commit that file instead.").unwrap();
+    writeln!(prompt, "  detailed analysis in `doc/target/autodebug/reports/{}_report.md`", test.test_name).unwrap();
+    writeln!(prompt, "  explaining what you found and your hypothesis, then commit that instead.").unwrap();
 
     prompt
 }
@@ -1451,7 +1478,7 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         project_root: project_root.to_path_buf(),
         test_dir,
         agents: 4,
-        timeout: Duration::from_secs(600),
+        timeout: Duration::from_secs(720),
         model: None,
         sizes: ALL_SIZES.to_vec(),
         test_filter: None,

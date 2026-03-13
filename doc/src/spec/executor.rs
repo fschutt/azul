@@ -3224,8 +3224,19 @@ fn run_agent_in_slot_internal(
         };
     }
 
-    // Send prompt via stdin, then close pipe
+    // Send prompt via stdin, then close pipe.
+    // Prepend a worktree path notice so the agent uses the correct absolute paths.
     if let Some(mut stdin) = child.stdin.take() {
+        let worktree_notice = format!(
+            "IMPORTANT: Your working directory is `{}`. \
+             When using Read, Edit, or Write tools, ALL file paths MUST start with \
+             this directory. NEVER use paths starting with the main repository root. \
+             For example, use `{}/layout/src/solver3/fc.rs`, \
+             NOT the main repo path.\n\n",
+            slot.path.display(),
+            slot.path.display(),
+        );
+        let _ = stdin.write_all(worktree_notice.as_bytes());
         let _ = stdin.write_all(full_prompt.as_bytes());
     }
 
