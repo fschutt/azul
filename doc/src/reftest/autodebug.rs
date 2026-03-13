@@ -1356,6 +1356,23 @@ pub fn build_autodebug_prompt(test: &FailingTestData, bug_hint: Option<&str>) ->
          Do NOT `cd` anywhere else — your commits will be lost if you do.\n",
     ).unwrap();
 
+    // W3C spec reference system
+    writeln!(
+        prompt,
+        "## W3C Spec References\n\n\
+         The source code contains `// +spec:FEATURE:HASH` markers linking code to W3C spec paragraphs.\n\
+         For example: `// +spec:floats:148fcd - floating boxes reduce available line box width`\n\n\
+         The corresponding spec paragraph text is in:\n\
+         `doc/target/skill_tree/prompts/FEATURE_HASH.md`\n\n\
+         So `+spec:floats:148fcd` maps to `doc/target/skill_tree/prompts/floats_148fcd.md`\n\
+         (Some prompts group multiple hashes: `floats_148fcd+49a491.md`)\n\n\
+         **How to use this during debugging:**\n\
+         1. When you find relevant code with `+spec:` markers, read the corresponding `.md` file\n\
+         2. The `.md` file contains the exact W3C spec paragraph text that the code implements\n\
+         3. Compare the spec requirement with what the code actually does to find the bug\n\
+         4. Use `grep -rn '+spec:FEATURE' layout/src/solver3/` to find all related markers\n",
+    ).unwrap();
+
     // Test information
     writeln!(prompt, "## Test Under Analysis\n").unwrap();
     writeln!(prompt, "**Test name:** `{}`", test.test_name).unwrap();
