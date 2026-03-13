@@ -3617,24 +3617,25 @@ pub fn parse_combined_css_property<'a>(
                 ]);
             }
             if parts.len() == 1 {
-                // try grow or basis
+                // CSS spec: flex: <number> => grow: <number>, shrink: 1, basis: 0
                 if let Ok(g) = parse_layout_flex_grow(parts[0]) {
-                    return Ok(vec![CssProperty::FlexGrow(g.into())]);
+                    return Ok(vec![
+                        CssProperty::FlexGrow(g.into()),
+                        CssProperty::FlexShrink(
+                            LayoutFlexShrink { inner: crate::props::basic::length::FloatValue::const_new(1) }.into(),
+                        ),
+                        CssProperty::FlexBasis(
+                            LayoutFlexBasis::Exact(crate::props::basic::pixel::PixelValue::px(0.0)).into(),
+                        ),
+                    ]);
                 }
                 if let Ok(b) = parse_layout_flex_basis(parts[0]) {
                     return Ok(vec![CssProperty::FlexBasis(b.into())]);
                 }
             }
             if parts.len() == 2 {
-                if let (Ok(g), Ok(b)) = (
-                    parse_layout_flex_grow(parts[0]),
-                    parse_layout_flex_basis(parts[1]),
-                ) {
-                    return Ok(vec![
-                        CssProperty::FlexGrow(g.into()),
-                        CssProperty::FlexBasis(b.into()),
-                    ]);
-                }
+                // CSS spec: flex: <number> <number> => grow, shrink, basis: 0
+                // Try grow+shrink first (two unitless numbers)
                 if let (Ok(g), Ok(s)) = (
                     parse_layout_flex_grow(parts[0]),
                     parse_layout_flex_shrink(parts[1]),
@@ -3642,6 +3643,22 @@ pub fn parse_combined_css_property<'a>(
                     return Ok(vec![
                         CssProperty::FlexGrow(g.into()),
                         CssProperty::FlexShrink(s.into()),
+                        CssProperty::FlexBasis(
+                            LayoutFlexBasis::Exact(crate::props::basic::pixel::PixelValue::px(0.0)).into(),
+                        ),
+                    ]);
+                }
+                // CSS spec: flex: <number> <width> => grow, shrink: 1, basis: <width>
+                if let (Ok(g), Ok(b)) = (
+                    parse_layout_flex_grow(parts[0]),
+                    parse_layout_flex_basis(parts[1]),
+                ) {
+                    return Ok(vec![
+                        CssProperty::FlexGrow(g.into()),
+                        CssProperty::FlexShrink(
+                            LayoutFlexShrink { inner: crate::props::basic::length::FloatValue::const_new(1) }.into(),
+                        ),
+                        CssProperty::FlexBasis(b.into()),
                     ]);
                 }
             }

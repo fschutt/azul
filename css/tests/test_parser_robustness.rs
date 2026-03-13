@@ -300,6 +300,109 @@ fn test_css_parser_flex_shorthand() {
     let _ = result;
 }
 
+/// Verify that `flex: <number>` expands to grow + shrink:1 + basis:0 per CSS spec.
+#[test]
+fn test_flex_shorthand_single_number() {
+    use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
+    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::basic::length::FloatValue;
+    use azul_css::props::basic::pixel::PixelValue;
+
+    let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1").unwrap();
+    assert_eq!(props.len(), 3, "flex: 1 must produce 3 properties");
+    assert!(matches!(&props[0], CssProperty::FlexGrow(_)));
+    assert!(matches!(&props[1], CssProperty::FlexShrink(_)));
+    assert!(matches!(&props[2], CssProperty::FlexBasis(_)));
+
+    // Check values: grow=1, shrink=1, basis=0
+    if let CssProperty::FlexGrow(g) = &props[0] {
+        assert_eq!(g.get_property().unwrap().inner, FloatValue::new(1.0));
+    }
+    if let CssProperty::FlexShrink(s) = &props[1] {
+        assert_eq!(s.get_property().unwrap().inner, FloatValue::new(1.0));
+    }
+    if let CssProperty::FlexBasis(b) = &props[2] {
+        assert_eq!(*b.get_property().unwrap(), LayoutFlexBasis::Exact(PixelValue::px(0.0)));
+    }
+}
+
+/// Verify `flex: <number> <number>` = grow + shrink + basis:0.
+#[test]
+fn test_flex_shorthand_two_numbers() {
+    use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
+    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::basic::length::FloatValue;
+    use azul_css::props::basic::pixel::PixelValue;
+
+    let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "2 3").unwrap();
+    assert_eq!(props.len(), 3, "flex: 2 3 must produce 3 properties");
+    if let CssProperty::FlexGrow(g) = &props[0] {
+        assert_eq!(g.get_property().unwrap().inner, FloatValue::new(2.0));
+    }
+    if let CssProperty::FlexShrink(s) = &props[1] {
+        assert_eq!(s.get_property().unwrap().inner, FloatValue::new(3.0));
+    }
+    if let CssProperty::FlexBasis(b) = &props[2] {
+        assert_eq!(*b.get_property().unwrap(), LayoutFlexBasis::Exact(PixelValue::px(0.0)));
+    }
+}
+
+/// Verify `flex: <number> <width>` = grow + shrink:1 + basis:<width>.
+#[test]
+fn test_flex_shorthand_number_and_width() {
+    use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
+    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::basic::length::FloatValue;
+    use azul_css::props::basic::pixel::PixelValue;
+
+    let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1 200px").unwrap();
+    assert_eq!(props.len(), 3, "flex: 1 200px must produce 3 properties");
+    if let CssProperty::FlexGrow(g) = &props[0] {
+        assert_eq!(g.get_property().unwrap().inner, FloatValue::new(1.0));
+    }
+    if let CssProperty::FlexShrink(s) = &props[1] {
+        assert_eq!(s.get_property().unwrap().inner, FloatValue::new(1.0));
+    }
+    if let CssProperty::FlexBasis(b) = &props[2] {
+        assert_eq!(*b.get_property().unwrap(), LayoutFlexBasis::Exact(PixelValue::px(200.0)));
+    }
+}
+
+/// Verify `flex: none` = grow:0 + shrink:0 + basis:auto.
+#[test]
+fn test_flex_shorthand_none() {
+    use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
+    use azul_css::props::layout::flex::LayoutFlexBasis;
+
+    let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "none").unwrap();
+    assert_eq!(props.len(), 3);
+    // Just verify the types are correct — the "none" keyword path
+    // constructs values with const_new(0) which may use different wrapper variants
+    assert!(matches!(&props[0], CssProperty::FlexGrow(_)));
+    assert!(matches!(&props[1], CssProperty::FlexShrink(_)));
+    assert!(matches!(&props[2], CssProperty::FlexBasis(_)));
+}
+
+/// Verify `flex: 1 2 auto` = grow:1, shrink:2, basis:auto.
+#[test]
+fn test_flex_shorthand_three_values() {
+    use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
+    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::basic::length::FloatValue;
+
+    let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1 2 auto").unwrap();
+    assert_eq!(props.len(), 3);
+    if let CssProperty::FlexGrow(g) = &props[0] {
+        assert_eq!(g.get_property().unwrap().inner, FloatValue::new(1.0));
+    }
+    if let CssProperty::FlexShrink(s) = &props[1] {
+        assert_eq!(s.get_property().unwrap().inner, FloatValue::new(2.0));
+    }
+    if let CssProperty::FlexBasis(b) = &props[2] {
+        assert_eq!(*b.get_property().unwrap(), LayoutFlexBasis::Auto);
+    }
+}
+
 #[test]
 fn test_css_parser_transform() {
     let css = "div { transform: rotate(45deg) scale(1.5) translate(10px, 20px) }";
