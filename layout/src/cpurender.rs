@@ -757,8 +757,11 @@ fn render_text(
         let glyph_baseline_y = glyph.point.y * dpi_factor;
 
         let glyph_transform = if cached.is_hinted {
-            // Hinted path is in pixel coordinates — only translate, no scale
-            Transform::from_translate(glyph_x, glyph_baseline_y)
+            // Hinted path is in pixel coordinates — snap to pixel grid
+            // to preserve grid-fitted stem alignment from bytecode hinting.
+            // Fractional positions would shift hinted stems off-grid,
+            // causing visible 1px artifacts on serifs and stem edges.
+            Transform::from_translate(glyph_x.round(), glyph_baseline_y.round())
         } else {
             // Unhinted path is in font units — apply scale + translate
             Transform::from_scale(scale, scale).post_translate(glyph_x, glyph_baseline_y)

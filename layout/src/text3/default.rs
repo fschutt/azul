@@ -766,7 +766,7 @@ fn shape_text_internal(
             .opt_kern_table
             .as_ref()
             .map(|kt| kt.as_borrowed());
-        let apply_kerning = kern_table.is_some();
+        let apply_kerning = true; // Always enable GPOS kern feature (not just when legacy kern table exists)
         gpos::apply(
             gpos,
             opt_gdef,
@@ -797,7 +797,11 @@ fn shape_text_internal(
             .unwrap_or('\u{FFFD}');
 
         let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
-        let advance = base_advance as f32 * scale_factor;
+        // Use hinted advance width when available (matches FreeType/Chrome behavior)
+        let ppem = font_size.round() as u16;
+        let advance = parsed_font
+            .get_hinted_advance_px(info.glyph.glyph_index, ppem)
+            .unwrap_or(base_advance as f32 * scale_factor);
         let kerning = info.kerning as f32 * scale_factor;
 
         let (offset_x_units, offset_y_units) =

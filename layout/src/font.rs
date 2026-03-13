@@ -1011,6 +1011,67 @@ pub mod parsed {
                 .unwrap_or_default()
         }
 
+        /// Get the hinted advance width in pixels for a glyph at the given ppem.
+        ///
+        /// For glyphs with outlines, runs TrueType bytecode hinting to get the
+        /// grid-fitted advance from phantom points. For glyphs without outlines
+        /// (e.g. space), rounds the scaled advance to the pixel grid, matching
+        /// FreeType's behavior.
+        ///
+        /// Returns `None` if hinting is not available or fails.
+        pub fn get_hinted_advance_px(&self, glyph_index: u16, ppem: u16) -> Option<f32> {
+            let glyph = self.glyph_records_decoded.get(&glyph_index)?;
+
+            let upem = self.font_metrics.units_per_em;
+            if upem == 0 || ppem == 0 {
+                return None;
+            }
+
+            // Check if we even have a hint instance
+            let _hint_mutex = self.hint_instance.as_ref()?;
+
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let scale = compute_scale(ppem, upem);
+            let adv_f26dot6 = F26Dot6::from_funits(glyph.horz_advance as i32, scale);
+
+            // For glyphs with outline data, run bytecode hinting
+            if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
+                glyph.raw_points.as_ref(),
+                glyph.raw_on_curve.as_ref(),
+                glyph.raw_contour_ends.as_ref(),
+            ) {
+                let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
+                let mut hint = _hint_mutex.lock().ok()?;
+                hint.set_ppem(ppem, ppem as f64).ok()?;
+
+                let points_f26dot6: Vec<(i32, i32)> = raw_points
+                    .iter()
+                    .map(|&(x, y)| {
+                        let sx = F26Dot6::from_funits(x as i32, scale);
+                        let sy = F26Dot6::from_funits(y as i32, scale);
+                        (sx.to_bits(), sy.to_bits())
+                    })
+                    .collect();
+
+                let hinted_adv = hint.hinted_advance_f26dot6(
+                    &points_f26dot6,
+                    Some(raw_points.as_slice()),
+                    raw_on_curve,
+                    raw_contour_ends,
+                    instructions,
+                    adv_f26dot6.to_bits(),
+                ).ok()?;
+
+                // Round to pixel grid like FreeType's FT_LOAD_TARGET_NORMAL
+                let rounded = (hinted_adv + 32) & !63;
+                Some(rounded as f32 / 64.0)
+            } else {
+                // No outline (e.g. space): round advance to pixel grid like FreeType
+                let rounded = (adv_f26dot6.to_bits() + 32) & !63; // round to nearest pixel
+                Some(rounded as f32 / 64.0)
+            }
+        }
+
         /// Get the number of glyphs in this font
         pub fn num_glyphs(&self) -> u16 {
             self.num_glyphs

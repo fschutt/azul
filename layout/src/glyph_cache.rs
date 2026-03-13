@@ -147,11 +147,12 @@ fn build_hinted_path(
 
 /// Build a tiny-skia Path from TrueType contour data (points in F26Dot6).
 ///
-/// Uses the standard TrueType quadratic contour algorithm:
+/// Matches allsorts' `visit_simple_glyph_outline` algorithm exactly:
 /// - On-curve points are endpoints of line/curve segments
 /// - Off-curve points are quadratic Bézier control points
 /// - Two consecutive off-curve points have an implicit on-curve midpoint
 /// - Y is negated for screen coordinates (font Y-up → screen Y-down)
+/// - The origin point is NOT revisited in the loop; close() handles the final segment
 pub fn build_path_from_contours(
     points: &[(i32, i32)],
     on_curve: &[bool],
@@ -184,55 +185,58 @@ pub fn build_path_from_contours(
             ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
         };
 
-        // Determine the starting on-curve point.
-        // If first point is on-curve, start there.
-        // If first is off-curve but last is on-curve, start at last.
-        // If both are off-curve, start at their midpoint (virtual on-curve).
-        let (start_pt, process_from) = if flags[0] {
-            (px(0), 1) // start at point 0, process from 1
+        // Determine origin and processing range (matching allsorts' calculate_origin):
+        // - First on-curve: origin=pt[0], process 1..n (skip origin)
+        // - Last on-curve (first off): origin=pt[n-1], process 0..n-1 (skip origin)
+        // - Both off-curve: origin=mid(pt[0],pt[n-1]), process 0..n (all points)
+        let (origin, start, until) = if flags[0] {
+            (px(0), 1usize, n)
         } else if flags[n - 1] {
-            (px(n - 1), 0) // start at last point, process from 0
+            (px(n - 1), 0usize, n - 1)
         } else {
-            (mid(px(0), px(n - 1)), 0) // virtual start, process from 0
+            (mid(px(0), px(n - 1)), 0usize, n)
         };
 
-        pb.move_to(start_pt.0, start_pt.1);
+        pb.move_to(origin.0, origin.1);
         has_ops = true;
 
-        // Walk through all points in the contour.
-        // We track the "last on-curve" position and accumulate off-curve control points.
-        let mut i = process_from;
-        let mut pending_offcurve: Option<(f32, f32)> = None;
-
-        // Process all n points (wrapping: after n-1 comes the closing back to start)
-        let total = n; // we process exactly n points starting from process_from
-        for _ in 0..total {
-            let idx = i % n;
-            let p = px(idx);
-
-            if flags[idx] {
-                // On-curve point
-                if let Some(ctrl) = pending_offcurve.take() {
-                    pb.quad_to(ctrl.0, ctrl.1, p.0, p.1);
-                } else {
-                    pb.line_to(p.0, p.1);
-                }
+        // Process points [start..until) using allsorts-compatible two-point consumption:
+        // - On-curve → line_to(point)
+        // - Off-curve → peek at next:
+        //     - next is on-curve → quad_to(off, on), advance past both
+        //     - next is off-curve → quad_to(off, mid(off, next)), advance past first only
+        //     - end of range → quad_to(off, origin)
+        let mut i = start;
+        while i < until {
+            if flags[i] {
+                // On-curve: line segment
+                let to = px(i);
+                pb.line_to(to.0, to.1);
+                i += 1;
             } else {
-                // Off-curve point
-                if let Some(ctrl) = pending_offcurve.take() {
-                    // Two consecutive off-curve: implicit on-curve midpoint
-                    let m = mid(ctrl, p);
-                    pb.quad_to(ctrl.0, ctrl.1, m.0, m.1);
+                // Off-curve control point
+                let ctrl = px(i);
+                let next = i + 1;
+                if next < until {
+                    if flags[next] {
+                        // Next is on-curve: quad to it, consume both
+                        let to = px(next);
+                        pb.quad_to(ctrl.0, ctrl.1, to.0, to.1);
+                        i = next + 1;
+                    } else {
+                        // Next is also off-curve: quad to implicit midpoint, consume only current
+                        let m = mid(ctrl, px(next));
+                        pb.quad_to(ctrl.0, ctrl.1, m.0, m.1);
+                        i = next; // next off-curve becomes current in next iteration
+                    }
+                } else {
+                    // End of range: curve back to origin
+                    pb.quad_to(ctrl.0, ctrl.1, origin.0, origin.1);
+                    i = next;
                 }
-                pending_offcurve = Some(p);
             }
-            i += 1;
         }
-
-        // Close the contour: handle any remaining off-curve → start_pt
-        if let Some(ctrl) = pending_offcurve {
-            pb.quad_to(ctrl.0, ctrl.1, start_pt.0, start_pt.1);
-        }
+        // close() draws the implicit final segment back to origin (from move_to)
         pb.close();
 
         contour_start = end + 1;
