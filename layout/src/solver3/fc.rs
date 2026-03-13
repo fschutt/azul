@@ -1296,18 +1296,23 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // Apply clearance if needed
         // +spec:floats:148ee6 - clear:left pushes element below float; clearance added above top margin
-        // CSS 2.2 § 9.5.2: Clearance inhibits margin collapsing
+        // CSS 2.2 § 9.5.2: Clearance inhibits margin collapsing.
+        // Include previous sibling's bottom margin in the baseline, matching
+        // float clearance handling (which correctly uses main_pen + last_margin_bottom).
         let clearance_applied = if child_clear != LayoutClear::None {
+            let clearance_base = main_pen + last_margin_bottom;
             let cleared_offset =
-                float_context.clearance_offset(child_clear, main_pen, writing_mode);
+                float_context.clearance_offset(child_clear, clearance_base, writing_mode);
             debug_info!(
                 ctx,
-                "[layout_bfc] Child {} clearance check: cleared_offset={}, main_pen={}",
+                "[layout_bfc] Child {} clearance check: cleared_offset={}, clearance_base={} (main_pen={} + last_margin_bottom={})",
                 child_index,
                 cleared_offset,
-                main_pen
+                clearance_base,
+                main_pen,
+                last_margin_bottom
             );
-            if cleared_offset > main_pen {
+            if cleared_offset > clearance_base {
                 debug_info!(
                     ctx,
                     "[layout_bfc] Applying clearance: child={}, clear={:?}, old_pen={}, new_pen={}",
