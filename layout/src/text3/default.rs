@@ -680,6 +680,96 @@ fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     u32::from_be_bytes(tag_bytes)
 }
 
+/// Unicode ligature fallback: substitute fi/fl/ffi/ffl sequences with their Unicode
+/// ligature codepoints (U+FB01..U+FB04) when the font has those glyphs but GSUB
+/// didn't apply them. This matches CoreText/Chrome behavior for fonts like Times New
+/// Roman that have ligature glyphs in cmap but no GSUB `liga` lookups for Latin.
+fn apply_unicode_ligature_fallback(
+    parsed_font: &ParsedFont,
+    glyphs: &mut Vec<allsorts::gsub::RawGlyph<()>>,
+) {
+    // Common Latin ligatures: sequence chars -> Unicode codepoint
+    const LIGATURES: &[(&[char], char)] = &[
+        (&['f', 'f', 'i'], '\u{FB03}'), // ffi
+        (&['f', 'f', 'l'], '\u{FB04}'), // ffl
+        (&['f', 'i'], '\u{FB01}'),       // fi
+        (&['f', 'l'], '\u{FB02}'),       // fl
+        (&['f', 'f'], '\u{FB00}'),       // ff
+    ];
+
+    // Pre-check: does the font have any of these ligature glyphs?
+    let available: Vec<(usize, u16)> = LIGATURES
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, (_, cp))| {
+            parsed_font
+                .lookup_glyph_index(*cp as u32)
+                .filter(|&gid| gid != 0)
+                .map(|gid| (idx, gid))
+        })
+        .collect();
+
+    if available.is_empty() {
+        return;
+    }
+
+    let mut i = 0;
+    while i < glyphs.len() {
+        let mut matched = false;
+        for &(lig_idx, lig_gid) in &available {
+            let (seq, _) = LIGATURES[lig_idx];
+            let seq_len = seq.len();
+
+            if i + seq_len > glyphs.len() {
+                continue;
+            }
+
+            // Check if the glyph sequence matches the original characters
+            let chars_match = (0..seq_len).all(|j| {
+                matches!(
+                    glyphs[i + j].glyph_origin,
+                    allsorts::gsub::GlyphOrigin::Char(c) if c == seq[j]
+                )
+            });
+
+            if !chars_match {
+                continue;
+            }
+
+            // Check that GSUB didn't already substitute these glyphs
+            // (i.e., glyph_index still matches the individual character's index)
+            let not_already_substituted = (0..seq_len).all(|j| {
+                let expected_gid = parsed_font.lookup_glyph_index(seq[j] as u32).unwrap_or(0);
+                glyphs[i + j].glyph_index == expected_gid
+            });
+
+            if !not_already_substituted {
+                continue;
+            }
+
+            // Substitute: replace first glyph with ligature, remove the rest
+            glyphs[i].glyph_index = lig_gid;
+            // Keep the first glyph's cluster/position, add the other chars to unicodes
+            for j in 1..seq_len {
+                glyphs[i].unicodes.push(seq[j]);
+            }
+            // Remove consumed glyphs
+            for _ in 1..seq_len {
+                glyphs.remove(i + 1);
+            }
+
+            matched = true;
+            break;
+        }
+
+        if !matched {
+            i += 1;
+        } else {
+            i += 1; // Move past the ligature glyph
+        }
+    }
+}
+
 /// Internal shaping implementation - the single source of truth for text shaping.
 /// Both FontRef and ParsedFont use this function.
 fn shape_text_internal(
@@ -758,6 +848,12 @@ fn shape_text_internal(
         )
         .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
+
+    // Unicode ligature fallback: if GSUB didn't substitute fi/fl/ffi/ffl sequences,
+    // check if the font has glyphs for Unicode ligature codepoints (U+FB01..U+FB04)
+    // and substitute manually. This matches CoreText/Chrome behavior for fonts like
+    // Times New Roman that have ligature glyphs but no GSUB `liga` lookups for Latin.
+    apply_unicode_ligature_fallback(parsed_font, &mut raw_glyphs);
 
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
