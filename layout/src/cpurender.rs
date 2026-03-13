@@ -8,7 +8,7 @@ use azul_core::{
     dom::ScrollbarOrientation,
     geom::{LogicalPosition, LogicalRect},
     resources::{
-        DecodedImage, FontInstanceKey, GlyphOutlineOperation, ImageRef,
+        DecodedImage, FontInstanceKey, ImageRef,
         RendererResources,
     },
     ui_solver::GlyphInstance,
@@ -729,65 +729,29 @@ fn render_text(
     };
 
     let units_per_em = parsed_font.font_metrics.units_per_em as f32;
+    if units_per_em <= 0.0 {
+        return Ok(());
+    }
 
-    // Use the actual font size from the display list (already adjusted for DPI)
-    let scale_factor = (font_size_px * dpi_factor) / units_per_em;
+    let scale = (font_size_px * dpi_factor) / units_per_em;
 
-    // Draw each glyph
+    // Draw each glyph using build_glyph_path (shared with wr_glyph_rasterizer)
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
-        // glyph.point is the absolute baseline position of the glyph
-        let glyph_x = glyph.point.x * dpi_factor;
-        let glyph_baseline_y = glyph.point.y * dpi_factor;
-
-        // Find the glyph outline in the parsed font
         if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
-            let mut pb = PathBuilder::new();
+            if let Some(path) = crate::font::parsed::build_glyph_path(glyph_data) {
+                // Path is in font units (Y negated). Apply scale + translate to position.
+                let glyph_x = glyph.point.x * dpi_factor;
+                let glyph_baseline_y = glyph.point.y * dpi_factor;
+                let glyph_transform = Transform::from_scale(scale, scale)
+                    .post_translate(glyph_x, glyph_baseline_y);
 
-            for outline in glyph_data.outline.iter() {
-                for op in outline.operations.as_ref() {
-                    match op {
-                        GlyphOutlineOperation::MoveTo(pt) => {
-                            // Scale and position the point relative to the glyph's baseline
-                            let x = glyph_x + pt.x as f32 * scale_factor;
-                            let y = glyph_baseline_y - pt.y as f32 * scale_factor;
-                            pb.move_to(x, y);
-                        }
-                        GlyphOutlineOperation::LineTo(pt) => {
-                            let x = glyph_x + pt.x as f32 * scale_factor;
-                            let y = glyph_baseline_y - pt.y as f32 * scale_factor;
-                            pb.line_to(x, y);
-                        }
-                        GlyphOutlineOperation::QuadraticCurveTo(qt) => {
-                            let ctrl_x = glyph_x + qt.ctrl_1_x as f32 * scale_factor;
-                            let ctrl_y = glyph_baseline_y - qt.ctrl_1_y as f32 * scale_factor;
-                            let end_x = glyph_x + qt.end_x as f32 * scale_factor;
-                            let end_y = glyph_baseline_y - qt.end_y as f32 * scale_factor;
-                            pb.quad_to(ctrl_x, ctrl_y, end_x, end_y);
-                        }
-                        GlyphOutlineOperation::CubicCurveTo(ct) => {
-                            let ctrl1_x = glyph_x + ct.ctrl_1_x as f32 * scale_factor;
-                            let ctrl1_y = glyph_baseline_y - ct.ctrl_1_y as f32 * scale_factor;
-                            let ctrl2_x = glyph_x + ct.ctrl_2_x as f32 * scale_factor;
-                            let ctrl2_y = glyph_baseline_y - ct.ctrl_2_y as f32 * scale_factor;
-                            let end_x = glyph_x + ct.end_x as f32 * scale_factor;
-                            let end_y = glyph_baseline_y - ct.end_y as f32 * scale_factor;
-                            pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
-                        }
-                        GlyphOutlineOperation::ClosePath => {
-                            pb.close();
-                        }
-                    }
-                }
-            }
-
-            if let Some(path) = pb.finish() {
                 pixmap.fill_path(
                     &path,
                     &paint,
                     tiny_skia::FillRule::Winding,
-                    Transform::identity(), // Already transformed coordinates
+                    glyph_transform,
                     None,
                 );
             }

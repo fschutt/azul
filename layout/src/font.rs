@@ -1277,4 +1277,51 @@ pub mod parsed {
             self.space_width
         }
     }
+
+    /// Build a tiny-skia Path from an OwnedGlyph outline (in font units, Y-up → Y-down).
+    ///
+    /// Returns `None` if the glyph has no outline operations (e.g. space).
+    /// The caller is responsible for applying scale and translation transforms.
+    #[cfg(feature = "cpurender")]
+    pub fn build_glyph_path(glyph: &OwnedGlyph) -> Option<tiny_skia::Path> {
+        let mut pb = tiny_skia::PathBuilder::new();
+        let mut has_ops = false;
+        for outline in &glyph.outline {
+            for op in outline.operations.as_slice() {
+                has_ops = true;
+                match op {
+                    GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y }) => {
+                        pb.move_to(*x as f32, -(*y as f32));
+                    }
+                    GlyphOutlineOperation::LineTo(OutlineLineTo { x, y }) => {
+                        pb.line_to(*x as f32, -(*y as f32));
+                    }
+                    GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
+                        ctrl_1_x, ctrl_1_y, end_x, end_y,
+                    }) => {
+                        pb.quad_to(
+                            *ctrl_1_x as f32, -(*ctrl_1_y as f32),
+                            *end_x as f32, -(*end_y as f32),
+                        );
+                    }
+                    GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
+                        ctrl_1_x, ctrl_1_y, ctrl_2_x, ctrl_2_y, end_x, end_y,
+                    }) => {
+                        pb.cubic_to(
+                            *ctrl_1_x as f32, -(*ctrl_1_y as f32),
+                            *ctrl_2_x as f32, -(*ctrl_2_y as f32),
+                            *end_x as f32, -(*end_y as f32),
+                        );
+                    }
+                    GlyphOutlineOperation::ClosePath => {
+                        pb.close();
+                    }
+                }
+            }
+        }
+        if !has_ops {
+            return None;
+        }
+        pb.finish()
+    }
 }
