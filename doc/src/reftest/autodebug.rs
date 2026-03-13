@@ -1542,6 +1542,9 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
         return collect_autodebug_patches(&project_root);
     }
 
+    // Validate model name early (before worktree creation)
+    executor::validate_claude_model(config.model.as_deref())?;
+
     // Preflight checks (skip agent-specific checks for dry-run)
     preflight_checks(&project_root, config.dry_run)?;
 

@@ -3443,6 +3443,30 @@ fn collect_patches(workspace_root: &Path) -> Result<(), String> {
 
 // ── Preflight checks ───────────────────────────────────────────────────
 
+/// Validate that a `--model=` value is accepted by the `claude` CLI.
+/// Call this early (before worktree creation) so the user gets a fast,
+/// clear error instead of 13 cryptic "Agent exited with code 1" failures.
+pub fn validate_claude_model(model: Option<&str>) -> Result<(), String> {
+    let model = match model {
+        Some(m) => m,
+        None => return Ok(()), // default model — nothing to check
+    };
+
+    // Known short aliases accepted by `claude --model`
+    const ALIASES: &[&str] = &["sonnet", "opus", "haiku"];
+
+    // Full model IDs start with "claude-"
+    if ALIASES.contains(&model) || model.starts_with("claude-") {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Invalid --model={model}\n\
+         Valid aliases: sonnet, opus, haiku\n\
+         Or use a full model ID, e.g. claude-sonnet-4-6"
+    ))
+}
+
 fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), String> {
     println!("Preflight checks");
     println!("================\n");
@@ -3616,6 +3640,7 @@ pub fn run_executor(
     args: &[String],
 ) -> Result<(), String> {
     let ea = parse_exec_args(args);
+    validate_claude_model(ea.model.as_deref())?;
     let prompts_dir = config.skill_tree_dir.join("prompts");
 
     // Build exclude set
