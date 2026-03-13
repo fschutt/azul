@@ -56,6 +56,7 @@ pub struct AutodebugConfig {
     pub status_only: bool,
     pub collect_only: bool,
     pub cleanup: bool,
+    pub clear_failed: bool,
 }
 
 /// Output directory layout.
@@ -1460,6 +1461,7 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         status_only: false,
         collect_only: false,
         cleanup: false,
+        clear_failed: false,
     };
 
     for arg in args {
@@ -1495,6 +1497,8 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
             config.collect_only = true;
         } else if *arg == "--cleanup" {
             config.cleanup = true;
+        } else if *arg == "--clear-failed" {
+            config.clear_failed = true;
         } else if !arg.starts_with('-') {
             // Last positional arg that is a directory → test dir override
             let candidate = PathBuf::from(arg);
@@ -1540,6 +1544,24 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
     // Handle collect
     if config.collect_only {
         return collect_autodebug_patches(&project_root);
+    }
+
+    // Handle clear-failed: delete .failed files so prompts become pending again
+    if config.clear_failed {
+        let prompts = prompts_dir(&project_root);
+        if prompts.is_dir() {
+            let mut cleared = 0usize;
+            for entry in std::fs::read_dir(&prompts).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("failed") {
+                    if std::fs::remove_file(&path).is_ok() {
+                        cleared += 1;
+                    }
+                }
+            }
+            println!("Cleared {} .failed files", cleared);
+        }
+        return Ok(());
     }
 
     // Validate model name early (before worktree creation)

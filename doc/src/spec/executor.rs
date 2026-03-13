@@ -2181,6 +2181,8 @@ struct ExecArgs {
     exclude_file: Option<String>,
     /// Disable exclude filtering entirely.
     no_exclude: bool,
+    /// Delete .failed files so prompts become pending again.
+    clear_failed: bool,
 }
 
 fn parse_exec_args(args: &[String]) -> ExecArgs {
@@ -2195,6 +2197,7 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
         model: None,
         exclude_file: None,
         no_exclude: false,
+        clear_failed: false,
     };
 
     for arg in args {
@@ -2218,6 +2221,8 @@ fn parse_exec_args(args: &[String]) -> ExecArgs {
             ea.exclude_file = Some(val.to_string());
         } else if arg == "--no-exclude" {
             ea.no_exclude = true;
+        } else if arg == "--clear-failed" {
+            ea.clear_failed = true;
         }
     }
 
@@ -3660,6 +3665,21 @@ pub fn run_executor(
     }
     if ea.collect {
         return collect_patches(workspace_root);
+    }
+    if ea.clear_failed {
+        if prompts_dir.is_dir() {
+            let mut cleared = 0usize;
+            for entry in fs::read_dir(&prompts_dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("failed") {
+                    if fs::remove_file(&path).is_ok() {
+                        cleared += 1;
+                    }
+                }
+            }
+            println!("Cleared {} .failed files", cleared);
+        }
+        return Ok(());
     }
 
     // --status doesn't need preflight either
