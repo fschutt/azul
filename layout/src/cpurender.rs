@@ -18,6 +18,7 @@ use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transfo
 
 use crate::{
     font::parsed::ParsedFont,
+    glyph_cache::GlyphCache,
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem},
     text3::cache::{FontHash, FontManager},
 };
@@ -32,6 +33,7 @@ pub fn render(
     dl: &DisplayList,
     res: &RendererResources,
     opts: RenderOptions,
+    glyph_cache: &mut GlyphCache,
 ) -> Result<Pixmap, String> {
     let RenderOptions {
         width,
@@ -46,7 +48,7 @@ pub fn render(
     pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
 
     // Render the display list to the pixmap
-    render_display_list(dl, &mut pixmap, dpi_factor, res, None)?;
+    render_display_list(dl, &mut pixmap, dpi_factor, res, None, glyph_cache)?;
 
     Ok(pixmap)
 }
@@ -58,6 +60,7 @@ pub fn render_with_font_manager(
     res: &RendererResources,
     font_manager: &FontManager<FontRef>,
     opts: RenderOptions,
+    glyph_cache: &mut GlyphCache,
 ) -> Result<Pixmap, String> {
     let RenderOptions {
         width,
@@ -72,7 +75,7 @@ pub fn render_with_font_manager(
     pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
 
     // Render the display list to the pixmap using FontManager for fonts
-    render_display_list(dl, &mut pixmap, dpi_factor, res, Some(font_manager))?;
+    render_display_list(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache)?;
 
     Ok(pixmap)
 }
@@ -83,6 +86,7 @@ fn render_display_list(
     dpi_factor: f32,
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
+    glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
     // The display list is already sorted in paint order, so we just render sequentially
     let mut transform_stack = vec![Transform::identity()];
@@ -269,6 +273,7 @@ fn render_display_list(
                     renderer_resources,
                     font_manager,
                     dpi_factor,
+                    glyph_cache,
                 )?;
             }
             DisplayListItem::TextLayout {
@@ -675,6 +680,7 @@ fn render_text(
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
     if color.a == 0 || glyphs.is_empty() {
         return Ok(());
@@ -686,12 +692,8 @@ fn render_text(
     // Try to get the parsed font - first from FontManager (for reftests), then from
     // RendererResources
     let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
-        // Use FontManager directly (reftest path)
         match fm.get_font_by_hash(font_hash.font_hash) {
-            Some(font_ref) => {
-                // Get the ParsedFont pointer from FontRef
-                unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
-            }
+            Some(font_ref) => unsafe { &*(font_ref.get_parsed() as *const ParsedFont) },
             None => {
                 eprintln!(
                     "[cpurender] Font hash {} not found in FontManager",
@@ -701,7 +703,6 @@ fn render_text(
             }
         }
     } else {
-        // Use RendererResources (normal rendering path)
         let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
             Some(k) => k,
             None => {
@@ -735,27 +736,33 @@ fn render_text(
 
     let scale = (font_size_px * dpi_factor) / units_per_em;
 
-    // Draw each glyph using build_glyph_path (shared with wr_glyph_rasterizer)
+    // Draw each glyph using cached paths (path is in font units, transform applied at render)
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
-        if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
-            if let Some(path) = crate::font::parsed::build_glyph_path(glyph_data) {
-                // Path is in font units (Y negated). Apply scale + translate to position.
-                let glyph_x = glyph.point.x * dpi_factor;
-                let glyph_baseline_y = glyph.point.y * dpi_factor;
-                let glyph_transform = Transform::from_scale(scale, scale)
-                    .post_translate(glyph_x, glyph_baseline_y);
+        let glyph_data = match parsed_font.glyph_records_decoded.get(&glyph_index) {
+            Some(d) => d,
+            None => continue,
+        };
 
-                pixmap.fill_path(
-                    &path,
-                    &paint,
-                    tiny_skia::FillRule::Winding,
-                    glyph_transform,
-                    None,
-                );
-            }
-        }
+        let path = match glyph_cache.get_or_build(font_hash.font_hash, glyph_index, glyph_data) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Path is in font units (Y negated). Apply scale + translate to position.
+        let glyph_x = glyph.point.x * dpi_factor;
+        let glyph_baseline_y = glyph.point.y * dpi_factor;
+        let glyph_transform =
+            Transform::from_scale(scale, scale).post_translate(glyph_x, glyph_baseline_y);
+
+        pixmap.fill_path(
+            path,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            glyph_transform,
+            None,
+        );
     }
 
     Ok(())
@@ -1383,12 +1390,14 @@ pub fn render_component_preview(
     pixmap.fill(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a));
 
     // Render the display list
+    let mut preview_glyph_cache = GlyphCache::new();
     render_display_list(
         &display_list,
         &mut pixmap,
         dpi,
         &renderer_resources,
         Some(&preview_font_manager),
+        &mut preview_glyph_cache,
     )?;
 
     // Encode to PNG

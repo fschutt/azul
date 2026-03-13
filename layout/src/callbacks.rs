@@ -2652,8 +2652,9 @@ impl CallbackInfo {
             dpi_factor,
         };
 
+        let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
         let pixmap =
-            render(display_list, renderer_resources, opts).map_err(|e| AzString::from(e))?;
+            render(display_list, renderer_resources, opts, &mut glyph_cache).map_err(|e| AzString::from(e))?;
 
         // Encode to PNG
         let png_data = pixmap

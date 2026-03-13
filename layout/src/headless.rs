@@ -336,6 +336,7 @@ impl HeadlessRenderer {
         display_list: &crate::solver3::display_list::DisplayList,
         renderer_resources: &RendererResources,
     ) -> Result<tiny_skia::Pixmap, String> {
+        let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
         crate::cpurender::render(
             display_list,
             renderer_resources,
@@ -344,6 +345,7 @@ impl HeadlessRenderer {
                 height: self.height,
                 dpi_factor: self.dpi_factor,
             },
+            &mut glyph_cache,
         )
     }
 }

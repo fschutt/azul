@@ -137,6 +137,8 @@ pub use azul_core::icon::{
 pub mod callbacks;
 #[cfg(feature = "cpurender")]
 pub mod cpurender;
+#[cfg(feature = "cpurender")]
+pub mod glyph_cache;
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
 #[cfg(feature = "text_layout")]

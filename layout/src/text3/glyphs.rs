@@ -149,7 +149,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                         });
                     }
 
-                    pen_x += glyph.advance;
+                    pen_x += glyph.advance + glyph.kerning;
                 }
             };
 
@@ -297,7 +297,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
 
                     // Advance the pen for the next glyph in the cluster/block.
                     // TODO: writing-mode support (vertical text) here
-                    pen_x += glyph.advance;
+                    pen_x += glyph.advance + glyph.kerning;
                 }
             };
 
@@ -538,7 +538,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             // included in the positioned_item.position.x from the layout engine!
             // We only advance by the base advance to track our position within this cluster
             let old_pen_x = pen_x;
-            pen_x += glyph.advance;
+            pen_x += glyph.advance + glyph.kerning;
         }
     }
 
@@ -591,7 +591,7 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
                 });
 
                 // Advance the pen for the next glyph in the cluster/block.
-                pen_x += glyph.advance;
+                pen_x += glyph.advance + glyph.kerning;
             }
         };
 
