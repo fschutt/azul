@@ -444,9 +444,11 @@ impl<T> FlatVecVec<T> {
         }
     }
 
-    /// Flatten: sort each inner Vec by key, then compact into flat storage.
+    /// Flatten: sort each inner Vec by key, deduplicate by keeping the last
+    /// occurrence of each key (CSS cascade: later source order wins among
+    /// equal specificity), then compact into flat storage.
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
-    pub fn sort_each_and_flatten<K: Ord>(&mut self, key_fn: impl Fn(&T) -> K) {
+    pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K) {
         let node_count = self.build.len();
         let total: usize = self.build.iter().map(|v| v.len()).sum();
 
@@ -455,10 +457,29 @@ impl<T> FlatVecVec<T> {
 
         for inner in self.build.iter_mut() {
             inner.sort_unstable_by(|a, b| key_fn(a).cmp(&key_fn(b)));
+
+            // Deduplicate: after sorting, consecutive items with the same key
+            // form groups. Among each group, the last element wins (latest
+            // source order / highest specificity per CSS cascade).
+            // Mark which indices to keep: only the last of each consecutive group.
+            let n = inner.len();
+            let mut keep = vec![false; n];
+            for i in 0..n {
+                if i + 1 >= n || key_fn(&inner[i]) != key_fn(&inner[i + 1]) {
+                    keep[i] = true;
+                }
+            }
+
             let start = flat_data.len() as u32;
-            let len = inner.len() as u32;
+            // Drain inner and push only kept items
+            for (i, item) in inner.drain(..).enumerate() {
+                if keep[i] {
+                    flat_data.push(item);
+                }
+            }
+
+            let len = (flat_data.len() as u32) - start;
             offsets.push((start, len));
-            flat_data.append(inner); // drains inner vec
         }
 
         self.data = flat_data;
