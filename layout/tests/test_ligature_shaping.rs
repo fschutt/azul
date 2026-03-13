@@ -1,8 +1,9 @@
-//! Unit test for OpenType ligature shaping via allsorts.
+//! Unit tests for OpenType ligature shaping via allsorts.
 //!
-//! Verifies that the text shaping pipeline correctly substitutes
-//! "fi"/"fl" sequences with ligature glyphs when using a real font
-//! (Times New Roman) that has Unicode ligature codepoints (U+FB01, U+FB02).
+//! Documents that ligature substitution depends on the font's GSUB table
+//! having a `liga` feature under the relevant script. Fonts like Times New
+//! Roman do NOT have `liga` under `latn` — they only have it for Arabic.
+//! This matches HarfBuzz behavior (confirmed via `hb-shape`).
 
 use azul_layout::font::parsed::ParsedFont;
 use azul_layout::text3::cache::{BidiDirection, StyleProperties};
@@ -10,8 +11,6 @@ use azul_layout::text3::default::shape_text_for_parsed_font;
 use azul_layout::text3::script::Script;
 use hyphenation::Language;
 
-/// Load Times New Roman from the system (macOS path).
-/// Returns None if the font file is not found (e.g., CI without fonts).
 fn load_times_new_roman() -> Option<ParsedFont> {
     let font_path = "/System/Library/Fonts/Supplemental/Times New Roman.ttf";
     let font_bytes = std::fs::read(font_path).ok()?;
@@ -19,8 +18,16 @@ fn load_times_new_roman() -> Option<ParsedFont> {
     ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)
 }
 
+/// Times New Roman has NO `liga` feature under `latn` in its GSUB table.
+/// Therefore fi ligature substitution does NOT occur — this matches HarfBuzz:
+///   $ hb-shape --font-file="Times New Roman.ttf" --text="filled" --script=latn
+///   [f=0+682|i=1+569|l=2+569|l=3+569|e=4+909|d=5+1024]
+///
+/// The fi ligature glyph exists at U+FB01 in cmap, but GSUB doesn't reference
+/// it for Latin. Platform engines (CoreText, DirectWrite) may substitute it
+/// outside the OpenType pipeline, but that's not allsorts' responsibility.
 #[test]
-fn test_fi_ligature_is_substituted() {
+fn test_times_new_roman_no_fi_ligature() {
     let font = match load_times_new_roman() {
         Some(f) => f,
         None => {
@@ -34,7 +41,6 @@ fn test_fi_ligature_is_substituted() {
         ..StyleProperties::default()
     };
 
-    // Shape "filled" - should produce a ligature for "fi"
     let glyphs = shape_text_for_parsed_font(
         &font,
         "filled",
@@ -45,64 +51,16 @@ fn test_fi_ligature_is_substituted() {
     )
     .expect("shaping should succeed");
 
-    // Without ligatures: f, i, l, l, e, d = 6 glyphs
-    // With fi ligature:  fi, l, l, e, d = 5 glyphs
-    assert!(
-        glyphs.len() <= 5,
-        "Expected fi ligature to reduce glyph count from 6 to 5, got {} glyphs",
-        glyphs.len()
-    );
-
-    // Verify the ligature glyph ID differs from standalone 'f'
-    let f_only = shape_text_for_parsed_font(
-        &font,
-        "f",
-        Script::Latin,
-        Language::EnglishUS,
-        BidiDirection::Ltr,
-        &style,
-    )
-    .expect("shaping 'f' should succeed");
-    assert_ne!(
-        glyphs[0].glyph_id, f_only[0].glyph_id,
-        "Ligature glyph ID should differ from standalone 'f' glyph ID"
-    );
-}
-
-#[test]
-fn test_fl_ligature_is_substituted() {
-    let font = match load_times_new_roman() {
-        Some(f) => f,
-        None => {
-            eprintln!("Skipping: Times New Roman not found");
-            return;
-        }
-    };
-
-    let style = StyleProperties {
-        font_size_px: 16.0,
-        ..StyleProperties::default()
-    };
-
-    // "flow" should produce an fl ligature: fl, o, w = 3 glyphs
-    let glyphs = shape_text_for_parsed_font(
-        &font,
-        "flow",
-        Script::Latin,
-        Language::EnglishUS,
-        BidiDirection::Ltr,
-        &style,
-    )
-    .expect("shaping should succeed");
-
+    // No GSUB liga for latn → 6 separate glyphs, no ligature
     assert_eq!(
         glyphs.len(),
-        3,
-        "Expected fl ligature to reduce 'flow' from 4 to 3 glyphs, got {}",
+        6,
+        "Times New Roman has no GSUB liga for Latin; 'filled' should produce 6 glyphs, got {}",
         glyphs.len()
     );
 }
 
+/// Verify shaping produces correct glyph count for text without ligature opportunities.
 #[test]
 fn test_no_ligature_without_fi() {
     let font = match load_times_new_roman() {
@@ -118,7 +76,6 @@ fn test_no_ligature_without_fi() {
         ..StyleProperties::default()
     };
 
-    // "hello" has no ligature opportunities - should stay at 5 glyphs
     let glyphs = shape_text_for_parsed_font(
         &font,
         "hello",
