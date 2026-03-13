@@ -1823,8 +1823,9 @@ fn dispatch_agents(config: &AutodebugConfig) -> Result<(), String> {
     let base_sha = executor::get_head_sha(project_root)?;
     println!("Base SHA: {}", &base_sha[..12]);
 
-    // Install signal handler
+    // Install signal handler and compiler watchdog
     executor::install_sigint_handler();
+    let watchdog = executor::CompilerWatchdog::start();
 
     // Set up work queue
     let work_queue: Arc<Mutex<VecDeque<PathBuf>>> =
@@ -1912,6 +1913,9 @@ fn dispatch_agents(config: &AutodebugConfig) -> Result<(), String> {
     for handle in handles {
         let _ = handle.join();
     }
+
+    // Stop the compiler watchdog
+    watchdog.stop();
 
     // Print results summary
     let results = results.lock().unwrap();

@@ -3784,8 +3784,9 @@ pub fn run_executor(
     let completed = Arc::new(Mutex::new(0usize));
     let failed = Arc::new(Mutex::new(0usize));
 
-    // Install SIGINT handler
+    // Install SIGINT handler and compiler watchdog
     install_sigint_handler();
+    let watchdog = CompilerWatchdog::start();
 
     // Create multi-spinner on main thread (MultiSpinnerHandle is !Send)
     let ms = MultiSpinner::new().start();
@@ -3876,6 +3877,7 @@ pub fn run_executor(
         let _ = handle.join();
     }
 
+    watchdog.stop();
     ms.stop();
 
     // Print summary
@@ -3928,6 +3930,57 @@ extern "C" fn sigint_handler(_sig: libc::c_int) {
     let msg = b"\nShutdown requested, finishing current agents...\n";
     unsafe {
         libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len());
+    }
+}
+
+// ── Compiler watchdog ──────────────────────────────────────────────────
+
+/// Spawn a background thread that kills compiler processes every 2s.
+/// Agents must one-shot their patches without compiling.
+/// Returns a handle; drop it or call `stop()` to terminate the watchdog.
+pub struct CompilerWatchdog {
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CompilerWatchdog {
+    pub fn start() -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_clone = Arc::clone(&stop);
+        let handle = std::thread::spawn(move || {
+            // Kill any cargo/rustc/rust-analyzer/rustup process system-wide.
+            // This is intentionally aggressive: during agent dispatch, no
+            // compilation should happen anywhere — the user isn't compiling
+            // either (they're waiting for agents to finish).
+            while !stop_clone.load(Ordering::Relaxed) {
+                for target in &["cargo", "rustc", "rust-analyzer", "rustup"] {
+                    let _ = Command::new("killall")
+                        .arg(target)
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        });
+        CompilerWatchdog {
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    pub fn stop(mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+impl Drop for CompilerWatchdog {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        // Don't join on drop — the thread will exit on its own within 2s
     }
 }
 
