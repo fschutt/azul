@@ -960,10 +960,6 @@ pub fn render_all_tests(
         Arc::new(Mutex::new(std::collections::HashMap::new()));
 
     screenshot_jobs.par_iter().for_each(|job| {
-        if job.azul_file.exists() {
-            azul_done.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
 
         match generate_azul_rendering_at_size_cached(
             &job.test_file,
