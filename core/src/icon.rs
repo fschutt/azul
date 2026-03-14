@@ -385,7 +385,7 @@ fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
         if let NodeType::Icon(icon_name) = node.get_node_type() {
             icons.push(CollectedIcon {
                 node_idx: idx,
-                icon_name: icon_name.clone(),
+                icon_name: icon_name.clone_self(),
             });
         }
     }

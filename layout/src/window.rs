@@ -6151,9 +6151,9 @@ impl LayoutWindow {
                     match node_data_mut.get_mut(*node_id) {
                         Some(nd) => {
                             match &mut nd.node_type {
-                                NodeType::Image(img_ref) => {
+                                NodeType::Image(ref mut img_ref) => {
                                     // Try get_image_callback_mut first (requires exclusive access)
-                                    let callback_result = img_ref.get_image_callback_mut();
+                                    let callback_result = img_ref.as_mut().get_image_callback_mut();
                                     
                                     if callback_result.is_none() {
                                         // The ImageRef has multiple copies (Arc refcount > 1),

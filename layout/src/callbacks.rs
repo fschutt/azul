@@ -1845,8 +1845,8 @@ impl CallbackInfo {
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_cont.get(node_id_internal)?;
 
-        if let NodeType::Text(ref text) = node_data.get_node_type() {
-            Some(text.clone())
+        if let NodeType::Text(text) = node_data.get_node_type() {
+            Some(text.clone_self())
         } else {
             None
         }

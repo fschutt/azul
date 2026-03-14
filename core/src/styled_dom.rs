@@ -1421,7 +1421,7 @@ impl StyledDom {
 
                 // If the node has an image content, it needs to be uploaded
                 if let Image(id) = node_data.get_node_type() {
-                    v.node_type_image = Some(id.clone());
+                    v.node_type_image = Some(id.as_ref().clone());
                 }
 
                 // If the node has a CSS background image, it needs to be uploaded

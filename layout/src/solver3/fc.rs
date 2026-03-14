@@ -6771,7 +6771,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             };
             
             content.push(InlineContent::Image(InlineImage {
-                source: ImageSource::Ref(image_ref.clone()),
+                source: ImageSource::Ref(image_ref.as_ref().clone()),
                 intrinsic_size: crate::text3::cache::Size {
                     width: intrinsic_size.max_content_width,
                     height: intrinsic_size.max_content_height,

@@ -3230,7 +3230,7 @@ where
                     self.ctx.viewport_size,
                 );
                 // Store the ImageRef directly in the display list
-                builder.push_image(paint_rect, image_ref.clone(), border_radius);
+                builder.push_image(paint_rect, image_ref.as_ref().clone(), border_radius);
             }
         }
 

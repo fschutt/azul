@@ -16,7 +16,7 @@ use core::{
 };
 
 use azul_css::{
-    css::{Css, NodeTypeTag},
+    css::{BoxOrStatic, Css, NodeTypeTag},
     format_rust_code::GetHash,
     props::{
         basic::{FloatValue, FontRef},
@@ -480,15 +480,19 @@ pub enum NodeType {
     Placeholder,
 
     // Special content types
-    /// Text content, ::text
-    Text(AzString),
-    /// Image element, ::image
-    Image(ImageRef),
+    /// Text content, ::text.
+    /// Uses BoxOrStatic to keep NodeType small (~16B vs ~72B with inline AzString)
+    /// and to allow static text references in the future.
+    Text(BoxOrStatic<AzString>),
+    /// Image element, ::image.
+    /// Uses BoxOrStatic to keep NodeType small.
+    Image(BoxOrStatic<ImageRef>),
     /// VirtualView (embedded content) - payload stored in NodeDataExt.virtual_view
     VirtualView,
-    /// Icon element - resolved to actual content by IconProvider
-    /// The string is the icon name (e.g., "home", "settings", "search")
-    Icon(AzString),
+    /// Icon element - resolved to actual content by IconProvider.
+    /// The string is the icon name (e.g., "home", "settings", "search").
+    /// Uses BoxOrStatic to keep NodeType small.
+    Icon(BoxOrStatic<AzString>),
 }
 
 impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -613,10 +617,10 @@ impl NodeType {
             Marker => Marker,
             Placeholder => Placeholder,
 
-            Text(s) => Text(s.clone_self()),
-            Image(i) => Image(i.clone()), // note: shallow clone
+            Text(s) => Text(BoxOrStatic::heap(s.clone_self())),
+            Image(i) => Image(i.clone()), // note: shallow clone via BoxOrStatic::Clone
             VirtualView => VirtualView,
-            Icon(s) => Icon(s.clone_self()),
+            Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
         }
     }
 
@@ -1775,13 +1779,13 @@ impl NodeData {
     /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
     #[inline(always)]
     pub fn create_text<S: Into<AzString>>(value: S) -> Self {
-        Self::create_node(NodeType::Text(value.into()))
+        Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Image(image_id))`.
     #[inline(always)]
     pub fn create_image(image: ImageRef) -> Self {
-        Self::create_node(NodeType::Image(image))
+        Self::create_node(NodeType::Image(BoxOrStatic::heap(image)))
     }
 
     #[inline(always)]
@@ -2578,9 +2582,9 @@ impl NodeData {
         &'a mut self,
     ) -> Option<(&'a mut CoreImageCallback, ImageRefHash)> {
         match &mut self.node_type {
-            NodeType::Image(img) => {
-                let hash = image_ref_get_hash(&img);
-                img.get_image_callback_mut().map(|r| (r, hash))
+            NodeType::Image(ref mut img) => {
+                let hash = image_ref_get_hash(img.as_ref());
+                img.as_mut().get_image_callback_mut().map(|r| (r, hash))
             }
             _ => None,
         }
@@ -2994,11 +2998,11 @@ impl Dom {
     }
     #[inline(always)]
     pub fn create_text<S: Into<AzString>>(value: S) -> Self {
-        Self::create_node(NodeType::Text(value.into()))
+        Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
     }
     #[inline(always)]
     pub fn create_image(image: ImageRef) -> Self {
-        Self::create_node(NodeType::Image(image))
+        Self::create_node(NodeType::Image(BoxOrStatic::heap(image)))
     }
     /// Creates an icon node with the given icon name.
     ///
@@ -3013,7 +3017,7 @@ impl Dom {
     /// ```
     #[inline(always)]
     pub fn create_icon<S: Into<AzString>>(icon_name: S) -> Self {
-        Self::create_node(NodeType::Icon(icon_name.into()))
+        Self::create_node(NodeType::Icon(BoxOrStatic::heap(icon_name.into())))
     }
 
     #[inline(always)]

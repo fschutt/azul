@@ -342,9 +342,9 @@ pub fn regenerate_layout(
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
                 for (idx, new_cb) in image_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.node_type = azul_core::dom::NodeType::Image(
+                        old_nd.node_type = azul_core::dom::NodeType::Image(Box::new(
                             azul_core::resources::ImageRef::callback(new_cb.callback.clone(), new_cb.refany.clone())
-                        );
+                        ));
                     }
                 }
             }

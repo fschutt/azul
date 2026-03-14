@@ -269,7 +269,7 @@ mod text2 {
 
         // Create node data
         let mut node_data = NodeData::default();
-        node_data.set_node_type(NodeType::Text(AzString::from(text)));
+        node_data.set_node_type(NodeType::Text(Box::new(AzString::from(text))));
 
         // Apply CSS properties
         let mut property_cache = CssPropertyCache::empty(1);

@@ -176,7 +176,7 @@ use crate::{log_debug, log_warn};
 fn parse_node_type_from_str(s: &str) -> azul_core::dom::NodeType {
     use azul_core::dom::NodeType;
     if let Some(text) = s.strip_prefix("text:") {
-        return NodeType::Text(text.to_string().into());
+        return NodeType::Text(Box::new(text.to_string().into()));
     }
     match s.to_lowercase().as_str() {
         "html" => NodeType::Html,
@@ -1255,7 +1255,7 @@ pub trait PlatformWindow {
                         let idx = internal_node_id.index();
                         if idx < layout_result.styled_dom.node_data.as_ref().len() {
                             layout_result.styled_dom.node_data.as_container_mut()[internal_node_id]
-                                .set_node_type(azul_core::dom::NodeType::Text(text.clone()));
+                                .set_node_type(azul_core::dom::NodeType::Text(Box::new(text.clone())));
                         }
                     }
                 }
@@ -1268,7 +1268,7 @@ pub trait PlatformWindow {
                         let idx = node_id.index();
                         if idx < layout_result.styled_dom.node_data.as_ref().len() {
                             layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                .set_node_type(azul_core::dom::NodeType::Image(image.clone()));
+                                .set_node_type(azul_core::dom::NodeType::Image(Box::new(image.clone())));
                         }
                     }
                 }
