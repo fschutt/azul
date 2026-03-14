@@ -2440,7 +2440,7 @@ pub fn get_style_properties(
                     // Builder stores: normalized() * 1000.0 as i16
                     // So decoded = i16 / 10.0 = normalized() * 100.0
                     // We need normalized() * font_size, so: decoded / 100.0 * font_size
-                    fast_lh = Some(normalized / 100.0 * font_size);
+                    fast_lh = Some(crate::text3::cache::LineHeight::Px(normalized / 100.0 * font_size));
                 }
             }
         }
@@ -2448,8 +2448,8 @@ pub fn get_style_properties(
             cache
                 .get_line_height(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
-                .map(|v| v.inner.normalized() * font_size)
-                .unwrap_or(font_size * 1.2)
+                .map(|v| crate::text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
+                .unwrap_or(crate::text3::cache::LineHeight::Normal)
         })
     };
 

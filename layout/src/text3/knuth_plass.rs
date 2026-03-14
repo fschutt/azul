@@ -577,7 +577,7 @@ fn position_lines_from_breaks(
         }
 
         // +spec:box-model:96f5a7 - line box height uses line-height only; inline margins/borders/padding do not enter calculation
-        cross_axis_pen += constraints.line_height;
+        cross_axis_pen += constraints.resolved_line_height();
         start_node = end_node;
     }
 

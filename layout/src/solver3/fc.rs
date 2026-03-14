@@ -2597,7 +2597,7 @@ fn layout_ifc<T: ParsedFontTrait>(
 
         if text_box_trim != StyleTextBoxTrim::None && !main_frag.items.is_empty() {
             // Half-leading = (line-height - (ascent + descent)) / 2
-            let half_leading = (cached_constraints.line_height
+            let half_leading = (cached_constraints.resolved_line_height()
                 - (cached_constraints.strut_ascent + cached_constraints.strut_descent))
                 / 2.0;
             let half_leading = half_leading.max(0.0);
@@ -3533,7 +3533,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutTextJustify::Distribute => text3::cache::JustifyContent::InterCharacter, // distribute computes to inter-character
         },
         // +spec:line-height:79f3aa - line-height resolved: normal defaults to 1.2, <number>/<percentage> × font-size
-        line_height: line_height_value.inner.normalized() * font_size,
+        line_height: text3::cache::LineHeight::Px(line_height_value.inner.normalized() * font_size),
         // container's first available font. Approximated as 80%/20% of font_size (typical
         // for Latin fonts). TODO: resolve actual font and use its OS/2 metrics.
         strut_ascent: font_size * 0.8,
@@ -6852,8 +6852,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             ctx.styled_dom, span_dom_id, &node_state
         );
         let line_height = line_height_value
-            .map(|v| v.inner.normalized() * font_size)
-            .unwrap_or(font_size * 1.2);
+            .map(|v| text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
+            .unwrap_or(text3::cache::LineHeight::Normal);
 
         let cb_width = constraints.containing_block_size.main(constraints.writing_mode);
         let padding_top = crate::solver3::getters::get_css_padding_top(ctx.styled_dom, span_dom_id, &node_state)
@@ -6877,7 +6877,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let margin_right = crate::solver3::getters::get_css_margin_right(ctx.styled_dom, span_dom_id, &node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size)).unwrap_or(0.0);
 
-        let total_height = line_height + padding_top + padding_bottom + border_top + border_bottom;
+        let resolved_line_height = line_height.resolve(font_size, 0.0, 0.0, 0.0, 0);
+        let total_height = resolved_line_height + padding_top + padding_bottom + border_top + border_bottom;
         let total_width = margin_left + padding_left + border_left
             + border_right + padding_right + margin_right;
 

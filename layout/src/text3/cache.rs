@@ -28,6 +28,71 @@ use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, Un
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
 
+/// CSS `line-height` value.
+///
+/// `Normal` defers resolution to the point where font metrics are available,
+/// computing `(ascent + |descent| + lineGap) / upem * fontSize`.
+/// `Px` is an already-resolved pixel value from an explicit CSS declaration
+/// (e.g. `line-height: 1.5` → `Px(fontSize * 1.5)`).
+#[derive(Debug, Clone, Copy)]
+pub enum LineHeight {
+    /// `line-height: normal` — resolve from font metrics at layout time
+    Normal,
+    /// Pre-resolved pixel value (from CSS `line-height: <number|length|percentage>`)
+    Px(f32),
+}
+
+impl Default for LineHeight {
+    fn default() -> Self {
+        LineHeight::Normal
+    }
+}
+
+impl LineHeight {
+    /// Resolve to a pixel value, using font metrics when `Normal`.
+    ///
+    /// `ascent`, `descent` (negative in OpenType convention), `line_gap` are in font units.
+    /// `font_size_px` and `units_per_em` are used to scale.
+    pub fn resolve(&self, font_size_px: f32, ascent: f32, descent: f32, line_gap: f32, units_per_em: u16) -> f32 {
+        match self {
+            LineHeight::Px(px) => *px,
+            LineHeight::Normal => {
+                if units_per_em == 0 {
+                    return font_size_px * 1.2; // fallback
+                }
+                let scale = font_size_px / units_per_em as f32;
+                (ascent - descent + line_gap) * scale
+            }
+        }
+    }
+
+    /// Resolve using a `LayoutFontMetrics` struct for convenience.
+    pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &super::cache::LayoutFontMetrics) -> f32 {
+        self.resolve(font_size_px, metrics.ascent, metrics.descent, metrics.line_gap, metrics.units_per_em)
+    }
+}
+
+impl PartialEq for LineHeight {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (LineHeight::Normal, LineHeight::Normal) => true,
+            (LineHeight::Px(a), LineHeight::Px(b)) => a.to_bits() == b.to_bits(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for LineHeight {}
+
+impl Hash for LineHeight {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let LineHeight::Px(v) = self {
+            v.to_bits().hash(state);
+        }
+    }
+}
+
 // Stub type when hyphenation is disabled
 #[cfg(not(feature = "text_layout_hyphenation"))]
 pub struct Standard;
@@ -718,7 +783,7 @@ pub struct UnifiedConstraints {
     pub text_align: TextAlign,
     pub text_justify: JustifyContent,
     // +spec:display-property:3bcac8 - inline boxes sized in block axis based on font metrics (ascent/descent)
-    pub line_height: f32,
+    pub line_height: LineHeight,
     pub vertical_align: VerticalAlign,
     // block container's first available font, used for minimum line box height
     pub strut_ascent: f32,
@@ -779,7 +844,7 @@ impl Default for UnifiedConstraints {
             text_orientation: TextOrientation::default(),
             text_align: TextAlign::default(),
             text_justify: JustifyContent::default(),
-            line_height: 16.0, // A more sensible default
+            line_height: LineHeight::Normal,
             vertical_align: VerticalAlign::default(),
             strut_ascent: 12.8, // 80% of default line-height (typical ratio)
             strut_descent: 3.2, // 20% of default line-height
@@ -824,7 +889,7 @@ impl Hash for UnifiedConstraints {
         self.text_orientation.hash(state);
         self.text_align.hash(state);
         self.text_justify.hash(state);
-        (self.line_height.round() as usize).hash(state);
+        self.line_height.hash(state);
         self.vertical_align.hash(state);
         (self.strut_ascent.round() as usize).hash(state);
         (self.strut_descent.round() as usize).hash(state);
@@ -864,7 +929,7 @@ impl PartialEq for UnifiedConstraints {
             && self.text_orientation == other.text_orientation
             && self.text_align == other.text_align
             && self.text_justify == other.text_justify
-            && round_eq(self.line_height, other.line_height)
+            && self.line_height == other.line_height
             && self.vertical_align == other.vertical_align
             && round_eq(self.strut_ascent, other.strut_ascent)
             && round_eq(self.strut_descent, other.strut_descent)
@@ -892,6 +957,12 @@ impl PartialEq for UnifiedConstraints {
 impl Eq for UnifiedConstraints {}
 
 impl UnifiedConstraints {
+    /// Resolve `line_height` to a pixel value using the strut metrics as a font-size proxy.
+    /// `strut_ascent + strut_descent` approximates `font_size` (the block container's font).
+    pub fn resolved_line_height(&self) -> f32 {
+        let font_size_approx = self.strut_ascent + self.strut_descent;
+        self.line_height.resolve(font_size_approx, 0.0, 0.0, 0.0, 0)
+    }
     fn direction(&self, fallback: BidiDirection) -> BidiDirection {
         match self.writing_mode {
             Some(s) => s.get_direction().unwrap_or(fallback),
@@ -1609,7 +1680,7 @@ impl Glyph {
             x: 0.0,
             y: 0.0,
             width: self.advance,
-            height: self.style.line_height,
+            height: self.style.line_height.resolve_with_metrics(self.style.font_size_px, &self.font_metrics),
         }
     }
 
@@ -2662,7 +2733,7 @@ pub struct ShapeConstraints {
     pub exclusions: Vec<ShapeBoundary>,
     pub writing_mode: WritingMode,
     pub text_align: TextAlign,
-    pub line_height: f32,
+    pub line_height: LineHeight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
@@ -2844,7 +2915,7 @@ pub struct StyleProperties {
     pub letter_spacing: Spacing,
     pub word_spacing: Spacing,
 
-    pub line_height: f32,
+    pub line_height: LineHeight,
     pub text_decoration: TextDecoration,
 
     // Represents CSS font-feature-settings like `"liga"`, `"smcp=1"`.
@@ -2882,7 +2953,7 @@ impl Default for StyleProperties {
             border: None,
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
-            line_height: FONT_SIZE * 1.2,
+            line_height: LineHeight::Normal,
             text_decoration: TextDecoration::default(),
             font_features: Vec::new(),
             font_variations: Vec::new(),
@@ -2914,7 +2985,7 @@ impl Hash for StyleProperties {
 
         // For f32 fields, round and cast to usize before hashing.
         (self.font_size_px.round() as usize).hash(state);
-        (self.line_height.round() as usize).hash(state);
+        self.line_height.hash(state);
     }
 }
 
@@ -2954,7 +3025,7 @@ impl StyleProperties {
         // Spacing (affects glyph positions)
         self.letter_spacing.hash(&mut hasher);
         self.word_spacing.hash(&mut hasher);
-        (self.line_height.round() as usize).hash(&mut hasher);
+        self.line_height.hash(&mut hasher);
         (self.tab_size.round() as usize).hash(&mut hasher);
         
         // Writing mode (affects layout direction)
@@ -3136,7 +3207,7 @@ pub struct PartialStyleProperties {
     pub color: Option<ColorU>,
     pub letter_spacing: Option<Spacing>,
     pub word_spacing: Option<Spacing>,
-    pub line_height: Option<f32>,
+    pub line_height: Option<LineHeight>,
     pub text_decoration: Option<TextDecoration>,
     pub font_features: Option<Vec<String>>,
     pub font_variations: Option<Vec<(FourCc, f32)>>,
@@ -3158,7 +3229,7 @@ impl Hash for PartialStyleProperties {
         self.color.hash(state);
         self.letter_spacing.hash(state);
         self.word_spacing.hash(state);
-        self.line_height.map(|f| f.to_bits()).hash(state);
+        self.line_height.hash(state);
         self.text_decoration.hash(state);
         self.font_features.hash(state);
 
@@ -3189,7 +3260,7 @@ impl PartialEq for PartialStyleProperties {
         self.color == other.color &&
         self.letter_spacing == other.letter_spacing &&
         self.word_spacing == other.word_spacing &&
-        self.line_height.map(|f| f.to_bits()) == other.line_height.map(|f| f.to_bits()) &&
+        self.line_height == other.line_height &&
         self.text_decoration == other.text_decoration &&
         self.font_features == other.font_features &&
         self.font_variations == other.font_variations && // Vec<(FourCc, f32)> is PartialEq
@@ -5942,7 +6013,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         x: 0.0,
                         y: 0.0,
                         width: placeholder_width,
-                        height: style.line_height * 1.5,
+                        height: style.line_height.resolve(style.font_size_px, 0.0, 0.0, 0.0, 0) * 1.5,
                     },
                     baseline_offset: 0.0,
                     content: InlineContent::Text(StyledRun {
@@ -6390,7 +6461,7 @@ fn apply_text_orientation(
                         total_vertical_advance += glyph.vertical_advance;
                     } else {
                         // Fallback: use line height for vertical advance
-                        let fallback_advance = cluster.style.line_height;
+                        let fallback_advance = cluster.style.line_height.resolve_with_metrics(cluster.style.font_size_px, &glyph.font_metrics);
                         glyph.vertical_advance = fallback_advance;
                         // Center the glyph horizontally as a fallback
                         glyph.vertical_offset = Point {
@@ -6464,7 +6535,8 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
                     let font_ascent = metrics.ascent * scale;
                     let font_descent = (-metrics.descent * scale).max(0.0);
                     let ad = font_ascent + font_descent;
-                    let half_leading = (c.style.line_height - ad) / 2.0;
+                    let resolved_lh = c.style.line_height.resolve_with_metrics(glyph.style.font_size_px, &glyph.font_metrics);
+                    let half_leading = (resolved_lh - ad) / 2.0;
                     (max_asc.max(font_ascent + half_leading), max_desc.max(font_descent + half_leading))
                 });
             return (asc, desc);
@@ -6473,7 +6545,7 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
     // Fallback for empty glyphs or non-cluster items
     match item {
         ShapedItem::Cluster(c) => {
-            let lh = c.style.line_height;
+            let lh = c.style.line_height.resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
             (lh * 0.8, lh * 0.2)
         }
         ShapedItem::CombinedBlock { bounds, .. } => (bounds.height * 0.8, bounds.height * 0.2),
@@ -6506,7 +6578,8 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
                 // contain a strut with A and D of the element's first available font.
                 // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
                 let ad = constraints.strut_ascent + constraints.strut_descent;
-                let half_leading = (c.style.line_height - ad) / 2.0;
+                let resolved_lh = c.style.line_height.resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
+                let half_leading = (resolved_lh - ad) / 2.0;
                 return (constraints.strut_ascent + half_leading, constraints.strut_descent + half_leading);
             }
             // +spec:box-model:0b3e1f - inline non-replaced box height uses only line-height, not vertical padding/border/margin
@@ -6534,7 +6607,8 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
                     // distance.
                     let d = (-metrics.descent * scale).max(0.0);
                     let ad = a + d;
-                    let leading = glyph.style.line_height - ad;
+                    let resolved_lh = glyph.style.line_height.resolve_with_metrics(glyph.style.font_size_px, &glyph.font_metrics);
+                    let leading = resolved_lh - ad;
                     let half_leading = leading / 2.0;
                     let item_asc = a + half_leading;
                     let item_desc = d + half_leading;
@@ -6842,7 +6916,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             }
             let line_constraints = get_line_constraints(
                 line_top_y,
-                fragment_constraints.line_height,
+                fragment_constraints.resolved_line_height(),
                 &column_constraints,
                 debug_messages,
             );
@@ -6915,7 +6989,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     }
                 }
 
-                line_top_y += fragment_constraints.line_height;
+                line_top_y += fragment_constraints.resolved_line_height();
                 continue;
             }
 
@@ -6997,7 +7071,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             }
 
             // +spec:display-property:6c4978 - line-height on block container establishes minimum line box height
-            line_top_y += line_height.max(fragment_constraints.line_height);
+            line_top_y += line_height.max(fragment_constraints.resolved_line_height());
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -7535,7 +7609,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // L = line-height - (A + D), strut_above = A + L/2, strut_below = D + L/2.
     // +spec:height-calculation:8e91b2 - specified line-height used in line box height calculation
     let strut_ad = constraints.strut_ascent + constraints.strut_descent;
-    let strut_leading_half = (constraints.line_height - strut_ad) / 2.0;
+    let strut_leading_half = (constraints.resolved_line_height() - strut_ad) / 2.0;
     let strut_above = constraints.strut_ascent + strut_leading_half;
     let strut_below = constraints.strut_descent + strut_leading_half;
     let line_ascent = content_ascent.max(strut_above);
