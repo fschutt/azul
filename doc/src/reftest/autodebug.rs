@@ -114,6 +114,8 @@ mod cdp {
         ws: WebSocket<MaybeTlsStream<TcpStream>>,
         child: Child,
         page_enabled: bool,
+        /// Cached frame ID for the main frame, used by setDocumentContent.
+        frame_id: Option<String>,
     }
 
     impl ChromeCdp {
@@ -179,7 +181,7 @@ mod cdp {
             let (ws, _response) = connect(&page_ws_url)
                 .map_err(|e| format!("WebSocket connect to {}: {}", page_ws_url, e))?;
 
-            Ok(ChromeCdp { ws, child, page_enabled: false })
+            Ok(ChromeCdp { ws, child, page_enabled: false, frame_id: None })
         }
 
         /// Send a CDP command and return the result JSON.
@@ -219,7 +221,37 @@ mod cdp {
             }
         }
 
+        /// Get (and cache) the main frame ID, needed for setDocumentContent.
+        fn get_frame_id(&mut self) -> Result<String, String> {
+            if let Some(ref id) = self.frame_id {
+                return Ok(id.clone());
+            }
+            let result = self.send_command("Page.getFrameTree", &serde_json::json!({}))?;
+            let id = result
+                .get("frameTree")
+                .and_then(|ft| ft.get("frame"))
+                .and_then(|f| f.get("id"))
+                .and_then(|v| v.as_str())
+                .ok_or("No frameId in Page.getFrameTree response")?
+                .to_string();
+            self.frame_id = Some(id.clone());
+            Ok(id)
+        }
+
+        /// Set the page's HTML content in-place (no navigation, keeps cached fonts).
+        fn set_document_content(&mut self, html: &str) -> Result<(), String> {
+            let frame_id = self.get_frame_id()?;
+            self.send_command("Page.setDocumentContent", &serde_json::json!({
+                "frameId": frame_id,
+                "html": html,
+            }))?;
+            // Small delay for layout/rendering to settle
+            std::thread::sleep(Duration::from_millis(30));
+            Ok(())
+        }
+
         /// Navigate to a file URL and wait for load to finish.
+        /// Used only for the first page load or when external resources are needed.
         fn navigate_and_wait(&mut self, url: &str) -> Result<(), String> {
             self.send_command("Page.navigate", &serde_json::json!({ "url": url }))?;
 
@@ -246,6 +278,10 @@ mod cdp {
         }
 
         /// Capture a screenshot at the given viewport size, saving as PNG.
+        ///
+        /// Uses `Page.setDocumentContent` to swap HTML in-place, avoiding a
+        /// full navigation cycle. This keeps cached fonts and other resources
+        /// warm across test files.
         pub fn screenshot(
             &mut self,
             test_file: &Path,
@@ -253,7 +289,7 @@ mod cdp {
             width: u32,
             height: u32,
         ) -> Result<(), String> {
-            // Enable Page events once (needed for loadEventFired)
+            // Enable Page events once
             if !self.page_enabled {
                 self.send_command("Page.enable", &serde_json::json!({}))?;
                 self.page_enabled = true;
@@ -267,14 +303,10 @@ mod cdp {
                 "mobile": false,
             }))?;
 
-            // Navigate to test file
-            let canonical = test_file.canonicalize()
-                .map_err(|e| format!("canonicalize: {}", e))?;
-            let url = format!("file://{}", canonical.display());
-            self.navigate_and_wait(&url)?;
-
-            // Small delay for rendering to settle
-            std::thread::sleep(Duration::from_millis(50));
+            // Read HTML from disk and set it in-place (no navigation)
+            let html = std::fs::read_to_string(test_file)
+                .map_err(|e| format!("read test file: {}", e))?;
+            self.set_document_content(&html)?;
 
             // Capture screenshot
             let result = self.send_command("Page.captureScreenshot", &serde_json::json!({
