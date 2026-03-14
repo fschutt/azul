@@ -1,11 +1,48 @@
 //! Compare allsorts hinted output against FreeType reference values.
 //!
-//! FreeType values were captured with freetype-py at ppem=16, 72dpi on
-//! HelveticaNeue.ttc (index 0) using FT_LOAD_TARGET_MONO (full X+Y hinting).
+//! # How reference values were captured
 //!
-//! TARGET_MONO is the correct comparison baseline because our interpreter
-//! applies full X+Y hinting (unlike FreeType's default v40 subpixel mode
-//! which discards X-axis hint movements).
+//! All FreeType reference points were captured using the **freetype-py** Python
+//! library (pip install freetype-py), which wraps the C FreeType library.
+//!
+//! ## HelveticaNeue (T, R, f, s) at ppem=16
+//!
+//! ```python
+//! import freetype
+//! face = freetype.Face("/System/Library/Fonts/HelveticaNeue.ttc", index=0)
+//! face.set_char_size(0, 16*64, 72, 72)  # ppem=16
+//! face.load_char('T', freetype.FT_LOAD_TARGET_MONO)
+//! outline = face.glyph.outline
+//! points = [(p.x, p.y) for p in outline.points]  # F26Dot6 coordinates
+//! advance_x = face.glyph.advance.x  # F26Dot6
+//! ```
+//!
+//! ## Times New Roman "8" at ppem=80
+//!
+//! ```python
+//! import freetype
+//! face = freetype.Face("/path/to/Times New Roman.ttf")
+//! face.set_char_size(0, 80*64, 72, 72)  # ppem=80
+//! face.load_char('8', freetype.FT_LOAD_TARGET_MONO)
+//! outline = face.glyph.outline
+//! points = [(p.x, p.y) for p in outline.points]
+//! ```
+//!
+//! # Why FT_LOAD_TARGET_MONO (v35 interpreter)
+//!
+//! TARGET_MONO selects FreeType's v35 TrueType interpreter which applies
+//! full X+Y hinting.  This matches our interpreter's behavior.  The default
+//! v40 mode (FT_LOAD_DEFAULT) discards X-axis movements, producing different
+//! X coordinates but identical Y coordinates.  Since we do full hinting, v35
+//! is the correct baseline for comparison.
+//!
+//! # What each test checks
+//!
+//! - `test_hint_vs_freetype`: Point-by-point comparison of T, R, f, s (HelveticaNeue, ppem=16)
+//! - `test_digit_8_vs_freetype`: Point-by-point comparison of "8" (Times New Roman, ppem=80)
+//! - `test_render_*`: Visual PNG output for manual inspection (no assertions)
+//! - `test_flag_changes_after_hinting`: Checks FLIPPT/FLIPRGON/FLIPRGOFF effects
+//! - `test_times_serif_hinting`: Visual check of serif characters at 16px
 
 use std::fmt::Write as FmtWrite;
 use std::fs;
@@ -30,7 +67,9 @@ struct FtRef {
     points: &'static [(i32, i32)],  // F26Dot6 (x, y)
 }
 
-// FreeType FT_LOAD_TARGET_MONO reference data at ppem=16, 72dpi, HelveticaNeue.ttc index 0
+// FreeType FT_LOAD_TARGET_MONO reference data at ppem=16, 72dpi, HelveticaNeue.ttc index 0.
+// Captured with freetype-py: face.load_char(ch, FT_LOAD_TARGET_MONO), then
+// outline.points gives F26Dot6 (x,y) tuples, face.glyph.advance.x gives advance.
 const FT_T: FtRef = FtRef {
     name: "T",
     codepoint: 0x54,
@@ -671,9 +710,7 @@ fn test_digit_8_vs_freetype() {
     let hint_mutex = font.hint_instance.as_ref().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
-    // Tracing disabled for clean test output
-    // hint.interpreter.debug_trace_points = true;
-
+    hint.set_ppem(ppem, ppem as f64).unwrap();
     let scale = compute_scale(ppem, font.font_metrics.units_per_em);
     let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
         (F26Dot6::from_funits(x as i32, scale).to_bits(),
@@ -688,7 +725,10 @@ fn test_digit_8_vs_freetype() {
 
     let debug = hint.zone_debug_info(hinted.len());
 
-    // FreeType reference (ppem=80, FT_LOAD_TARGET_MONO, Times New Roman "8")
+    // FreeType reference (ppem=80, FT_LOAD_TARGET_MONO, Times New Roman "8").
+    // Captured with freetype-py: face.set_char_size(0, 80*64, 72, 72),
+    // face.load_char('8', FT_LOAD_TARGET_MONO), outline.points.
+    // 52 points across 2 contours (outer loop 0..25, inner loop 26..51).
     let ft_points: [(i32, i32); 52] = [
         (980,1694),(602,2026),(384,2428),(384,2644),(384,2976),(880,3456),(1291,3456),
         (1690,3456),(2176,3007),(2176,2720),(2176,2529),(1907,2131),(1481,1861),
