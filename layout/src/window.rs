@@ -474,6 +474,73 @@ impl LayoutWindow {
         })
     }
 
+    /// Create a new layout window that shares already-parsed fonts with
+    /// previous windows. The `fc_cache` (path discovery) and `parsed_fonts`
+    /// (parsed font data) are shared via Arc, so fonts parsed during the
+    /// first layout are reused by subsequent layouts without re-reading
+    /// from disk.
+    pub fn new_with_shared_fonts(
+        fc_cache: std::sync::Arc<FcFontCache>,
+        parsed_fonts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, FontRef>>>,
+    ) -> Result<Self, crate::solver3::LayoutError> {
+        Ok(Self {
+            #[cfg(feature = "pdf")]
+            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
+            layout_cache: Solver3LayoutCache {
+                tree: None,
+                calculated_positions: Vec::new(),
+                viewport: None,
+                scroll_ids: HashMap::new(),
+                scroll_id_to_node_id: HashMap::new(),
+                counters: HashMap::new(),
+                float_cache: HashMap::new(),
+                cache_map: Default::default(),
+            },
+            text_cache: TextLayoutCache::new(),
+            font_manager: FontManager::from_arc_shared(fc_cache, parsed_fonts)?,
+            image_cache: ImageCache::default(),
+            layout_results: BTreeMap::new(),
+            scroll_manager: ScrollManager::new(),
+            gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
+            focus_manager: crate::managers::focus_cursor::FocusManager::new(),
+            cursor_manager: crate::managers::cursor::CursorManager::new(),
+            file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
+            selection_manager: crate::managers::selection::SelectionManager::new(),
+            clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
+            drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
+            hover_manager: crate::managers::hover::HoverManager::new(),
+            virtual_view_manager: VirtualViewManager::new(),
+            gpu_state_manager: GpuStateManager::new(
+                default_duration_500ms(),
+                default_duration_200ms(),
+            ),
+            a11y_manager: crate::managers::a11y::A11yManager::new(),
+            timers: BTreeMap::new(),
+            threads: BTreeMap::new(),
+            renderer_resources: RendererResources::default(),
+            renderer_type: None,
+            previous_window_state: None,
+            current_window_state: FullWindowState::default(),
+            document_id: new_document_id(),
+            id_namespace: new_id_namespace(),
+            epoch: Epoch::new(),
+            gl_texture_cache: GlTextureCache::default(),
+            currently_dragging_thumb: None,
+            text_input_manager: crate::managers::text_input::TextInputManager::new(),
+            undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
+            text_constraints_cache: TextConstraintsCache {
+                constraints: BTreeMap::new(),
+            },
+            dirty_text_nodes: BTreeMap::new(),
+            pending_virtual_view_updates: BTreeMap::new(),
+            system_style: None,
+            monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            font_stacks_hash: 0,
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+        })
+    }
+
     /// Create a new layout window for paged media (PDF generation).
     ///
     /// This constructor initializes the layout window with a paged fragmentation context,

@@ -20,7 +20,7 @@ use crate::spec::executor::{
 };
 
 use super::{
-    generate_azul_rendering_sized, generate_azul_rendering_sized_cached,
+    generate_azul_rendering_sized,
     generate_chrome_screenshot, get_chrome_path, find_test_files,
     pixels_similar, DebugData,
 };
@@ -957,6 +957,11 @@ pub fn render_all_tests(
     let azul_done = AtomicUsize::new(0);
     let azul_errors = AtomicUsize::new(0);
 
+    // Shared parsed font pool — fonts parsed during the first render are
+    // reused by all subsequent renders, avoiding repeated disk I/O + parsing.
+    let shared_fonts: super::SharedParsedFonts =
+        Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+
     let debug_data_map: Arc<Mutex<std::collections::HashMap<String, DebugData>>> =
         Arc::new(Mutex::new(std::collections::HashMap::new()));
 
@@ -968,6 +973,7 @@ pub fn render_all_tests(
             job.size.width,
             job.size.height,
             &fc_cache,
+            &shared_fonts,
         ) {
             Ok(dd) => {
                 // Write debug data to JSON file alongside the screenshot
@@ -1434,9 +1440,11 @@ fn generate_azul_rendering_at_size_cached(
     width: u32,
     height: u32,
     fc_cache: &rust_fontconfig::FcFontCache,
+    shared_fonts: &super::SharedParsedFonts,
 ) -> Result<DebugData, String> {
-    generate_azul_rendering_sized_cached(test_file, output_file, width, height, 1.0, fc_cache)
-        .map_err(|e| format!("{}", e))
+    super::generate_azul_rendering_sized_cached_shared(
+        test_file, output_file, width, height, 1.0, fc_cache, shared_fonts,
+    ).map_err(|e| format!("{}", e))
 }
 
 // ── Levenshtein Distance ────────────────────────────────────────────────

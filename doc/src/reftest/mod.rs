@@ -35,6 +35,10 @@ pub mod autodebug;
 pub mod debug;
 pub mod regression;
 
+/// Shared pool of already-parsed fonts, reused across multiple layout passes
+/// to avoid re-reading and re-parsing font files from disk.
+pub type SharedParsedFonts = Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, azul_css::props::basic::FontRef>>>;
+
 pub const WIDTH: u32 = 1920;
 pub const HEIGHT: u32 = 1080;
 
@@ -839,7 +843,7 @@ pub fn generate_azul_rendering_sized(
     height: u32,
     dpi_factor: f32,
 ) -> anyhow::Result<DebugData> {
-    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, None)
+    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, None, None)
 }
 
 /// Like `generate_azul_rendering_sized` but reuses a pre-built font cache
@@ -853,7 +857,21 @@ pub fn generate_azul_rendering_sized_cached(
     dpi_factor: f32,
     fc_cache: &rust_fontconfig::FcFontCache,
 ) -> anyhow::Result<DebugData> {
-    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, Some(fc_cache))
+    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, Some(fc_cache), None)
+}
+
+/// Like `generate_azul_rendering_sized_cached` but also reuses already-parsed
+/// font data across calls, avoiding re-reading and re-parsing font files from disk.
+pub fn generate_azul_rendering_sized_cached_shared(
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    dpi_factor: f32,
+    fc_cache: &rust_fontconfig::FcFontCache,
+    shared_fonts: &SharedParsedFonts,
+) -> anyhow::Result<DebugData> {
+    generate_azul_rendering_sized_internal(test_file, output_file, width, height, dpi_factor, Some(fc_cache), Some(shared_fonts))
 }
 
 fn generate_azul_rendering_sized_internal(
@@ -863,6 +881,7 @@ fn generate_azul_rendering_sized_internal(
     height: u32,
     dpi_factor: f32,
     fc_cache: Option<&rust_fontconfig::FcFontCache>,
+    shared_fonts: Option<&SharedParsedFonts>,
 ) -> anyhow::Result<DebugData> {
     let start = Instant::now();
 
@@ -918,6 +937,7 @@ fn generate_azul_rendering_sized_internal(
         dpi_factor,
         &mut debug_collector,
         fc_cache,
+        shared_fonts,
     )?;
 
     // Record rendering time
@@ -942,7 +962,7 @@ fn styled_dom_to_png_with_debug(
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
 ) -> anyhow::Result<(Vec<String>, u64, u64)> {
-    styled_dom_to_png_with_debug_internal(styled_dom, output_file, width, height, dpi_factor, debug_collector, None)
+    styled_dom_to_png_with_debug_internal(styled_dom, output_file, width, height, dpi_factor, debug_collector, None, None)
 }
 
 fn styled_dom_to_png_with_debug_internal(
@@ -953,6 +973,7 @@ fn styled_dom_to_png_with_debug_internal(
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
     fc_cache: Option<&rust_fontconfig::FcFontCache>,
+    shared_fonts: Option<&SharedParsedFonts>,
 ) -> anyhow::Result<(Vec<String>, u64, u64)> {
     let start_time_layout = std::time::Instant::now();
 
@@ -974,6 +995,7 @@ fn styled_dom_to_png_with_debug_internal(
         &mut renderer_resources,
         debug_collector,
         fc_cache,
+        shared_fonts,
     )?;
 
     // Capture display list for debugging
@@ -1827,7 +1849,7 @@ pub fn solve_layout_with_debug(
     Vec<String>,
     azul_layout::LayoutWindow,
 )> {
-    solve_layout_with_debug_internal(styled_dom, fake_window_state, renderer_resources, debug_collector, None)
+    solve_layout_with_debug_internal(styled_dom, fake_window_state, renderer_resources, debug_collector, None, None)
 }
 
 fn solve_layout_with_debug_internal(
@@ -1836,6 +1858,7 @@ fn solve_layout_with_debug_internal(
     renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
     fc_cache: Option<&rust_fontconfig::FcFontCache>,
+    shared_fonts: Option<&SharedParsedFonts>,
 ) -> anyhow::Result<(
     azul_layout::solver3::display_list::DisplayList,
     Vec<String>,
@@ -1843,12 +1866,31 @@ fn solve_layout_with_debug_internal(
 )> {
     use std::fmt::Write;
 
-    // Create LayoutWindow for layout computation — reuse pre-built cache if provided
-    let fc_cache = match fc_cache {
-        Some(c) => c.clone(),
-        None => azul_layout::font::loading::build_font_cache(),
+    // Create LayoutWindow for layout computation.
+    // If shared_fonts is provided, reuse already-parsed fonts across calls.
+    // If fc_cache is provided, reuse font path discovery.
+    let mut layout_window = match (shared_fonts, fc_cache) {
+        (Some(sf), Some(fc)) => {
+            azul_layout::LayoutWindow::new_with_shared_fonts(
+                std::sync::Arc::new(fc.clone()),
+                std::sync::Arc::clone(sf),
+            )?
+        }
+        (Some(sf), None) => {
+            let fc = azul_layout::font::loading::build_font_cache();
+            azul_layout::LayoutWindow::new_with_shared_fonts(
+                std::sync::Arc::new(fc),
+                std::sync::Arc::clone(sf),
+            )?
+        }
+        (None, Some(fc)) => {
+            azul_layout::LayoutWindow::new(fc.clone())?
+        }
+        (None, None) => {
+            let fc = azul_layout::font::loading::build_font_cache();
+            azul_layout::LayoutWindow::new(fc)?
+        }
     };
-    let mut layout_window = azul_layout::LayoutWindow::new(fc_cache)?;
 
     // Prepare debug messages
     let mut debug_messages = Some(Vec::new());
