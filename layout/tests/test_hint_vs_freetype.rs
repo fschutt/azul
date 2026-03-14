@@ -2270,3 +2270,35 @@ fn test_cvt0_at_mismatch_ppem() {
             rounded/64, expected/64);
     }
 }
+
+#[test]
+fn test_default_gs_round_state() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(32, 32.0).ok();
+    
+    let gs = hint.interpreter.graphics_state();
+    eprintln!("default_gs after prep at ppem=32:");
+    eprintln!("  round_state: {:?}", gs.round_state);
+    eprintln!("  control_value_cut_in: {}", gs.control_value_cut_in.to_bits());
+    eprintln!("  minimum_distance: {}", gs.minimum_distance.to_bits());
+    eprintln!("  super_round_period: {}", gs.super_round_period.to_bits());
+    eprintln!("  super_round_phase: {}", gs.super_round_phase.to_bits());
+    eprintln!("  super_round_threshold: {}", gs.super_round_threshold.to_bits());
+    
+    // Also check: what does round(1368) give with this round state?
+    let rounded = gs.round(allsorts::hinting::f26dot6::F26Dot6::from_bits(1368));
+    eprintln!("  round(1368) = {} ({}px)", rounded.to_bits(), rounded.to_bits() as f32 / 64.0);
+    let rounded2 = gs.round(allsorts::hinting::f26dot6::F26Dot6::from_bits(1422));
+    eprintln!("  round(1422) = {} ({}px)", rounded2.to_bits(), rounded2.to_bits() as f32 / 64.0);
+}
