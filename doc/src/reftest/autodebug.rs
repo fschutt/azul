@@ -1496,8 +1496,10 @@ pub fn build_autodebug_prompt(
 ) -> String {
     let mut prompt = String::with_capacity(16384);
 
-    // Codebase orientation
+    // Codebase orientation (general + detailed navigation)
     prompt.push_str(CODEBASE_CONTEXT);
+    prompt.push('\n');
+    prompt.push_str(include_str!("../NAVIGATION.md"));
     prompt.push('\n');
 
     // Working directory

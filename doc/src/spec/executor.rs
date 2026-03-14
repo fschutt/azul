@@ -2314,7 +2314,7 @@ pub fn create_worktree_pool_internal(
                 .current_dir(&slot_path)
                 .output();
             let _ = Command::new("git")
-                .args(["sparse-checkout", "set", "layout/src", "css/src", "core/src"])
+                .args(["sparse-checkout", "set", "layout/src", "css/src", "core/src", "NAVIGATION.md"])
                 .current_dir(&slot_path)
                 .output();
             let _ = Command::new("git")
