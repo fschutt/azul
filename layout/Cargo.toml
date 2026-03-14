@@ -104,6 +104,11 @@ objc2-foundation = { version = "0.3.0", default-features = true, optional = true
     "NSValue",
 ] }
 
+# CoreText / CoreGraphics for native font rendering comparison tests
+core-foundation = { version = "0.10", optional = true }
+core-graphics = { version = "0.23", optional = true }
+core-text = { version = "20.1", optional = true }
+
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
@@ -184,6 +189,9 @@ cpurender = ["dep:tiny-skia", "dep:allsorts", "dep:gl-context-loader"]
 
 # Accessibility support (accesskit)
 a11y = ["dep:accesskit"]
+
+# macOS CoreText rendering comparison tests
+coretext_tests = ["dep:core-foundation", "dep:core-graphics", "dep:core-text", "cpurender"]
 
 # ICU4X internationalization support (number/date/list formatting, pluralization)
 icu = ["dep:icu", "dep:icu_provider_blob", "dep:writeable", "std"]
