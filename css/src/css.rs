@@ -344,6 +344,9 @@ unsafe impl<T: Sync + 'static> Sync for BoxOrStatic<T> {}
 /// Type alias: `BoxOrStatic<StyleBoxShadow>` — used by codegen for FFI monomorphization.
 pub type BoxOrStaticStyleBoxShadow = BoxOrStatic<crate::props::style::box_shadow::StyleBoxShadow>;
 
+/// Type alias: `BoxOrStatic<AzString>` — used by NodeType::Text and NodeType::Icon.
+pub type BoxOrStaticString = BoxOrStatic<crate::AzString>;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)] // necessary for ABI stability
 pub enum CssPropertyValue<T> {

@@ -11660,7 +11660,7 @@
                             },
                             {
                                 "Text": {
-                                    "type": "String",
+                                    "type": "BoxOrStaticString",
                                     "doc": [
                                         "Text content, ::text"
                                     ]
@@ -11668,7 +11668,7 @@
                             },
                             {
                                 "Image": {
-                                    "type": "ImageRef",
+                                    "type": "BoxOrStaticImageRef",
                                     "doc": [
                                         "Image element, ::image"
                                     ]
@@ -11683,7 +11683,7 @@
                             },
                             {
                                 "Icon": {
-                                    "type": "String",
+                                    "type": "BoxOrStaticString",
                                     "doc": [
                                         "Icon element resolved by icon provider to image/font glyph."
                                     ]
@@ -32856,6 +32856,32 @@
                             "target": "BoxOrStatic",
                             "generic_args": [
                                 "StyleBoxShadow"
+                            ]
+                        }
+                    },
+                    "BoxOrStaticString": {
+                        "doc": [
+                            "BoxOrStatic instantiated with String (AzString)"
+                        ],
+                        "external": "azul_css::css::BoxOrStaticString",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "String"
+                            ]
+                        }
+                    },
+                    "BoxOrStaticImageRef": {
+                        "doc": [
+                            "BoxOrStatic instantiated with ImageRef"
+                        ],
+                        "external": "azul_core::dom::BoxOrStaticImageRef",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "ImageRef"
                             ]
                         }
                     },

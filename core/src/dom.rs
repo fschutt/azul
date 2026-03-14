@@ -495,6 +495,9 @@ pub enum NodeType {
     Icon(BoxOrStatic<AzString>),
 }
 
+/// Type alias: `BoxOrStatic<ImageRef>` — used by NodeType::Image for FFI monomorphization.
+pub type BoxOrStaticImageRef = BoxOrStatic<ImageRef>;
+
 impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl NodeType {
