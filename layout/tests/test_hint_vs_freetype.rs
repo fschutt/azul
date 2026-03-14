@@ -1828,3 +1828,93 @@ fn test_trace_L_ppem12() {
         raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
     );
 }
+
+/// Measure total text width at ppem=64 to find spacing discrepancy.
+#[test]
+fn test_total_width_64px() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed"); return; }
+    };
+
+    let text = "Lorem ipsum dolor.";
+    let ppem: u16 = 64;
+
+    let mut total_our = 0.0f32;
+    let mut total_ft = 0.0f32;
+    // FreeType DEFAULT advances at ppem=64 (from Python)
+    let ft_advances: &[(char, i32)] = &[
+        ('L', 2496), ('o', 2048), ('r', 1344), ('e', 1792), ('m', 3200),
+        (' ', 1024), ('i', 1152), ('p', 2048), ('s', 1600), ('u', 2048),
+        ('m', 3200), (' ', 1024), ('d', 2048), ('o', 2048), ('l', 1152),
+        ('o', 2048), ('r', 1344), ('.', 1024),
+    ];
+
+    for (i, ch) in text.chars().enumerate() {
+        let gid = font.lookup_glyph_index(ch as u32).unwrap_or(0);
+        let our_adv = font.get_hinted_advance_px(gid, ppem)
+            .unwrap_or(0.0);
+        let ft_adv = ft_advances[i].1 as f32 / 64.0;
+        total_our += our_adv;
+        total_ft += ft_adv;
+        if (our_adv - ft_adv).abs() > 0.01 {
+            eprintln!("'{ch}' our={our_adv:.2}px ft={ft_adv:.2}px diff={:.2}px total_our={total_our:.1}px total_ft={total_ft:.1}px",
+                our_adv - ft_adv);
+        }
+    }
+    eprintln!("\nTotal: our={total_our:.1}px ft={total_ft:.1}px diff={:.1}px viewport=375px",
+        total_our - total_ft);
+}
+
+#[test]
+fn test_trace_o_ppem64() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed"); return; }
+    };
+
+    let ppem: u16 = 64;
+    let glyph_id = font.lookup_glyph_index('o' as u32).unwrap();
+    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let raw_points = owned.raw_points.as_ref().unwrap();
+    let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
+    let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
+    let instructions = owned.instructions.as_ref().unwrap();
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(ppem, ppem as f64).unwrap();
+    hint.interpreter.debug_trace_points = true;
+    hint.interpreter.trace_mode = true;
+
+    let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+    let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+        (F26Dot6::from_funits(x as i32, scale).to_bits(),
+         F26Dot6::from_funits(y as i32, scale).to_bits())
+    }).collect();
+    let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
+    eprintln!("'o' ppem={ppem}: {} pts, adv_raw={adv_f26dot6} rounded={}",
+        raw_points.len(), (adv_f26dot6 + 32) & !63);
+
+    let adv = hint.hinted_advance_f26dot6(
+        &points_f26dot6, Some(raw_points.as_slice()),
+        raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
+    ).unwrap();
+    eprintln!("Hinted advance: {} F26Dot6 = {}px", adv, adv as f32 / 64.0);
+}
