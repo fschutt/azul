@@ -2166,7 +2166,7 @@ fn build_selector_for_node(
     let mut selector = tag_name;
     
     // Add ID if present (first ID wins)
-    for attr in node_data.attributes.as_ref().iter() {
+    for attr in node_data.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
             selector.push('#');
             selector.push_str(id);
@@ -2175,7 +2175,7 @@ fn build_selector_for_node(
     }
     
     // Add all classes
-    for attr in node_data.attributes.as_ref().iter() {
+    for attr in node_data.attributes().as_ref().iter() {
         if let Some(class) = attr.as_class() {
             selector.push('.');
             selector.push_str(class);
@@ -2183,7 +2183,7 @@ fn build_selector_for_node(
     }
     
     // If no ID or classes, add node index to make it unique
-    let has_id_or_class = node_data.attributes.as_ref().iter()
+    let has_id_or_class = node_data.attributes().as_ref().iter()
         .any(|a| a.as_id().is_some() || a.as_class().is_some());
     if !has_id_or_class {
         selector.push_str(&alloc::format!(":nth-child({})", node_id.index() + 1));
@@ -4245,7 +4245,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
             },
         };
 
-        let classes: Vec<String> = nd.attributes.as_ref().iter().filter_map(|attr| {
+        let classes: Vec<String> = nd.attributes().as_ref().iter().filter_map(|attr| {
             attr.as_class().map(|s| s.to_string())
         }).collect();
 
@@ -6355,7 +6355,7 @@ fn process_debug_event(
                     // Extract ID and classes from attributes
                     let mut id_attr = None;
                     let mut classes = Vec::new();
-                    for attr in data.attributes.as_ref().iter() {
+                    for attr in data.attributes().as_ref().iter() {
                         if let Some(id) = attr.as_id() {
                             id_attr = Some(id.to_string());
                         } else if let Some(class) = attr.as_class() {

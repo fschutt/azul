@@ -3910,7 +3910,7 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
     
     // Also check the attribute for backwards compatibility
     // Only return true if the attribute value is explicitly true
-    node_data.attributes.as_ref().iter().any(|attr| {
+    node_data.attributes().as_ref().iter().any(|attr| {
         matches!(attr, AttributeType::ContentEditable(true))
     })
 }
@@ -4544,7 +4544,7 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
         
         // Then check for explicit contenteditable attribute on this node
         // This handles HTML-style contenteditable="true" or contenteditable="false"
-        for attr in node_data.attributes.as_ref().iter() {
+        for attr in node_data.attributes().as_ref().iter() {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 // If explicitly set to true, node is editable
                 // If explicitly set to false, node is NOT editable (blocks inheritance)
@@ -4586,7 +4586,7 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
         }
         
         // Then check for contenteditable attribute on this node
-        for attr in node_data.attributes.as_ref().iter() {
+        for attr in node_data.attributes().as_ref().iter() {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 if *is_editable {
                     return Some(nid);

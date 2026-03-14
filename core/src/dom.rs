@@ -1270,9 +1270,6 @@ impl AttributeType {
 pub struct NodeData {
     /// `div`, `p`, `img`, etc.
     pub node_type: NodeType,
-    /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
-    /// IDs and classes are now stored as `AttributeType::Id` and `AttributeType::Class` entries.
-    pub attributes: AttributeTypeVec,
     /// Callbacks attached to this node:
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
@@ -1303,7 +1300,7 @@ impl_option!(
 impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
-        self.attributes.as_ref().hash(state);
+        self.attributes().as_ref().hash(state);
         self.flags.hash(state);
 
         // NOTE: callbacks are NOT hashed regularly, otherwise
@@ -1400,6 +1397,10 @@ impl Default for ComponentOrigin {
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
+    /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
+    /// IDs and classes are stored as `AttributeType::Id` and `AttributeType::Class` entries.
+    /// Moved from NodeData to save 48B for the ~95% of nodes with no attributes.
+    pub attributes: AttributeTypeVec,
     /// VirtualView callback data, only set when node_type == NodeType::VirtualView.
     pub virtual_view: Option<VirtualViewNode>,
     /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
@@ -1501,7 +1502,6 @@ impl Clone for NodeData {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            attributes: self.attributes.clone(),
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
@@ -1714,7 +1714,7 @@ impl fmt::Display for NodeData {
 fn node_data_to_string(node_data: &NodeData) -> String {
     let mut id_string = String::new();
     let ids = node_data
-        .attributes
+        .attributes()
         .as_ref()
         .iter()
         .filter_map(|s| s.as_id())
@@ -1727,7 +1727,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 
     let mut class_string = String::new();
     let classes = node_data
-        .attributes
+        .attributes()
         .as_ref()
         .iter()
         .filter_map(|s| s.as_class())
@@ -1752,13 +1752,36 @@ impl NodeData {
     pub const fn create_node(node_type: NodeType) -> Self {
         Self {
             node_type,
-            attributes: AttributeTypeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
             flags: NodeFlags::new(),
             accessibility: None,
             extra: None,
         }
+    }
+
+    /// Returns a reference to the node's attributes (from NodeDataExt).
+    /// Returns an empty slice if no attributes have been set.
+    #[inline]
+    pub fn attributes(&self) -> &AttributeTypeVec {
+        static EMPTY: AttributeTypeVec = AttributeTypeVec::from_const_slice(&[]);
+        match &self.extra {
+            Some(ext) => &ext.attributes,
+            None => &EMPTY,
+        }
+    }
+
+    /// Returns a mutable reference to the node's attributes,
+    /// lazily allocating NodeDataExt if needed.
+    #[inline]
+    pub fn attributes_mut(&mut self) -> &mut AttributeTypeVec {
+        &mut self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default())).attributes
+    }
+
+    /// Sets the node's attributes, replacing any existing ones.
+    #[inline]
+    pub fn set_attributes(&mut self, attrs: AttributeTypeVec) {
+        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default())).attributes = attrs;
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Body)`.
@@ -1810,14 +1833,14 @@ impl NodeData {
 
     /// Checks whether this node has the searched ID attached.
     pub fn has_id(&self, id: &str) -> bool {
-        self.attributes
+        self.attributes()
             .iter()
             .any(|attr| attr.as_id() == Some(id))
     }
 
     /// Checks whether this node has the searched class attached.
     pub fn has_class(&self, class: &str) -> bool {
-        self.attributes
+        self.attributes()
             .iter()
             .any(|attr| attr.as_class() == Some(class))
     }
@@ -1863,7 +1886,7 @@ impl NodeData {
     /// Note: this allocates a new vec each time, prefer `has_id()`/`has_class()` for checks.
     #[inline]
     pub fn get_ids_and_classes(&self) -> IdOrClassVec {
-        let v: Vec<IdOrClass> = self.attributes.as_ref().iter().filter_map(|attr| {
+        let v: Vec<IdOrClass> = self.attributes().as_ref().iter().filter_map(|attr| {
             match attr {
                 AttributeType::Id(s) => Some(IdOrClass::Id(s.clone())),
                 AttributeType::Class(s) => Some(IdOrClass::Class(s.clone())),
@@ -1934,7 +1957,7 @@ impl NodeData {
     pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) {
         // Remove existing Id/Class from attributes
         let mut v: AttributeTypeVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.attributes);
+        mem::swap(&mut v, self.attributes_mut());
         let mut v = v.into_library_owned_vec();
         v.retain(|a| !matches!(a, AttributeType::Id(_) | AttributeType::Class(_)));
         // Convert and append
@@ -1944,7 +1967,7 @@ impl NodeData {
                 IdOrClass::Class(s) => v.push(AttributeType::Class(s.clone())),
             }
         }
-        self.attributes = v.into();
+        self.set_attributes(v.into());
     }
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: CoreCallbackDataVec) {
@@ -2119,18 +2142,18 @@ impl NodeData {
     #[inline]
     pub fn add_id(&mut self, s: AzString) {
         let mut v: AttributeTypeVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.attributes);
+        mem::swap(&mut v, self.attributes_mut());
         let mut v = v.into_library_owned_vec();
         v.push(AttributeType::Id(s));
-        self.attributes = v.into();
+        self.set_attributes(v.into());
     }
     #[inline]
     pub fn add_class(&mut self, s: AzString) {
         let mut v: AttributeTypeVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.attributes);
+        mem::swap(&mut v, self.attributes_mut());
         let mut v = v.into_library_owned_vec();
         v.push(AttributeType::Class(s));
-        self.attributes = v.into();
+        self.set_attributes(v.into());
     }
 
     /// Add a CSS property with optional conditions (hover, focus, active, etc.)
@@ -2204,7 +2227,7 @@ impl NodeData {
         
         // Hash IDs and classes - these are structural and shouldn't change
         // (They are now stored as AttributeType::Id / AttributeType::Class in attributes)
-        for attr in self.attributes.as_ref().iter() {
+        for attr in self.attributes().as_ref().iter() {
             match attr {
                 AttributeType::Id(s) => { 0u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
                 AttributeType::Class(s) => { 1u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
@@ -2214,7 +2237,7 @@ impl NodeData {
         
         // Hash other attributes - but skip contenteditable since that might change
         // Also skip Id/Class since they were already hashed above
-        for attr in self.attributes.as_ref().iter() {
+        for attr in self.attributes().as_ref().iter() {
             if !matches!(attr, AttributeType::ContentEditable(_) | AttributeType::Id(_) | AttributeType::Class(_)) {
                 attr.hash(&mut hasher);
             }
@@ -2454,7 +2477,6 @@ impl NodeData {
     pub fn copy_special(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            attributes: self.attributes.clone(),
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
@@ -4386,17 +4408,17 @@ impl Dom {
     /// Adds an attribute to this DOM element.
     #[inline(always)]
     pub fn with_attribute(mut self, attr: AttributeType) -> Self {
-        let mut attrs = self.root.attributes.clone();
+        let mut attrs = self.root.attributes().clone();
         let mut v = attrs.into_library_owned_vec();
         v.push(attr);
-        self.root.attributes = v.into();
+        self.root.set_attributes(v.into());
         self
     }
 
     /// Adds multiple attributes to this DOM element.
     #[inline(always)]
     pub fn with_attributes(mut self, attributes: AttributeTypeVec) -> Self {
-        self.root.attributes = attributes;
+        self.root.set_attributes(attributes);
         self
     }
 

@@ -207,10 +207,10 @@ pub fn compute_node_changes(
     // 3. IDs and classes (now stored in attributes as AttributeType::Id/Class)
     {
         use crate::dom::AttributeType;
-        let old_ids_classes: Vec<_> = old_node.attributes.as_ref().iter()
+        let old_ids_classes: Vec<_> = old_node.attributes().as_ref().iter()
             .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
             .collect();
-        let new_ids_classes: Vec<_> = new_node.attributes.as_ref().iter()
+        let new_ids_classes: Vec<_> = new_node.attributes().as_ref().iter()
             .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
             .collect();
         if old_ids_classes != new_ids_classes {
@@ -372,7 +372,7 @@ pub fn calculate_reconciliation_key(
     }
     
     // Priority 2: CSS ID
-    for attr in node.attributes.as_ref().iter() {
+    for attr in node.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
             let mut hasher = HighwayHasher::new(Key([0; 4]));
             id.hash(&mut hasher);
@@ -385,7 +385,7 @@ pub fn calculate_reconciliation_key(
     
     // Hash node type discriminant and classes (nth-of-type logic)
     core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-    for attr in node.attributes.as_ref().iter() {
+    for attr in node.attributes().as_ref().iter() {
         if let Some(class) = attr.as_class() {
             class.hash(&mut hasher);
         }
@@ -851,7 +851,7 @@ pub fn calculate_contenteditable_key(
     }
     
     // Priority 2: CSS ID
-    for attr in node.attributes.as_ref().iter() {
+    for attr in node.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
             let mut hasher = HighwayHasher::new(Key([1; 4])); // Different seed for ID keys
             hasher.append(id.as_bytes());
@@ -911,7 +911,7 @@ pub fn calculate_contenteditable_key(
     }
     
     // Also hash the classes for additional stability
-    for attr in node.attributes.as_ref().iter() {
+    for attr in node.attributes().as_ref().iter() {
         if let Some(class) = attr.as_class() {
             hasher.append(class.as_bytes());
         }
@@ -1473,7 +1473,7 @@ impl NodeDataFingerprint {
         // IDs and classes hash (now stored in attributes)
         let ids_classes_hash = {
             let mut h = HighwayHasher::new(Key([4; 4]));
-            for attr in node.attributes.as_ref().iter() {
+            for attr in node.attributes().as_ref().iter() {
                 match attr {
                     crate::dom::AttributeType::Id(s) => {
                         crate::dom::IdOrClass::Id(s.clone()).hash(&mut h);

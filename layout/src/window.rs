@@ -3723,7 +3723,7 @@ impl LayoutWindow {
                         // NodeData has a direct `contenteditable: bool` field that should be
                         // checked in addition to the attribute for robustness
                         let is_contenteditable = styled_node.is_contenteditable()
-                            || styled_node.attributes.as_ref().iter().any(|attr| {
+                            || styled_node.attributes().as_ref().iter().any(|attr| {
                                 matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                             });
 
@@ -3927,7 +3927,7 @@ impl LayoutWindow {
                     {
                         // Try "value" attribute first
                         styled_node
-                            .attributes
+                            .attributes()
                             .as_ref()
                             .iter()
                             .find_map(|attr| {
@@ -4302,7 +4302,7 @@ impl LayoutWindow {
         // NodeData has a direct `contenteditable: bool` field that should be
         // checked in addition to the attribute for robustness
         let is_contenteditable = styled_node.is_contenteditable()
-            || styled_node.attributes.as_ref().iter().any(|attr| {
+            || styled_node.attributes().as_ref().iter().any(|attr| {
                 matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
             });
 
@@ -5619,7 +5619,7 @@ impl LayoutWindow {
                         }
 
                         // Also check the attribute (for backwards compatibility)
-                        let has_contenteditable_attr = styled_node.attributes.as_ref().iter().any(|attr| {
+                        let has_contenteditable_attr = styled_node.attributes().as_ref().iter().any(|attr| {
                             matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                         });
                         if has_contenteditable_attr {

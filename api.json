@@ -10320,9 +10320,6 @@
                                 "node_type": {
                                     "type": "NodeType"
                                 },
-                                "attributes": {
-                                    "type": "AttributeTypeVec"
-                                },
                                 "callbacks": {
                                     "type": "CoreCallbackDataVec"
                                 },
@@ -10874,819 +10871,130 @@
                         ],
                         "enum_fields": [
                             {
-                                "Html": {
-                                    "doc": [
-                                        "Root HTML element."
-                                    ]
-                                }
-                            },
-                            {
-                                "Head": {
-                                    "doc": [
-                                        "Document head (metadata container)."
-                                    ]
-                                }
-                            },
-                            {
-                                "Body": {
-                                    "doc": [
-                                        "Root element of the document body."
-                                    ]
-                                }
-                            },
-                            {
-                                "Div": {
-                                    "doc": [
-                                        "Generic block-level container."
-                                    ]
-                                }
-                            },
-                            {
-                                "P": {
-                                    "doc": [
-                                        "Paragraph."
-                                    ]
-                                }
-                            },
-                            {
-                                "Article": {
-                                    "doc": [
-                                        "Article content."
-                                    ]
-                                }
-                            },
-                            {
-                                "Section": {
-                                    "doc": [
-                                        "Section of a document."
-                                    ]
-                                }
-                            },
-                            {
-                                "Nav": {
-                                    "doc": [
-                                        "Navigation links."
-                                    ]
-                                }
-                            },
-                            {
-                                "Aside": {
-                                    "doc": [
-                                        "Sidebar/tangential content."
-                                    ]
-                                }
-                            },
-                            {
-                                "Header": {
-                                    "doc": [
-                                        "Header section."
-                                    ]
-                                }
-                            },
-                            {
-                                "Footer": {
-                                    "doc": [
-                                        "Footer section."
-                                    ]
-                                }
-                            },
-                            {
-                                "Main": {
-                                    "doc": [
-                                        "Main content."
-                                    ]
-                                }
-                            },
-                            {
-                                "Figure": {
-                                    "doc": [
-                                        "Figure with optional caption."
-                                    ]
-                                }
-                            },
-                            {
-                                "FigCaption": {
-                                    "doc": [
-                                        "Caption for figure element."
-                                    ]
-                                }
-                            },
-                            {
-                                "H1": {
-                                    "doc": [
-                                        "Headings."
-                                    ]
-                                }
-                            },
-                            {
-                                "H2": {}
-                            },
-                            {
-                                "H3": {}
-                            },
-                            {
-                                "H4": {}
-                            },
-                            {
-                                "H5": {}
-                            },
-                            {
-                                "H6": {}
-                            },
-                            {
-                                "Br": {
-                                    "doc": [
-                                        "Line break."
-                                    ]
-                                }
-                            },
-                            {
-                                "Hr": {
-                                    "doc": [
-                                        "Horizontal rule."
-                                    ]
-                                }
-                            },
-                            {
-                                "Pre": {
-                                    "doc": [
-                                        "Preformatted text."
-                                    ]
-                                }
-                            },
-                            {
-                                "BlockQuote": {
-                                    "doc": [
-                                        "Block quote."
-                                    ]
-                                }
-                            },
-                            {
-                                "Address": {
-                                    "doc": [
-                                        "Address."
-                                    ]
-                                }
-                            },
-                            {
-                                "Details": {
-                                    "doc": [
-                                        "Details disclosure widget."
-                                    ]
-                                }
-                            },
-                            {
-                                "Summary": {
-                                    "doc": [
-                                        "Summary for details element."
-                                    ]
-                                }
-                            },
-                            {
-                                "Dialog": {
-                                    "doc": [
-                                        "Dialog box or window."
-                                    ]
-                                }
-                            },
-                            {
-                                "Ul": {
-                                    "doc": [
-                                        "Unordered list."
-                                    ]
-                                }
-                            },
-                            {
-                                "Ol": {
-                                    "doc": [
-                                        "Ordered list."
-                                    ]
-                                }
-                            },
-                            {
-                                "Li": {
-                                    "doc": [
-                                        "List item."
-                                    ]
-                                }
-                            },
-                            {
-                                "Dl": {
-                                    "doc": [
-                                        "Definition list."
-                                    ]
-                                }
-                            },
-                            {
-                                "Dt": {
-                                    "doc": [
-                                        "Definition term."
-                                    ]
-                                }
-                            },
-                            {
-                                "Dd": {
-                                    "doc": [
-                                        "Definition description."
-                                    ]
-                                }
-                            },
-                            {
-                                "Menu": {
-                                    "doc": [
-                                        "Menu list."
-                                    ]
-                                }
-                            },
-                            {
-                                "MenuItem": {
-                                    "doc": [
-                                        "Menu item."
-                                    ]
-                                }
-                            },
-                            {
-                                "Dir": {
-                                    "doc": [
-                                        "Directory list (deprecated)."
-                                    ]
-                                }
-                            },
-                            {
-                                "Table": {
-                                    "doc": [
-                                        "Table container."
-                                    ]
-                                }
-                            },
-                            {
-                                "Caption": {
-                                    "doc": [
-                                        "Table caption."
-                                    ]
-                                }
-                            },
-                            {
-                                "THead": {
-                                    "doc": [
-                                        "Table header."
-                                    ]
-                                }
-                            },
-                            {
-                                "TBody": {
-                                    "doc": [
-                                        "Table body."
-                                    ]
-                                }
-                            },
-                            {
-                                "TFoot": {
-                                    "doc": [
-                                        "Table footer."
-                                    ]
-                                }
-                            },
-                            {
-                                "Tr": {
-                                    "doc": [
-                                        "Table row."
-                                    ]
-                                }
-                            },
-                            {
-                                "Th": {
-                                    "doc": [
-                                        "Table header cell."
-                                    ]
-                                }
-                            },
-                            {
-                                "Td": {
-                                    "doc": [
-                                        "Table data cell."
-                                    ]
-                                }
-                            },
-                            {
-                                "ColGroup": {
-                                    "doc": [
-                                        "Table column group."
-                                    ]
-                                }
-                            },
-                            {
-                                "Col": {
-                                    "doc": [
-                                        "Table column."
-                                    ]
-                                }
-                            },
-                            {
-                                "Form": {
-                                    "doc": [
-                                        "Form container."
-                                    ]
-                                }
-                            },
-                            {
-                                "FieldSet": {
-                                    "doc": [
-                                        "Form fieldset."
-                                    ]
-                                }
-                            },
-                            {
-                                "Legend": {
-                                    "doc": [
-                                        "Fieldset legend."
-                                    ]
-                                }
-                            },
-                            {
-                                "Label": {
-                                    "doc": [
-                                        "Label for form controls."
-                                    ]
-                                }
-                            },
-                            {
-                                "Input": {
-                                    "doc": [
-                                        "Input control."
-                                    ]
-                                }
-                            },
-                            {
-                                "Button": {
-                                    "doc": [
-                                        "Button control."
-                                    ]
-                                }
-                            },
-                            {
-                                "Select": {
-                                    "doc": [
-                                        "Select dropdown."
-                                    ]
-                                }
-                            },
-                            {
-                                "OptGroup": {
-                                    "doc": [
-                                        "Option group."
-                                    ]
-                                }
-                            },
-                            {
-                                "SelectOption": {
-                                    "doc": [
-                                        "Select option."
-                                    ]
-                                }
-                            },
-                            {
-                                "TextArea": {
-                                    "doc": [
-                                        "Multiline text input."
-                                    ]
-                                }
-                            },
-                            {
-                                "Output": {
-                                    "doc": [
-                                        "Form output element."
-                                    ]
-                                }
-                            },
-                            {
-                                "Progress": {
-                                    "doc": [
-                                        "Progress indicator."
-                                    ]
-                                }
-                            },
-                            {
-                                "Meter": {
-                                    "doc": [
-                                        "Scalar measurement within a known range."
-                                    ]
-                                }
-                            },
-                            {
-                                "DataList": {
-                                    "doc": [
-                                        "List of predefined options for input."
-                                    ]
-                                }
-                            },
-                            {
-                                "Span": {
-                                    "doc": [
-                                        "Generic inline container."
-                                    ]
-                                }
-                            },
-                            {
-                                "A": {
-                                    "doc": [
-                                        "Anchor/hyperlink."
-                                    ]
-                                }
-                            },
-                            {
-                                "Em": {
-                                    "doc": [
-                                        "Emphasized text."
-                                    ]
-                                }
-                            },
-                            {
-                                "Strong": {
-                                    "doc": [
-                                        "Strongly emphasized text."
-                                    ]
-                                }
-                            },
-                            {
-                                "B": {
-                                    "doc": [
-                                        "Bold text (deprecated - use `Dom::strong()` for semantic importance)."
-                                    ]
-                                }
-                            },
-                            {
-                                "I": {
-                                    "doc": [
-                                        "Italic text (deprecated - use `Dom::em()` for emphasis or `Dom::cite()` for citations)."
-                                    ]
-                                }
-                            },
-                            {
-                                "U": {
-                                    "doc": [
-                                        "Underline text."
-                                    ]
-                                }
-                            },
-                            {
-                                "S": {
-                                    "doc": [
-                                        "Strikethrough text."
-                                    ]
-                                }
-                            },
-                            {
-                                "Mark": {
-                                    "doc": [
-                                        "Marked/highlighted text."
-                                    ]
-                                }
-                            },
-                            {
-                                "Del": {
-                                    "doc": [
-                                        "Deleted text."
-                                    ]
-                                }
-                            },
-                            {
-                                "Ins": {
-                                    "doc": [
-                                        "Inserted text."
-                                    ]
-                                }
-                            },
-                            {
-                                "Code": {
-                                    "doc": [
-                                        "Code."
-                                    ]
-                                }
-                            },
-                            {
-                                "Samp": {
-                                    "doc": [
-                                        "Sample output."
-                                    ]
-                                }
-                            },
-                            {
-                                "Kbd": {
-                                    "doc": [
-                                        "Keyboard input."
-                                    ]
-                                }
-                            },
-                            {
-                                "Var": {
-                                    "doc": [
-                                        "Variable."
-                                    ]
-                                }
-                            },
-                            {
-                                "Cite": {
-                                    "doc": [
-                                        "Citation."
-                                    ]
-                                }
-                            },
-                            {
-                                "Dfn": {
-                                    "doc": [
-                                        "Defining instance of a term."
-                                    ]
-                                }
-                            },
-                            {
-                                "Abbr": {
-                                    "doc": [
-                                        "Abbreviation."
-                                    ]
-                                }
-                            },
-                            {
-                                "Acronym": {
-                                    "doc": [
-                                        "Acronym."
-                                    ]
-                                }
-                            },
-                            {
-                                "Q": {
-                                    "doc": [
-                                        "Inline quotation."
-                                    ]
-                                }
-                            },
-                            {
-                                "Time": {
-                                    "doc": [
-                                        "Date/time."
-                                    ]
-                                }
-                            },
-                            {
-                                "Sub": {
-                                    "doc": [
-                                        "Subscript."
-                                    ]
-                                }
-                            },
-                            {
-                                "Sup": {
-                                    "doc": [
-                                        "Superscript."
-                                    ]
-                                }
-                            },
-                            {
-                                "Small": {
-                                    "doc": [
-                                        "Small text (deprecated - use CSS `font-size` instead)."
-                                    ]
-                                }
-                            },
-                            {
-                                "Big": {
-                                    "doc": [
-                                        "Big text (deprecated - use CSS `font-size` instead)."
-                                    ]
-                                }
-                            },
-                            {
-                                "Bdo": {
-                                    "doc": [
-                                        "Bi-directional override."
-                                    ]
-                                }
-                            },
-                            {
-                                "Bdi": {
-                                    "doc": [
-                                        "Bi-directional isolate."
-                                    ]
-                                }
-                            },
-                            {
-                                "Wbr": {
-                                    "doc": [
-                                        "Word break opportunity."
-                                    ]
-                                }
-                            },
-                            {
-                                "Ruby": {
-                                    "doc": [
-                                        "Ruby annotation."
-                                    ]
-                                }
-                            },
-                            {
-                                "Rt": {
-                                    "doc": [
-                                        "Ruby text."
-                                    ]
-                                }
-                            },
-                            {
-                                "Rtc": {
-                                    "doc": [
-                                        "Ruby text container."
-                                    ]
-                                }
-                            },
-                            {
-                                "Rp": {
-                                    "doc": [
-                                        "Ruby parenthesis."
-                                    ]
-                                }
-                            },
-                            {
-                                "Data": {
-                                    "doc": [
-                                        "Machine-readable data."
-                                    ]
-                                }
-                            },
-                            {
-                                "Canvas": {
-                                    "doc": [
-                                        "Canvas for graphics."
-                                    ]
-                                }
-                            },
-                            {
-                                "Object": {
-                                    "doc": [
-                                        "Embedded object."
-                                    ]
-                                }
-                            },
-                            {
-                                "Param": {
-                                    "doc": [
-                                        "Embedded object parameter."
-                                    ]
-                                }
-                            },
-                            {
-                                "Embed": {
-                                    "doc": [
-                                        "External resource embed."
-                                    ]
-                                }
-                            },
-                            {
-                                "Audio": {
-                                    "doc": [
-                                        "Audio content."
-                                    ]
-                                }
-                            },
-                            {
-                                "Video": {
-                                    "doc": [
-                                        "Video content."
-                                    ]
-                                }
-                            },
-                            {
-                                "Source": {
-                                    "doc": [
-                                        "Media source."
-                                    ]
-                                }
-                            },
-                            {
-                                "Track": {
-                                    "doc": [
-                                        "Text track for media."
-                                    ]
-                                }
-                            },
-                            {
-                                "Map": {
-                                    "doc": [
-                                        "Image map."
-                                    ]
-                                }
-                            },
-                            {
-                                "Area": {
-                                    "doc": [
-                                        "Image map area."
-                                    ]
-                                }
-                            },
-                            {
-                                "Svg": {
-                                    "doc": [
-                                        "SVG graphics."
-                                    ]
-                                }
-                            },
-                            {
-                                "Title": {
-                                    "doc": [
-                                        "Document title."
-                                    ]
-                                }
-                            },
-                            {
-                                "Meta": {
-                                    "doc": [
-                                        "Metadata."
-                                    ]
-                                }
-                            },
-                            {
-                                "Link": {
-                                    "doc": [
-                                        "External resource link."
-                                    ]
-                                }
-                            },
-                            {
-                                "Script": {
-                                    "doc": [
-                                        "Embedded or referenced script."
-                                    ]
-                                }
-                            },
-                            {
-                                "Style": {
-                                    "doc": [
-                                        "Style information."
-                                    ]
-                                }
-                            },
-                            {
-                                "Base": {
-                                    "doc": [
-                                        "Base URL for relative URLs."
-                                    ]
-                                }
-                            },
-                            {
-                                "Before": {
-                                    "doc": [
-                                        "::before pseudo-element."
-                                    ]
-                                }
-                            },
-                            {
-                                "After": {
-                                    "doc": [
-                                        "::after pseudo-element."
-                                    ]
-                                }
-                            },
-                            {
-                                "Marker": {
-                                    "doc": [
-                                        "::marker pseudo-element."
-                                    ]
-                                }
-                            },
-                            {
-                                "Placeholder": {
-                                    "doc": [
-                                        "::placeholder pseudo-element."
-                                    ]
-                                }
-                            },
-                            {
+                                "Html": {},
+                                "Head": {},
+                                "Body": {},
+                                "Div": {},
+                                "P": {},
+                                "Article": {},
+                                "Section": {},
+                                "Nav": {},
+                                "Aside": {},
+                                "Header": {},
+                                "Footer": {},
+                                "Main": {},
+                                "Figure": {},
+                                "FigCaption": {},
+                                "H1": {},
+                                "H2": {},
+                                "H3": {},
+                                "H4": {},
+                                "H5": {},
+                                "H6": {},
+                                "Br": {},
+                                "Hr": {},
+                                "Pre": {},
+                                "BlockQuote": {},
+                                "Address": {},
+                                "Details": {},
+                                "Summary": {},
+                                "Dialog": {},
+                                "Ul": {},
+                                "Ol": {},
+                                "Li": {},
+                                "Dl": {},
+                                "Dt": {},
+                                "Dd": {},
+                                "Menu": {},
+                                "MenuItem": {},
+                                "Dir": {},
+                                "Table": {},
+                                "Caption": {},
+                                "THead": {},
+                                "TBody": {},
+                                "TFoot": {},
+                                "Tr": {},
+                                "Th": {},
+                                "Td": {},
+                                "ColGroup": {},
+                                "Col": {},
+                                "Form": {},
+                                "FieldSet": {},
+                                "Legend": {},
+                                "Label": {},
+                                "Input": {},
+                                "Button": {},
+                                "Select": {},
+                                "OptGroup": {},
+                                "SelectOption": {},
+                                "TextArea": {},
+                                "Output": {},
+                                "Progress": {},
+                                "Meter": {},
+                                "DataList": {},
+                                "Span": {},
+                                "A": {},
+                                "Em": {},
+                                "Strong": {},
+                                "B": {},
+                                "I": {},
+                                "U": {},
+                                "S": {},
+                                "Mark": {},
+                                "Del": {},
+                                "Ins": {},
+                                "Code": {},
+                                "Samp": {},
+                                "Kbd": {},
+                                "Var": {},
+                                "Cite": {},
+                                "Dfn": {},
+                                "Abbr": {},
+                                "Acronym": {},
+                                "Q": {},
+                                "Time": {},
+                                "Sub": {},
+                                "Sup": {},
+                                "Small": {},
+                                "Big": {},
+                                "Bdo": {},
+                                "Bdi": {},
+                                "Wbr": {},
+                                "Ruby": {},
+                                "Rt": {},
+                                "Rtc": {},
+                                "Rp": {},
+                                "Data": {},
+                                "Canvas": {},
+                                "Object": {},
+                                "Param": {},
+                                "Embed": {},
+                                "Audio": {},
+                                "Video": {},
+                                "Source": {},
+                                "Track": {},
+                                "Map": {},
+                                "Area": {},
+                                "Svg": {},
+                                "Title": {},
+                                "Meta": {},
+                                "Link": {},
+                                "Script": {},
+                                "Style": {},
+                                "Base": {},
+                                "Before": {},
+                                "After": {},
+                                "Marker": {},
+                                "Placeholder": {},
                                 "Text": {
-                                    "type": "BoxOrStaticString",
-                                    "doc": [
-                                        "Text content, ::text"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "BoxOrStatic<String>"
+                                },
                                 "Image": {
-                                    "type": "BoxOrStaticImageRef",
-                                    "doc": [
-                                        "Image element, ::image"
-                                    ]
-                                }
-                            },
-                            {
-                                "VirtualView": {
-                                    "doc": [
-                                        "VirtualView (embedded content) - payload stored in NodeDataExt.virtual_view"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "BoxOrStatic<ImageRef>"
+                                },
+                                "VirtualView": {},
                                 "Icon": {
-                                    "type": "BoxOrStaticString",
-                                    "doc": [
-                                        "Icon element resolved by icon provider to image/font glyph."
-                                    ]
+                                    "type": "BoxOrStatic<String>"
                                 }
                             }
                         ],
@@ -16019,6 +15327,12 @@
                                     "type": "LayoutOverflowValue"
                                 },
                                 "OverflowY": {
+                                    "type": "LayoutOverflowValue"
+                                },
+                                "OverflowBlock": {
+                                    "type": "LayoutOverflowValue"
+                                },
+                                "OverflowInline": {
                                     "type": "LayoutOverflowValue"
                                 },
                                 "GridAutoFlow": {
@@ -28541,6 +27855,8 @@
                                 "BackgroundRepeat": {},
                                 "OverflowX": {},
                                 "OverflowY": {},
+                                "OverflowBlock": {},
+                                "OverflowInline": {},
                                 "PaddingTop": {},
                                 "PaddingLeft": {},
                                 "PaddingRight": {},
@@ -31773,7 +31089,10 @@
                                 "Font": {},
                                 "Columns": {},
                                 "ColumnRule": {},
-                                "GridArea": {}
+                                "GridArea": {},
+                                "TextBox": {},
+                                "InsetBlock": {},
+                                "InsetInline": {}
                             }
                         ],
                         "repr": "C"
@@ -32859,32 +32178,6 @@
                             ]
                         }
                     },
-                    "BoxOrStaticString": {
-                        "doc": [
-                            "BoxOrStatic instantiated with String (AzString)"
-                        ],
-                        "external": "azul_css::css::BoxOrStaticString",
-                        "derive": [],
-                        "type_alias": {
-                            "target": "BoxOrStatic",
-                            "generic_args": [
-                                "String"
-                            ]
-                        }
-                    },
-                    "BoxOrStaticImageRef": {
-                        "doc": [
-                            "BoxOrStatic instantiated with ImageRef"
-                        ],
-                        "external": "azul_core::dom::BoxOrStaticImageRef",
-                        "derive": [],
-                        "type_alias": {
-                            "target": "BoxOrStatic",
-                            "generic_args": [
-                                "ImageRef"
-                            ]
-                        }
-                    },
                     "StyleOverflowWrapValue": {
                         "external": "azul_css::props::property::StyleOverflowWrapValue",
                         "repr": "C",
@@ -33086,7 +32379,8 @@
                             {
                                 "Normal": {},
                                 "BreakAll": {},
-                                "KeepAll": {}
+                                "KeepAll": {},
+                                "BreakWord": {}
                             }
                         ],
                         "repr": "C"
@@ -33573,6 +32867,9 @@
                         ],
                         "struct_fields": [
                             {
+                                "clip_edge": {
+                                    "type": "VisualBox"
+                                },
                                 "inner": {
                                     "type": "PixelValue"
                                 }
@@ -50063,6 +49360,19 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "BoxOrStaticImageRef": {
+                        "doc": [
+                            "BoxOrStatic instantiated with ImageRef"
+                        ],
+                        "external": "azul_core::dom::BoxOrStaticImageRef",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "ImageRef"
+                            ]
+                        }
                     }
                 }
             },
@@ -53669,6 +52979,19 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "BoxOrStaticString": {
+                        "doc": [
+                            "BoxOrStatic instantiated with String (AzString)"
+                        ],
+                        "external": "azul_css::css::BoxOrStaticString",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "String"
+                            ]
+                        }
                     }
                 }
             },

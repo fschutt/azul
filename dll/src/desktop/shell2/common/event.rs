@@ -3418,7 +3418,7 @@ pub trait PlatformWindow {
                                 let mut current = Some(*target_node_id);
                                 while let Some(node_id) = current {
                                     if let Some(node_data) = node_data_container.get(node_id) {
-                                        let is_draggable = node_data.attributes.as_ref().iter().any(|attr| {
+                                        let is_draggable = node_data.attributes().as_ref().iter().any(|attr| {
                                             matches!(attr, azul_core::dom::AttributeType::Draggable(true))
                                         });
                                         if is_draggable {

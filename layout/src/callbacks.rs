@@ -1885,7 +1885,7 @@ impl CallbackInfo {
         let node_data = node_data_cont.get(node_id_internal)?;
 
         // Check the strongly-typed attributes vec
-        for attr in node_data.attributes.as_ref() {
+        for attr in node_data.attributes().as_ref() {
             match (attr_name, attr) {
                 ("id", AttributeType::Id(v)) => return Some(v.clone()),
                 ("class", AttributeType::Class(v)) => return Some(v.clone()),
@@ -1954,7 +1954,7 @@ impl CallbackInfo {
 
         // Fallback: check attributes for "id" and "class"
         if attr_name == "id" {
-            for attr in node_data.attributes.as_ref().iter() {
+            for attr in node_data.attributes().as_ref().iter() {
                 if let Some(id) = attr.as_id() {
                     return Some(id.to_string().into());
                 }
@@ -1963,7 +1963,7 @@ impl CallbackInfo {
 
         if attr_name == "class" {
             let classes: Vec<&str> = node_data
-                .attributes
+                .attributes()
                 .as_ref()
                 .iter()
                 .filter_map(|attr| attr.as_class())
@@ -1993,7 +1993,7 @@ impl CallbackInfo {
         };
 
         let classes: Vec<AzString> = node_data
-            .attributes
+            .attributes()
             .as_ref()
             .iter()
             .filter_map(|attr| {
@@ -2012,7 +2012,7 @@ impl CallbackInfo {
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_cont.get(node_id_internal)?;
 
-        for attr in node_data.attributes.as_ref().iter() {
+        for attr in node_data.attributes().as_ref().iter() {
             if let Some(id) = attr.as_id() {
                 return Some(id.to_string().into());
             }

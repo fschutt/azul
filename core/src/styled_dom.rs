@@ -2724,10 +2724,10 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         // Compare IDs and classes (now stored in attributes as AttributeType::Id/Class)
         {
             use crate::dom::AttributeType;
-            let old_ids_classes: Vec<_> = old_node.attributes.as_ref().iter()
+            let old_ids_classes: Vec<_> = old_node.attributes().as_ref().iter()
                 .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
                 .collect();
-            let new_ids_classes: Vec<_> = new_node.attributes.as_ref().iter()
+            let new_ids_classes: Vec<_> = new_node.attributes().as_ref().iter()
                 .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
                 .collect();
             if old_ids_classes != new_ids_classes {
@@ -2754,7 +2754,7 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         }
 
         // Compare attributes (some affect layout, e.g. colspan)
-        if old_node.attributes.as_ref() != new_node.attributes.as_ref() {
+        if old_node.attributes().as_ref() != new_node.attributes().as_ref() {
             return false;
         }
     }
