@@ -85,7 +85,7 @@ use crate::{
             get_writing_mode, MultiValue,
         },
         layout_tree::{
-            AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutTree, PseudoElement,
+            AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutNodeHot, LayoutNodeWarm, LayoutNodeCold, LayoutTree, PseudoElement,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -622,8 +622,8 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 
     let children: Vec<usize> = tree.children(node_index).to_vec();
     for &child_idx in &children {
-        if let Some(child_node) = tree.get(child_idx) {
-            if let Some(pos) = child_node.relative_position {
+        if let Some(warm_node) = tree.warm(child_idx) {
+            if let Some(pos) = warm_node.relative_position {
                 output.positions.insert(child_idx, pos);
             }
         }
@@ -635,7 +635,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 /// Resolves explicit CSS width to pixel value for Taffy layout.
 fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
     constraints: &LayoutConstraints,
 ) -> (Option<f32>, bool) {
     node.dom_node_id
@@ -674,7 +674,7 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
 /// Resolves explicit CSS height to pixel value for Taffy layout.
 fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
     constraints: &LayoutConstraints,
 ) -> (Option<f32>, bool) {
     node.dom_node_id
@@ -932,8 +932,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                     crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
                 }
                 LayoutOverflow::Auto => {
-                    let already_needs = node.scrollbar_info
-                        .as_ref()
+                    let already_needs = tree.warm(node_index)
+                        .and_then(|w| w.scrollbar_info.as_ref())
                         .map(|s| s.needs_vertical)
                         .unwrap_or(false);
                     if already_needs {
@@ -1038,7 +1038,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // +spec:margin-collapsing:2476d8 - margins do not collapse across formatting context boundaries
     // If this node establishes an independent formatting context (new BFC), its margins
     // must NOT collapse with its children's margins. The children are in a different FC.
-    let is_bfc_root = node.parent.is_none() || establishes_new_bfc(ctx, &node);
+    let is_bfc_root = node.parent.is_none() || establishes_new_bfc(ctx, &node, tree.cold(node_index));
 
     // Check if parent (this BFC root) has border/padding that prevents parent-child collapse
     let parent_has_top_blocker = is_bfc_root
@@ -1079,7 +1079,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 let float_size = match child_node.used_size {
                     Some(size) => size,
                     None => {
-                        let intrinsic = child_node.intrinsic_sizes.unwrap_or_default();
+                        let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                         let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
                             ctx.styled_dom,
                             child_dom_id,
@@ -1177,7 +1177,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             Some(size) => size,
             None => {
                 // Calculate size without recursive layout
-                let intrinsic = child_node.intrinsic_sizes.unwrap_or_default();
+                let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     child_dom_id,
@@ -1588,7 +1588,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // +spec:floats:a29f70 - BFC roots, tables, and block-level replaced elements must not overlap float margin boxes
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let avoids_floats = establishes_new_bfc(ctx, child_node)
+        let avoids_floats = establishes_new_bfc(ctx, child_node, tree.cold(child_index))
             || is_block_level_replaced(ctx, child_node);
 
         // Query available space considering floats ONLY if child avoids floats
@@ -2262,13 +2262,13 @@ fn layout_bfc<T: ParsedFontTrait>(
     output.baseline = None;
 
     // Store escaped margins in the LayoutNode for use by parent
-    if let Some(node_mut) = tree.get_mut(node_index) {
-        node_mut.escaped_top_margin = escaped_top_margin;
-        node_mut.escaped_bottom_margin = escaped_bottom_margin;
+    if let Some(warm_mut) = tree.warm_mut(node_index) {
+        warm_mut.escaped_top_margin = escaped_top_margin;
+        warm_mut.escaped_bottom_margin = escaped_bottom_margin;
     }
 
-    if let Some(node_mut) = tree.get_mut(node_index) {
-        node_mut.baseline = output.baseline;
+    if let Some(warm_mut) = tree.warm_mut(node_index) {
+        warm_mut.baseline = output.baseline;
     }
 
     Ok(BfcLayoutResult {
@@ -2429,7 +2429,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     // The item_metrics on CachedInlineLayout enable this optimization
     // once Phase 2d is implemented.
     let _cached_ifc = tree
-        .get(node_index)
+        .warm(node_index)
         .and_then(|n| n.inline_layout_result.as_ref());
     // TODO(Phase 2d): Check dirty children's RelayoutScope via item_metrics.
     //   If max scope is None → return cached layout directly (repaint only).
@@ -2490,7 +2490,6 @@ fn layout_ifc<T: ParsedFontTrait>(
 
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
-    let node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
 
     debug_ifc_layout!(
         ctx,
@@ -2526,7 +2525,9 @@ fn layout_ifc<T: ParsedFontTrait>(
             .unwrap_or(false);
         let current_width_type = constraints.available_width_type;
 
-        let should_store = match &node.inline_layout_result {
+        let warm_node = tree.warm_mut(node_index).ok_or(LayoutError::InvalidTree)?;
+
+        let should_store = match &warm_node.inline_layout_result {
             None => {
                 // No cached result - always store
                 debug_info!(
@@ -2570,7 +2571,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         };
 
         if should_store {
-            node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
+            warm_node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
                 main_frag.clone(),
                 current_width_type,
                 has_floats,
@@ -2583,7 +2584,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         // +spec:display-property:a63b8f - baseline-source defaults to auto (last baseline for inline-block/IFC)
         output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
         output.baseline = main_frag.last_baseline();
-        node.baseline = output.baseline;
+        warm_node.baseline = output.baseline;
 
         // +spec:box-model:929f42 - text-box-trim: trim half-leading from first/last formatted line
         // +spec:box-model:02e0f9 - text-box-trim: trim-end and trim-both, no effect with non-zero padding/border
@@ -2750,12 +2751,12 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 // +spec:block-formatting-context:9fe441 - BFC establishment based on position, float, overflow, and display properties
 // +spec:display-property:3c7369 - block boxes establishing independent FC create new BFC; flex containers already do; non-replaced inlines cannot
 // +spec:positioning:1e94f6 - floats, abspos, inline-blocks/table-cells/table-captions, overflow!=visible establish new BFC
-fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNode) -> bool {
+fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNodeHot, cold: Option<&LayoutNodeCold>) -> bool {
     // +spec:block-formatting-context:f39cd3 - table wrapper box establishes a BFC (CSS 2.2 §17.4)
     // Anonymous table wrapper boxes have no dom_node_id but must still establish BFC
     // +spec:height-calculation:e20498 - table wrapper box establishes BFC (CSS 2.2 §17.4)
     // +spec:positioning:b780d3 - Table wrapper box establishes BFC (CSS 2.2 § 17.4)
-    if node.anonymous_type == Some(AnonymousBoxType::TableWrapper) {
+    if cold.and_then(|c| c.anonymous_type) == Some(AnonymousBoxType::TableWrapper) {
         return true;
     }
     let Some(dom_id) = node.dom_node_id else {
@@ -2853,7 +2854,7 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
 /// CSS 2.2 § 9.5: "The border box of a table, a block-level replaced element, or an element
 /// in the normal flow that establishes a new block formatting context [...] must not overlap
 /// the margin box of any floats in the same block formatting context as the element itself."
-fn is_block_level_replaced<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNode) -> bool {
+fn is_block_level_replaced<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNodeHot) -> bool {
     let Some(dom_id) = node.dom_node_id else {
         return false;
     };
@@ -3788,7 +3789,7 @@ impl BorderInfo {
 /// Get border information for a node
 fn get_border_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
     source: BorderSource,
 ) -> (BorderInfo, BorderInfo, BorderInfo, BorderInfo) {
     use azul_css::props::{
@@ -4016,7 +4017,7 @@ fn get_border_info<T: ParsedFontTrait>(
 /// Get the table-layout property for a table node
 fn get_table_layout_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
 ) -> LayoutTableLayout {
     let Some(dom_id) = node.dom_node_id else {
         return LayoutTableLayout::Auto;
@@ -4036,7 +4037,7 @@ fn get_table_layout_property<T: ParsedFontTrait>(
 /// Get the border-collapse property for a table node
 fn get_border_collapse_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
 ) -> StyleBorderCollapse {
     let Some(dom_id) = node.dom_node_id else {
         return StyleBorderCollapse::Separate;
@@ -4061,7 +4062,7 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
 /// Get the border-spacing property for a table node
 fn get_border_spacing_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
 ) -> LayoutBorderSpacing {
     if let Some(dom_id) = node.dom_node_id {
         // FAST PATH: compact cache
@@ -4102,7 +4103,7 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
 /// Returns Show (default) or Hide.
 fn get_empty_cells_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
 ) -> StyleEmptyCells {
     let Some(dom_id) = node.dom_node_id else {
         return StyleEmptyCells::Show;
@@ -4129,7 +4130,7 @@ fn get_empty_cells_property<T: ParsedFontTrait>(
 /// Returns Top (default) or Bottom.
 fn get_caption_side_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
 ) -> StyleCaptionSide {
     if let Some(dom_id) = node.dom_node_id {
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
@@ -4167,7 +4168,7 @@ fn get_caption_side_property<T: ParsedFontTrait>(
 /// // +spec:overflow:ebb1f9 - For non-table elements, collapse == hidden (no special handling needed)
 fn is_visibility_collapsed<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
-    node: &LayoutNode,
+    node: &LayoutNodeHot,
 ) -> bool {
     if let Some(dom_id) = node.dom_node_id {
         let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
@@ -4202,10 +4203,9 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 /// Note: Full whitespace detection would require checking text content during rendering.
 /// This function provides a basic check suitable for layout phase.
 fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
-    let cell_node = match tree.get(cell_index) {
-        Some(node) => node,
-        None => return true, // Invalid cell is considered empty
-    };
+    if tree.get(cell_index).is_none() {
+        return true; // Invalid cell is considered empty
+    }
 
     // No children = empty
     if tree.children(cell_index).is_empty() {
@@ -4213,11 +4213,13 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
     }
 
     // If cell has an inline layout result, check if it's empty
-    if let Some(ref cached_layout) = cell_node.inline_layout_result {
-        // Check if inline layout has any rendered content
-        // Empty inline layouts have no items (glyphs/fragments)
-        // Note: This is a heuristic - full detection requires text content analysis
-        return cached_layout.layout.items.is_empty();
+    if let Some(warm_node) = tree.warm(cell_index) {
+        if let Some(ref cached_layout) = warm_node.inline_layout_result {
+            // Check if inline layout has any rendered content
+            // Empty inline layouts have no items (glyphs/fragments)
+            // Note: This is a heuristic - full detection requires text content analysis
+            return cached_layout.layout.items.is_empty();
+        }
     }
 
     // Check if all children have no content
@@ -4268,7 +4270,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // This accounts for the table's own width property (e.g., width: 100%)
     let table_border_box_width = if let Some(dom_id) = table_node.dom_node_id {
         // Use calculate_used_size_for_node to resolve table width (respects width:100%)
-        let intrinsic = table_node.intrinsic_sizes.clone().unwrap_or_default();
+        let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
         let containing_block_size = LogicalSize {
             width: constraints.available_size.width,
             height: constraints.available_size.height,
@@ -5396,33 +5398,36 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 // +spec:inline-formatting-context:c4a20d - cell baseline: first in-flow line box or bottom of content edge
 // +spec:inline-formatting-context:17a9c1 - vertical-align baseline/top/bottom/middle for table cells
 fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
-    let Some(cell_node) = tree.nodes.get(cell_index) else {
+    let Some(cell_node) = tree.get(cell_index) else {
         return 0.0;
     };
 
     // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of content edge
     // Check if the cell has inline layout (first in-flow line box)
-    if let Some(ref cached_layout) = cell_node.inline_layout_result {
-        let inline_result = &cached_layout.layout;
-        // The baseline is the ascent of the first item from the top of the cell
-        if let Some(first_item) = inline_result.items.first() {
-            let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&first_item.item);
-            let padding_top = cell_node.box_props.padding.top;
-            let border_top = cell_node.box_props.border.top;
-            return padding_top + border_top + first_item.position.y + item_ascent;
+    if let Some(warm_node) = tree.warm(cell_index) {
+        if let Some(ref cached_layout) = warm_node.inline_layout_result {
+            let inline_result = &cached_layout.layout;
+            // The baseline is the ascent of the first item from the top of the cell
+            if let Some(first_item) = inline_result.items.first() {
+                let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&first_item.item);
+                let padding_top = cell_node.box_props.padding.top;
+                let border_top = cell_node.box_props.border.top;
+                return padding_top + border_top + first_item.position.y + item_ascent;
+            }
         }
     }
 
     // Check children for first in-flow line box
-    let children = &cell_node.children;
+    let children = tree.children(cell_index);
     for &child_idx in children {
         if child_idx < tree.nodes.len() {
-            let child_node = &tree.nodes[child_idx];
-            if child_node.inline_layout_result.is_some() {
-                let child_baseline = compute_cell_baseline(child_idx, tree);
-                let padding_top = cell_node.box_props.padding.top;
-                let border_top = cell_node.box_props.border.top;
-                return padding_top + border_top + child_baseline;
+            if let Some(child_warm) = tree.warm(child_idx) {
+                if child_warm.inline_layout_result.is_some() {
+                    let child_baseline = compute_cell_baseline(child_idx, tree);
+                    let padding_top = cell_node.box_props.padding.top;
+                    let border_top = cell_node.box_props.border.top;
+                    return padding_top + border_top + child_baseline;
+                }
             }
         }
     }
@@ -5818,107 +5823,127 @@ fn position_table_cells<T: ParsedFontTrait>(
             table_ctx.row_heights
         );
 
+        // Save hot fields needed for vertical alignment before dropping the mutable borrow
+        let cell_dom_node_id = cell_node.dom_node_id;
+        let cell_box_props = cell_node.box_props.clone();
+        drop(cell_node);
+
         // +spec:inline-formatting-context:20e8e8 - table cell vertical-align alignment order (baseline first, then top, then bottom/middle)
         // receive extra top or bottom padding; vertical-align determines alignment
         // +spec:inline-formatting-context:4545e8 - vertical-align on table cells maps to align-content: top→start, bottom→end, middle→center
         // +spec:inline-formatting-context:e216be - vertical-align on table cells (baseline, middle, top, bottom)
         // +spec:positioning:156e49 - table cell vertical-align ordering and extra padding per CSS 2.2 §17.5.3
         // Apply vertical-align to cell content if it has inline layout
-        if let Some(ref cached_layout) = cell_node.inline_layout_result {
-            let inline_result = &cached_layout.layout;
-            use StyleVerticalAlign;
+        // We need to compute the y_offset using immutable borrows first, then apply it mutably.
+        let vertical_align_adjustment = if let Some(warm_node) = tree.warm(cell_info.node_index) {
+            if let Some(ref cached_layout) = warm_node.inline_layout_result {
+                let inline_result = &cached_layout.layout;
+                use StyleVerticalAlign;
 
-            // Get vertical-align property from styled_dom
-            let vertical_align = if let Some(dom_id) = cell_node.dom_node_id {
-                let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+                // Get vertical-align property from styled_dom
+                let vertical_align = if let Some(dom_id) = cell_dom_node_id {
+                    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
 
-                match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
-                    MultiValue::Exact(v) => v,
-                    _ => StyleVerticalAlign::Baseline,
-                }
-            } else {
-                StyleVerticalAlign::Baseline
-            };
-
-            // Calculate content height from inline layout bounds
-            let content_bounds = inline_result.bounds();
-            let content_height = content_bounds.height;
-
-            // Get padding and border to calculate content-box height
-            // height is border-box, but vertical alignment should be within content-box
-            let padding = &cell_node.box_props.padding;
-            let border = &cell_node.box_props.border;
-            let content_box_height = height
-                - padding.main_start(writing_mode)
-                - padding.main_end(writing_mode)
-                - border.main_start(writing_mode)
-                - border.main_end(writing_mode);
-
-            // top: top of cell box aligned with top of first row it spans
-            // bottom: bottom of cell box aligned with bottom of last row it spans
-            // middle: center of cell aligned with center of rows it spans
-            //   the cell is aligned at the baseline instead
-            let y_offset = match vertical_align {
-                StyleVerticalAlign::Top => 0.0,
-                StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
-                StyleVerticalAlign::Bottom => content_box_height - content_height,
-                // align with the row baseline. cell_baseline = distance from top of cell box
-                // to cell's baseline; row_baseline = distance from top of row to row's baseline
-                StyleVerticalAlign::Baseline
-                | StyleVerticalAlign::Sub
-                | StyleVerticalAlign::Superscript
-                | StyleVerticalAlign::TextTop
-                | StyleVerticalAlign::TextBottom
-                | StyleVerticalAlign::Percentage(_)
-                | StyleVerticalAlign::Length(_) => {
-                    let row_baseline = table_ctx.row_baselines.get(cell_info.row).copied().unwrap_or(0.0);
-                    (row_baseline - precomputed_cell_baseline).max(0.0)
-                }
-            };
-
-            debug_info!(
-                ctx,
-                "[position_table_cells] Cell {}: vertical-align={:?}, border_box_height={}, \
-                 content_box_height={}, content_height={}, y_offset={}",
-                cell_info.node_index,
-                vertical_align,
-                height,
-                content_box_height,
-                content_height,
-                y_offset
-            );
-
-            // Create new layout with adjusted positions
-            if y_offset.abs() > 0.01 {
-                // Only adjust if offset is significant
-                use std::sync::Arc;
-
-                use crate::text3::cache::{PositionedItem, UnifiedLayout};
-
-                let adjusted_items: Vec<PositionedItem> = inline_result
-                    .items
-                    .iter()
-                    .map(|item| PositionedItem {
-                        item: item.item.clone(),
-                        position: crate::text3::cache::Point {
-                            x: item.position.x,
-                            y: item.position.y + y_offset,
-                        },
-                        line_index: item.line_index,
-                    })
-                    .collect();
-
-                let adjusted_layout = UnifiedLayout {
-                    items: adjusted_items,
-                    overflow: inline_result.overflow.clone(),
+                    match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
+                        MultiValue::Exact(v) => v,
+                        _ => StyleVerticalAlign::Baseline,
+                    }
+                } else {
+                    StyleVerticalAlign::Baseline
                 };
 
-                // Keep the same constraint type from the cached layout
-                cell_node.inline_layout_result = Some(CachedInlineLayout::new(
-                    Arc::new(adjusted_layout),
-                    cached_layout.available_width,
-                    cached_layout.has_floats,
-                ));
+                // Calculate content height from inline layout bounds
+                let content_bounds = inline_result.bounds();
+                let content_height = content_bounds.height;
+
+                // Get padding and border to calculate content-box height
+                // height is border-box, but vertical alignment should be within content-box
+                let padding = &cell_box_props.padding;
+                let border = &cell_box_props.border;
+                let content_box_height = height
+                    - padding.main_start(writing_mode)
+                    - padding.main_end(writing_mode)
+                    - border.main_start(writing_mode)
+                    - border.main_end(writing_mode);
+
+                // top: top of cell box aligned with top of first row it spans
+                // bottom: bottom of cell box aligned with bottom of last row it spans
+                // middle: center of cell aligned with center of rows it spans
+                //   the cell is aligned at the baseline instead
+                let y_offset = match vertical_align {
+                    StyleVerticalAlign::Top => 0.0,
+                    StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
+                    StyleVerticalAlign::Bottom => content_box_height - content_height,
+                    // align with the row baseline. cell_baseline = distance from top of cell box
+                    // to cell's baseline; row_baseline = distance from top of row to row's baseline
+                    StyleVerticalAlign::Baseline
+                    | StyleVerticalAlign::Sub
+                    | StyleVerticalAlign::Superscript
+                    | StyleVerticalAlign::TextTop
+                    | StyleVerticalAlign::TextBottom
+                    | StyleVerticalAlign::Percentage(_)
+                    | StyleVerticalAlign::Length(_) => {
+                        let row_baseline = table_ctx.row_baselines.get(cell_info.row).copied().unwrap_or(0.0);
+                        (row_baseline - precomputed_cell_baseline).max(0.0)
+                    }
+                };
+
+                debug_info!(
+                    ctx,
+                    "[position_table_cells] Cell {}: vertical-align={:?}, border_box_height={}, \
+                     content_box_height={}, content_height={}, y_offset={}",
+                    cell_info.node_index,
+                    vertical_align,
+                    height,
+                    content_box_height,
+                    content_height,
+                    y_offset
+                );
+
+                if y_offset.abs() > 0.01 {
+                    Some((y_offset, cached_layout.available_width, cached_layout.has_floats))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Apply the vertical alignment adjustment (requires mutable borrow)
+        if let Some((y_offset, available_width, has_floats)) = vertical_align_adjustment {
+            if let Some(warm_mut) = tree.warm_mut(cell_info.node_index) {
+                if let Some(ref cached_layout) = warm_mut.inline_layout_result {
+                    use std::sync::Arc;
+                    use crate::text3::cache::{PositionedItem, UnifiedLayout};
+
+                    let adjusted_items: Vec<PositionedItem> = cached_layout.layout
+                        .items
+                        .iter()
+                        .map(|item| PositionedItem {
+                            item: item.item.clone(),
+                            position: crate::text3::cache::Point {
+                                x: item.position.x,
+                                y: item.position.y + y_offset,
+                            },
+                            line_index: item.line_index,
+                        })
+                        .collect();
+
+                    let adjusted_layout = UnifiedLayout {
+                        items: adjusted_items,
+                        overflow: cached_layout.layout.overflow.clone(),
+                    };
+
+                    // Keep the same constraint type from the cached layout
+                    warm_mut.inline_layout_result = Some(CachedInlineLayout::new(
+                        Arc::new(adjusted_layout),
+                        available_width,
+                        has_floats,
+                    ));
+                }
             }
         }
 
@@ -5986,8 +6011,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     let ifc_id = IfcId::unique();
 
     // Store IFC ID on the IFC root node
-    if let Some(ifc_root_node) = tree.get_mut(ifc_root_index) {
-        ifc_root_node.ifc_id = Some(ifc_id);
+    if let Some(cold_node) = tree.cold_mut(ifc_root_index) {
+        cold_node.ifc_id = Some(ifc_id);
     }
 
     let mut content = Vec::new();
@@ -6088,15 +6113,15 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 
                 // Set IFC membership on the text node - drop child_node borrow first
                 drop(child_node);
-                if let Some(child_node_mut) = tree.get_mut(child_index) {
-                    child_node_mut.ifc_membership = Some(IfcMembership {
+                if let Some(warm_mut) = tree.warm_mut(child_index) {
+                    warm_mut.ifc_membership = Some(IfcMembership {
                         ifc_id,
                         ifc_root_layout_index: ifc_root_index,
                         run_index: current_run_index,
                     });
                 }
                 current_run_index += 1;
-                
+
                 continue;
             }
 
@@ -6109,7 +6134,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 // We must determine its size and baseline before passing it to text3.
 
                 // The intrinsic sizing pass has already calculated its preferred size.
-                let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
+                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
                 let box_props = child_node.box_props.clone();
 
                 let styled_node_state = ctx
@@ -6303,8 +6328,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             .nodes
             .iter()
             .enumerate()
-            .find(|(_, node)| {
-                node.dom_node_id == Some(list_dom_id) && node.pseudo_element.is_none()
+            .find(|(idx, node)| {
+                node.dom_node_id == Some(list_dom_id) && tree.warm(*idx).and_then(|w| w.pseudo_element).is_none()
             })
             .map(|(idx, _)| idx);
 
@@ -6314,8 +6339,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let marker_idx = tree.children(list_idx)
                 .iter()
                 .find(|&&child_idx| {
-                    tree.get(child_idx)
-                        .map(|child| child.pseudo_element == Some(PseudoElement::Marker))
+                    tree.warm(child_idx)
+                        .map(|w| w.pseudo_element == Some(PseudoElement::Marker))
                         .unwrap_or(false)
                 })
                 .copied();
@@ -6465,8 +6490,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Text nodes may or may not have their own layout tree entry depending on
             // whether they're wrapped in an anonymous IFC wrapper
             if let Some(&layout_idx) = tree.dom_to_layout.get(&dom_child_id).and_then(|v| v.first()) {
-                if let Some(text_layout_node) = tree.get_mut(layout_idx) {
-                    text_layout_node.ifc_membership = Some(IfcMembership {
+                if let Some(warm_mut) = tree.warm_mut(layout_idx) {
+                    warm_mut.ifc_membership = Some(IfcMembership {
                         ifc_id,
                         ifc_root_layout_index: ifc_root_index,
                         run_index: current_run_index,
@@ -6508,7 +6533,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // We must determine its size and baseline before passing it to text3.
 
             // The intrinsic sizing pass has already calculated its preferred size.
-            let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
+            let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
             let box_props = child_node.box_props.clone();
 
             let styled_node_state = ctx
@@ -6699,9 +6724,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let box_props = child_node.box_props.clone();
 
             // Get intrinsic size from the image data or fall back to layout node
-            let intrinsic_size = child_node
-                .intrinsic_sizes
-                .clone()
+            let intrinsic_size = tree.warm(child_index)
+                .and_then(|w| w.intrinsic_sizes.clone())
                 .unwrap_or(IntrinsicSizes {
                     max_content_width: 50.0,
                     max_content_height: 50.0,
@@ -6968,7 +6992,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 };
 
                 let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-                let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
+                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
                 let width = intrinsic_size.max_content_width;
 
                 let styled_node_state = ctx
@@ -7374,7 +7398,7 @@ fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
     }
 
     // Check if node has inline content (text)
-    if node.inline_layout_result.is_some() {
+    if tree.warm(node_index).and_then(|w| w.inline_layout_result.as_ref()).is_some() {
         return false;
     }
 
@@ -7415,16 +7439,18 @@ fn generate_list_marker_text(
 
     // Verify this is actually a ::marker pseudo-element
     // Per spec, markers must be pseudo-elements, not anonymous boxes
-    if marker_node.pseudo_element != Some(PseudoElement::Marker) {
+    let marker_pseudo = tree.warm(marker_index).and_then(|w| w.pseudo_element);
+    let marker_anonymous_type = tree.cold(marker_index).and_then(|c| c.anonymous_type);
+    if marker_pseudo != Some(PseudoElement::Marker) {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::warning(format!(
                 "[generate_list_marker_text] WARNING: Node {} is not a ::marker pseudo-element \
                  (pseudo={:?}, anonymous_type={:?})",
-                marker_index, marker_node.pseudo_element, marker_node.anonymous_type
+                marker_index, marker_pseudo, marker_anonymous_type
             )));
         }
         // Fallback for old-style anonymous markers during transition
-        if marker_node.anonymous_type != Some(AnonymousBoxType::ListItemMarker) {
+        if marker_anonymous_type != Some(AnonymousBoxType::ListItemMarker) {
             return String::new();
         }
     }

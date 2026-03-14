@@ -233,7 +233,8 @@ impl GpuStateManager {
         let gpu_cache = self.get_or_create_cache(dom_id);
 
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
-            let Some(scrollbar_info) = &node.scrollbar_info else {
+            let warm = layout_tree.warm(node_idx);
+            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
                 continue;
             };
             let Some(node_id) = node.dom_node_id else {
@@ -258,7 +259,7 @@ impl GpuStateManager {
             };
 
             // Use get_content_size() as the single source of truth for content dimensions
-            let content_size = node.get_content_size();
+            let content_size = layout_tree.get_content_size(node_idx);
 
             if scrollbar_info.needs_vertical {
                 // Use the visual width from the scrollbar style — same value used

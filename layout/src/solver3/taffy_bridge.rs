@@ -327,7 +327,7 @@ use crate::{
             get_css_padding_top, get_css_right, get_css_top, get_css_width, get_flex_direction,
             get_position, MultiValue,
         },
-        layout_tree::{get_display_type, LayoutNode, LayoutTree},
+        layout_tree::{get_display_type, LayoutTree},
         sizing, LayoutContext,
     },
 };
@@ -1132,8 +1132,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Check if parent is a flex or grid container
-        let Some(ref parent_fc) = node.parent_formatting_context else {
-            return (false, false);
+        let parent_fc = match self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context.clone()) {
+            Some(fc) => fc,
+            None => return (false, false),
         };
 
         match parent_fc {
@@ -1254,7 +1255,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
 
     // Clear cache to force re-measure
     for &child_idx in &children {
-        if let Some(child) = tree.get_mut(child_idx) {
+        if let Some(child) = tree.warm_mut(child_idx) {
             child.taffy_cache.clear();
         }
     }
@@ -1285,7 +1286,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
             if let Some(child) = bridge.tree.get(child_idx) {
                 bridge.ctx.debug_info_inner(format!(
                     "[TAFFY CHILD RESULT] child_idx={} used_size={:?} relative_pos={:?}",
-                    child_idx, child.used_size, child.relative_position
+                    child_idx, child.used_size, bridge.tree.warm(child_idx).and_then(|w| w.relative_position)
                 ));
             }
         }
@@ -1393,7 +1394,12 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
             pos.y -= parent_border_top + parent_padding_top;
 
             node.used_size = Some(size);
-            node.relative_position = Some(pos);
+        }
+        if let Some(warm) = self.tree.warm_mut(node_idx) {
+            let mut pos = translate_taffy_point_back(layout.location);
+            pos.x -= parent_border_left + parent_padding_left;
+            pos.y -= parent_border_top + parent_padding_top;
+            warm.relative_position = Some(pos);
         }
     }
 
@@ -1489,12 +1495,12 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
                     taffy_content_height,
                 );
 
-            if let Some(node) = self.tree.get_mut(node_idx) {
-                node.scrollbar_info = Some(scrollbar_info);
+            if let Some(warm) = self.tree.warm_mut(node_idx) {
+                warm.scrollbar_info = Some(scrollbar_info);
                 // eff_content_w/h are already in content-box coordinates
                 // (border.left/top subtracted in compute_taffy_scrollbar_info),
                 // so store directly without further subtraction.
-                node.overflow_content_size = Some(LogicalSize::new(
+                warm.overflow_content_size = Some(LogicalSize::new(
                     eff_content_w,
                     eff_content_h,
                 ));
@@ -1639,8 +1645,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // Get intrinsic sizes for min/max-content queries
                 let intrinsic = self
                     .tree
-                    .get(node_idx)
-                    .and_then(|n| n.intrinsic_sizes)
+                    .warm(node_idx)
+                    .and_then(|w| w.intrinsic_sizes)
                     .unwrap_or_default();
 
                 // min-content size in the main axis; for items with a preferred aspect ratio, it
@@ -1742,8 +1748,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // Without this, children of flex items won't have their relative_position set,
                 // causing them to all render at (0,0) relative to their parent.
                 for (child_idx, child_pos) in output.positions.iter() {
-                    if let Some(child_node) = self.tree.get_mut(*child_idx) {
-                        child_node.relative_position = Some(*child_pos);
+                    if let Some(child_warm) = self.tree.warm_mut(*child_idx) {
+                        child_warm.relative_position = Some(*child_pos);
                     }
                 }
 
@@ -1766,9 +1772,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         width: final_width,
                         height: final_height,
                     });
-                    node.scrollbar_info = Some(scrollbar_info);
+                }
+                if let Some(warm) = self.tree.warm_mut(node_idx) {
+                    warm.scrollbar_info = Some(scrollbar_info);
                     // Store the actual content size for scroll calculations
-                    node.overflow_content_size = Some(LogicalSize {
+                    warm.overflow_content_size = Some(LogicalSize {
                         width: content_width,
                         height: content_height,
                     });
@@ -1795,8 +1803,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             }
             Err(_e) => {
                 // Fallback to intrinsic sizes if layout fails
-                let node = self.tree.get(node_idx);
-                let intrinsic = node.and_then(|n| n.intrinsic_sizes).unwrap_or_default();
+                let intrinsic = self.tree.warm(node_idx).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
 
                 let width = inputs
                     .known_dimensions
@@ -1830,7 +1837,7 @@ impl<'a, 'b, T: ParsedFontTrait> CacheTree for TaffyBridge<'a, 'b, T> {
     ) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
         self.tree
-            .get(node_idx)?
+            .warm(node_idx)?
             .taffy_cache
             .get(known_dimensions, available_space, run_mode)
     }
@@ -1844,16 +1851,16 @@ impl<'a, 'b, T: ParsedFontTrait> CacheTree for TaffyBridge<'a, 'b, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
-        if let Some(node) = self.tree.get_mut(node_idx) {
-            node.taffy_cache
+        if let Some(warm) = self.tree.warm_mut(node_idx) {
+            warm.taffy_cache
                 .store(known_dimensions, available_space, run_mode, layout_output);
         }
     }
 
     fn cache_clear(&mut self, node_id: taffy::NodeId) {
         let node_idx: usize = node_id.into();
-        if let Some(node) = self.tree.get_mut(node_idx) {
-            node.taffy_cache.clear();
+        if let Some(warm) = self.tree.warm_mut(node_idx) {
+            warm.taffy_cache.clear();
         }
     }
 }

@@ -57,7 +57,7 @@ use crate::{
             get_style_border_radius, get_visibility, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
             ComputedScrollbarStyle, SelectionStyle,
         },
-        layout_tree::{LayoutNode, LayoutTree},
+        layout_tree::{LayoutNode, LayoutNodeHot, LayoutNodeWarm, LayoutTree},
         positioning::get_position_type,
         scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry_with_button_size},
         LayoutContext, LayoutError, Result,
@@ -2460,7 +2460,7 @@ where
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
-        node: &LayoutNode,
+        node: &LayoutNodeHot,
     ) -> Result<bool> {
         let Some(dom_id) = node.dom_node_id else {
             return Ok(false);
@@ -2543,7 +2543,9 @@ where
         let border = &node.box_props.border;
 
         // Get scrollbar info to adjust clip rect for content area
-        let scrollbar_info = get_scrollbar_info_from_layout(node);
+        let scrollbar_info = self.positioned_tree.tree.warm(node_index)
+            .and_then(|w| w.scrollbar_info.clone())
+            .unwrap_or_default();
 
         // +spec:overflow:13cacb - clip rect clamped to 0 so zero-size clips hide all pixels
         // +spec:overflow:9207bc - clip rect computed from border-box edges (analogous to CSS 2.2 clip: rect() offsets)
@@ -2600,7 +2602,7 @@ where
                 // WebRender's APZ manages the scroll offset via define_scroll_frame.
                 builder.push_clip(clip_rect, border_radius);
                 let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
-                let content_size = get_scroll_content_size(node);
+                let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(node_index));
                 builder.push_scroll_frame(clip_rect, content_size, scroll_id);
             }
         } else {
@@ -2612,7 +2614,7 @@ where
     }
 
     /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNode) -> Result<()> {
+    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) -> Result<()> {
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
@@ -2773,9 +2775,9 @@ where
         // IMPORTANT: The parent check must look at the PARENT NODE's formatting_context,
         // not the current node's. If parent is Flex/Grid, we paint this element as a flex/grid item.
         // Also check parent_formatting_context field which stores parent's FC during tree construction.
-        let parent_is_flex_or_grid = node.parent_formatting_context
-            .as_ref()
-            .map(|fc| matches!(fc, FormattingContext::Flex | FormattingContext::Grid))
+        let warm = self.positioned_tree.tree.warm(node_index);
+        let parent_is_flex_or_grid = warm
+            .and_then(|w| w.parent_formatting_context.as_ref().map(|fc| matches!(fc, FormattingContext::Flex | FormattingContext::Grid)))
             .unwrap_or(false);
         
         if let Some(dom_id) = node.dom_node_id {
@@ -2791,7 +2793,7 @@ where
                     "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, parent_is_flex_or_grid={}",
                     node_index,
                     display,
-                    node.parent_formatting_context,
+                    warm.and_then(|w| w.parent_formatting_context.as_ref()),
                     parent_is_flex_or_grid
                 );
 
@@ -3097,6 +3099,7 @@ where
             .tree
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
+        let node_warm = self.positioned_tree.tree.warm(node_index);
 
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
@@ -3108,7 +3111,7 @@ where
         // For text nodes (with inline layout), the used_size might be 0x0.
         // In this case, compute the bounds from the inline layout result.
         if paint_rect.size.width == 0.0 || paint_rect.size.height == 0.0 {
-            if let Some(cached_layout) = &node.inline_layout_result {
+            if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
                 let content_bounds = cached_layout.layout.bounds();
                 paint_rect.size.width = content_bounds.width;
                 paint_rect.size.height = content_bounds.height;
@@ -3140,7 +3143,7 @@ where
         }
 
         // Paint the node's visible content.
-        if let Some(cached_layout) = &node.inline_layout_result {
+        if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
             let inline_layout = &cached_layout.layout;
             debug_info!(
                 self.ctx,
@@ -3171,7 +3174,7 @@ where
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
             // what fits in the viewport. Otherwise glyphs beyond the viewport are not rendered.
-            let content_size = get_scroll_content_size(node);
+            let content_size = get_scroll_content_size(node, node_warm);
             if content_size.height > content_box_rect.size.height {
                 content_box_rect.size.height = content_size.height;
             }
@@ -3254,7 +3257,9 @@ where
         };
 
         // Check if we need to draw scrollbars for this node.
-        let scrollbar_info = get_scrollbar_info_from_layout(node);
+        let scrollbar_info = self.positioned_tree.tree.warm(node_index)
+            .and_then(|w| w.scrollbar_info.clone())
+            .unwrap_or_default();
 
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
@@ -3397,7 +3402,7 @@ where
         let content_size = node_id
             .and_then(|nid| self.scroll_offsets.get(&nid))
             .map(|pos| pos.children_rect.size)
-            .unwrap_or_else(|| node.get_content_size());
+            .unwrap_or_else(|| self.positioned_tree.tree.get_content_size(node_index));
 
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
         let thumb_radius = scrollbar_style.visual_width_px / 2.0;
@@ -4211,9 +4216,9 @@ fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
 /// This is used to determine if scrollbars should appear for overflow: auto.
 // +spec:overflow:c2ed94 - replaced element overflow is ink overflow (not scrollable);
 // replaced elements (images) don't contribute scrollable overflow here
-fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
+fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) -> LogicalSize {
     // First check if we have a pre-calculated overflow_content_size (for block children)
-    if let Some(overflow_size) = node.overflow_content_size {
+    if let Some(overflow_size) = warm.and_then(|w| w.overflow_content_size) {
         return overflow_size;
     }
 
@@ -4221,7 +4226,7 @@ fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
     let mut content_size = node.used_size.unwrap_or_default();
 
     // If this node has text layout, calculate the bounds of all text items
-    if let Some(ref cached_layout) = node.inline_layout_result {
+    if let Some(cached_layout) = warm.and_then(|w| w.inline_layout_result.as_ref()) {
         let text_layout = &cached_layout.layout;
         // Find the maximum extent of all positioned items
         let mut max_x: f32 = 0.0;

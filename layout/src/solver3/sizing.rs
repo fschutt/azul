@@ -41,7 +41,7 @@ use crate::{
             get_direction_property, get_element_font_size, get_flex_direction, get_float,
             get_style_properties, get_text_orientation_property, get_writing_mode, MultiValue,
         },
-        layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree, get_display_type},
+        layout_tree::{LayoutNodeHot, LayoutTree, get_display_type},
         positioning::get_position_type,
         LayoutContext, LayoutError, Result,
     },
@@ -165,7 +165,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         // Out-of-flow elements do not contribute to their parent's intrinsic size.
         let position = get_position_type(self.ctx.styled_dom, node.dom_node_id);
         if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
-            if let Some(n) = tree.get_mut(node_index) {
+            if let Some(n) = tree.warm_mut(node_index) {
                 n.intrinsic_sizes = Some(IntrinsicSizes::default());
             }
             return Ok(IntrinsicSizes::default());
@@ -224,7 +224,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             }
         }
 
-        if let Some(n) = tree.get_mut(node_index) {
+        if let Some(n) = tree.warm_mut(node_index) {
             n.intrinsic_sizes = Some(intrinsic);
         }
 
@@ -1056,7 +1056,7 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Non-inline children are treated as atomic inline-level boxes
             // (e.g., inline-block, images, floats)
             // Their intrinsic size must have been calculated in the bottom-up pass
-            let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
+            let intrinsic_sizes = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
 
             // CSS 2.2 § 10.3.9: For inline-block elements with explicit CSS width/height,
             // use the CSS-defined values instead of intrinsic sizes.
@@ -1170,7 +1170,7 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
     // Out-of-flow elements do not contribute to their parent's intrinsic size.
     let position = get_position_type(ctx.styled_dom, node.dom_node_id);
     if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
-        if let Some(n) = tree.get_mut(node_index) {
+        if let Some(n) = tree.warm_mut(node_index) {
             n.intrinsic_sizes = Some(IntrinsicSizes::default());
         }
         return Ok(IntrinsicSizes::default());
@@ -1187,7 +1187,7 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
     // Then calculate this node's intrinsic size based on its children
     let intrinsic = calculate_node_intrinsic_sizes_stub(ctx, &node, &child_intrinsics);
 
-    if let Some(n) = tree.get_mut(node_index) {
+    if let Some(n) = tree.warm_mut(node_index) {
         n.intrinsic_sizes = Some(intrinsic.clone());
     }
 
@@ -1205,7 +1205,7 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
 /// - **Flex-column:** Same as block for width (max), height is sum.
 fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
     _ctx: &LayoutContext<'_, T>,
-    _node: &LayoutNode,
+    _node: &LayoutNodeHot,
     child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
 ) -> IntrinsicSizes {
     use azul_core::dom::FormattingContext;

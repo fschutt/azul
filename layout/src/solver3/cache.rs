@@ -48,7 +48,7 @@ use crate::{
             MultiValue,
         },
         layout_tree::{
-            is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode, LayoutTreeBuilder, SubtreeHash,
+            is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode, LayoutNodeHot, LayoutTreeBuilder, SubtreeHash,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -310,7 +310,7 @@ impl LayoutCacheMap {
     /// first ancestor whose cache is already empty (i.e., already dirty).
     /// This prevents redundant O(depth) propagation when multiple children
     /// of the same parent are dirtied.
-    pub fn mark_dirty(&mut self, node_index: usize, tree: &[LayoutNode]) {
+    pub fn mark_dirty(&mut self, node_index: usize, tree: &[LayoutNodeHot]) {
         if node_index >= self.entries.len() {
             return;
         }
@@ -430,7 +430,6 @@ pub fn reposition_clean_subtrees(
                 reposition_block_flow_siblings(
                     styled_dom,
                     parent_idx,
-                    parent_node,
                     tree,
                     layout_roots,
                     calculated_positions,
@@ -551,11 +550,14 @@ pub fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> b
 pub fn reposition_block_flow_siblings(
     styled_dom: &StyledDom,
     parent_idx: usize,
-    parent_node: &LayoutNode,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
     calculated_positions: &mut super::PositionVec,
 ) {
+    let parent_node = match tree.get(parent_idx) {
+        Some(n) => n,
+        None => return,
+    };
     let dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
     let styled_node_state = styled_dom
         .styled_nodes
@@ -615,7 +617,9 @@ pub fn reposition_block_flow_siblings(
 
             let child_main_start = child_node.box_props.margin.main_start(writing_mode);
             let new_main_pos = main_pen + child_main_start;
-            let old_relative_pos = child_node.relative_position.unwrap_or_default();
+            let old_relative_pos = tree.warm(child_idx)
+                .and_then(|w| w.relative_position)
+                .unwrap_or_default();
             let cross_pos = if writing_mode.is_vertical() {
                 old_relative_pos.y
             } else {
@@ -786,7 +790,7 @@ pub fn reconcile_recursive(
 ) -> Result<usize> {
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
-    let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
+    let old_cold = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.cold(idx)));
 
     // Compute the new multi-field fingerprint instead of a single hash.
     let new_fingerprint = NodeDataFingerprint::compute(
@@ -795,10 +799,10 @@ pub fn reconcile_recursive(
     );
 
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
-    let dirty_flag = match old_node {
+    let dirty_flag = match old_cold {
         None => DirtyFlag::Layout, // new node → full layout
-        Some(old_n) => {
-            let change_set = old_n.node_data_fingerprint.diff(&new_fingerprint);
+        Some(old_c) => {
+            let change_set = old_c.node_data_fingerprint.diff(&new_fingerprint);
             if change_set.needs_layout() {
                 DirtyFlag::Layout
             } else if change_set.needs_paint() {
@@ -819,7 +823,10 @@ pub fn reconcile_recursive(
         )?
     } else {
         // Paint-only or clean: clone the old node (preserving layout cache)
-        let mut idx = new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx);
+        let old_full_node = old_tree
+            .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))
+            .ok_or(LayoutError::InvalidTree)?;
+        let mut idx = new_tree_builder.clone_node_from_old(&old_full_node, new_parent_idx);
         // If paint-only change, update the fingerprint and dirty flag
         if dirty_flag == DirtyFlag::Paint {
             if let Some(cloned) = new_tree_builder.get_mut(idx) {
@@ -888,7 +895,7 @@ pub fn reconcile_recursive(
                 new_child_hashes.push(child_node.subtree_hash.0);
             }
 
-            if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
+            if old_tree.and_then(|t| t.cold(old_child_idx?).map(|n| n.subtree_hash))
                 != new_tree_builder
                     .get(reconciled_child_idx)
                     .map(|n| n.subtree_hash)
@@ -985,7 +992,7 @@ pub fn reconcile_recursive(
                     new_child_hashes.push(child_node.subtree_hash.0);
                 }
 
-                if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
+                if old_tree.and_then(|t| t.cold(old_child_idx?).map(|n| n.subtree_hash))
                     != new_tree_builder
                         .get(reconciled_child_idx)
                         .map(|n| n.subtree_hash)
@@ -1091,16 +1098,19 @@ struct PreparedLayoutContext<'a> {
 /// from the containing block.
 fn prepare_layout_context<'a, T: ParsedFontTrait>(
     ctx: &LayoutContext<'a, T>,
-    node: &LayoutNode,
+    tree: &LayoutTree,
+    node_index: usize,
     containing_block_size: LogicalSize,
 ) -> Result<PreparedLayoutContext<'a>> {
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let warm = tree.warm(node_index).ok_or(LayoutError::InvalidTree)?;
     let dom_id = node.dom_node_id; // Can be None for anonymous boxes
 
     // Phase 1: Calculate this node's provisional used size
 
     // This size is based on the node's CSS properties (width, height, etc.) and
     // its containing block. If height is 'auto', this is a temporary value.
-    let intrinsic = node.intrinsic_sizes.clone().unwrap_or_default();
+    let intrinsic = warm.intrinsic_sizes.clone().unwrap_or_default();
     let final_used_size = calculate_used_size_for_node(
         ctx.styled_dom,
         dom_id, // Now Option<NodeId>
@@ -1111,14 +1121,14 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     )?;
 
     // Phase 2: Layout children using a formatting context
-    // Use pre-computed styles from LayoutNode instead of repeated lookups
-    let writing_mode = node.computed_style.writing_mode;
-    let text_align = node.computed_style.text_align;
-    let display = node.computed_style.display;
-    let overflow_y = node.computed_style.overflow_y;
+    // Use pre-computed styles from LayoutNodeWarm instead of repeated lookups
+    let writing_mode = warm.computed_style.writing_mode;
+    let text_align = warm.computed_style.text_align;
+    let display = warm.computed_style.display;
+    let overflow_y = warm.computed_style.overflow_y;
 
     // Check if height is auto (no explicit height set)
-    let height_is_auto = node.computed_style.height.is_none();
+    let height_is_auto = warm.computed_style.height.is_none();
 
     let available_size_for_children = if height_is_auto {
         // Height is auto - use containing block size as available size
@@ -1149,8 +1159,8 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 
     let wm_ctx = crate::solver3::geometry::WritingModeContext::new(
         writing_mode,
-        node.computed_style.direction,
-        node.computed_style.text_orientation,
+        warm.computed_style.direction,
+        warm.computed_style.text_orientation,
     );
     let constraints = LayoutConstraints {
         available_size: available_size_for_children,
@@ -1283,11 +1293,11 @@ fn check_scrollbar_change(
         return false;
     }
 
-    let Some(current_node) = tree.get(node_index) else {
+    let Some(warm_node) = tree.warm(node_index) else {
         return false;
     };
 
-    match &current_node.scrollbar_info {
+    match &warm_node.scrollbar_info {
         None => scrollbar_info.needs_reflow(),
         Some(old_info) => {
             // Trigger reflow if scrollbar state changed in either direction
@@ -1330,7 +1340,7 @@ fn calculate_content_box_pos(
 fn log_content_box_calculation<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     node_index: usize,
-    current_node: &LayoutNode,
+    current_node: &LayoutNodeHot,
     containing_block_pos: LogicalPosition,
     self_content_box_pos: LogicalPosition,
 ) {
@@ -1373,7 +1383,7 @@ fn log_content_box_calculation<T: ParsedFontTrait>(
 fn log_child_positioning<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     child_index: usize,
-    child_node: &LayoutNode,
+    child_node: &LayoutNodeHot,
     self_content_box_pos: LogicalPosition,
     child_relative_pos: LogicalPosition,
     child_absolute_pos: LogicalPosition,
@@ -1436,8 +1446,8 @@ fn process_inflow_child<T: ParsedFontTrait>(
 ) -> Result<()> {
     // Set relative position on child
     // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
-    let child_node = tree.get_mut(child_index).ok_or(LayoutError::InvalidTree)?;
-    child_node.relative_position = Some(child_relative_pos);
+    let child_warm = tree.warm_mut(child_index).ok_or(LayoutError::InvalidTree)?;
+    child_warm.relative_position = Some(child_relative_pos);
 
     // Calculate absolute position
     // self_content_box_pos is [CoordinateSpace::Window] - absolute position of parent's content-box
@@ -1519,9 +1529,11 @@ fn position_bfc_child_descendants(
     
     for &child_index in tree.children(node_index) {
         let Some(child_node) = tree.get(child_index) else { continue };
-        
+
         // Use the relative_position that was set during formatting context layout
-        let child_rel_pos = child_node.relative_position.unwrap_or_default();
+        let child_rel_pos = tree.warm(child_index)
+            .and_then(|w| w.relative_position)
+            .unwrap_or_default();
         let child_abs_pos = LogicalPosition::new(
             content_box_pos.x + child_rel_pos.x,
             content_box_pos.y + child_rel_pos.y,
@@ -1666,9 +1678,11 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     // No child positioning needed in ComputeSize mode.
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_sizing.result_size);
-                        node.escaped_top_margin = cached_sizing.escaped_top_margin;
-                        node.escaped_bottom_margin = cached_sizing.escaped_bottom_margin;
-                        node.baseline = cached_sizing.baseline;
+                    }
+                    if let Some(warm) = tree.warm_mut(node_index) {
+                        warm.escaped_top_margin = cached_sizing.escaped_top_margin;
+                        warm.escaped_bottom_margin = cached_sizing.escaped_bottom_margin;
+                        warm.baseline = cached_sizing.baseline;
                     }
                     return Ok(());
                 }
@@ -1680,8 +1694,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     // Layout slot hit in ComputeSize mode — extract size only
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_layout.result_size);
-                        node.overflow_content_size = Some(cached_layout.content_size);
-                        node.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                    }
+                    if let Some(warm) = tree.warm_mut(node_index) {
+                        warm.overflow_content_size = Some(cached_layout.content_size);
+                        warm.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
                     }
                     return Ok(());
                 }
@@ -1695,8 +1711,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     // LAYOUT CACHE HIT — apply cached results with child positions
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_layout.result_size);
-                        node.overflow_content_size = Some(cached_layout.content_size);
-                        node.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                    }
+                    if let Some(warm) = tree.warm_mut(node_index) {
+                        warm.overflow_content_size = Some(cached_layout.content_size);
+                        warm.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
                     }
 
                     let box_props = tree.get(node_index)
@@ -1753,10 +1771,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         writing_mode,
         mut final_used_size,
         box_props,
-    } = {
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        prepare_layout_context(ctx, node, containing_block_size)?
-    };
+    } = prepare_layout_context(ctx, tree, node_index, containing_block_size)?;
 
     // Phase 1.5: Update used_size BEFORE calling layout_formatting_context.
     //
@@ -1849,22 +1864,29 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
     // Phase 4: Update this node's state
     let self_content_box_pos = {
-        let current_node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
+        {
+            let current_node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
 
-        // Table cells get their size from the table layout algorithm, don't overwrite
-        let is_table_cell = matches!(
-            current_node.formatting_context,
-            FormattingContext::TableCell
-        );
-        if !is_table_cell || current_node.used_size.is_none() {
-            current_node.used_size = Some(final_used_size);
+            // Table cells get their size from the table layout algorithm, don't overwrite
+            let is_table_cell = matches!(
+                current_node.formatting_context,
+                FormattingContext::TableCell
+            );
+            if !is_table_cell || current_node.used_size.is_none() {
+                current_node.used_size = Some(final_used_size);
+            }
         }
-        current_node.scrollbar_info = Some(merged_scrollbar_info.clone());
-        // Store overflow content size for scroll frame calculation
-        // +spec:overflow:f28d6a - hanging glyphs should be ink overflow, not scrollable overflow (not yet subtracted from content_size)
-        current_node.overflow_content_size = Some(content_size);
+
+        // Update warm fields
+        if let Some(warm) = tree.warm_mut(node_index) {
+            warm.scrollbar_info = Some(merged_scrollbar_info.clone());
+            // Store overflow content size for scroll frame calculation
+            // +spec:overflow:f28d6a - hanging glyphs should be ink overflow, not scrollable overflow (not yet subtracted from content_size)
+            warm.overflow_content_size = Some(content_size);
+        }
 
         // self_content_box_pos is [CoordinateSpace::Window] - the absolute position of this node's content-box
+        let current_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let pos = calculate_content_box_pos(containing_block_pos, &current_node.box_props);
         log_content_box_calculation(ctx, node_index, current_node, containing_block_pos, pos);
         pos
@@ -1922,10 +1944,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // Store both the full layout entry and a sizing measurement entry.
     // This enables O(n) two-pass BFC: Pass 1 populates cache, Pass 2 reads it.
     if node_index < ctx.cache_map.entries.len() {
-        let node_ref = tree.get(node_index);
-        let baseline = node_ref.and_then(|n| n.baseline);
-        let escaped_top = node_ref.and_then(|n| n.escaped_top_margin);
-        let escaped_bottom = node_ref.and_then(|n| n.escaped_bottom_margin);
+        let warm_ref = tree.warm(node_index);
+        let baseline = warm_ref.and_then(|n| n.baseline);
+        let escaped_top = warm_ref.and_then(|n| n.escaped_top_margin);
+        let escaped_bottom = warm_ref.and_then(|n| n.escaped_bottom_margin);
 
         // Store in the layout slot (PerformLayout result)
         ctx.cache_map.get_mut(node_index).store_layout(LayoutCacheEntry {
@@ -1980,7 +2002,9 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
         for &child_index in &children {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-            let child_rel_pos = child_node.relative_position.unwrap_or_default();
+            let child_rel_pos = tree.warm(child_index)
+                .and_then(|w| w.relative_position)
+                .unwrap_or_default();
             let child_abs_pos = LogicalPosition::new(
                 content_box_pos.x + child_rel_pos.x,
                 content_box_pos.y + child_rel_pos.y,
@@ -2024,7 +2048,9 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
 
         for &child_index in &children {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-            let child_rel_pos = child_node.relative_position.unwrap_or_default();
+            let child_rel_pos = tree.warm(child_index)
+                .and_then(|w| w.relative_position)
+                .unwrap_or_default();
             let child_abs_pos = LogicalPosition::new(
                 content_box_pos.x + child_rel_pos.x,
                 content_box_pos.y + child_rel_pos.y,
@@ -2238,7 +2264,7 @@ fn compute_counters_recursive(
     // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
     // Pseudo-elements inherit counter values from their parent element
     // but don't participate in counter-reset or counter-increment themselves
-    if node.pseudo_element.is_some() {
+    if tree.warm(node_idx).and_then(|w| w.pseudo_element.as_ref()).is_some() {
         // Store the parent's counter values for this pseudo-element
         // so it can be looked up during marker text generation
         if let Some(parent_idx) = node.parent {

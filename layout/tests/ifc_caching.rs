@@ -412,14 +412,17 @@ fn test_ifc_layout_produces_item_metrics() {
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
     // Find nodes with inline_layout_result (IFC roots)
-    let ifc_nodes: Vec<_> = tree.nodes.iter().enumerate()
-        .filter(|(_, n)| n.inline_layout_result.is_some())
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+        .filter_map(|(idx, _)| {
+            tree.warm(idx)
+                .and_then(|w| w.inline_layout_result.as_ref())
+                .map(|ilr| (idx, ilr))
+        })
         .collect();
 
     assert!(!ifc_nodes.is_empty(), "Should have at least one IFC root node");
 
-    for (idx, node) in &ifc_nodes {
-        let cached = node.inline_layout_result.as_ref().unwrap();
+    for (idx, cached) in &ifc_nodes {
         let layout = cached.get_layout();
 
         // item_metrics length should match layout.items length
@@ -461,13 +464,16 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
     let cache = layout_html_and_get_tree(html);
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
-    let ifc_nodes: Vec<_> = tree.nodes.iter().enumerate()
-        .filter(|(_, n)| n.inline_layout_result.is_some())
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+        .filter_map(|(idx, _)| {
+            tree.warm(idx)
+                .and_then(|w| w.inline_layout_result.as_ref())
+                .map(|ilr| (idx, ilr))
+        })
         .collect();
 
     // With width: 50px, text should wrap to multiple lines
-    for (_idx, node) in &ifc_nodes {
-        let cached = node.inline_layout_result.as_ref().unwrap();
+    for (_idx, cached) in &ifc_nodes {
 
         if cached.item_metrics.is_empty() {
             continue;
@@ -502,13 +508,15 @@ fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
     let cache = layout_html_and_get_tree(html);
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
-    let ifc_nodes: Vec<_> = tree.nodes.iter().enumerate()
-        .filter(|(_, n)| n.inline_layout_result.is_some())
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+        .filter_map(|(idx, _)| {
+            tree.warm(idx)
+                .and_then(|w| w.inline_layout_result.as_ref())
+                .map(|ilr| (idx, ilr))
+        })
         .collect();
 
-    for (idx, node) in &ifc_nodes {
-        let cached = node.inline_layout_result.as_ref().unwrap();
-
+    for (idx, cached) in &ifc_nodes {
         // Group metrics by line_index
         let mut lines: BTreeMap<u32, Vec<&InlineItemMetrics>> = BTreeMap::new();
         for m in &cached.item_metrics {
@@ -543,19 +551,23 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
     let cache = layout_html_and_get_tree(html);
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
-    let ifc_nodes: Vec<_> = tree.nodes.iter().enumerate()
-        .filter(|(_, n)| n.inline_layout_result.is_some())
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+        .filter_map(|(idx, _)| {
+            tree.warm(idx)
+                .and_then(|w| w.inline_layout_result.as_ref())
+                .map(|ilr| (idx, ilr))
+        })
         .collect();
 
     assert!(!ifc_nodes.is_empty(), "Should have IFC root nodes");
 
     // At least some items should have source_node_id set (text clusters)
     let total_items: usize = ifc_nodes.iter()
-        .map(|(_, n)| n.inline_layout_result.as_ref().unwrap().item_metrics.len())
+        .map(|(_, cached)| cached.item_metrics.len())
         .sum();
 
     let items_with_source: usize = ifc_nodes.iter()
-        .flat_map(|(_, n)| n.inline_layout_result.as_ref().unwrap().item_metrics.iter())
+        .flat_map(|(_, cached)| cached.item_metrics.iter())
         .filter(|m| m.source_node_id.is_some())
         .count();
 

@@ -2153,7 +2153,8 @@ impl LayoutWindow {
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             // Check if node needs scrollbars
-            let scrollbar_info = match &node.scrollbar_info {
+            let warm = layout_tree.warm(node_idx);
+            let scrollbar_info = match warm.and_then(|w| w.scrollbar_info.as_ref()) {
                 Some(info) => info,
                 None => continue,
             };
@@ -2359,7 +2360,9 @@ impl LayoutWindow {
             let scroll_id = {
                 use std::hash::{Hash, Hasher, DefaultHasher};
                 let mut h = DefaultHasher::new();
-                node.node_data_fingerprint.hash(&mut h);
+                if let Some(cold) = layout_tree.cold(layout_idx) {
+                    cold.node_data_fingerprint.hash(&mut h);
+                }
                 h.finish()
             };
 
@@ -2448,11 +2451,9 @@ impl LayoutWindow {
             .iter()
             .position(|node| node.dom_node_id == target_node_id)?;
 
-        // Get the layout node
-        let layout_node = layout_tree.nodes.get(layout_idx)?;
-
-        // Get the text layout result for this node
-        let cached_layout = layout_node.inline_layout_result.as_ref()?;
+        // Get the text layout result for this node (warm data)
+        let warm_node = layout_tree.warm(layout_idx)?;
+        let cached_layout = warm_node.inline_layout_result.as_ref()?;
         let inline_layout = &cached_layout.layout;
 
         // Get the cursor rect in node-relative coordinates
@@ -2569,10 +2570,8 @@ impl LayoutWindow {
                 .iter()
                 .position(|node| node.dom_node_id == current_node_id)?;
 
-            let layout_node = layout_tree.nodes.get(layout_idx)?;
-
             // Check if this node has scrollbar info (meaning it's scrollable)
-            if layout_node.scrollbar_info.is_some() {
+            if layout_tree.warm(layout_idx).and_then(|w| w.scrollbar_info.as_ref()).is_some() {
                 // Check if it actually has a scroll state registered
                 let check_node_id = current_node_id?;
                 if self
@@ -2591,8 +2590,8 @@ impl LayoutWindow {
             }
 
             // Move to parent
-            let parent_idx = layout_node.parent?;
-            let parent_node = layout_tree.nodes.get(parent_idx)?;
+            let parent_idx = layout_tree.get(layout_idx)?.parent?;
+            let parent_node = layout_tree.get(parent_idx)?;
             current_node_id = parent_node.dom_node_id;
         }
     }
@@ -4693,8 +4692,8 @@ impl LayoutWindow {
             // First check layout nodes mapped to this DOM node
             if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
                 for &idx in layout_indices {
-                    if let Some(n) = layout_result.layout_tree.get(idx) {
-                        if let Some(ref cached) = n.inline_layout_result {
+                    if let Some(w) = layout_result.layout_tree.warm(idx) {
+                        if let Some(ref cached) = w.inline_layout_result {
                             found = Some((idx, cached));
                             break;
                         }
@@ -4710,8 +4709,8 @@ impl LayoutWindow {
                     while let Some(child_id) = child {
                         if let Some(child_indices) = layout_result.layout_tree.dom_to_layout.get(&child_id) {
                             for &idx in child_indices {
-                                if let Some(n) = layout_result.layout_tree.get(idx) {
-                                    if let Some(ref cached) = n.inline_layout_result {
+                                if let Some(w) = layout_result.layout_tree.warm(idx) {
+                                    if let Some(ref cached) = w.inline_layout_result {
                                         found = Some((idx, cached));
                                         break;
                                     }
@@ -4751,27 +4750,26 @@ impl LayoutWindow {
         // 4. Update the layout cache with the new layout
         // Use the ifc_layout_index we found earlier (correct layout tree index)
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-            if let Some(layout_node) = layout_result.layout_tree.get_mut(ifc_layout_index) {
-                // Check if size changed (needs repaint)
-                let old_size = layout_node.used_size;
-                let new_bounds = new_layout.bounds();
-                let new_size = Some(LogicalSize {
-                    width: new_bounds.width,
-                    height: new_bounds.height,
-                });
+            let old_size = layout_result.layout_tree.get(ifc_layout_index).and_then(|n| n.used_size);
+            let new_bounds = new_layout.bounds();
+            let new_size = Some(LogicalSize {
+                width: new_bounds.width,
+                height: new_bounds.height,
+            });
 
-                // Check if we need to propagate layout shift
-                if let (Some(old), Some(new)) = (old_size, new_size) {
-                    if (old.height - new.height).abs() > 0.5 || (old.width - new.width).abs() > 0.5 {
-                        // Mark that ancestor relayout is needed
-                        if let Some(dirty_node) = self.dirty_text_nodes.get_mut(&(dom_id, node_id)) {
-                            dirty_node.needs_ancestor_relayout = true;
-                        }
+            // Check if we need to propagate layout shift
+            if let (Some(old), Some(new)) = (old_size, new_size) {
+                if (old.height - new.height).abs() > 0.5 || (old.width - new.width).abs() > 0.5 {
+                    // Mark that ancestor relayout is needed
+                    if let Some(dirty_node) = self.dirty_text_nodes.get_mut(&(dom_id, node_id)) {
+                        dirty_node.needs_ancestor_relayout = true;
                     }
                 }
+            }
 
-                // Update the inline layout result with the new layout but preserve constraints
-                layout_node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
+            // Update the inline layout result with the new layout but preserve constraints (warm data)
+            if let Some(warm_node) = layout_result.layout_tree.warm_mut(ifc_layout_index) {
+                warm_node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
                     Arc::new(new_layout),
                     constraints.available_width,
                     false, // No floats in quick relayout
@@ -5204,14 +5202,14 @@ impl LayoutWindow {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
 
-        // Find the layout node corresponding to the DOM node
-        let layout_node = layout_tree
+        // Find the layout node index corresponding to the DOM node
+        let layout_idx = layout_tree
             .nodes
             .iter()
-            .find(|node| node.dom_node_id == Some(node_id))?;
+            .position(|node| node.dom_node_id == Some(node_id))?;
 
-        // Return the inline layout result
-        layout_node
+        // Return the inline layout result (warm data)
+        layout_tree.warm(layout_idx)?
             .inline_layout_result
             .as_ref()
             .map(|c| c.clone_layout())
@@ -5405,17 +5403,20 @@ impl LayoutWindow {
                         Some(idx) => idx,
                         None => continue,
                     };
-                    let layout_node = &tree.nodes[layout_node_idx];
+                    let warm_node = match tree.warm(layout_node_idx) {
+                        Some(w) => w,
+                        None => continue,
+                    };
 
                     // Get the IFC layout and IFC root NodeId
                     // Selection must be stored on the IFC root, not on text nodes
-                    let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
+                    let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = warm_node.inline_layout_result {
                         // This node IS an IFC root - use its own NodeId
                         (cached, *node_id)
-                    } else if let Some(ref membership) = layout_node.ifc_membership {
+                    } else if let Some(ref membership) = warm_node.ifc_membership {
                         // This node participates in an IFC - get layout and NodeId from IFC root
-                        match tree.nodes.get(membership.ifc_root_layout_index) {
-                            Some(ifc_root) => match (ifc_root.inline_layout_result.as_ref(), ifc_root.dom_node_id) {
+                        match tree.warm(membership.ifc_root_layout_index) {
+                            Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(membership.ifc_root_layout_index).and_then(|n| n.dom_node_id)) {
                                 (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
                                 _ => continue,
                             },
@@ -5460,7 +5461,11 @@ impl LayoutWindow {
 
                 // Only iterate IFC roots (nodes with inline_layout_result)
                 for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
-                    let cached_layout = match layout_node.inline_layout_result.as_ref() {
+                    let warm = match tree.warm(node_idx) {
+                        Some(w) => w,
+                        None => continue,
+                    };
+                    let cached_layout = match warm.inline_layout_result.as_ref() {
                         Some(c) => c,
                         None => continue, // Skip non-IFC-root nodes
                     };
@@ -5539,8 +5544,8 @@ impl LayoutWindow {
             let tree = &layout_result.layout_tree;
 
             // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
-            let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(ifc_root_node_id))?;
-            let cached_layout = layout_node.inline_layout_result.as_ref()?;
+            let layout_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
+            let cached_layout = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
             let layout = &cached_layout.layout;
 
             match click_count {
@@ -5559,8 +5564,8 @@ impl LayoutWindow {
         let char_bounds = {
             let layout_result = self.layout_results.get(&dom_id)?;
             let tree = &layout_result.layout_tree;
-            let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(ifc_root_node_id))?;
-            let cached_layout = layout_node.inline_layout_result.as_ref()?;
+            let layout_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
+            let cached_layout = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
             cached_layout.layout.get_cursor_rect(&final_range.start)
                 .unwrap_or(azul_core::geom::LogicalRect {
                     origin: position,
@@ -5712,14 +5717,17 @@ impl LayoutWindow {
                     Some(idx) => idx,
                     None => continue,
                 };
-                let layout_node = &tree.nodes[layout_node_idx];
+                let warm_node = match tree.warm(layout_node_idx) {
+                    Some(w) => w,
+                    None => continue,
+                };
 
                 // Get the IFC layout and IFC root NodeId
-                let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
+                let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = warm_node.inline_layout_result {
                     (cached, *node_id)
-                } else if let Some(ref membership) = layout_node.ifc_membership {
-                    match tree.nodes.get(membership.ifc_root_layout_index) {
-                        Some(ifc_root) => match (ifc_root.inline_layout_result.as_ref(), ifc_root.dom_node_id) {
+                } else if let Some(ref membership) = warm_node.ifc_membership {
+                    match tree.warm(membership.ifc_root_layout_index) {
+                        Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(membership.ifc_root_layout_index).and_then(|n| n.dom_node_id)) {
                             (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
                             _ => continue,
                         },
@@ -5772,13 +5780,16 @@ impl LayoutWindow {
 
         for node_id in &nodes_in_range {
             // Check if this node is an IFC root (has inline_layout_result)
-            let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(*node_id));
-            let layout_node = match layout_node {
-                Some(ln) if ln.inline_layout_result.is_some() => ln,
+            let layout_idx = match tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id)) {
+                Some(idx) => idx,
+                None => continue,
+            };
+            let warm = match tree.warm(layout_idx) {
+                Some(w) if w.inline_layout_result.is_some() => w,
                 _ => continue, // Skip non-IFC-root nodes
             };
 
-            let cached_layout = layout_node.inline_layout_result.as_ref()?;
+            let cached_layout = warm.inline_layout_result.as_ref()?;
             let layout = &cached_layout.layout;
 
             let range = if *node_id == anchor.ifc_root_node_id && *node_id == focus_ifc_root {

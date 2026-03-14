@@ -1564,9 +1564,9 @@ impl CallbackInfo {
         // but for text we typically only care about the first one)
         let layout_index = *layout_indices.first()?;
 
-        // Get the layout node and its inline layout result
-        let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
-        layout_node
+        // Get the layout node's inline layout result (warm data)
+        let warm_node = layout_result.layout_tree.warm(layout_index)?;
+        warm_node
             .inline_layout_result
             .as_ref()
             .map(|c| c.get_layout())

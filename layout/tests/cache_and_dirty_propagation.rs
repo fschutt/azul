@@ -471,10 +471,12 @@ fn test_whitespace_between_blocks_no_spurious_ifc() {
 
     // Check that no anonymous IFC wrapper nodes were created between the divs
     let mut anonymous_ifc_count = 0;
-    for node in &tree.nodes {
-        if node.is_anonymous {
-            if let Some(azul_layout::solver3::layout_tree::AnonymousBoxType::InlineWrapper) = node.anonymous_type {
-                anonymous_ifc_count += 1;
+    for (idx, node) in tree.nodes.iter().enumerate() {
+        if node.dom_node_id.is_none() {
+            if let Some(cold) = tree.cold(idx) {
+                if let Some(azul_layout::solver3::layout_tree::AnonymousBoxType::InlineWrapper) = cold.anonymous_type {
+                    anonymous_ifc_count += 1;
+                }
             }
         }
     }

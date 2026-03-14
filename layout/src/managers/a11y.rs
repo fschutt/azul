@@ -24,7 +24,7 @@ use azul_core::{
 };
 use azul_css::AzString;
 
-use crate::{solver3::layout_tree::LayoutNode, window::DomLayoutResult};
+use crate::{solver3::layout_tree::{LayoutNodeHot, LayoutNodeWarm}, window::DomLayoutResult};
 
 /// Manager for accessibility tree state and updates.
 ///
@@ -83,7 +83,7 @@ impl A11yManager {
             let styled_dom = &layout_result.styled_dom;
 
             // Process each layout node
-            for layout_node in layout_result.layout_tree.nodes.iter() {
+            for (node_idx, layout_node) in layout_result.layout_tree.nodes.iter().enumerate() {
                 let Some(dom_node_id) = layout_node.dom_node_id else {
                     continue;
                 };
@@ -110,7 +110,8 @@ impl A11yManager {
 
                 // Build the accesskit Node
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
-                let node = Self::build_node(node_data, layout_node, a11y_info_ref);
+                let warm_node = layout_result.layout_tree.warm(node_idx);
+                let node = Self::build_node(node_data, layout_node, warm_node, a11y_info_ref);
 
                 // Store node ID mapping
                 node_id_map.insert((dom_id.inner as u32, node_index as u32), a11y_node_id);
@@ -206,7 +207,8 @@ impl A11yManager {
     /// Builds an accesskit Node from Azul's NodeData and layout information.
     fn build_node(
         node_data: &NodeData,
-        layout_node: &LayoutNode,
+        layout_node: &LayoutNodeHot,
+        warm_node: Option<&LayoutNodeWarm>,
         a11y_info: Option<&AccessibilityInfo>,
     ) -> Node {
         // Set role based on NodeType or AccessibilityInfo
@@ -262,7 +264,8 @@ impl A11yManager {
         }
 
         // Set bounds from layout node
-        if let (Some(pos), Some(size)) = (layout_node.relative_position, layout_node.used_size) {
+        let relative_position = warm_node.and_then(|w| w.relative_position);
+        if let (Some(pos), Some(size)) = (relative_position, layout_node.used_size) {
             builder.set_bounds(Rect {
                 x0: pos.x as f64,
                 y0: pos.y as f64,

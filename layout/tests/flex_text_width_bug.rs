@@ -231,8 +231,8 @@ fn test_flex_row_text_child_has_intrinsic_width() {
     for i in 0..10 {
         if let Some(node) = tree.get(i) {
             let size = node.used_size.unwrap_or_default();
-            let intrinsic = node.intrinsic_sizes.unwrap_or_default();
-            println!("Node {}: size={:?}, intrinsic_min_w={}, intrinsic_max_w={}, fc={:?}", 
+            let intrinsic = tree.warm(i).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            println!("Node {}: size={:?}, intrinsic_min_w={}, intrinsic_max_w={}, fc={:?}",
                 i, size, intrinsic.min_content_width, intrinsic.max_content_width, node.formatting_context);
         }
     }
@@ -241,9 +241,13 @@ fn test_flex_row_text_child_has_intrinsic_width() {
     // Find a node that has non-zero intrinsic width (the text content node)
     let text_div_idx = (0..10)
         .find(|&i| {
+            let has_intrinsic = tree.warm(i)
+                .and_then(|w| w.intrinsic_sizes)
+                .map(|s| s.min_content_width > 20.0)
+                .unwrap_or(false);
             tree.get(i)
                 .map(|n| {
-                    n.intrinsic_sizes.map(|s| s.min_content_width > 20.0).unwrap_or(false)
+                    has_intrinsic
                     && n.used_size.map(|s| s.width > 0.0).unwrap_or(false)
                 })
                 .unwrap_or(false)

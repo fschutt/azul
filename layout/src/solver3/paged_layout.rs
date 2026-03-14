@@ -452,8 +452,8 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
-        if let Some(node) = new_tree.get_mut(node_idx) {
-            node.taffy_cache.clear();
+        if let Some(warm) = new_tree.warm_mut(node_idx) {
+            warm.taffy_cache.clear();
         }
     }
 

@@ -236,7 +236,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 size
             } else {
                 // Element hasn't been sized yet - calculate it now using containing block
-                let intrinsic = node.intrinsic_sizes.unwrap_or_default();
+                let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
@@ -770,15 +770,13 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 );
                 if is_table_row_like {
                     // Shift all children (and their descendants) by the same delta
-                    let mut stack = node.children.clone();
+                    let mut stack = tree.children(node_index).to_vec();
                     while let Some(child_idx) = stack.pop() {
                         if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
                             child_pos.x += delta_x;
                             child_pos.y += delta_y;
                         }
-                        if let Some(child_node) = tree.get(child_idx) {
-                            stack.extend_from_slice(&child_node.children);
-                        }
+                        stack.extend_from_slice(tree.children(child_idx));
                     }
                 }
             }
