@@ -1062,16 +1062,12 @@ pub mod parsed {
                     adv_f26dot6.to_bits(),
                 ).ok()?;
 
-                // Round hinted advance to pixel grid (nearest 64 F26Dot6).
-                // The glyph program typically doesn't explicitly move the advance
-                // phantom point, so it retains its fractional scaled value.
-                // FreeType rounds advances to grid after hinting (for both TARGET_MONO
-                // and DEFAULT modes).  Without this rounding, fractional advances
-                // accumulate ~0.3px error per glyph, causing visibly wide word spacing.
-                let rounded = (hinted_adv + 32) & !63;
-                Some(rounded as f32 / 64.0)
+                // Phantom points are pre-rounded to grid in HintInstance,
+                // so the hinted advance is already grid-aligned.
+                Some(hinted_adv as f32 / 64.0)
             } else {
                 // No outline (e.g. space): use scaled advance, rounded to grid
+                // (matching FreeType's phantom point pre-rounding)
                 let rounded = (adv_f26dot6.to_bits() + 32) & !63;
                 Some(rounded as f32 / 64.0)
             }
