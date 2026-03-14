@@ -32877,6 +32877,28 @@
                         ],
                         "repr": "C"
                     },
+                    "VisualBox": {
+                        "external": "azul_css::props::layout::overflow::VisualBox",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ContentBox": {},
+                                "PaddingBox": {},
+                                "BorderBox": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "StyleInitialLetterAlign": {
                         "external": "azul_css::props::style::text::StyleInitialLetterAlign",
                         "custom_impls": [
@@ -49360,19 +49382,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "BoxOrStaticImageRef": {
-                        "doc": [
-                            "BoxOrStatic instantiated with ImageRef"
-                        ],
-                        "external": "azul_core::dom::BoxOrStaticImageRef",
-                        "derive": [],
-                        "type_alias": {
-                            "target": "BoxOrStatic",
-                            "generic_args": [
-                                "ImageRef"
-                            ]
-                        }
                     }
                 }
             },
@@ -52979,19 +52988,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "BoxOrStaticString": {
-                        "doc": [
-                            "BoxOrStatic instantiated with String (AzString)"
-                        ],
-                        "external": "azul_css::css::BoxOrStaticString",
-                        "derive": [],
-                        "type_alias": {
-                            "target": "BoxOrStatic",
-                            "generic_args": [
-                                "String"
-                            ]
-                        }
                     }
                 }
             },
