@@ -159,8 +159,8 @@ fn render_coretext(ch: char, font_name: &str, font_size: f32, w: u32, h: u32, ba
     ctx.set_rgb_fill_color(0.0, 0.0, 0.0, 1.0);
     ctx.set_allows_font_smoothing(false);
     ctx.set_should_smooth_fonts(false);
-    ctx.set_allows_antialiasing(true);
-    ctx.set_should_antialias(true);
+    ctx.set_allows_antialiasing(false);
+    ctx.set_should_antialias(false);
 
     // CoreText Y is bottom-up: baseline_y from bottom
     let ct_baseline = baseline_y as f64;
@@ -188,7 +188,7 @@ fn render_azul(font: &ParsedFont, ch: char, font_size: f32, w: u32, h: u32, base
 
     let mut paint = Paint::default();
     paint.set_color(Color::BLACK);
-    paint.anti_alias = true;
+    paint.anti_alias = false; // binary coverage, no AA — matches CoreText no-AA mode
 
     // tiny-skia Y is top-down: baseline_y from top
     let transform = if cached.is_hinted {

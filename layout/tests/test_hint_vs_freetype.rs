@@ -1964,3 +1964,40 @@ fn test_trace_o_ppem12_iup() {
         eprintln!("  pt{i:2}: ({x:5},{y:5})");
     }
 }
+
+#[test]
+fn test_compare_u_at_ppem() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    // FreeType DEFAULT Y values for 'u' bottom curve pts 3-12
+    let ft_ref: &[(u16, &[(usize, i32)])] = &[
+        (14, &[(3,131),(4,120),(5,120),(6,120),(7,128),(8,64),(9,0),(10,0),(11,97),(12,33)]),
+        (20, &[(3,134),(4,117),(5,117),(6,117),(7,128),(8,64),(9,0),(10,0),(11,108),(12,37)]),
+    ];
+
+    for &(ppem, pts) in ft_ref {
+        let hinted = match hint_glyph_any(&font, 'u' as u32, ppem) {
+            Some(h) => h, None => { eprintln!("ppem={ppem}: hint failed"); continue; }
+        };
+
+        eprintln!("\nppem={ppem} 'u' bottom curve:");
+        eprintln!("{:>3} {:>6} {:>6} {:>5}", "pt", "ours", "ft", "dy");
+        let mut max_dy = 0i32;
+        for &(i, ft_y) in pts {
+            let our_y = hinted[i].1;
+            let dy = our_y - ft_y;
+            if dy.abs() > max_dy.abs() { max_dy = dy; }
+            let flag = if dy.abs() > 10 { " <<<" } else { "" };
+            eprintln!("{i:3} {our_y:6} {ft_y:6} {dy:+5}{flag}");
+        }
+        eprintln!("Max dy: {max_dy} F26Dot6 ({:.2}px)", max_dy as f32 / 64.0);
+    }
+}
