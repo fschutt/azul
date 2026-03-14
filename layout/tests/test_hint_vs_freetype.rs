@@ -2107,3 +2107,64 @@ fn test_trace_i_32px() {
         raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
     );
 }
+
+#[test]
+fn test_cvt_values_by_ppem() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+
+    // Key CVT indices for Times New Roman (from fonttools):
+    // CVT[0] = 1422 funits (ascender/dot height)
+    // CVT[2] = 1356 funits (cap height)
+    // CVT[5] = 28 funits (thin stem)
+    // CVT[6] = 916 funits (x-height)
+    let key_cvts = [0, 1, 2, 3, 4, 5, 6, 13];
+
+    eprintln!("{:>5} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}", 
+        "ppem", "CVT[0]", "CVT[1]", "CVT[2]", "CVT[3]", "CVT[4]", "CVT[5]", "CVT[6]", "CVT[13]");
+
+    for ppem in [16u16, 20, 24, 32, 48] {
+        let mut hint = hint_mutex.lock().unwrap();
+        hint.set_ppem(1, 1.0).ok(); // force re-prep
+        hint.set_ppem(ppem, ppem as f64).ok();
+        let cvt = hint.interpreter.cvt();
+        let vals: Vec<String> = key_cvts.iter()
+            .map(|&i| format!("{:5}({:.0})", cvt.get(i).copied().unwrap_or(0), 
+                              cvt.get(i).copied().unwrap_or(0) as f32 / 64.0))
+            .collect();
+        eprintln!("{ppem:5} {}", vals.join(" "));
+    }
+}
+
+#[test]
+fn test_trace_prep_cvt0() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+
+    // Enable tracing to see what modifies CVT[0]
+    hint.interpreter.trace_mode = true;
+    hint.set_ppem(1, 1.0).ok(); // force re-prep
+    hint.set_ppem(32, 32.0).ok();
+
+    let cvt0 = hint.interpreter.cvt().get(0).copied().unwrap_or(0);
+    eprintln!("After prep at ppem=32: CVT[0] = {cvt0} ({:.1}px)", cvt0 as f32 / 64.0);
+}
