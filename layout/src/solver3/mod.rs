@@ -560,14 +560,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // content starts at (margin + border + padding, margin + border + padding).
             // We pass margin-adjusted position so calculate_content_box_pos works correctly.
             let root_node = &new_tree.nodes[root_idx];
-            
+            let root_bp = root_node.box_props.unpack();
+
             let is_root_with_margin = root_node.parent.is_none()
-                && (root_node.box_props.margin.left != 0.0 || root_node.box_props.margin.top != 0.0);
+                && (root_bp.margin.left != 0.0 || root_bp.margin.top != 0.0);
 
             let adjusted_cb_pos = if is_root_with_margin {
                 LogicalPosition::new(
-                    cb_pos.x + root_node.box_props.margin.left,
-                    cb_pos.y + root_node.box_props.margin.top,
+                    cb_pos.x + root_bp.margin.left,
+                    cb_pos.y + root_bp.margin.top,
                 )
             } else {
                 cb_pos
@@ -596,8 +597,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         cb_size.height,
                         viewport.size.width,
                         viewport.size.height,
-                        root_node.box_props.margin.left,
-                        root_node.box_props.margin.top
+                        root_bp.margin.left,
+                        root_bp.margin.top
                     ),
                 ));
             }
@@ -624,13 +625,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // edge and the element's border-box.
             if !pos_contains(&calculated_positions, root_idx) {
                 let root_node = &new_tree.nodes[root_idx];
+                let root_bp2 = root_node.box_props.unpack();
 
                 // Calculate the root's border-box position by adding margins to viewport origin
                 // This is different from non-root nodes which inherit their position from
                 // their containing block.
                 let root_position = LogicalPosition::new(
-                    cb_pos.x + root_node.box_props.margin.left,
-                    cb_pos.y + root_node.box_props.margin.top,
+                    cb_pos.x + root_bp2.margin.left,
+                    cb_pos.y + root_bp2.margin.top,
                 );
 
                 // DEBUG: Log root positioning
@@ -650,10 +652,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                             dom_name,
                             root_position.x,
                             root_position.y,
-                            root_node.box_props.margin.top,
-                            root_node.box_props.margin.right,
-                            root_node.box_props.margin.bottom,
-                            root_node.box_props.margin.left
+                            root_bp2.margin.top,
+                            root_bp2.margin.right,
+                            root_bp2.margin.bottom,
+                            root_bp2.margin.left
                         ),
                     ));
                 }
@@ -788,9 +790,10 @@ fn get_containing_block_for_node(
             let size = parent_node.used_size.unwrap_or_default();
             // Position in calculated_positions is the margin-box position
             // To get content-box, add: border + padding (NOT margin, that's already in pos)
+            let pbp = parent_node.box_props.unpack();
             let content_pos = LogicalPosition::new(
-                pos.x + parent_node.box_props.border.left + parent_node.box_props.padding.left,
-                pos.y + parent_node.box_props.border.top + parent_node.box_props.padding.top,
+                pos.x + pbp.border.left + pbp.padding.left,
+                pos.y + pbp.border.top + pbp.padding.top,
             );
 
             if let Some(dom_id) = parent_node.dom_node_id {
@@ -804,7 +807,7 @@ fn get_containing_block_for_node(
                 // +spec:containing-block:c205e5 - writing mode of containing block used for inner_size (orthogonal flow awareness)
                 let writing_mode =
                     get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
-                let content_size = parent_node.box_props.inner_size(size, writing_mode);
+                let content_size = pbp.inner_size(size, writing_mode);
                 return (content_pos, content_size);
             }
 

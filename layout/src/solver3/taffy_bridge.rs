@@ -371,7 +371,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
     let (padding_width, padding_height, border_width, border_height, border_left, border_top) = tree
         .get(node_idx)
         .map(|node| {
-            let bp = &node.box_props;
+            let bp = node.box_props.unpack();
             (
                 bp.padding.left + bp.padding.right,
                 bp.padding.top + bp.padding.bottom,
@@ -1349,11 +1349,12 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
             if let Some(child) = self.tree.get(node_idx) {
                 if let Some(parent_idx) = child.parent {
                     if let Some(parent) = self.tree.get(parent_idx) {
+                        let pbp = parent.box_props.unpack();
                         (
-                            parent.box_props.border.left,
-                            parent.box_props.border.top,
-                            parent.box_props.padding.left,
-                            parent.box_props.padding.top,
+                            pbp.border.left,
+                            pbp.border.top,
+                            pbp.padding.left,
+                            pbp.padding.top,
                         )
                     } else {
                         (0.0, 0.0, 0.0, 0.0)
@@ -1526,7 +1527,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .tree
             .get(node_idx)
             .map(|node| {
-                let bp = &node.box_props;
+                let bp = node.box_props.unpack();
                 (
                     bp.padding.left + bp.padding.right,
                     bp.padding.top + bp.padding.bottom,

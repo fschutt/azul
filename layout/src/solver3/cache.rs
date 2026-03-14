@@ -573,9 +573,10 @@ pub fn reposition_block_flow_siblings(
         .copied()
         .unwrap_or_default();
 
+    let parent_bp = parent_node.box_props.unpack();
     let content_box_origin = LogicalPosition::new(
-        parent_pos.x + parent_node.box_props.padding.left,
-        parent_pos.y + parent_node.box_props.padding.top,
+        parent_pos.x + parent_bp.padding.left,
+        parent_pos.y + parent_bp.padding.top,
     );
 
     let mut main_pen = 0.0;
@@ -587,7 +588,8 @@ pub fn reposition_block_flow_siblings(
         };
 
         let child_size = child_node.used_size.unwrap_or_default();
-        let child_main_sum = child_node.box_props.margin.main_sum(writing_mode);
+        let child_bp = child_node.box_props.unpack();
+        let child_main_sum = child_bp.margin.main_sum(writing_mode);
         let margin_box_main_size = child_size.main(writing_mode) + child_main_sum;
 
         if layout_roots.contains(&child_idx) {
@@ -606,7 +608,7 @@ pub fn reposition_block_flow_siblings(
 
             main_pen = main_axis_offset
                 + child_size.main(writing_mode)
-                + child_node.box_props.margin.main_end(writing_mode);
+                + child_bp.margin.main_end(writing_mode);
         } else {
             // This child is *clean*. Calculate its new position and shift its
             // entire subtree.
@@ -615,7 +617,7 @@ pub fn reposition_block_flow_siblings(
                 None => continue,
             };
 
-            let child_main_start = child_node.box_props.margin.main_start(writing_mode);
+            let child_main_start = child_bp.margin.main_start(writing_mode);
             let new_main_pos = main_pen + child_main_start;
             let old_relative_pos = tree.warm(child_idx)
                 .and_then(|w| w.relative_position)
@@ -1116,7 +1118,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         dom_id, // Now Option<NodeId>
         containing_block_size,
         intrinsic,
-        &node.box_props,
+        &node.box_props.unpack(),
         ctx.viewport_size,
     )?;
 
@@ -1177,7 +1179,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         dom_id,
         writing_mode,
         final_used_size,
-        box_props: node.box_props.clone(),
+        box_props: node.box_props.unpack(),
     })
 }
 
@@ -1360,6 +1362,7 @@ fn log_content_box_calculation<T: ParsedFontTrait>(
         .map(|n| format!("{:?}", n.node_type))
         .unwrap_or_else(|| "Unknown".to_string());
 
+    let cbp = current_node.box_props.unpack();
     debug_msgs.push(LayoutDebugMessage::new(
         LayoutDebugMessageType::PositionCalculation,
         format!(
@@ -1369,10 +1372,10 @@ fn log_content_box_calculation<T: ParsedFontTrait>(
             dom_name,
             containing_block_pos.x,
             containing_block_pos.y,
-            current_node.box_props.border.left,
-            current_node.box_props.border.top,
-            current_node.box_props.padding.left,
-            current_node.box_props.padding.top,
+            cbp.border.left,
+            cbp.border.top,
+            cbp.padding.left,
+            cbp.padding.top,
             self_content_box_pos.x,
             self_content_box_pos.y
         ),
@@ -1416,8 +1419,8 @@ fn log_child_positioning<T: ParsedFontTrait>(
             self_content_box_pos.y,
             child_relative_pos.x,
             child_relative_pos.y,
-            child_node.box_props.margin.left,
-            child_node.box_props.margin.top,
+            child_node.box_props.unpack().margin.left,
+            child_node.box_props.unpack().margin.top,
             child_absolute_pos.x,
             child_absolute_pos.y
         ),
@@ -1475,10 +1478,10 @@ fn process_inflow_child<T: ParsedFontTrait>(
 
     // Get child's properties for recursion
     let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+    let child_bp = child_node.box_props.unpack();
     let child_content_box_pos =
-        calculate_content_box_pos(child_absolute_pos, &child_node.box_props);
-    let child_inner_size = child_node
-        .box_props
+        calculate_content_box_pos(child_absolute_pos, &child_bp);
+    let child_inner_size = child_bp
         .inner_size(child_node.used_size.unwrap_or_default(), writing_mode);
     let child_children: Vec<usize> = tree.children(child_index).to_vec();
     let child_fc = child_node.formatting_context.clone();
@@ -1542,9 +1545,10 @@ fn position_bfc_child_descendants(
         super::pos_set(calculated_positions, child_index, child_abs_pos);
         
         // Calculate child's content-box position for recursion
+        let cbp = child_node.box_props.unpack();
         let child_content_box_pos = LogicalPosition::new(
-            child_abs_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
-            child_abs_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+            child_abs_pos.x + cbp.border.left + cbp.padding.left,
+            child_abs_pos.y + cbp.border.top + cbp.padding.top,
         );
         
         // Recurse to grandchildren
@@ -1718,7 +1722,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     }
 
                     let box_props = tree.get(node_index)
-                        .map(|n| n.box_props.clone())
+                        .map(|n| n.box_props.unpack())
                         .unwrap_or_default();
                     let self_content_box_pos = calculate_content_box_pos(containing_block_pos, &box_props);
 
@@ -1887,7 +1891,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
         // self_content_box_pos is [CoordinateSpace::Window] - the absolute position of this node's content-box
         let current_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let pos = calculate_content_box_pos(containing_block_pos, &current_node.box_props);
+        let current_bp = current_node.box_props.unpack();
+        let pos = calculate_content_box_pos(containing_block_pos, &current_bp);
         log_content_box_calculation(ctx, node_index, current_node, containing_block_pos, pos);
         pos
     };
@@ -2014,15 +2019,16 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
             super::pos_set(calculated_positions, child_index, child_abs_pos);
 
             // Get child's content box for recursion
+            let cbp = child_node.box_props.unpack();
             let child_content_box = LogicalPosition::new(
                 child_abs_pos.x
-                    + child_node.box_props.border.left
-                    + child_node.box_props.padding.left,
+                    + cbp.border.left
+                    + cbp.padding.left,
                 child_abs_pos.y
-                    + child_node.box_props.border.top
-                    + child_node.box_props.padding.top,
+                    + cbp.border.top
+                    + cbp.padding.top,
             );
-            let child_inner_size = child_node.box_props.inner_size(
+            let child_inner_size = cbp.inner_size(
                 child_node.used_size.unwrap_or_default(),
                 LayoutWritingMode::HorizontalTb,
             );
@@ -2060,15 +2066,16 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
             super::pos_set(calculated_positions, child_index, child_abs_pos);
 
             // Get child's content box for recursion
+            let cbp = child_node.box_props.unpack();
             let child_content_box = LogicalPosition::new(
                 child_abs_pos.x
-                    + child_node.box_props.border.left
-                    + child_node.box_props.padding.left,
+                    + cbp.border.left
+                    + cbp.padding.left,
                 child_abs_pos.y
-                    + child_node.box_props.border.top
-                    + child_node.box_props.padding.top,
+                    + cbp.border.top
+                    + cbp.padding.top,
             );
-            let child_inner_size = child_node.box_props.inner_size(
+            let child_inner_size = cbp.inner_size(
                 child_node.used_size.unwrap_or_default(),
                 LayoutWritingMode::HorizontalTb,
             );
@@ -2188,7 +2195,7 @@ fn apply_content_based_height(
     node_index: usize,
     writing_mode: LayoutWritingMode,
 ) -> LogicalSize {
-    let node_props = &tree.get(node_index).unwrap().box_props;
+    let node_props = tree.get(node_index).unwrap().box_props.unpack();
     let main_axis_padding_border =
         node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
 

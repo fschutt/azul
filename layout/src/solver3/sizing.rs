@@ -430,12 +430,13 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                     // +spec:positioning:f4f01d - intrinsic size contributions based on outer size; auto margins treated as zero
                     // are based on the outer size of the box. Add margin, padding, and border
                     // to the content intrinsic size. Auto margins are treated as zero.
-                    let h_extras = node.box_props.margin.left + node.box_props.margin.right
-                                 + node.box_props.padding.left + node.box_props.padding.right
-                                 + node.box_props.border.left + node.box_props.border.right;
-                    let v_extras = node.box_props.margin.top + node.box_props.margin.bottom
-                                 + node.box_props.padding.top + node.box_props.padding.bottom
-                                 + node.box_props.border.top + node.box_props.border.bottom;
+                    let nbp = node.box_props.unpack();
+                    let h_extras = nbp.margin.left + nbp.margin.right
+                                 + nbp.padding.left + nbp.padding.right
+                                 + nbp.border.left + nbp.border.right;
+                    let v_extras = nbp.margin.top + nbp.margin.bottom
+                                 + nbp.padding.top + nbp.padding.bottom
+                                 + nbp.border.top + nbp.border.bottom;
 
                     intrinsic.min_content_width += h_extras;
                     intrinsic.max_content_width += h_extras;
@@ -611,7 +612,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 // as zero for this purpose.
                 let child_node = tree.get(child_index);
                 let (cross_extras, main_extras) = if let Some(cn) = child_node {
-                    let bp = &cn.box_props;
+                    let bp = cn.box_props.unpack();
                     let h = bp.margin.left + bp.margin.right
                           + bp.border.left + bp.border.right
                           + bp.padding.left + bp.padding.right;

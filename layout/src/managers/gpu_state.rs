@@ -247,7 +247,8 @@ impl GpuStateManager {
 
             // Compute inner_rect (padding-box) by subtracting borders from used_size
             let border_box_size = node.used_size.unwrap_or_default();
-            let border = &node.box_props.border;
+            let nbp = node.box_props.unpack();
+            let border = &nbp.border;
             let inner_size = LogicalSize {
                 width: (border_box_size.width - border.left - border.right).max(0.0),
                 height: (border_box_size.height - border.top - border.bottom).max(0.0),

@@ -184,13 +184,14 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         || parent_position == LayoutPosition::Fixed
                     {
                         calculated_positions.get(parent_idx).map(|parent_pos| {
+                            let pbp = parent_node.box_props.unpack();
                             (
                                 parent_idx,
                                 *parent_pos,
-                                parent_node.box_props.border.left,
-                                parent_node.box_props.border.top,
-                                parent_node.box_props.padding.left,
-                                parent_node.box_props.padding.top,
+                                pbp.border.left,
+                                pbp.border.top,
+                                pbp.padding.left,
+                                pbp.padding.top,
                             )
                         })
                     } else {
@@ -242,7 +243,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     Some(dom_id),
                     containing_block_rect.size,
                     intrinsic,
-                    &node.box_props,
+                    &node.box_props.unpack(),
                     ctx.viewport_size,
                 )?;
 
@@ -299,10 +300,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             let (margin_top_val, margin_bottom_val, margin_auto,
                  margin_left_val, margin_right_val, margin_left_auto_flag, margin_right_auto_flag) = {
                 let node = &tree.nodes[node_index];
-                (node.box_props.margin.top, node.box_props.margin.bottom,
-                 node.box_props.margin_auto,
-                 node.box_props.margin.left, node.box_props.margin.right,
-                 node.box_props.margin_auto.left, node.box_props.margin_auto.right)
+                let nbp = node.box_props.unpack();
+                (nbp.margin.top, nbp.margin.bottom,
+                 nbp.margin_auto,
+                 nbp.margin.left, nbp.margin.right,
+                 nbp.margin_auto.left, nbp.margin_auto.right)
             };
             // +spec:positioning:d730e5 - CB height is independent of the abspos element, so percentage heights always resolve
             let cb_height = containing_block_rect.size.height;
@@ -854,26 +856,27 @@ fn find_nearest_scrollport(
             let border_box_size = parent_node.used_size.unwrap_or_default();
 
             // Content-box = margin-box pos + border + padding, size - border - padding
+            let pbp = parent_node.box_props.unpack();
             let content_pos = LogicalPosition::new(
                 margin_box_pos.x
-                    + parent_node.box_props.border.left
-                    + parent_node.box_props.padding.left,
+                    + pbp.border.left
+                    + pbp.padding.left,
                 margin_box_pos.y
-                    + parent_node.box_props.border.top
-                    + parent_node.box_props.padding.top,
+                    + pbp.border.top
+                    + pbp.padding.top,
             );
             let content_size = LogicalSize::new(
                 (border_box_size.width
-                    - parent_node.box_props.border.left
-                    - parent_node.box_props.border.right
-                    - parent_node.box_props.padding.left
-                    - parent_node.box_props.padding.right)
+                    - pbp.border.left
+                    - pbp.border.right
+                    - pbp.padding.left
+                    - pbp.padding.right)
                     .max(0.0),
                 (border_box_size.height
-                    - parent_node.box_props.border.top
-                    - parent_node.box_props.border.bottom
-                    - parent_node.box_props.padding.top
-                    - parent_node.box_props.padding.bottom)
+                    - pbp.border.top
+                    - pbp.border.bottom
+                    - pbp.padding.top
+                    - pbp.padding.bottom)
                     .max(0.0),
             );
             return LogicalRect::new(content_pos, content_size);
@@ -962,10 +965,11 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
                         get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
                     })
                     .unwrap_or_default();
-                let content_size = parent_node.box_props.inner_size(parent_size, parent_wm);
+                let pbp = parent_node.box_props.unpack();
+                let content_size = pbp.inner_size(parent_size, parent_wm);
                 let content_origin = LogicalPosition::new(
-                    parent_pos.x + parent_node.box_props.border.left + parent_node.box_props.padding.left,
-                    parent_pos.y + parent_node.box_props.border.top + parent_node.box_props.padding.top,
+                    parent_pos.x + pbp.border.left + pbp.padding.left,
+                    parent_pos.y + pbp.border.top + pbp.padding.top,
                 );
                 Some(LogicalRect::new(content_origin, content_size))
             })
@@ -983,7 +987,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
 
         let static_pos = *current_pos;
         let element_size = node.used_size.unwrap_or_default();
-        let margin = &node.box_props.margin;
+        let nbp = node.box_props.unpack();
+        let margin = &nbp.margin;
 
         let mut shift_x = 0.0f32;
         let mut shift_y = 0.0f32;
@@ -1123,19 +1128,20 @@ pub fn find_absolute_containing_block_rect(
             // +spec:containing-block:6bcb0c - containing block formed by padding edge of nearest positioned ancestor
             // +spec:positioning:df1921 - abs-pos percentage widths resolve against padding box of containing block
             // Calculate padding-box origin (margin-box + border)
+            let pbp = parent_node.box_props.unpack();
             let padding_box_pos = LogicalPosition::new(
-                margin_box_pos.x + parent_node.box_props.border.left,
-                margin_box_pos.y + parent_node.box_props.border.top,
+                margin_box_pos.x + pbp.border.left,
+                margin_box_pos.y + pbp.border.top,
             );
 
             // Calculate padding-box size (border-box - borders)
             let padding_box_size = LogicalSize::new(
                 border_box_size.width
-                    - parent_node.box_props.border.left
-                    - parent_node.box_props.border.right,
+                    - pbp.border.left
+                    - pbp.border.right,
                 border_box_size.height
-                    - parent_node.box_props.border.top
-                    - parent_node.box_props.border.bottom,
+                    - pbp.border.top
+                    - pbp.border.bottom,
             );
 
             return Ok(LogicalRect::new(padding_box_pos, padding_box_size));

@@ -539,14 +539,15 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // We must add border and padding to the explicit dimensions to get the correct Border
     // Box size for Taffy.
     // NOTE: For root nodes using viewport size, no adjustment needed - viewport is already border-box.
-    let width_adjustment = node.box_props.border.left
-        + node.box_props.border.right
-        + node.box_props.padding.left
-        + node.box_props.padding.right;
-    let height_adjustment = node.box_props.border.top
-        + node.box_props.border.bottom
-        + node.box_props.padding.top
-        + node.box_props.padding.bottom;
+    let bp = node.box_props.unpack();
+    let width_adjustment = bp.border.left
+        + bp.border.right
+        + bp.padding.left
+        + bp.padding.right;
+    let height_adjustment = bp.border.top
+        + bp.border.bottom
+        + bp.padding.top
+        + bp.padding.bottom;
 
     // Apply adjustment only if dimensions come from explicit CSS (convert content-box to border-box)
     // For root nodes using viewport size, no adjustment needed
@@ -598,8 +599,8 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     );
 
     // Cache border values before the mutable borrow in layout_taffy_subtree
-    let border_left = node.box_props.border.left;
-    let border_top = node.box_props.border.top;
+    let border_left = bp.border.left;
+    let border_top = bp.border.top;
 
     let taffy_output =
         taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
@@ -1032,8 +1033,9 @@ fn layout_bfc<T: ParsedFontTrait>(
     let mut last_child_index: Option<usize> = None;
 
     // Parent's own margins (for escape calculation)
-    let parent_margin_top = node.box_props.margin.main_start(writing_mode);
-    let parent_margin_bottom = node.box_props.margin.main_end(writing_mode);
+    let node_bp = node.box_props.unpack();
+    let parent_margin_top = node_bp.margin.main_start(writing_mode);
+    let parent_margin_bottom = node_bp.margin.main_end(writing_mode);
 
     // +spec:margin-collapsing:2476d8 - margins do not collapse across formatting context boundaries
     // If this node establishes an independent formatting context (new BFC), its margins
@@ -1042,9 +1044,9 @@ fn layout_bfc<T: ParsedFontTrait>(
 
     // Check if parent (this BFC root) has border/padding that prevents parent-child collapse
     let parent_has_top_blocker = is_bfc_root
-        || has_margin_collapse_blocker(&node.box_props, writing_mode, true);
+        || has_margin_collapse_blocker(&node_bp, writing_mode, true);
     let parent_has_bottom_blocker = is_bfc_root
-        || has_margin_collapse_blocker(&node.box_props, writing_mode, false);
+        || has_margin_collapse_blocker(&node_bp, writing_mode, false);
 
     // Track accumulated top margin for first-child escape
     let mut accumulated_top_margin = 0.0f32;
@@ -1080,12 +1082,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                     Some(size) => size,
                     None => {
                         let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                        let child_bp = child_node.box_props.unpack();
                         let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
                             ctx.styled_dom,
                             child_dom_id,
                             children_containing_block_size,
                             intrinsic,
-                            &child_node.box_props,
+                            &child_bp,
                             ctx.viewport_size,
                         )?;
                         if let Some(node_mut) = tree.get_mut(child_index) {
@@ -1096,7 +1099,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                 };
                 // Re-borrow after potential mutation
                 let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-                let float_margin = &child_node.box_props.margin;
+                let child_bp2 = child_node.box_props.unpack();
+                let float_margin = &child_bp2.margin;
 
                 // +spec:floats:d0d163 - clear on floats adds constraint #10: float top below cleared floats' bottom
                 // +spec:floats:7adb9d - Clear on floats: constraint #10, top outer edge must be below earlier cleared floats
@@ -1183,7 +1187,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     child_dom_id,
                     children_containing_block_size,
                     intrinsic,
-                    &child_node.box_props,
+                    &child_node.box_props.unpack(),
                     ctx.viewport_size,
                 )?;
                 // Update the node with computed size (we need to re-borrow mutably)
@@ -1195,7 +1199,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         };
         // Re-borrow child_node after potential mutation
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let child_margin = &child_node.box_props.margin;
+        let child_bp = child_node.box_props.unpack();
+        let child_margin = &child_bp.margin;
 
         debug_info!(
             ctx,
@@ -1233,9 +1238,9 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // Check if this child has border/padding that prevents margin collapsing
         let child_has_top_blocker =
-            has_margin_collapse_blocker(&child_node.box_props, writing_mode, true);
+            has_margin_collapse_blocker(&child_bp, writing_mode, true);
         let child_has_bottom_blocker =
-            has_margin_collapse_blocker(&child_node.box_props, writing_mode, false);
+            has_margin_collapse_blocker(&child_bp, writing_mode, false);
 
         // +spec:floats:dc195a - Clear property only applies to block-level elements (CSS 2.2 § 9.5.2)
         // Check for clear property FIRST - clearance affects whether element is considered empty
@@ -1668,9 +1673,10 @@ fn layout_bfc<T: ParsedFontTrait>(
         // Get child's margin, margin_auto, size, and formatting context
         let (child_margin_cloned, child_margin_auto, child_used_size, is_inline_fc, child_dom_id_for_debug) = {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let cbp = child_node.box_props.unpack();
             (
-                child_node.box_props.margin.clone(),
-                child_node.box_props.margin_auto,
+                cbp.margin.clone(),
+                cbp.margin_auto,
                 child_node.used_size.unwrap_or_default(),
                 child_node.formatting_context == FormattingContext::Inline,
                 child_node.dom_node_id,
@@ -1851,10 +1857,11 @@ fn layout_bfc<T: ParsedFontTrait>(
             // The IFC child is positioned at (child_cross_pos, main_pen) in BFC coordinates
             // Floats need to be relative to the IFC's CONTENT-BOX origin (inside padding/border)
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-            let padding_border_cross = child_node.box_props.padding.cross_start(writing_mode)
-                + child_node.box_props.border.cross_start(writing_mode);
-            let padding_border_main = child_node.box_props.padding.main_start(writing_mode)
-                + child_node.box_props.border.main_start(writing_mode);
+            let cbp = child_node.box_props.unpack();
+            let padding_border_cross = cbp.padding.cross_start(writing_mode)
+                + cbp.border.cross_start(writing_mode);
+            let padding_border_main = cbp.padding.main_start(writing_mode)
+                + cbp.border.main_start(writing_mode);
 
             // Content-box origin in BFC coordinates
             let content_box_cross = child_cross_pos + padding_border_cross;
@@ -2070,8 +2077,9 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Handle bottom margin escape
     if let Some(last_idx) = last_child_index {
         let last_child = tree.get(last_idx).ok_or(LayoutError::InvalidTree)?;
+        let last_child_bp = last_child.box_props.unpack();
         let last_has_bottom_blocker =
-            has_margin_collapse_blocker(&last_child.box_props, writing_mode, false);
+            has_margin_collapse_blocker(&last_child_bp, writing_mode, false);
 
         debug_info!(
             ctx,
@@ -4276,12 +4284,13 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             height: constraints.available_size.height,
         };
 
+        let table_bp = table_node.box_props.unpack();
         let table_size = crate::solver3::sizing::calculate_used_size_for_node(
             ctx.styled_dom,
             Some(dom_id),
             containing_block_size,
             intrinsic,
-            &table_node.box_props,
+            &table_bp,
             ctx.viewport_size,
         )?;
 
@@ -4291,9 +4300,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     };
 
     // Subtract padding and border to get content-box width for column distribution
+    let tbp = table_node.box_props.unpack();
     let table_content_box_width = {
-        let padding_width = table_node.box_props.padding.left + table_node.box_props.padding.right;
-        let border_width = table_node.box_props.border.left + table_node.box_props.border.right;
+        let padding_width = tbp.padding.left + tbp.padding.right;
+        let border_width = tbp.border.left + tbp.border.right;
         (table_border_box_width - padding_width - border_width).max(0.0)
     };
 
@@ -4314,14 +4324,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     debug_table_layout!(
         ctx,
         "Table padding: L={:.2} R={:.2}",
-        table_node.box_props.padding.left,
-        table_node.box_props.padding.right
+        tbp.padding.left,
+        tbp.padding.right
     );
     debug_table_layout!(
         ctx,
         "Table border: L={:.2} R={:.2}",
-        table_node.box_props.border.left,
-        table_node.box_props.border.right
+        tbp.border.left,
+        tbp.border.right
     );
     debug_table_layout!(ctx, "=");
 
@@ -4935,8 +4945,9 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
 
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
     let size = cell_node.used_size.unwrap_or_default();
-    let padding = &cell_node.box_props.padding;
-    let border = &cell_node.box_props.border;
+    let cell_bp = cell_node.box_props.unpack();
+    let padding = &cell_bp.padding;
+    let border = &cell_bp.border;
     let wm = constraints.writing_mode;
 
     Ok(size.width
@@ -5278,8 +5289,9 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
     // Get padding and border to calculate content width
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
-    let padding = &cell_node.box_props.padding;
-    let border = &cell_node.box_props.border;
+    let cell_bp = cell_node.box_props.unpack();
+    let padding = &cell_bp.padding;
+    let border = &cell_bp.border;
     let writing_mode = constraints.writing_mode;
 
     // cell_width is the border-box width (includes padding/border from column
@@ -5367,8 +5379,9 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
     // Add padding and border to get the total height
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
-    let padding = &cell_node.box_props.padding;
-    let border = &cell_node.box_props.border;
+    let cell_bp = cell_node.box_props.unpack();
+    let padding = &cell_bp.padding;
+    let border = &cell_bp.border;
     let writing_mode = constraints.writing_mode;
 
     let total_height = content_height
@@ -5402,6 +5415,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
         return 0.0;
     };
 
+    let cell_bp = cell_node.box_props.unpack();
+
     // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of content edge
     // Check if the cell has inline layout (first in-flow line box)
     if let Some(warm_node) = tree.warm(cell_index) {
@@ -5410,8 +5425,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
             // The baseline is the ascent of the first item from the top of the cell
             if let Some(first_item) = inline_result.items.first() {
                 let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&first_item.item);
-                let padding_top = cell_node.box_props.padding.top;
-                let border_top = cell_node.box_props.border.top;
+                let padding_top = cell_bp.padding.top;
+                let border_top = cell_bp.border.top;
                 return padding_top + border_top + first_item.position.y + item_ascent;
             }
         }
@@ -5424,8 +5439,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
             if let Some(child_warm) = tree.warm(child_idx) {
                 if child_warm.inline_layout_result.is_some() {
                     let child_baseline = compute_cell_baseline(child_idx, tree);
-                    let padding_top = cell_node.box_props.padding.top;
-                    let border_top = cell_node.box_props.border.top;
+                    let padding_top = cell_bp.padding.top;
+                    let border_top = cell_bp.border.top;
                     return padding_top + border_top + child_baseline;
                 }
             }
@@ -5434,8 +5449,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 
     // No line box found: baseline is the bottom of the content edge
     let used_size = cell_node.used_size.unwrap_or_default();
-    let padding_bottom = cell_node.box_props.padding.bottom;
-    let border_bottom = cell_node.box_props.border.bottom;
+    let padding_bottom = cell_bp.padding.bottom;
+    let border_bottom = cell_bp.border.bottom;
     used_size.height - padding_bottom - border_bottom
 }
 
@@ -5825,7 +5840,7 @@ fn position_table_cells<T: ParsedFontTrait>(
 
         // Save hot fields needed for vertical alignment before dropping the mutable borrow
         let cell_dom_node_id = cell_node.dom_node_id;
-        let cell_box_props = cell_node.box_props.clone();
+        let cell_box_props = cell_node.box_props.unpack();
         drop(cell_node);
 
         // +spec:inline-formatting-context:20e8e8 - table cell vertical-align alignment order (baseline first, then top, then bottom/middle)
@@ -6135,7 +6150,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
                 // The intrinsic sizing pass has already calculated its preferred size.
                 let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
-                let box_props = child_node.box_props.clone();
+                let box_props = child_node.box_props.unpack();
 
                 let styled_node_state = ctx
                     .styled_dom
@@ -6534,7 +6549,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             // The intrinsic sizing pass has already calculated its preferred size.
             let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
-            let box_props = child_node.box_props.clone();
+            let box_props = child_node.box_props.unpack();
 
             let styled_node_state = ctx
                 .styled_dom
@@ -6721,7 +6736,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             
             // Re-get child_node since we dropped it earlier for the inline-block case
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-            let box_props = child_node.box_props.clone();
+            let box_props = child_node.box_props.unpack();
 
             // Get intrinsic size from the image data or fall back to layout node
             let intrinsic_size = tree.warm(child_index)

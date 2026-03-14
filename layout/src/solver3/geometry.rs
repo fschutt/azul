@@ -392,6 +392,114 @@ impl ResolvedBoxProps {
 /// TODO: Remove this once all code uses ResolvedBoxProps directly.
 pub type BoxProps = ResolvedBoxProps;
 
+/// Packed representation of box model properties using i16×10 encoding.
+///
+/// Stores margin/padding/border as i16 values scaled by 10 (0.1px precision),
+/// reducing the hot struct from 52B to 26B. Range: ±3276.7px per edge.
+///
+/// Only used for storage in `LayoutNodeHot`. The layout solver unpacks to
+/// `ResolvedBoxProps` (f32) for computation.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct PackedBoxProps {
+    pub margin: [i16; 4],     // top, right, bottom, left — ×10
+    pub padding: [i16; 4],    // ×10
+    pub border: [i16; 4],     // ×10
+    pub margin_auto: MarginAuto,
+}
+
+impl PackedBoxProps {
+    /// Pack a `ResolvedBoxProps` into compact i16×10 encoding.
+    #[inline]
+    pub fn pack(bp: &ResolvedBoxProps) -> Self {
+        Self {
+            margin: Self::pack_edge(&bp.margin),
+            padding: Self::pack_edge(&bp.padding),
+            border: Self::pack_edge(&bp.border),
+            margin_auto: bp.margin_auto,
+        }
+    }
+
+    /// Unpack to full `ResolvedBoxProps` with f32 values.
+    #[inline]
+    pub fn unpack(&self) -> ResolvedBoxProps {
+        ResolvedBoxProps {
+            margin: Self::unpack_edge(&self.margin),
+            padding: Self::unpack_edge(&self.padding),
+            border: Self::unpack_edge(&self.border),
+            margin_auto: self.margin_auto,
+        }
+    }
+
+    /// Convenience: unpack and call `inner_size` on the result.
+    #[inline]
+    pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
+        self.unpack().inner_size(outer_size, wm)
+    }
+
+    /// Convenience: unpack and call `content_box` on the result.
+    #[inline]
+    pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
+        self.unpack().content_box(border_box)
+    }
+
+    /// Convenience: unpack and call `padding_box` on the result.
+    #[inline]
+    pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
+        self.unpack().padding_box(border_box)
+    }
+
+    /// Convenience: unpack and call `margin_box` on the result.
+    #[inline]
+    pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
+        self.unpack().margin_box(border_box)
+    }
+
+    /// Convenience: unpack and return horizontal MBP.
+    #[inline]
+    pub fn horizontal_mbp(&self) -> f32 {
+        self.unpack().horizontal_mbp()
+    }
+
+    /// Convenience: unpack and return vertical MBP.
+    #[inline]
+    pub fn vertical_mbp(&self) -> f32 {
+        self.unpack().vertical_mbp()
+    }
+
+    /// Convenience: unpack and return horizontal BP.
+    #[inline]
+    pub fn horizontal_bp(&self) -> f32 {
+        self.unpack().horizontal_bp()
+    }
+
+    /// Convenience: unpack and return vertical BP.
+    #[inline]
+    pub fn vertical_bp(&self) -> f32 {
+        self.unpack().vertical_bp()
+    }
+
+    #[inline(always)]
+    fn pack_edge(e: &EdgeSizes) -> [i16; 4] {
+        [
+            (e.top * 10.0).round() as i16,
+            (e.right * 10.0).round() as i16,
+            (e.bottom * 10.0).round() as i16,
+            (e.left * 10.0).round() as i16,
+        ]
+    }
+
+    #[inline(always)]
+    fn unpack_edge(e: &[i16; 4]) -> EdgeSizes {
+        EdgeSizes {
+            top: e[0] as f32 * 0.1,
+            right: e[1] as f32 * 0.1,
+            bottom: e[2] as f32 * 0.1,
+            left: e[3] as f32 * 0.1,
+        }
+    }
+}
+
 // Verwende die Typen aus azul_css für float und clear
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 

@@ -598,7 +598,9 @@ pub enum AnonymousBoxType {
 #[derive(Debug, Clone)]
 pub struct LayoutNodeHot {
     /// The resolved box model properties (margin, border, padding)
-    pub box_props: BoxProps,
+    /// Stored in packed i16×10 encoding to reduce cache footprint.
+    /// Use `box_props.unpack()` to get f32 `ResolvedBoxProps` for computation.
+    pub box_props: crate::solver3::geometry::PackedBoxProps,
     /// Reference back to the original DOM node (None for anonymous boxes)
     pub dom_node_id: Option<NodeId>,
     /// The size used during the last layout pass.
@@ -685,7 +687,7 @@ impl LayoutNode {
     pub fn split(self) -> (LayoutNodeHot, LayoutNodeWarm, LayoutNodeCold) {
         (
             LayoutNodeHot {
-                box_props: self.box_props,
+                box_props: crate::solver3::geometry::PackedBoxProps::pack(&self.box_props),
                 dom_node_id: self.dom_node_id,
                 used_size: self.used_size,
                 formatting_context: self.formatting_context,
@@ -803,7 +805,7 @@ impl LayoutTree {
         let cold = self.cold.get(index).cloned().unwrap_or_default();
         let children = self.children(index).to_vec();
         Some(LayoutNode {
-            box_props: hot.box_props.clone(),
+            box_props: hot.box_props.unpack(),
             dom_node_id: hot.dom_node_id,
             children,
             used_size: hot.used_size,
@@ -848,7 +850,7 @@ impl LayoutTree {
             root_font_size,
         };
         if let (Some(hot), Some(cold)) = (self.nodes.get_mut(node_index), self.cold.get(node_index)) {
-            hot.box_props = cold.unresolved_box_props.resolve(&params);
+            hot.box_props = crate::solver3::geometry::PackedBoxProps::pack(&cold.unresolved_box_props.resolve(&params));
         }
     }
 

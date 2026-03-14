@@ -1621,15 +1621,16 @@ where
             .unwrap_or_default();
 
         // Selection rects are relative to content-box origin
-        let padding = &node.box_props.padding;
-        let border = &node.box_props.border;
+        let bp = node.box_props.unpack();
+        let padding = &bp.padding;
+        let border = &bp.border;
         let content_box_offset_x = node_pos.x + padding.left + border.left;
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
         // Check if text is selectable (respects CSS user-select property)
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
         let is_selectable = super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
-        
+
         if !is_selectable {
             return Ok(());
         }
@@ -1765,8 +1766,9 @@ where
             .unwrap_or_default();
 
         // Adjust to content-box coordinates
-        let padding = &node.box_props.padding;
-        let border = &node.box_props.border;
+        let bp = node.box_props.unpack();
+        let padding = &bp.padding;
+        let border = &bp.border;
         let content_box_offset_x = node_pos.x + padding.left + border.left;
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
@@ -2540,7 +2542,8 @@ where
 
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
-        let border = &node.box_props.border;
+        let bp = node.box_props.unpack();
+        let border = &bp.border;
 
         // Get scrollbar info to adjust clip rect for content area
         let scrollbar_info = self.positioned_tree.tree.warm(node_index)
@@ -3168,8 +3171,9 @@ where
             // content-box. Use type-safe conversion to make this clear and avoid manual
             // calculations.
             let border_box = BorderBoxRect(paint_rect);
+            let nbp = node.box_props.unpack();
             let mut content_box_rect =
-                border_box.to_content_box(&node.box_props.padding, &node.box_props.border).rect();
+                border_box.to_content_box(&nbp.padding, &nbp.border).rect();
 
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
@@ -3301,7 +3305,8 @@ where
         );
 
         if gutter_is_stable {
-            let border = &node.box_props.border;
+            let gbp = node.box_props.unpack();
+            let border = &gbp.border;
             let gutter_width = scrollbar_style.visual_width_px;
             // Paint gutter as padding extension when scrollbar is absent
             let bg_color = node_id
@@ -3344,7 +3349,8 @@ where
         }
 
         // Get border dimensions to position scrollbar inside the border-box
-        let border = &node.box_props.border;
+        let sbp = node.box_props.unpack();
+        let border = &sbp.border;
 
         // Get border-radius for potential clipping
         let container_border_radius = node_id
@@ -3938,7 +3944,7 @@ where
         // We need to convert to border-box for painting backgrounds/borders.
         let margins = if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
             if let Some(&idx) = indices.first() {
-                self.positioned_tree.tree.nodes[idx].box_props.margin
+                self.positioned_tree.tree.nodes[idx].box_props.unpack().margin
             } else {
                 Default::default()
             }
