@@ -643,6 +643,87 @@ fn hint_glyph_any(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i
     ).ok()
 }
 
+/// Compare hinted vs unhinted "8" from Times New Roman at ppem=80 to debug bulge distortion.
+#[test]
+fn test_digit_8_hinting_comparison() {
+    use tiny_skia::{Pixmap, Paint, FillRule, Transform, Color};
+
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping: Times font not found"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed to parse Times"); return; }
+    };
+
+    let ppem: u16 = 80;
+    let upem = font.font_metrics.units_per_em;
+    let scale_f = ppem as f32 / upem as f32;
+    let glyph_id = font.lookup_glyph_index('8' as u32).unwrap();
+    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let raw_points = owned.raw_points.as_ref().unwrap();
+    let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
+    let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
+
+    // Hinted points
+    let hinted = hint_glyph_any(&font, '8' as u32, ppem).unwrap();
+
+    // Unhinted points (just scaled)
+    let scale = compute_scale(ppem, upem);
+    let unhinted: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+        (F26Dot6::from_funits(x as i32, scale).to_bits(),
+         F26Dot6::from_funits(y as i32, scale).to_bits())
+    }).collect();
+
+    eprintln!("'8' at ppem={ppem}: {} points, {} contours", hinted.len(), raw_contour_ends.len());
+    eprintln!("Contour ends: {:?}", raw_contour_ends);
+    eprintln!("\n{:>4} {:>10} {:>10}  {:>10} {:>10}  {:>6} {:>6}  {}",
+        "pt", "hint_x", "hint_y", "unhint_x", "unhint_y", "dx", "dy", "on");
+    for i in 0..hinted.len() {
+        let (hx, hy) = hinted[i];
+        let (ux, uy) = unhinted[i];
+        let dx = hx - ux;
+        let dy = hy - uy;
+        let on = if raw_on_curve[i] { "ON " } else { "OFF" };
+        // Flag large deviations
+        let flag = if dx.abs() > 64 || dy.abs() > 64 { " <<<" } else { "" };
+        eprintln!("{:4} {:10} {:10}  {:10} {:10}  {:6} {:6}  {} {}",
+            i, hx, hy, ux, uy, dx, dy, on, flag);
+    }
+
+    // Render side-by-side: hinted vs unhinted
+    let gw: u32 = (ppem as u32) + 10;
+    let gh: u32 = (ppem as u32) + 10;
+    let img_w = gw * 2;
+    let img_h = gh;
+    let mut pixmap = Pixmap::new(img_w, img_h).unwrap();
+    pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
+    let mut paint = Paint::default();
+    paint.set_color(Color::from_rgba8(0, 0, 0, 255));
+    paint.anti_alias = true;
+
+    // Hinted path
+    if let Some(path) = build_path_from_contours(&hinted, raw_on_curve, raw_contour_ends) {
+        let t = Transform::from_translate(2.0, (ppem as f32) * 0.85);
+        pixmap.fill_path(&path, &paint, FillRule::Winding, t, None);
+    }
+
+    // Unhinted path (scale from font units)
+    if let Some(path) = build_path_from_contours(&unhinted, raw_on_curve, raw_contour_ends) {
+        let t = Transform::from_translate(gw as f32 + 2.0, (ppem as f32) * 0.85);
+        pixmap.fill_path(&path, &paint, FillRule::Winding, t, None);
+    }
+
+    let out_path = "/tmp/digit_8_hinted_vs_unhinted.png";
+    pixmap.save_png(out_path).unwrap();
+    eprintln!("Wrote {out_path} (left=hinted, right=unhinted)");
+}
+
 /// Render a few suspect glyphs at large scale for visual inspection.
 #[test]
 fn test_render_suspect_glyphs_large() {

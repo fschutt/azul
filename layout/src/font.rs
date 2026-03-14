@@ -1062,13 +1062,14 @@ pub mod parsed {
                     adv_f26dot6.to_bits(),
                 ).ok()?;
 
-                // Round to pixel grid like FreeType's FT_LOAD_TARGET_NORMAL
-                let rounded = (hinted_adv + 32) & !63;
-                Some(rounded as f32 / 64.0)
+                // Use hinted advance directly (fractional pixels) — matches
+                // Core Text / Chrome on macOS which does NOT round advances.
+                // Rounding to whole pixels accumulates error over many glyphs,
+                // making lines too wide and causing premature line breaks.
+                Some(hinted_adv as f32 / 64.0)
             } else {
-                // No outline (e.g. space): round advance to pixel grid like FreeType
-                let rounded = (adv_f26dot6.to_bits() + 32) & !63; // round to nearest pixel
-                Some(rounded as f32 / 64.0)
+                // No outline (e.g. space): use scaled advance (no rounding)
+                Some(adv_f26dot6.to_bits() as f32 / 64.0)
             }
         }
 

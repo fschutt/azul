@@ -1,38 +1,31 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
-        <title>CSS Test: Absolutely positioned, non-replaced elements, static position of fixed element</title>
-        <link rel="author" title="Microsoft" href="http://www.microsoft.com/" />
-        <link rel="help" href="http://www.w3.org/TR/CSS21/visudet.html#abs-non-replaced-height" />
-        <meta name="flags" content="" />
-        <meta name="assert" content="The calculation of static position is based on initial containing block when there is a fixed positioned element." />
-        <style type="text/css">* { margin: 0; padding: 0 }
-            html, body, p
-            {
-                margin: 0;
-                padding: 0;
-            }
-            #div1
-            {
-                border: solid black;
-                height: 2in;
-                position: absolute;
-                top: 1in;
-                width: 3in;
-            }
-            div div
-            {
-                background: blue;
-                height: 1in;
-                position: fixed;
-                width: 1in;
-            }
+        <title>Hinting breakout test: "Test" at various sizes</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+            body { font-family: "Times New Roman", Times, serif; }
+            .row { white-space: nowrap; }
         </style>
     </head>
     <body>
-        <p>Test passes the a filled blue square touches the upper-left corner of the black box.</p>
-        <div id="div1">
-            <div></div>
-        </div>
+        <div class="row" style="font-size: 12px;">Test 12px</div>
+        <div class="row" style="font-size: 14px;">Test 14px</div>
+        <div class="row" style="font-size: 16px;">Test 16px</div>
+        <div class="row" style="font-size: 18px;">Test 18px</div>
+        <div class="row" style="font-size: 20px;">Test 20px</div>
+        <div class="row" style="font-size: 24px;">Test 24px</div>
+        <div class="row" style="font-size: 28px;">Test 28px</div>
+        <div class="row" style="font-size: 32px;">Test 32px</div>
+        <div class="row" style="font-size: 36px;">Test 36px</div>
+        <div class="row" style="font-size: 40px;">Test 40px</div>
+        <div class="row" style="font-size: 48px;">Test 48px</div>
+        <div class="row" style="font-size: 56px;">Test 56px</div>
+        <div class="row" style="font-size: 64px;">Test 64px</div>
+        <div class="row" style="font-size: 80px;">Test 80px</div>
+        <div class="row" style="font-size: 96px;">Test 96px</div>
+        <div class="row" style="font-size: 120px;">Test 120px</div>
+        <div class="row" style="font-size: 150px;">Test 150px</div>
+        <div class="row" style="font-size: 200px;">Test 200px</div>
     </body>
 </html>

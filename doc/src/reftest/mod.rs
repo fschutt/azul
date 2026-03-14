@@ -645,6 +645,9 @@ pub fn generate_chrome_screenshot(
 
     let status = Command::new(chrome_path)
         .arg("--headless")
+        .arg("--disable-lcd-text")
+        .arg("--disable-font-subpixel-positioning")
+        .arg("--force-color-profile=srgb")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
@@ -669,8 +672,13 @@ pub fn generate_chrome_screenshot_with_debug(
     let canonical_path = test_file.canonicalize()?;
 
     // First, take the screenshot
+    // --disable-lcd-text: use grayscale AA instead of subpixel/LCD rendering,
+    // so Chrome output is comparable to our grayscale cpurender
     let status = Command::new(chrome_path)
         .arg("--headless")
+        .arg("--disable-lcd-text")
+        .arg("--disable-font-subpixel-positioning")
+        .arg("--force-color-profile=srgb")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
