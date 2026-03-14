@@ -710,7 +710,6 @@ fn test_digit_8_vs_freetype() {
     let hint_mutex = font.hint_instance.as_ref().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
-    hint.set_ppem(ppem, ppem as f64).unwrap();
     let scale = compute_scale(ppem, font.font_metrics.units_per_em);
     let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
         (F26Dot6::from_funits(x as i32, scale).to_bits(),
