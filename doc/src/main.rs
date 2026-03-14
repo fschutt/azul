@@ -1238,6 +1238,16 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
+        ["autodebug", "verify", test_name, rest @ ..] => {
+            reftest::autodebug::cmd_autodebug_verify(test_name, rest, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
+        ["autodebug", "render-one", test_name] => {
+            reftest::autodebug::cmd_autodebug_render_one(test_name, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["autodebug", rest @ ..] | ["autodebug", "claude-exec", rest @ ..] => {
             let config = reftest::autodebug::parse_autodebug_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;

@@ -2169,3 +2169,104 @@ fn test_trace_prep_cvt0() {
     let cvt0 = hint.interpreter.cvt().get(0).copied().unwrap_or(0);
     eprintln!("After prep at ppem=32: CVT[0] = {cvt0} ({:.1}px)", cvt0 as f32 / 64.0);
 }
+
+#[test]
+fn test_dump_all_storage() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(32, 32.0).ok();
+
+    eprintln!("Storage values after prep at ppem=32:");
+    let mut non_zero = 0;
+    for i in 0..hint.interpreter.storage_len().min(50) {
+        let v = hint.interpreter.read_storage(i).unwrap_or(0);
+        if v != 0 {
+            eprintln!("  storage[{i:2}] = {v}");
+            non_zero += 1;
+        }
+    }
+    eprintln!("({non_zero} non-zero entries out of {})", hint.interpreter.storage_len().min(50));
+}
+
+#[test]
+fn test_dot_y_all_ppem() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    // FreeType 'i' dot Y values (pt0.y) at ppem 8-64
+    let ft: &[(u16, i32)] = &[
+        (8,384),(9,448),(10,448),(11,512),(12,576),(13,576),(14,640),(15,704),
+        (16,704),(17,768),(18,832),(19,832),(20,896),(21,960),(22,1024),(23,1024),
+        (24,1088),(25,1152),(26,1152),(27,1216),(28,1280),(29,1280),(30,1344),
+        (31,1408),(32,1408),(33,1472),(34,1536),(35,1600),(36,1600),(37,1664),
+        (38,1728),(39,1728),(40,1792),(41,1856),(42,1856),(43,1920),(44,1984),
+        (45,2048),(46,2048),(47,2112),(48,2176),
+    ];
+
+    let mut mismatches = 0;
+    for &(ppem, ft_y) in ft {
+        let hinted = match hint_glyph_any(&font, 'i' as u32, ppem) {
+            Some(h) => h, None => continue,
+        };
+        let our_y = hinted[0].1;
+        let dy = our_y - ft_y;
+        if dy != 0 {
+            eprintln!("ppem={ppem:2}: ours={our_y:5} ({:2}px) ft={ft_y:5} ({:2}px) dy={dy:+4}",
+                our_y/64, ft_y/64);
+            mismatches += 1;
+        }
+    }
+    eprintln!("{mismatches} mismatches out of {} ppem values", ft.len());
+}
+
+#[test]
+fn test_cvt0_at_mismatch_ppem() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+
+    // Check CVT[0] at mismatched ppem values plus neighbors
+    for ppem in [8u16, 9, 10, 13, 14, 15, 16, 24, 25, 26, 31, 32, 33, 39, 40, 41] {
+        let mut hint = hint_mutex.lock().unwrap();
+        hint.set_ppem(1, 1.0).ok();
+        hint.set_ppem(ppem, ppem as f64).ok();
+        let cvt0 = hint.interpreter.cvt().get(0).copied().unwrap_or(0);
+        let rounded = (cvt0 + 32) & !63;
+        
+        // What should CVT[0] be? from_funits(1422, scale) rounded to grid
+        let scale = allsorts::hinting::f26dot6::compute_scale(ppem, 2048);
+        let raw = allsorts::hinting::f26dot6::F26Dot6::from_funits(1422, scale).to_bits();
+        let expected = (raw + 32) & !63;
+        
+        let flag = if rounded != expected { 
+            format!(" ← WRONG (expected {}={}px)", expected, expected/64)
+        } else { String::new() };
+        eprintln!("ppem={ppem:2}: CVT[0]={cvt0:5} round={rounded:5} ({:2}px)  raw={raw:5} expected={expected:5} ({:2}px){flag}",
+            rounded/64, expected/64);
+    }
+}
