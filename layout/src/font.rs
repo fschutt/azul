@@ -1053,18 +1053,13 @@ pub mod parsed {
                     })
                     .collect();
 
-                let hinted_adv = hint.hinted_advance_f26dot6(
-                    &points_f26dot6,
-                    Some(raw_points.as_slice()),
-                    raw_on_curve,
-                    raw_contour_ends,
-                    instructions,
-                    adv_f26dot6.to_bits(),
-                ).ok()?;
-
-                // Phantom points are pre-rounded to grid in HintInstance,
-                // so the hinted advance is already grid-aligned.
-                Some(hinted_adv as f32 / 64.0)
+                // Use the scaled advance rounded to pixel grid, NOT the hinted
+                // phantom point.  Some glyph programs apply ClearType-specific
+                // SHPIX adjustments to the advance phantom point that are wrong
+                // for non-ClearType rendering.  The rounded scaled advance matches
+                // FreeType's DEFAULT mode advance output.
+                let rounded = (adv_f26dot6.to_bits() + 32) & !63;
+                Some(rounded as f32 / 64.0)
             } else {
                 // No outline (e.g. space): use scaled advance, rounded to grid
                 // (matching FreeType's phantom point pre-rounding)
