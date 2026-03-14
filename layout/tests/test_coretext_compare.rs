@@ -77,6 +77,27 @@ impl GrayBitmap {
         fs::write(path, &out).ok();
     }
 
+    /// Save as PNG via tiny-skia (grayscale → RGBA), scaled up 4x for visibility.
+    fn save_png(&self, path: &str) {
+        let scale = 4u32;
+        let sw = self.w * scale;
+        let sh = self.h * scale;
+        if let Some(mut pm) = Pixmap::new(sw, sh) {
+            for y in 0..self.h {
+                for x in 0..self.w {
+                    let v = self.data[(y * self.w + x) as usize];
+                    let px = tiny_skia::PremultipliedColorU8::from_rgba(v, v, v, 255).unwrap();
+                    for dy in 0..scale {
+                        for dx in 0..scale {
+                            pm.pixels_mut()[((y*scale+dy) * sw + x*scale+dx) as usize] = px;
+                        }
+                    }
+                }
+            }
+            pm.save_png(path).ok();
+        }
+    }
+
     /// Create side-by-side image: [a | b | diff].
     fn side_by_side(a: &GrayBitmap, b: &GrayBitmap) -> GrayBitmap {
         let w = a.w.max(b.w);
@@ -344,12 +365,12 @@ fn test_binary_pixel_coverage() {
     if let Some(&(ch, size, _)) = worst.first() {
         if let Some((ct, az)) = render_aligned_pair(&font, ch, "Times New Roman", size) {
             let sbs = GrayBitmap::side_by_side(&ct, &az);
-            sbs.save_pgm("/tmp/binary_worst_sbs.pgm");
+            sbs.save_png("/tmp/binary_worst_sbs.png");
             let ct_bin = ct.binarize(128);
             let az_bin = az.binarize(128);
             let sbs_bin = GrayBitmap::side_by_side(&ct_bin, &az_bin);
-            sbs_bin.save_pgm("/tmp/binary_worst_sbs_bin.pgm");
-            eprintln!("Saved /tmp/binary_worst_sbs.pgm and /tmp/binary_worst_sbs_bin.pgm");
+            sbs_bin.save_png("/tmp/binary_worst_sbs_bin.png");
+            eprintln!("Saved /tmp/binary_worst_sbs.png and /tmp/binary_worst_sbs_bin.png");
         }
     }
 }
@@ -381,12 +402,12 @@ fn test_grayscale_aa_coverage() {
         for &ch in &all_chars {
             if let Some((ct, az)) = render_aligned_pair(&font, ch, "Times New Roman", size) {
                 let sbs = GrayBitmap::side_by_side(&ct, &az);
-                let name = format!("/tmp/glyph_{}_{:.0}px_sbs.pgm", ch, size);
-                sbs.save_pgm(&name);
+                let name = format!("/tmp/glyph_{}_{:.0}px_sbs.png", ch, size);
+                sbs.save_png(&name);
             }
         }
     }
-    eprintln!("\nSaved all glyphs to /tmp/glyph_<char>_<size>px_sbs.pgm");
+    eprintln!("\nSaved all glyphs to /tmp/glyph_<char>_<size>px_sbs.png");
 }
 
 /// Comprehensive: all chars at all sizes, sorted by total grayscale diff.

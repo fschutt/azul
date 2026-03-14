@@ -2001,3 +2001,32 @@ fn test_compare_u_at_ppem() {
         eprintln!("Max dy: {max_dy} F26Dot6 ({:.2}px)", max_dy as f32 / 64.0);
     }
 }
+
+#[test]
+fn test_storage_values_by_ppem() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+
+    for ppem in [8u16, 10, 12, 14, 16, 18, 20, 24, 32, 48] {
+        // Force re-run of prep by clearing cached ppem
+        {
+            let mut hint = hint_mutex.lock().unwrap();
+            // Reset to force prep re-execution
+            hint.set_ppem(1, 1.0).ok();
+            hint.set_ppem(ppem, ppem as f64).ok();
+            let s2 = hint.interpreter.read_storage(2).unwrap_or(-1);
+            let s8 = hint.interpreter.read_storage(8).unwrap_or(-1);
+            let s18 = hint.interpreter.read_storage(18).unwrap_or(-1);
+            eprintln!("ppem={ppem:2}: storage[2]={s2:2} storage[8]={s8:2} storage[18]={s18:2}");
+        }
+    }
+}
