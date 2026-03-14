@@ -2160,9 +2160,10 @@ fn test_trace_prep_cvt0() {
     let hint_mutex = font.hint_instance.as_ref().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
 
-    // Enable tracing to see what modifies CVT[0]
+    // Enable tracing for ppem=32 prep only
+    hint.set_ppem(1, 1.0).ok(); // force re-prep (no tracing)
+    hint.interpreter.debug_trace_points = true;
     hint.interpreter.trace_mode = true;
-    hint.set_ppem(1, 1.0).ok(); // force re-prep
     hint.set_ppem(32, 32.0).ok();
 
     let cvt0 = hint.interpreter.cvt().get(0).copied().unwrap_or(0);
