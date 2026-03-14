@@ -262,16 +262,20 @@ impl CssPropertyCache {
                 }
             }
 
+            // =====================================================================
+            // Tier 2 cold: Paint-only properties
+            // =====================================================================
+
             // Z-index
             if let Some(val) = self.get_z_index(nd, &node_id, &default_state) {
                 if let Some(exact) = val.get_property() {
                     match exact {
-                        LayoutZIndex::Auto => result.tier2_dims[i].z_index = I16_AUTO,
+                        LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
                         LayoutZIndex::Integer(z) => {
                             if *z >= I16_SENTINEL_THRESHOLD as i32 {
-                                result.tier2_dims[i].z_index = I16_SENTINEL;
+                                result.tier2_cold[i].z_index = I16_SENTINEL;
                             } else {
-                                result.tier2_dims[i].z_index = *z as i16;
+                                result.tier2_cold[i].z_index = *z as i16;
                             }
                         }
                     }
@@ -296,29 +300,29 @@ impl CssPropertyCache {
                     .and_then(|v| v.get_property().copied())
                     .map(|v| v.inner)
                     .unwrap_or_default();
-                result.tier2_dims[i].border_styles_packed =
+                result.tier2_cold[i].border_styles_packed =
                     encode_border_styles_packed(bts, brs, bbs, bls);
             }
 
             // Border colors (ColorU → u32 as 0xRRGGBBAA)
             if let Some(val) = self.get_border_top_color(nd, &node_id, &default_state) {
                 if let Some(color) = val.get_property() {
-                    result.tier2_dims[i].border_top_color = encode_color_u32(&color.inner);
+                    result.tier2_cold[i].border_top_color = encode_color_u32(&color.inner);
                 }
             }
             if let Some(val) = self.get_border_right_color(nd, &node_id, &default_state) {
                 if let Some(color) = val.get_property() {
-                    result.tier2_dims[i].border_right_color = encode_color_u32(&color.inner);
+                    result.tier2_cold[i].border_right_color = encode_color_u32(&color.inner);
                 }
             }
             if let Some(val) = self.get_border_bottom_color(nd, &node_id, &default_state) {
                 if let Some(color) = val.get_property() {
-                    result.tier2_dims[i].border_bottom_color = encode_color_u32(&color.inner);
+                    result.tier2_cold[i].border_bottom_color = encode_color_u32(&color.inner);
                 }
             }
             if let Some(val) = self.get_border_left_color(nd, &node_id, &default_state) {
                 if let Some(color) = val.get_property() {
-                    result.tier2_dims[i].border_left_color = encode_color_u32(&color.inner);
+                    result.tier2_cold[i].border_left_color = encode_color_u32(&color.inner);
                 }
             }
 
@@ -326,17 +330,17 @@ impl CssPropertyCache {
             if let Some(val) = self.get_border_spacing(nd, &node_id, &default_state) {
                 if let Some(spacing) = val.get_property() {
                     if spacing.horizontal.metric == SizeMetric::Px {
-                        result.tier2_dims[i].border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
+                        result.tier2_cold[i].border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
                     }
                     if spacing.vertical.metric == SizeMetric::Px {
-                        result.tier2_dims[i].border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
+                        result.tier2_cold[i].border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
                     }
                 }
             }
 
             // Tab size (PixelValue → i16 × 10 resolved px)
             if let Some(val) = self.get_tab_size(nd, &node_id, &default_state) {
-                result.tier2_dims[i].tab_size = encode_css_pixel_as_i16(val);
+                result.tier2_cold[i].tab_size = encode_css_pixel_as_i16(val);
             }
 
             // =====================================================================

@@ -1014,7 +1014,8 @@ pub fn size_metric_from_u8(v: u8) -> SizeMetric {
     }
 }
 
-/// Compact numeric properties for a single node (96 bytes).
+/// Layout-hot compact numeric properties for a single node (68 bytes).
+/// Only fields accessed during the constraint-solving loop.
 /// All dimensions use MSB-sentinel encoding.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
@@ -1028,12 +1029,6 @@ pub struct CompactNodeProps {
     pub max_height: u32,
     pub flex_basis: u32,
     pub font_size: u32,
-
-    // --- Border colors (u32 RGBA as 0xRRGGBBAA, 0 = unset sentinel) ---
-    pub border_top_color: u32,
-    pub border_right_color: u32,
-    pub border_bottom_color: u32,
-    pub border_left_color: u32,
 
     // --- Resolved px values (i16 MSB-sentinel, ×10) ---
     pub padding_top: i16,
@@ -1052,18 +1047,30 @@ pub struct CompactNodeProps {
     pub right: i16,
     pub bottom: i16,
     pub left: i16,
-    pub border_spacing_h: i16,
-    pub border_spacing_v: i16,
-    pub tab_size: i16,
 
     // --- Flex (u16 MSB-sentinel, ×100) ---
     pub flex_grow: u16,
     pub flex_shrink: u16,
+}
+
+/// Paint-cold compact properties for a single node (28 bytes).
+/// Only accessed during display list generation, table layout, or text shaping.
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+pub struct CompactNodePropsCold {
+    // --- Border colors (u32 RGBA as 0xRRGGBBAA, 0 = unset sentinel) ---
+    pub border_top_color: u32,
+    pub border_right_color: u32,
+    pub border_bottom_color: u32,
+    pub border_left_color: u32,
 
     // --- Other ---
     pub z_index: i16,   // range ±32764, sentinel = 0x7FFF
     /// Border styles packed: [3:0]=top, [7:4]=right, [11:8]=bottom, [15:12]=left
     pub border_styles_packed: u16,
+    pub border_spacing_h: i16,
+    pub border_spacing_v: i16,
+    pub tab_size: i16,
     pub _pad: [u8; 2],
 }
 
@@ -1079,11 +1086,6 @@ impl Default for CompactNodeProps {
             max_height: U32_NONE,
             flex_basis: U32_AUTO,
             font_size: U32_INITIAL,
-            // Border colors default to 0 (sentinel/unset)
-            border_top_color: 0,
-            border_right_color: 0,
-            border_bottom_color: 0,
-            border_left_color: 0,
             // All resolved px default to 0
             padding_top: 0,
             padding_right: 0,
@@ -1101,15 +1103,27 @@ impl Default for CompactNodeProps {
             right: I16_AUTO,
             bottom: I16_AUTO,
             left: I16_AUTO,
-            border_spacing_h: 0,
-            border_spacing_v: 0,
-            tab_size: I16_SENTINEL, // default is 8em, needs resolution → sentinel
             // Flex defaults
             flex_grow: 0,
             flex_shrink: encode_flex_u16(1.0), // CSS default: flex-shrink: 1
+        }
+    }
+}
+
+impl Default for CompactNodePropsCold {
+    fn default() -> Self {
+        Self {
+            // Border colors default to 0 (sentinel/unset)
+            border_top_color: 0,
+            border_right_color: 0,
+            border_bottom_color: 0,
+            border_left_color: 0,
             // Other
             z_index: I16_AUTO,
             border_styles_packed: 0, // all BorderStyle::None
+            border_spacing_h: 0,
+            border_spacing_v: 0,
+            tab_size: I16_SENTINEL, // default is 8em, needs resolution → sentinel
             _pad: [0; 2],
         }
     }
@@ -1168,8 +1182,10 @@ impl Default for CompactTextProps {
 pub struct CompactLayoutCache {
     /// Tier 1: ALL enum properties bitpacked into u64 per node (8 B/node)
     pub tier1_enums: Vec<u64>,
-    /// Tier 2: Numeric dimensions per node (64 B/node)
+    /// Tier 2 hot: Layout-critical numeric dimensions per node (68 B/node)
     pub tier2_dims: Vec<CompactNodeProps>,
+    /// Tier 2 cold: Paint-only properties per node (28 B/node)
+    pub tier2_cold: Vec<CompactNodePropsCold>,
     /// Tier 2b: Text/IFC properties per node (24 B/node)
     pub tier2b_text: Vec<CompactTextProps>,
     /// Indices of nodes whose `font_family_hash` changed since the last frame.
@@ -1196,6 +1212,7 @@ impl CompactLayoutCache {
         Self {
             tier1_enums: Vec::new(),
             tier2_dims: Vec::new(),
+            tier2_cold: Vec::new(),
             tier2b_text: Vec::new(),
             font_dirty_nodes: Vec::new(),
             prev_font_hashes: Vec::new(),
@@ -1207,6 +1224,7 @@ impl CompactLayoutCache {
         Self {
             tier1_enums: vec![0u64; node_count],
             tier2_dims: vec![CompactNodeProps::default(); node_count],
+            tier2_cold: vec![CompactNodePropsCold::default(); node_count],
             tier2b_text: vec![CompactTextProps::default(); node_count],
             font_dirty_nodes: Vec::new(),
             prev_font_hashes: vec![0u64; node_count],
@@ -1553,75 +1571,75 @@ impl CompactLayoutCache {
 
     #[inline(always)]
     pub fn get_z_index(&self, node_idx: usize) -> i16 {
-        self.tier2_dims[node_idx].z_index
+        self.tier2_cold[node_idx].z_index
     }
 
-    // -- Border colors (u32 RGBA) --
+    // -- Border colors (u32 RGBA) — cold tier --
 
     #[inline(always)]
     pub fn get_border_top_color_raw(&self, node_idx: usize) -> u32 {
-        self.tier2_dims[node_idx].border_top_color
+        self.tier2_cold[node_idx].border_top_color
     }
 
     #[inline(always)]
     pub fn get_border_right_color_raw(&self, node_idx: usize) -> u32 {
-        self.tier2_dims[node_idx].border_right_color
+        self.tier2_cold[node_idx].border_right_color
     }
 
     #[inline(always)]
     pub fn get_border_bottom_color_raw(&self, node_idx: usize) -> u32 {
-        self.tier2_dims[node_idx].border_bottom_color
+        self.tier2_cold[node_idx].border_bottom_color
     }
 
     #[inline(always)]
     pub fn get_border_left_color_raw(&self, node_idx: usize) -> u32 {
-        self.tier2_dims[node_idx].border_left_color
+        self.tier2_cold[node_idx].border_left_color
     }
 
-    // -- Border styles (packed u16) --
+    // -- Border styles (packed u16) — cold tier --
 
     #[inline(always)]
     pub fn get_border_styles_packed(&self, node_idx: usize) -> u16 {
-        self.tier2_dims[node_idx].border_styles_packed
+        self.tier2_cold[node_idx].border_styles_packed
     }
 
     #[inline(always)]
     pub fn get_border_top_style(&self, node_idx: usize) -> BorderStyle {
-        decode_border_top_style(self.tier2_dims[node_idx].border_styles_packed)
+        decode_border_top_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     #[inline(always)]
     pub fn get_border_right_style(&self, node_idx: usize) -> BorderStyle {
-        decode_border_right_style(self.tier2_dims[node_idx].border_styles_packed)
+        decode_border_right_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     #[inline(always)]
     pub fn get_border_bottom_style(&self, node_idx: usize) -> BorderStyle {
-        decode_border_bottom_style(self.tier2_dims[node_idx].border_styles_packed)
+        decode_border_bottom_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     #[inline(always)]
     pub fn get_border_left_style(&self, node_idx: usize) -> BorderStyle {
-        decode_border_left_style(self.tier2_dims[node_idx].border_styles_packed)
+        decode_border_left_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
-    // -- Border spacing --
+    // -- Border spacing — cold tier --
 
     #[inline(always)]
     pub fn get_border_spacing_h_raw(&self, node_idx: usize) -> i16 {
-        self.tier2_dims[node_idx].border_spacing_h
+        self.tier2_cold[node_idx].border_spacing_h
     }
 
     #[inline(always)]
     pub fn get_border_spacing_v_raw(&self, node_idx: usize) -> i16 {
-        self.tier2_dims[node_idx].border_spacing_v
+        self.tier2_cold[node_idx].border_spacing_v
     }
 
-    // -- Tab size --
+    // -- Tab size — cold tier --
 
     #[inline(always)]
     pub fn get_tab_size_raw(&self, node_idx: usize) -> i16 {
-        self.tier2_dims[node_idx].tab_size
+        self.tier2_cold[node_idx].tab_size
     }
 
     // -- Tier 2b getters (text props) --
@@ -1824,7 +1842,12 @@ mod tests {
 
     #[test]
     fn test_compact_node_props_size() {
-        assert_eq!(core::mem::size_of::<CompactNodeProps>(), 96);
+        assert_eq!(core::mem::size_of::<CompactNodeProps>(), 68);
+    }
+
+    #[test]
+    fn test_compact_node_props_cold_size() {
+        assert_eq!(core::mem::size_of::<CompactNodePropsCold>(), 28);
     }
 
     #[test]
