@@ -2302,3 +2302,26 @@ fn test_default_gs_round_state() {
     let rounded2 = gs.round(allsorts::hinting::f26dot6::F26Dot6::from_bits(1422));
     eprintln!("  round(1422) = {} ({}px)", rounded2.to_bits(), rounded2.to_bits() as f32 / 64.0);
 }
+
+#[test]
+fn test_trace_deltac_ppem14() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.interpreter.debug_trace_points = true;
+    hint.set_ppem(14, 14.0).ok();
+
+    let cvt0 = hint.interpreter.cvt().get(0).copied().unwrap_or(0);
+    let orig0 = hint.interpreter.read_storage(0); // wrong fn but let me use cvt_original
+    eprintln!("ppem=14: CVT[0]={cvt0} ({:.1}px) round={}", 
+        cvt0 as f32 / 64.0, (cvt0 + 32) & !63);
+}
