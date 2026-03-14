@@ -671,9 +671,8 @@ fn test_digit_8_vs_freetype() {
     let hint_mutex = font.hint_instance.as_ref().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
-    // Enable move_point tracing to see what instructions do to each point
+    // Tracing disabled for clean test output
     // hint.interpreter.debug_trace_points = true;
-    // hint.interpreter.trace_mode = true;
 
     let scale = compute_scale(ppem, font.font_metrics.units_per_em);
     let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
