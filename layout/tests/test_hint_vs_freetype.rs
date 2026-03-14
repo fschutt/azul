@@ -1617,3 +1617,214 @@ fn test_debug_kerning() {
             info.kerning, info.kerning as f32 * scale);
     }
 }
+
+/// Check if hinting succeeds at various ppem for Times New Roman glyphs.
+#[test]
+fn test_hinting_at_small_ppem() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping: Times font not found"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed to parse Times"); return; }
+    };
+
+    let test_chars = ['L', 'o', 'r', 'e', 'm', 'i', 'p', 's', 'u', 'd', 'a', 't', '.', ' '];
+    let test_ppems: &[u16] = &[12, 14, 16, 20, 24, 32];
+
+    for &ppem in test_ppems {
+        let mut ok = 0;
+        let mut fail = 0;
+        let mut no_data = 0;
+        for &ch in &test_chars {
+            let result = hint_glyph_any(&font, ch as u32, ppem);
+            match result {
+                Some(_) => ok += 1,
+                None => {
+                    // Check why it failed
+                    let gid = font.lookup_glyph_index(ch as u32);
+                    if gid.is_none() {
+                        no_data += 1;
+                        continue;
+                    }
+                    let gid = gid.unwrap();
+                    let owned = font.glyph_records_decoded.get(&gid);
+                    if owned.is_none() {
+                        no_data += 1;
+                        continue;
+                    }
+                    let owned = owned.unwrap();
+                    let has_pts = owned.raw_points.is_some();
+                    let has_flags = owned.raw_on_curve.is_some();
+                    let has_ends = owned.raw_contour_ends.is_some();
+                    let has_instr = owned.instructions.is_some();
+                    eprintln!("  ppem={ppem} '{ch}' FAILED: pts={has_pts} flags={has_flags} ends={has_ends} instr={has_instr}");
+                    fail += 1;
+                }
+            }
+        }
+        eprintln!("ppem={ppem}: {ok} ok, {fail} fail, {no_data} no_data");
+    }
+}
+
+/// Dump hinted points for 'L' at ppem=12 and 16 for direct comparison with FreeType.
+#[test]
+fn test_dump_hinted_L_small() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed"); return; }
+    };
+
+    for ppem in [12u16, 16] {
+        for ch in ['L', 'o'] {
+            let glyph_id = font.lookup_glyph_index(ch as u32).unwrap();
+            let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+            let raw_points = owned.raw_points.as_ref().unwrap();
+
+            let upem = font.font_metrics.units_per_em;
+            let scale = compute_scale(ppem, upem);
+            let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+                (F26Dot6::from_funits(x as i32, scale).to_bits(),
+                 F26Dot6::from_funits(y as i32, scale).to_bits())
+            }).collect();
+
+            let hinted = hint_glyph_any(&font, ch as u32, ppem).unwrap();
+
+            eprintln!("\nppem={ppem} '{ch}' gid={glyph_id} ({} pts)", hinted.len());
+            for i in 0..hinted.len() {
+                let (hx, hy) = hinted[i];
+                let (ux, uy) = points_f26dot6[i];
+                let dx = hx - ux;
+                let dy = hy - uy;
+                let flag = if dy.abs() > 10 { " <<<" } else { "" };
+                eprintln!("  pt{i:2}: ({hx:5},{hy:5}) delta=({dx:+4},{dy:+4}){flag}");
+            }
+        }
+    }
+}
+
+/// Compare advance widths at multiple ppem values against FreeType.
+#[test]
+fn test_advance_widths_vs_freetype() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed"); return; }
+    };
+
+    // FreeType reference advances (F26Dot6) captured with freetype-py FT_LOAD_TARGET_MONO
+    let ft_advances: &[(u16, &[(char, i32)])] = &[
+        (12, &[('L', 448), ('o', 384), ('r', 256), ('e', 320), ('m', 576)]),
+        (14, &[('L', 512), ('o', 448), ('r', 320), ('e', 384), ('m', 704)]),
+        (16, &[('L', 576), ('o', 512), ('r', 320), ('e', 448), ('m', 704)]),
+        (20, &[('L', 704), ('o', 640), ('r', 448), ('e', 576), ('m', 896)]),
+        (80, &[('L', 3072), ('o', 2496), ('r', 1728), ('e', 2304), ('m', 3904)]),
+    ];
+
+    let mut total_mismatch = 0;
+    for &(ppem, chars) in ft_advances {
+        for &(ch, ft_adv) in chars {
+            let gid = font.lookup_glyph_index(ch as u32).unwrap();
+            let our_adv_px = font.get_hinted_advance_px(gid, ppem);
+            let our_adv_f26 = our_adv_px.map(|px| (px * 64.0).round() as i32);
+            let matches = our_adv_f26 == Some(ft_adv);
+            if !matches {
+                eprintln!("MISMATCH ppem={ppem} '{ch}': ours={:?} ft={ft_adv}", our_adv_f26);
+                total_mismatch += 1;
+            }
+        }
+    }
+    eprintln!("Total advance mismatches: {total_mismatch}");
+}
+
+/// Trace 'L' hinting at ppem=12 to find divergence from FreeType.
+#[test]
+fn test_trace_L_ppem12() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed"); return; }
+    };
+
+    let ppem: u16 = 12;
+    let glyph_id = font.lookup_glyph_index('L' as u32).unwrap();
+    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let raw_points = owned.raw_points.as_ref().unwrap();
+    let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
+    let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
+    let instructions = owned.instructions.as_ref().unwrap();
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(ppem, ppem as f64).unwrap();
+
+    // Dump graphics state after prep
+    let gs = hint.interpreter.graphics_state();
+    eprintln!("After prep at ppem={ppem}:");
+    eprintln!("  round_state: {:?}", gs.round_state);
+    eprintln!("  control_value_cut_in: {} F26Dot6", gs.control_value_cut_in.to_bits());
+    eprintln!("  minimum_distance: {} F26Dot6", gs.minimum_distance.to_bits());
+    eprintln!("  single_width_value: {} F26Dot6", gs.single_width_value.to_bits());
+    eprintln!("  single_width_cut_in: {} F26Dot6", gs.single_width_cut_in.to_bits());
+    eprintln!("  delta_base: {}", gs.delta_base);
+    eprintln!("  instruct_control: {}", gs.instruct_control);
+    eprintln!("  auto_flip: {}", gs.auto_flip);
+
+    // Dump some CVT values
+    let cvt = hint.interpreter.cvt();
+    eprintln!("  CVT entries: {}", cvt.len());
+    for idx in [0, 1, 2, 3, 4, 5, 6, 13, 108, 158, 172, 231] {
+        if idx < cvt.len() {
+            eprintln!("  CVT[{idx}] = {} F26Dot6 = {:.2}px", cvt[idx], cvt[idx] as f64 / 64.0);
+        }
+    }
+
+    // Enable tracing and run hinting
+    hint.interpreter.trace_mode = true;
+    hint.interpreter.debug_trace_points = true;
+
+    let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+    let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+        (F26Dot6::from_funits(x as i32, scale).to_bits(),
+         F26Dot6::from_funits(y as i32, scale).to_bits())
+    }).collect();
+    let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
+
+    eprintln!("\nInitial scaled points:");
+    for (i, &(x, y)) in points_f26dot6.iter().enumerate() {
+        eprintln!("  pt{i:2}: ({x:5},{y:5})");
+    }
+    eprintln!("  advance_f26dot6: {adv_f26dot6}");
+
+    let _ = hint.hint_glyph_with_orus(
+        &points_f26dot6, Some(raw_points.as_slice()),
+        raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
+    );
+}
