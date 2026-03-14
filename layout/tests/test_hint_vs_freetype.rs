@@ -1918,3 +1918,49 @@ fn test_trace_o_ppem64() {
     ).unwrap();
     eprintln!("Hinted advance: {} F26Dot6 = {}px", adv, adv as f32 / 64.0);
 }
+
+#[test]
+fn test_trace_o_ppem12_iup() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed"); return; }
+    };
+
+    let ppem: u16 = 12;
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(ppem, ppem as f64).unwrap();
+    hint.interpreter.debug_trace_points = true;
+
+    let glyph_id = font.lookup_glyph_index('o' as u32).unwrap();
+    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let raw_points = owned.raw_points.as_ref().unwrap();
+    let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
+    let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
+    let instructions = owned.instructions.as_ref().unwrap();
+
+    let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+    let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+        (F26Dot6::from_funits(x as i32, scale).to_bits(),
+         F26Dot6::from_funits(y as i32, scale).to_bits())
+    }).collect();
+    let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
+
+    let hinted = hint.hint_glyph_with_orus(
+        &points_f26dot6, Some(raw_points.as_slice()),
+        raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
+    ).unwrap();
+
+    eprintln!("\nFinal hinted points:");
+    for (i, &(x, y)) in hinted.iter().enumerate() {
+        eprintln!("  pt{i:2}: ({x:5},{y:5})");
+    }
+}

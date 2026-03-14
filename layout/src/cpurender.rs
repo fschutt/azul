@@ -688,6 +688,7 @@ fn render_text(
 
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+    paint.anti_alias = true; // grayscale AA for sub-pixel coverage (matches Chrome)
 
     // Try to get the parsed font - first from FontManager (for reftests), then from
     // RendererResources
