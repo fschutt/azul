@@ -183,6 +183,9 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
     let mut root_node = XmlNode::default();
 
+    // Strip UTF-8 BOM if present (some W3C test files have it)
+    let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
+
     // Search for "<?xml" and "?>" tags and delete them from the XML
     let mut xml = xml.trim();
     if xml.starts_with("<?") {
