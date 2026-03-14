@@ -1466,7 +1466,7 @@ fn find_similar_tests(
     all_test_names: &[String],
     limit: usize,
 ) -> Vec<(String, usize)> {
-    let max_dist = target.len().max(10) / 2; // reject very distant names
+    let max_dist = target.len().max(10) / 2;
     let mut scored: Vec<(String, usize)> = all_test_names
         .iter()
         .filter(|name| name.as_str() != target)
@@ -1481,364 +1481,13 @@ fn find_similar_tests(
     scored
 }
 
-// ── Verify / Render-One Commands ───────────────────────────────────────
-
-/// `azul-doc autodebug verify <test_name>` — re-render a test and compare
-/// before/after diff percentages.
-///
-/// Designed to run from an agent worktree:
-///  1. Optionally applies `--patches a.patch b.patch` to the worktree
-///  2. Rebuilds `azul-doc` from worktree sources (`cargo build --release -p azul-doc`)
-///     - If compilation fails, prints the full compiler error so the agent can fix it
-///  3. Runs the newly built binary with `autodebug render-one <test_name>`
-///  4. Compares the new render against Chrome screenshots from the main repo
-///  5. Prints a before/after comparison table
-///  6. Outputs the verify screenshot paths so the agent can view them
-///
-/// The Chrome screenshots (reference) are read from the main repo's
-/// `doc/target/autodebug/screenshots/` directory, which was populated
-/// during the initial autodebug run.
-pub fn cmd_autodebug_verify(
-    test_name: &str,
-    args: &[&str],
-    project_root: &Path,
-) -> Result<(), String> {
-    use std::process::Command;
-
-    // Parse --patches flag
-    let mut patches: Vec<String> = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "--patches" {
-            i += 1;
-            while i < args.len() && !args[i].starts_with('-') {
-                patches.push(args[i].to_string());
-                i += 1;
-            }
-        } else {
-            i += 1;
-        }
-    }
-
-    // Detect if we're in a worktree — if so, the main repo has the Chrome screenshots
-    // The worktree's .git file points to the main repo's .git/worktrees/<name>
-    let main_repo = detect_main_repo(project_root);
-    let screenshots = screenshots_dir(&main_repo);
-    let verify_dir = output_dir(project_root).join("verify");
-    fs::create_dir_all(&verify_dir)
-        .map_err(|e| format!("Failed to create verify dir: {}", e))?;
-
-    // Apply patches if specified
-    if !patches.is_empty() {
-        println!("Applying {} patch(es)...", patches.len());
-        for patch_file in &patches {
-            let output = Command::new("git")
-                .args(["apply", "--verbose", patch_file])
-                .current_dir(project_root)
-                .output()
-                .map_err(|e| format!("Failed to run git apply: {}", e))?;
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!(
-                    "git apply failed for: {}\n\n{}",
-                    patch_file, stderr
-                ));
-            }
-        }
-    }
-
-    // Step 1: Rebuild azul-doc from current worktree sources
-    println!("Building azul-doc with your changes (this may take 30-60s)...");
-    let build_output = Command::new("cargo")
-        .args(["build", "--release", "-p", "azul-doc"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("Failed to run cargo build: {}", e))?;
-
-    if !build_output.status.success() {
-        let stderr = String::from_utf8_lossy(&build_output.stderr);
-        // Print compiler errors so the agent can fix them and retry
-        eprintln!("\n=== COMPILATION FAILED ===\n");
-        eprintln!("{}", stderr);
-        eprintln!("\n=== END COMPILER OUTPUT ===\n");
-        eprintln!("Fix the compilation errors above, then run this command again.");
-
-        // Reverse patches before returning
-        if !patches.is_empty() {
-            for patch_file in patches.iter().rev() {
-                let _ = Command::new("git")
-                    .args(["apply", "-R", patch_file])
-                    .current_dir(project_root)
-                    .status();
-            }
-        }
-        return Err(format!(
-            "Compilation failed. Compiler errors:\n\n{}",
-            stderr
-        ));
-    }
-    println!("Build successful.");
-
-    // Step 2: Run the newly built binary with render-one
-    let new_binary = project_root.join("target/release/azul-doc");
-    println!("Re-rendering test `{}`...", test_name);
-    let render_output = Command::new(&new_binary)
-        .args(["autodebug", "render-one", test_name])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("Failed to run render-one: {}", e))?;
-
-    if !render_output.status.success() {
-        let stderr = String::from_utf8_lossy(&render_output.stderr);
-        if !patches.is_empty() {
-            for patch_file in patches.iter().rev() {
-                let _ = Command::new("git")
-                    .args(["apply", "-R", patch_file])
-                    .current_dir(project_root)
-                    .status();
-            }
-        }
-        return Err(format!("render-one failed:\n{}", stderr));
-    }
-
-    // Print render-one stdout (contains per-size render status)
-    let stdout = String::from_utf8_lossy(&render_output.stdout);
-    if !stdout.is_empty() {
-        println!("{}", stdout.trim());
-    }
-
-    // Step 3: Compare before vs after diffs
-    let patch_tag = if patches.is_empty() {
-        "verify".to_string()
-    } else {
-        patches
-            .iter()
-            .map(|p| {
-                Path::new(p)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("patch")
-            })
-            .collect::<Vec<_>>()
-            .join("+")
-    };
-
-    println!("\n=== Verification Results for `{}` ===\n", test_name);
-    println!(
-        "{:<12} {:<12} {:<12} {:<12} {}",
-        "Size", "Before", "After", "Delta", "Status"
-    );
-    println!("{}", "-".repeat(60));
-
-    let mut any_improved = false;
-    let mut any_worse = false;
-
-    for size in ALL_SIZES {
-        let chrome_path = screenshots.join(format!("{}_{}_chrome.png", test_name, size.name));
-        let azul_before = screenshots.join(format!("{}_{}_azul.webp", test_name, size.name));
-        let azul_after = verify_dir.join(format!(
-            "{}_{}_azul_verify.webp",
-            test_name, size.name
-        ));
-
-        if !chrome_path.exists() {
-            println!(
-                "{:<12} {:<12} {:<12} {:<12} {}",
-                size.name, "N/A", "N/A", "N/A", "NO CHROME REF"
-            );
-            continue;
-        }
-
-        // Compute "before" diff
-        let before_pct = if azul_before.exists() {
-            analyze_pixel_diff(&chrome_path, &azul_before, size.name)
-                .map(|a| a.diff_percent)
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        };
-
-        // Compute "after" diff
-        if !azul_after.exists() {
-            println!(
-                "{:<12} {:<11.2}% {:<12} {:<12} {}",
-                size.name, before_pct, "N/A", "N/A", "NO RENDER"
-            );
-            continue;
-        }
-
-        let after_pct = analyze_pixel_diff(&chrome_path, &azul_after, size.name)
-            .map(|a| a.diff_percent)
-            .unwrap_or(0.0);
-
-        let delta = after_pct - before_pct;
-        let status = if delta < -0.1 {
-            any_improved = true;
-            "IMPROVED"
-        } else if delta > 0.1 {
-            any_worse = true;
-            "WORSE"
-        } else {
-            "SAME"
-        };
-
-        println!(
-            "{:<12} {:<11.2}% {:<11.2}% {:<+11.2}% {}",
-            size.name, before_pct, after_pct, delta, status
-        );
-    }
-
-    // Summary
-    println!();
-    if any_improved && !any_worse {
-        println!("Result: Your fix IMPROVED rendering. Proceed to commit.");
-    } else if any_worse {
-        println!("Result: Your fix made some sizes WORSE. Reconsider your approach.");
-    } else {
-        println!("Result: No significant change detected. Your fix may not address this test.");
-    }
-
-    // Print verify screenshot paths so agent can view them
-    println!("\nVerify screenshots saved to: {}", verify_dir.display());
-    for size in ALL_SIZES {
-        let path = verify_dir.join(format!(
-            "{}_{}_azul_verify.webp",
-            test_name, size.name
-        ));
-        if path.exists() {
-            println!("  {} — `{}`", size.name, path.display());
-        }
-    }
-
-    // Reverse patches if applied
-    if !patches.is_empty() {
-        println!("\nReversing patches...");
-        for patch_file in patches.iter().rev() {
-            let _ = Command::new("git")
-                .args(["apply", "-R", patch_file])
-                .current_dir(project_root)
-                .status();
-        }
-    }
-
-    Ok(())
-}
-
-/// Detect the main repository root when running from a worktree.
-///
-/// Git worktrees have a `.git` file (not directory) pointing to the main repo.
-/// Returns the main repo root, or `project_root` if not in a worktree.
-fn detect_main_repo(project_root: &Path) -> PathBuf {
-    let git_path = project_root.join(".git");
-    if git_path.is_file() {
-        // Worktree: .git file contains "gitdir: /path/to/main/.git/worktrees/name"
-        if let Ok(content) = fs::read_to_string(&git_path) {
-            if let Some(gitdir) = content.strip_prefix("gitdir: ") {
-                let gitdir = gitdir.trim();
-                // Walk up from .git/worktrees/name to .git, then to repo root
-                let gitdir_path = Path::new(gitdir);
-                if let Some(main_git) = gitdir_path
-                    .ancestors()
-                    .find(|p| p.file_name().map(|n| n == ".git").unwrap_or(false))
-                {
-                    if let Some(main_root) = main_git.parent() {
-                        return main_root.to_path_buf();
-                    }
-                }
-            }
-        }
-    }
-    project_root.to_path_buf()
-}
-
-/// `azul-doc autodebug render-one <test_name>` — render a single test
-/// with the current compiled binary and save to verify dir.
-///
-/// This is called by `verify` after recompilation. It renders the test
-/// at all sizes and writes the output to `doc/target/autodebug/verify/`.
-pub fn cmd_autodebug_render_one(
-    test_name: &str,
-    project_root: &Path,
-) -> Result<(), String> {
-    let test_dir = project_root.join("doc/working");
-    let verify_dir = output_dir(project_root).join("verify");
-    fs::create_dir_all(&verify_dir)
-        .map_err(|e| format!("Failed to create verify dir: {}", e))?;
-
-    // Find the test file
-    let test_files = super::find_test_files(&test_dir)
-        .map_err(|e| format!("Failed to find test files: {}", e))?;
-    let test_file = test_files
-        .iter()
-        .find(|p| {
-            p.file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s == test_name)
-                .unwrap_or(false)
-        })
-        .ok_or_else(|| format!("Test file not found: {}", test_name))?;
-
-    // Build font cache
-    let font_registry = rust_fontconfig::registry::FcFontRegistry::new();
-    font_registry.spawn_scout_and_builders();
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    while !font_registry.build_complete.load(std::sync::atomic::Ordering::Acquire) {
-        if std::time::Instant::now() > deadline {
-            eprintln!("Warning: font registry build timed out");
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    let fc_cache = font_registry
-        .cache
-        .read()
-        .map(|c| c.clone())
-        .map_err(|e| format!("Failed to read font cache: {}", e))?;
-    font_registry.shutdown.store(true, std::sync::atomic::Ordering::Release);
-    font_registry.queue_condvar.notify_all();
-
-    // Render at each size
-    for size in ALL_SIZES {
-        let output_file = verify_dir.join(format!(
-            "{}_{}_azul_verify.webp",
-            test_name, size.name
-        ));
-
-        match generate_azul_rendering_at_size_cached(
-            test_file,
-            &output_file,
-            size.width,
-            size.height,
-            &fc_cache,
-        ) {
-            Ok(dd) => {
-                // Write debug JSON alongside
-                let debug_json_path = output_file.with_extension("debug.json");
-                let debug_json = serde_json::json!({
-                    "render_warnings": dd.render_warnings,
-                    "display_list": dd.display_list,
-                    "solved_layout": dd.solved_layout,
-                    "css_warnings": dd.css_warnings,
-                    "layout_stats": dd.layout_stats,
-                });
-                let _ = fs::write(
-                    &debug_json_path,
-                    serde_json::to_string_pretty(&debug_json).unwrap_or_default(),
-                );
-                println!("  Rendered {} at {}", test_name, size.name);
-            }
-            Err(e) => {
-                eprintln!("  Warning: render failed for {} at {}: {}", test_name, size.name, e);
-            }
-        }
-    }
-
-    Ok(())
-}
-
 // ── Prompt Builder ─────────────────────────────────────────────────────
 
 /// Build the autodebug prompt for a failing test.
+///
+/// `project_root` is needed to locate cross-agent result files.
+/// `all_test_names` is the list of all failing test names in this run,
+/// used for Levenshtein-based "agentic peeking".
 pub fn build_autodebug_prompt(
     test: &FailingTestData,
     bug_hint: Option<&str>,
@@ -1972,39 +1621,6 @@ pub fn build_autodebug_prompt(
         writeln!(prompt, "Use this as your starting point for investigation.\n").unwrap();
     }
 
-    // Cross-agent knowledge section (before Phase 1 so agents check first)
-    let similar = find_similar_tests(&test.test_name, all_test_names, 5);
-    if !similar.is_empty() {
-        let prompts_path = prompts_dir(project_root);
-        // Collect similar tests that have result/done files the agent can read
-        let readable: Vec<_> = similar.iter().filter(|(name, _)| {
-            let result_path = prompts_path.join(format!("{}.md.result", name));
-            let done_path = prompts_path.join(format!("{}.md.done", name));
-            result_path.exists() || done_path.exists()
-        }).collect();
-
-        if !readable.is_empty() {
-            writeln!(prompt, "## Similar Tests (Cross-Agent Knowledge)\n").unwrap();
-            writeln!(prompt, "Other agents are working on (or have completed) tests with similar names.").unwrap();
-            writeln!(prompt, "**Before starting your investigation**, check if any of these agents have already").unwrap();
-            writeln!(prompt, "found a root cause or fix that applies to your test. You may READ their result").unwrap();
-            writeln!(prompt, "files for insights, but do NOT modify them.\n").unwrap();
-            writeln!(prompt, "Use `tail -200 <file>` or `grep -i 'root cause\\|fix\\|bug' <file>` to quickly").unwrap();
-            writeln!(prompt, "scan for relevant findings.\n").unwrap();
-
-            for (name, dist) in &readable {
-                let result_path = prompts_path.join(format!("{}.md.result", name));
-                let done_path = prompts_path.join(format!("{}.md.done", name));
-                if done_path.exists() {
-                    writeln!(prompt, "- `{}` (completed, distance: {})", done_path.display(), dist).unwrap();
-                } else if result_path.exists() {
-                    writeln!(prompt, "- `{}` (in-progress, distance: {})", result_path.display(), dist).unwrap();
-                }
-            }
-            writeln!(prompt).unwrap();
-        }
-    }
-
     // Instructions for the agent
     writeln!(prompt, "## Your Task\n").unwrap();
     writeln!(prompt, "You are debugging a CSS layout rendering bug in the Azul layout engine.").unwrap();
@@ -2014,6 +1630,44 @@ pub fn build_autodebug_prompt(
     writeln!(prompt, "specific bug in the layout engine, STOP EARLY. Do not guess. Write a brief report in").unwrap();
     writeln!(prompt, "`doc/target/autodebug/reports/{}_report.md` explaining what you checked and why you", test.test_name).unwrap();
     writeln!(prompt, "could not identify the root cause, then commit and exit.\n").unwrap();
+
+    // Cross-agent peeking section (before Phase 1 so agents check similar solutions first)
+    let similar = find_similar_tests(&test.test_name, all_test_names, 5);
+    if !similar.is_empty() {
+        let prompts_path = prompts_dir(project_root);
+        let readable: Vec<_> = similar
+            .iter()
+            .filter(|(name, _)| {
+                let result_path = prompts_path.join(format!("{}.md.result", name));
+                let done_path = prompts_path.join(format!("{}.md.done", name));
+                result_path.exists() || done_path.exists()
+            })
+            .collect();
+
+        if !readable.is_empty() {
+            writeln!(prompt, "### Pre-Phase: Check Similar Agents\n").unwrap();
+            writeln!(prompt, "Other agents are working on (or have completed) tests with similar names.").unwrap();
+            writeln!(prompt, "**Before starting your own investigation**, check if any of these agents").unwrap();
+            writeln!(prompt, "have already found a root cause or fix that applies to your test too.\n").unwrap();
+            writeln!(prompt, "You may READ their output files for insights, but do NOT modify them.").unwrap();
+            writeln!(prompt, "Use `tail -200 <file>` or `grep -i 'root cause\\|fix\\|bug\\|commit' <file>`").unwrap();
+            writeln!(prompt, "to quickly scan for relevant findings.\n").unwrap();
+
+            for (name, dist) in &readable {
+                let result_path = prompts_path.join(format!("{}.md.result", name));
+                let done_path = prompts_path.join(format!("{}.md.done", name));
+                if done_path.exists() {
+                    writeln!(prompt, "- `{}` (completed, edit distance: {})", done_path.display(), dist).unwrap();
+                } else if result_path.exists() {
+                    writeln!(prompt, "- `{}` (in-progress, edit distance: {})", result_path.display(), dist).unwrap();
+                }
+            }
+            writeln!(prompt).unwrap();
+            writeln!(prompt, "If a similar agent already found and fixed the same root cause, you can").unwrap();
+            writeln!(prompt, "apply the same fix pattern to your test. If their fix doesn't apply,").unwrap();
+            writeln!(prompt, "proceed with your own investigation below.\n").unwrap();
+        }
+    }
 
     writeln!(prompt, "### Phase 1: Find the Root Cause\n").unwrap();
     writeln!(prompt, "Do NOT jump to a fix. Spend most of your time understanding WHY the bug happens.").unwrap();
@@ -2028,34 +1682,36 @@ pub fn build_autodebug_prompt(
     writeln!(prompt, "   - `mod.rs` — entry point, LayoutContext").unwrap();
     writeln!(prompt, "   - Text layout: `layout/src/text3/`").unwrap();
     writeln!(prompt, "   - CPU rendering: `layout/src/cpurender.rs`").unwrap();
-    writeln!(prompt, "4. **Add `debug_info!` calls** to trace values at runtime. The macro is:").unwrap();
-    writeln!(prompt, "   ```rust").unwrap();
-    writeln!(prompt, "   debug_info!(ctx, \"[my_tag] var_name={{}} other={{}}\", var_name, other);").unwrap();
+    writeln!(prompt, "4. **Use `debug_info!` calls** to understand data flow. This macro is defined in").unwrap();
+    writeln!(prompt, "   `layout/src/solver3/mod.rs` and is already used extensively throughout the solver.").unwrap();
+    writeln!(prompt, "   It only evaluates when `debug_messages` is enabled (it IS enabled for these tests).").unwrap();
+    writeln!(prompt, "   The output appears in the `.debug.json` file under `render_warnings`.\n").unwrap();
+    writeln!(prompt, "   **How it works:** The debug JSON you already have (see Debug Data Files above)").unwrap();
+    writeln!(prompt, "   contains ALL `debug_info!` output from the current code. Search it with:").unwrap();
+    writeln!(prompt, "   ```bash").unwrap();
+    writeln!(prompt, "   cat '<debug_json_path>' | jq '.render_warnings[]' | grep -i 'width\\|height\\|margin'").unwrap();
     writeln!(prompt, "   ```").unwrap();
-    writeln!(prompt, "   It only evaluates when debug_messages is enabled (it's enabled for these tests).").unwrap();
-    writeln!(prompt, "   The output appears in the Layout Debug Trace above. You can also use `println!`").unwrap();
-    writeln!(prompt, "   for quick debugging — the output goes to stderr.\n").unwrap();
+    writeln!(prompt, "   This shows you the actual computed values during layout. Compare these against").unwrap();
+    writeln!(prompt, "   Chrome's layout JSON to find where the values diverge.\n").unwrap();
+    writeln!(prompt, "   **Adding your own traces:** If the existing traces don't cover the code path").unwrap();
+    writeln!(prompt, "   you're investigating, add more `debug_info!` calls. The macro takes a `ctx`").unwrap();
+    writeln!(prompt, "   (LayoutContext) and a format string:\n").unwrap();
+    writeln!(prompt, "   ```rust").unwrap();
+    writeln!(prompt, "   debug_info!(ctx, \"[my_tag] width={{}} margin_left={{}}\", width, margin_left);").unwrap();
+    writeln!(prompt, "   ```\n").unwrap();
+    writeln!(prompt, "   Convention: use a `[Tag]` prefix so you can grep for your traces, e.g.:").unwrap();
+    writeln!(prompt, "   ```rust").unwrap();
+    writeln!(prompt, "   debug_info!(ctx, \"[DisplayList] tree has {{}} nodes, {{}} positions\", tree.nodes.len(), positions.len());").unwrap();
+    writeln!(prompt, "   debug_info!(ctx, \"[BFC] block child {{}} width={{}} x={{}}\", node_id, width, x);").unwrap();
+    writeln!(prompt, "   ```\n").unwrap();
+    writeln!(prompt, "   Note: you can NOT re-render to see your new traces (the binary is pre-compiled).").unwrap();
+    writeln!(prompt, "   But reading the EXISTING traces in the debug JSON is your primary debugging tool.").unwrap();
+    writeln!(prompt, "   Also, `println!` works for quick debugging — output goes to stderr.\n").unwrap();
 
     writeln!(prompt, "### Phase 2: Fix the Bug\n").unwrap();
     writeln!(prompt, "Once you understand the root cause, make a minimal, targeted fix.").unwrap();
     writeln!(prompt, "- Keep changes small — fix only this bug, nothing else.").unwrap();
     writeln!(prompt, "- Do NOT refactor surrounding code or add features beyond what's needed.\n").unwrap();
-
-    // Self-verification section
-    let azul_doc_bin = project_root.join("target/release/azul-doc");
-    writeln!(prompt, "### Phase 2b: Verify Your Fix (Recommended)\n").unwrap();
-    writeln!(prompt, "After making your fix, verify whether it actually improved the rendering:").unwrap();
-    writeln!(prompt, "```bash").unwrap();
-    writeln!(prompt, "{} autodebug verify {}", azul_doc_bin.display(), test.test_name).unwrap();
-    writeln!(prompt, "```\n").unwrap();
-    writeln!(prompt, "This command will:").unwrap();
-    writeln!(prompt, "1. Rebuild `azul-doc` with your code changes (takes ~30-60s)").unwrap();
-    writeln!(prompt, "2. Re-render the test at all screen sizes").unwrap();
-    writeln!(prompt, "3. Compare against Chrome screenshots and print a before/after table\n").unwrap();
-    writeln!(prompt, "Look for IMPROVED/SAME/WORSE status per screen size. If your fix made things").unwrap();
-    writeln!(prompt, "WORSE, reconsider your approach. If IMPROVED, proceed to commit.\n").unwrap();
-    writeln!(prompt, "**Note:** This runs `cargo build` internally, so it may take a minute.").unwrap();
-    writeln!(prompt, "Only run it once you have a concrete fix, not for exploratory changes.\n").unwrap();
 
     writeln!(prompt, "### Phase 3: Commit for Patch Extraction\n").unwrap();
     writeln!(prompt, "Create ONE commit with a clear message. The commit message must explain:").unwrap();
@@ -2077,8 +1733,8 @@ pub fn build_autodebug_prompt(
     writeln!(prompt, "  If a test failure looks like a flex/grid issue, the bug is almost certainly in how").unwrap();
     writeln!(prompt, "  we feed data TO Taffy or read results FROM Taffy (in `taffy_bridge.rs` or `fc.rs`),").unwrap();
     writeln!(prompt, "  NOT in Taffy's own layout algorithm. Do NOT try to fix Taffy itself.").unwrap();
-    writeln!(prompt, "- Do NOT run `cargo build`, `cargo check`, or any compilation commands directly.").unwrap();
-    writeln!(prompt, "  (The `autodebug verify` command handles recompilation internally.)").unwrap();
+    writeln!(prompt, "- Do NOT run `cargo build`, `cargo check`, or any compilation commands.").unwrap();
+    writeln!(prompt, "  A compiler watchdog is running that kills cargo/rustc/rust-analyzer every 2 seconds.").unwrap();
     writeln!(prompt, "- Your changes must compile — check types and signatures carefully.").unwrap();
     writeln!(prompt, "- If you cannot determine the fix with confidence, write a").unwrap();
     writeln!(prompt, "  detailed analysis in `doc/target/autodebug/reports/{}_report.md`", test.test_name).unwrap();
