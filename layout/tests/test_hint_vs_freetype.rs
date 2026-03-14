@@ -643,6 +643,96 @@ fn hint_glyph_any(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i
     ).ok()
 }
 
+/// Compare allsorts hinted "8" at ppem=80 against FreeType reference points.
+/// FreeType values captured with freetype-py at ppem=80, FT_LOAD_TARGET_MONO.
+#[test]
+fn test_digit_8_vs_freetype() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc"))
+        .ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b,
+        None => { eprintln!("Skipping: Times font not found"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f,
+        None => { eprintln!("Failed to parse Times"); return; }
+    };
+
+    let ppem: u16 = 80;
+    let glyph_id = font.lookup_glyph_index('8' as u32).unwrap();
+    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let raw_points = owned.raw_points.as_ref().unwrap();
+    let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
+    let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
+    let instructions = owned.instructions.as_ref().unwrap();
+
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(ppem, ppem as f64).unwrap();
+    // Enable move_point tracing to see what instructions do to each point
+    // hint.interpreter.debug_trace_points = true;
+    // hint.interpreter.trace_mode = true;
+
+    let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+    let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+        (F26Dot6::from_funits(x as i32, scale).to_bits(),
+         F26Dot6::from_funits(y as i32, scale).to_bits())
+    }).collect();
+    let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
+
+    let hinted = hint.hint_glyph_with_orus(
+        &points_f26dot6, Some(raw_points.as_slice()),
+        raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
+    ).unwrap();
+
+    let debug = hint.zone_debug_info(hinted.len());
+
+    // FreeType reference (ppem=80, FT_LOAD_TARGET_MONO, Times New Roman "8")
+    let ft_points: [(i32, i32); 52] = [
+        (980,1694),(602,2026),(384,2428),(384,2644),(384,2976),(880,3456),(1291,3456),
+        (1690,3456),(2176,3007),(2176,2720),(2176,2529),(1907,2131),(1481,1861),
+        (1913,1523),(2053,1329),(2240,1076),(2240,795),(2240,440),(1705,-64),(1270,-64),
+        (796,-64),(531,237),(320,478),(320,764),(320,988),(617,1428),
+        (1366,1957),(1560,2220),(1664,2525),(1664,2718),(1664,2974),(1463,3264),(1289,3264),
+        (1114,3264),(896,2976),(896,2784),(896,2657),(990,2403),(1076,2289),
+        (1096,1600),(962,1432),(832,1038),(832,808),(832,499),(1091,128),(1291,128),
+        (1489,128),(1728,420),(1728,628),(1728,801),(1654,937),(1516,1191),
+    ];
+
+    eprintln!("\n'8' at ppem={ppem}: {} pts, contours {:?}", hinted.len(), raw_contour_ends);
+    eprintln!("{:>3} {:>8} {:>8} {:>8} {:>8} {:>5} {:>5} {:>8} {:>8}  tx ty",
+        "pt", "al_x", "al_y", "ft_x", "ft_y", "dx", "dy", "orus_x", "orus_y");
+
+    let mut max_dx: i32 = 0;
+    let mut max_dy: i32 = 0;
+    let mut fail_count = 0;
+
+    for i in 0..hinted.len().min(ft_points.len()) {
+        let (ax, ay) = hinted[i];
+        let (fx, fy) = ft_points[i];
+        let dx = ax - fx;
+        let dy = ay - fy;
+        let (_, _, orus, tx, ty) = debug[i];
+        let flag = if dx.abs() > 1 || dy.abs() > 1 { " <<<" } else { "" };
+        if dx.abs() > 1 || dy.abs() > 1 { fail_count += 1; }
+        max_dx = max_dx.max(dx.abs());
+        max_dy = max_dy.max(dy.abs());
+        eprintln!("{:3} {:8} {:8} {:8} {:8} {:5} {:5} {:8} {:8}  {}  {} {}",
+            i, ax, ay, fx, fy, dx, dy, orus.0, orus.1,
+            if tx {"X"} else {"."}, if ty {"Y"} else {"."}, flag);
+    }
+
+    eprintln!("\nMax deviation: dx={max_dx} dy={max_dy} F26Dot6 ({:.3} / {:.3} px)",
+        max_dx as f32 / 64.0, max_dy as f32 / 64.0);
+    eprintln!("Points with >1 F26Dot6 deviation: {fail_count}/{}", hinted.len());
+
+    // Assert: no point should deviate more than 1 pixel from FreeType
+    assert!(max_dx <= 64 && max_dy <= 64,
+        "Hinting deviation too large: dx={max_dx} dy={max_dy} F26Dot6");
+}
+
 /// Compare hinted vs unhinted "8" from Times New Roman at ppem=80 to debug bulge distortion.
 #[test]
 fn test_digit_8_hinting_comparison() {
