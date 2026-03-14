@@ -2030,3 +2030,80 @@ fn test_storage_values_by_ppem() {
         }
     }
 }
+
+#[test]
+fn test_compare_i_32px() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let ppem: u16 = 32;
+    // FreeType DEFAULT Y values for 'i' at ppem=32
+    let ft_y: &[i32] = &[
+        1408, 1408, 1352, 1312, 1273, 1216, 1216, 1216, 1273, 1312, 1352, 1408,
+        896, 256, 159, 95, 64, 64, 0, 0, 64, 64, 93, 161, 256, 512, 634, 670,
+        696, 719, 719, 719, 704, 768, 896,
+    ];
+
+    let hinted = hint_glyph_any(&font, 'i' as u32, ppem).unwrap();
+
+    eprintln!("'i' ppem={ppem}: {} pts", hinted.len());
+    eprintln!("{:>3} {:>6} {:>6} {:>5}", "pt", "ours", "ft", "dy");
+    let mut max_dy = 0i32;
+    for i in 0..hinted.len().min(ft_y.len()) {
+        let our_y = hinted[i].1;
+        let dy = our_y - ft_y[i];
+        if dy.abs() > max_dy.abs() { max_dy = dy; }
+        let flag = if dy.abs() > 5 { " <<<" } else { "" };
+        eprintln!("{i:3} {our_y:6} {:6} {dy:+5}{flag}", ft_y[i]);
+    }
+    eprintln!("\nMax Y deviation: {} F26Dot6 ({:.2}px)", max_dy, max_dy as f32 / 64.0);
+    eprintln!("'i' Y range: ours {}..{}, ft {}..{}", 
+        hinted.iter().map(|p| p.1).min().unwrap(),
+        hinted.iter().map(|p| p.1).max().unwrap(),
+        ft_y.iter().min().unwrap(), ft_y.iter().max().unwrap());
+}
+
+#[test]
+fn test_trace_i_32px() {
+    let font_bytes = std::fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+        .or_else(|_| std::fs::read("/System/Library/Fonts/Times.ttc")).ok();
+    let font_bytes = match font_bytes {
+        Some(b) => b, None => { eprintln!("Skipping"); return; }
+    };
+    let mut warnings = Vec::new();
+    let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+        Some(f) => f, None => { eprintln!("Failed"); return; }
+    };
+
+    let ppem: u16 = 32;
+    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let mut hint = hint_mutex.lock().unwrap();
+    hint.set_ppem(ppem, ppem as f64).unwrap();
+    hint.interpreter.debug_trace_points = true;
+
+    let glyph_id = font.lookup_glyph_index('i' as u32).unwrap();
+    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let raw_points = owned.raw_points.as_ref().unwrap();
+    let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
+    let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
+    let instructions = owned.instructions.as_ref().unwrap();
+
+    let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+    let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|&(x, y)| {
+        (F26Dot6::from_funits(x as i32, scale).to_bits(),
+         F26Dot6::from_funits(y as i32, scale).to_bits())
+    }).collect();
+    let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
+
+    let _ = hint.hint_glyph_with_orus(
+        &points_f26dot6, Some(raw_points.as_slice()),
+        raw_on_curve, raw_contour_ends, instructions, adv_f26dot6,
+    );
+}
