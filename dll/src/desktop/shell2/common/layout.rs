@@ -100,15 +100,14 @@ pub fn regenerate_layout(
 
         if current_cache_empty || build_complete {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
-            let common_families = rust_fontconfig::registry::get_common_font_families();
-            let font_stacks: Vec<Vec<String>> = common_families.into_iter().map(|f| vec![f]).collect();
+            let font_stacks = rust_fontconfig::config::tokenize_common_families(rust_fontconfig::OperatingSystem::current());
             registry.request_fonts(&font_stacks);
             // Snapshot the registry into an FcFontCache for use during layout
             let snapshot = Arc::new(registry.into_fc_font_cache());
             layout_window.font_manager.fc_cache = snapshot.clone();
             log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
         } else {
-            log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress, {} faces loaded)", registry.progress().2);
+            log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress)");
         }
     } else {
         // Fallback: use the provided fc_cache directly

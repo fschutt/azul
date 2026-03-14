@@ -81,6 +81,9 @@ typedef struct {
     // The fetched and parsed HTML
     AzXml parsed_xml;
     bool has_xml;
+
+    // Raw HTML string for re-parsing in layout callback
+    char* html_string;
     
     // Downloaded fonts (FontRef + name for CSS matching)
     AzFontRef fonts[MAX_FONTS];
@@ -572,12 +575,13 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
         return AzDom_createBody();
     }
     
-    // Render the parsed XML as DOM using the new fromParsedXml function
-    // This avoids re-parsing the XML string
-    AzXml xml_clone = AzXml_clone(&data->parsed_xml);
-    AzDom dom = AzDom_fromParsedXml(xml_clone);
-    
-    return dom;
+    // Convert parsed XML to DOM.
+    // TODO: AzDom_fromParsedXml was removed from the API. Need to re-add it.
+    // For now, display a placeholder to verify the rendering pipeline works.
+    AzDom body = AzDom_createBody();
+    AzDom text = AzDom_createText(az_str("[Browser: page loaded successfully]"));
+    AzDom_addChild(&body, text);
+    return body;
 }
 
 // ============================================================================

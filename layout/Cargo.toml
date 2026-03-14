@@ -32,8 +32,8 @@ accesskit               = { version = "0.21.1", default-features = false, option
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
 usvg                    = { version = "0.45.0",   default-features = false, optional = true }
-resvg                   = { version = "0.45.0",   default-features = false, optional = true }
-tiny-skia               = { version = "0.11.4",    default-features = false, optional = true, features = ["std", "simd", "png-format"] }
+agg-rust                = { path = "/Users/fschutt/Development/agg-rust", default-features = false, optional = true }
+png                     = { version = "0.17", default-features = false, optional = true }
 geo-booleanop           = { version = "0.3.2", default-features = false, optional = true }
 geo                     = { version = "0.31.0", default-features = false, optional = true }
 roxmltree               = { version = "0.21.1",   default-features = false, optional = true }
@@ -175,17 +175,17 @@ xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
 # SVG rendering support (lyon, usvg can convert text to outlines)
 svg = [
     "dep:lyon",
-    "dep:tiny-skia",
+    "dep:agg-rust",
+    "dep:png",
     "dep:usvg",
-    "dep:resvg",
     "xml",
     "dep:geo-booleanop",
     "dep:geo",
     "dep:gl-context-loader"
 ]
 
-# CPU-based rendering (tiny-skia, requires allsorts for text)
-cpurender = ["dep:tiny-skia", "dep:allsorts", "dep:gl-context-loader"]
+# CPU-based rendering (agg-rust, requires allsorts for text)
+cpurender = ["dep:agg-rust", "dep:png", "dep:allsorts", "dep:gl-context-loader"]
 
 # Accessibility support (accesskit)
 a11y = ["dep:accesskit"]

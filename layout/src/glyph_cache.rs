@@ -1,11 +1,13 @@
 //! Glyph path cache for CPU rendering.
 //!
-//! Caches built tiny-skia Path objects keyed by (font_hash, glyph_id, ppem) so that
+//! Caches built agg-rust PathStorage objects keyed by (font_hash, glyph_id, ppem) so that
 //! repeated rendering of the same glyph avoids redundant path construction.
 //! When ppem > 0 and the font has hinting data, the path is hinted (grid-fitted)
 //! and in pixel coordinates. Otherwise the path is in font units.
 
 use std::collections::HashMap;
+
+use agg_rust::path_storage::PathStorage;
 
 use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
 
@@ -20,13 +22,13 @@ pub struct GlyphPathKey {
 
 /// Result of a cache lookup: the path plus whether it's hinted (pixel coords) or not.
 pub struct CachedGlyph<'a> {
-    pub path: &'a tiny_skia::Path,
+    pub path: &'a PathStorage,
     pub is_hinted: bool,
 }
 
 /// Cache of built glyph paths.
 pub struct GlyphCache {
-    paths: HashMap<GlyphPathKey, Option<(tiny_skia::Path, bool)>>,
+    paths: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
 }
 
 impl GlyphCache {
@@ -38,10 +40,6 @@ impl GlyphCache {
 
     /// Get a cached path, or build it on cache miss.
     /// Returns `None` if the glyph has no outline (e.g. space character).
-    ///
-    /// When `ppem > 0` and the font has hinting data for this glyph,
-    /// the returned path is hinted and in pixel coordinates (1 unit = 1 pixel).
-    /// Otherwise, the path is in font units (unhinted).
     pub fn get_or_build(
         &mut self,
         font_hash: u64,
@@ -89,7 +87,7 @@ fn build_hinted_path(
     glyph: &OwnedGlyph,
     parsed_font: &ParsedFont,
     ppem: u16,
-) -> Option<tiny_skia::Path> {
+) -> Option<PathStorage> {
     let raw_points = glyph.raw_points.as_ref()?;
     let raw_on_curve = glyph.raw_on_curve.as_ref()?;
     let raw_contour_ends = glyph.raw_contour_ends.as_ref()?;
@@ -145,7 +143,7 @@ fn build_hinted_path(
     build_path_from_contours(&hinted, raw_on_curve, raw_contour_ends)
 }
 
-/// Build a tiny-skia Path from TrueType contour data (points in F26Dot6).
+/// Build an agg PathStorage from TrueType contour data (points in F26Dot6).
 ///
 /// Matches allsorts' `visit_simple_glyph_outline` algorithm exactly:
 /// - On-curve points are endpoints of line/curve segments
@@ -157,8 +155,10 @@ pub fn build_path_from_contours(
     points: &[(i32, i32)],
     on_curve: &[bool],
     contour_ends: &[u16],
-) -> Option<tiny_skia::Path> {
-    let mut pb = tiny_skia::PathBuilder::new();
+) -> Option<PathStorage> {
+    use agg_rust::basics::PATH_FLAGS_NONE;
+
+    let mut path = PathStorage::new();
     let mut has_ops = false;
     let mut contour_start = 0usize;
 
@@ -177,18 +177,15 @@ pub fn build_path_from_contours(
             continue;
         }
 
-        // Helper: get point as (f32, f32) with Y negated
-        let px = |i: usize| -> (f32, f32) {
-            (f26_to_px(pts[i].0), -f26_to_px(pts[i].1))
+        // Helper: get point as (f64, f64) with Y negated
+        let px = |i: usize| -> (f64, f64) {
+            (f26_to_px(pts[i].0) as f64, -f26_to_px(pts[i].1) as f64)
         };
-        let mid = |a: (f32, f32), b: (f32, f32)| -> (f32, f32) {
+        let mid = |a: (f64, f64), b: (f64, f64)| -> (f64, f64) {
             ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
         };
 
-        // Determine origin and processing range (matching allsorts' calculate_origin):
-        // - First on-curve: origin=pt[0], process 1..n (skip origin)
-        // - Last on-curve (first off): origin=pt[n-1], process 0..n-1 (skip origin)
-        // - Both off-curve: origin=mid(pt[0],pt[n-1]), process 0..n (all points)
+        // Determine origin and processing range (matching allsorts' calculate_origin)
         let (origin, start, until) = if flags[0] {
             (px(0), 1usize, n)
         } else if flags[n - 1] {
@@ -197,21 +194,15 @@ pub fn build_path_from_contours(
             (mid(px(0), px(n - 1)), 0usize, n)
         };
 
-        pb.move_to(origin.0, origin.1);
+        path.move_to(origin.0, origin.1);
         has_ops = true;
 
-        // Process points [start..until) using allsorts-compatible two-point consumption:
-        // - On-curve → line_to(point)
-        // - Off-curve → peek at next:
-        //     - next is on-curve → quad_to(off, on), advance past both
-        //     - next is off-curve → quad_to(off, mid(off, next)), advance past first only
-        //     - end of range → quad_to(off, origin)
         let mut i = start;
         while i < until {
             if flags[i] {
                 // On-curve: line segment
                 let to = px(i);
-                pb.line_to(to.0, to.1);
+                path.line_to(to.0, to.1);
                 i += 1;
             } else {
                 // Off-curve control point
@@ -221,23 +212,22 @@ pub fn build_path_from_contours(
                     if flags[next] {
                         // Next is on-curve: quad to it, consume both
                         let to = px(next);
-                        pb.quad_to(ctrl.0, ctrl.1, to.0, to.1);
+                        path.curve3(ctrl.0, ctrl.1, to.0, to.1);
                         i = next + 1;
                     } else {
-                        // Next is also off-curve: quad to implicit midpoint, consume only current
+                        // Next is also off-curve: quad to implicit midpoint
                         let m = mid(ctrl, px(next));
-                        pb.quad_to(ctrl.0, ctrl.1, m.0, m.1);
-                        i = next; // next off-curve becomes current in next iteration
+                        path.curve3(ctrl.0, ctrl.1, m.0, m.1);
+                        i = next;
                     }
                 } else {
                     // End of range: curve back to origin
-                    pb.quad_to(ctrl.0, ctrl.1, origin.0, origin.1);
+                    path.curve3(ctrl.0, ctrl.1, origin.0, origin.1);
                     i = next;
                 }
             }
         }
-        // close() draws the implicit final segment back to origin (from move_to)
-        pb.close();
+        path.close_polygon(PATH_FLAGS_NONE);
 
         contour_start = end + 1;
     }
@@ -245,7 +235,7 @@ pub fn build_path_from_contours(
     if !has_ops {
         return None;
     }
-    pb.finish()
+    Some(path)
 }
 
 /// Convert F26Dot6 value to pixel coordinate (f32).

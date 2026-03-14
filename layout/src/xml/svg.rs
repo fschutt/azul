@@ -91,7 +91,7 @@ use lyon::{
 use crate::xml::XmlError;
 
 #[cfg(feature = "svg")]
-extern crate tiny_skia;
+extern crate agg_rust;
 
 use azul_core::gl::GL_RESTART_INDEX;
 
@@ -1948,174 +1948,220 @@ pub fn render_node_clipmask_cpu(
     style: SvgStyle,
 ) -> Option<()> {
     use azul_core::resources::RawImageData;
-    use tiny_skia::{
-        FillRule as SkFillRule, LineCap as SkLineCap, LineJoin as SkLineJoin, Paint as SkPaint,
-        Path as SkPath, PathBuilder as SkPathBuilder, Pixmap as SkPixmap, Rect as SkRect,
-        Stroke as SkStroke, StrokeDash as SkStrokeDash, Transform as SkTransform,
+    use agg_rust::{
+        basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
+        path_storage::PathStorage,
+        color::Rgba8,
+        conv_stroke::ConvStroke,
+        conv_transform::ConvTransform,
+        math_stroke::{LineCap, LineJoin},
+        pixfmt_rgba::{PixfmtRgba32, PixelFormat},
+        rasterizer_scanline_aa::RasterizerScanlineAa,
+        renderer_base::RendererBase,
+        renderer_scanline::render_scanlines_aa_solid,
+        rendering_buffer::RowAccessor,
+        scanline_u::ScanlineU8,
+        trans_affine::TransAffine,
     };
 
-    fn tiny_skia_translate_node(node: &SvgNode) -> Option<SkPath> {
+    fn agg_translate_node(node: &SvgNode) -> Option<PathStorage> {
         macro_rules! build_path {
-            ($path_builder:expr, $p:expr) => {{
+            ($path:expr, $p:expr) => {{
                 if $p.items.as_ref().is_empty() {
                     return None;
                 }
 
                 let start = $p.items.as_ref()[0].get_start();
-                $path_builder.move_to(start.x, start.y);
+                $path.move_to(start.x as f64, start.y as f64);
 
                 for path_element in $p.items.as_ref() {
                     match path_element {
                         SvgPathElement::Line(l) => {
-                            $path_builder.line_to(l.end.x, l.end.y);
+                            $path.line_to(l.end.x as f64, l.end.y as f64);
                         }
                         SvgPathElement::QuadraticCurve(qc) => {
-                            $path_builder.quad_to(qc.ctrl.x, qc.ctrl.y, qc.end.x, qc.end.y);
+                            $path.curve3(
+                                qc.ctrl.x as f64, qc.ctrl.y as f64,
+                                qc.end.x as f64, qc.end.y as f64,
+                            );
                         }
                         SvgPathElement::CubicCurve(cc) => {
-                            $path_builder.cubic_to(
-                                cc.ctrl_1.x,
-                                cc.ctrl_1.y,
-                                cc.ctrl_2.x,
-                                cc.ctrl_2.y,
-                                cc.end.x,
-                                cc.end.y,
+                            $path.curve4(
+                                cc.ctrl_1.x as f64, cc.ctrl_1.y as f64,
+                                cc.ctrl_2.x as f64, cc.ctrl_2.y as f64,
+                                cc.end.x as f64, cc.end.y as f64,
                             );
                         }
                     }
                 }
 
                 if $p.is_closed() {
-                    $path_builder.close();
+                    $path.close_polygon(PATH_FLAGS_NONE);
                 }
             }};
         }
 
+        let mut path = PathStorage::new();
         match node {
             SvgNode::MultiPolygonCollection(mpc) => {
-                let mut path_builder = SkPathBuilder::new();
                 for mp in mpc.iter() {
                     for p in mp.rings.iter() {
-                        build_path!(path_builder, p);
+                        build_path!(path, p);
                     }
                 }
-                path_builder.finish()
             }
             SvgNode::MultiPolygon(mp) => {
-                let mut path_builder = SkPathBuilder::new();
                 for p in mp.rings.iter() {
-                    build_path!(path_builder, p);
+                    build_path!(path, p);
                 }
-                path_builder.finish()
             }
             SvgNode::Path(p) => {
-                let mut path_builder = SkPathBuilder::new();
-                build_path!(path_builder, p);
-                path_builder.finish()
+                build_path!(path, p);
             }
-            SvgNode::Circle(c) => SkPathBuilder::from_circle(c.center_x, c.center_y, c.radius),
+            SvgNode::Circle(c) => {
+                // Approximate circle with 4 cubic beziers
+                let cx = c.center_x as f64;
+                let cy = c.center_y as f64;
+                let r = c.radius as f64;
+                let k = 0.5522847498; // 4/3 * (sqrt(2) - 1)
+                let kr = k * r;
+                path.move_to(cx + r, cy);
+                path.curve4(cx + r, cy + kr, cx + kr, cy + r, cx, cy + r);
+                path.curve4(cx - kr, cy + r, cx - r, cy + kr, cx - r, cy);
+                path.curve4(cx - r, cy - kr, cx - kr, cy - r, cx, cy - r);
+                path.curve4(cx + kr, cy - r, cx + r, cy - kr, cx + r, cy);
+                path.close_polygon(PATH_FLAGS_NONE);
+            }
             SvgNode::Rect(r) => {
-                // TODO: rounded edges!
-                Some(SkPathBuilder::from_rect(SkRect::from_xywh(
-                    r.x, r.y, r.width, r.height,
-                )?))
+                let x = r.x as f64;
+                let y = r.y as f64;
+                let w = r.width as f64;
+                let h = r.height as f64;
+                path.move_to(x, y);
+                path.line_to(x + w, y);
+                path.line_to(x + w, y + h);
+                path.line_to(x, y + h);
+                path.close_polygon(PATH_FLAGS_NONE);
             }
-            // TODO: test?
             SvgNode::MultiShape(ms) => {
-                let mut path_builder = SkPathBuilder::new();
                 for p in ms.as_ref() {
                     match p {
                         SvgSimpleNode::Path(p) => {
-                            build_path!(path_builder, p);
+                            build_path!(path, p);
                         }
                         SvgSimpleNode::Rect(r) => {
-                            if let Some(r) = tiny_skia::Rect::from_xywh(r.x, r.y, r.width, r.height)
-                            {
-                                path_builder.push_rect(r);
-                            }
+                            let x = r.x as f64;
+                            let y = r.y as f64;
+                            let w = r.width as f64;
+                            let h = r.height as f64;
+                            path.move_to(x, y);
+                            path.line_to(x + w, y);
+                            path.line_to(x + w, y + h);
+                            path.line_to(x, y + h);
+                            path.close_polygon(PATH_FLAGS_NONE);
                         }
-                        SvgSimpleNode::Circle(c) => {
-                            path_builder.push_circle(c.center_x, c.center_y, c.radius);
-                        }
-                        SvgSimpleNode::CircleHole(c) => {
-                            path_builder.push_circle(c.center_x, c.center_y, c.radius);
+                        SvgSimpleNode::Circle(c) | SvgSimpleNode::CircleHole(c) => {
+                            let cx = c.center_x as f64;
+                            let cy = c.center_y as f64;
+                            let r = c.radius as f64;
+                            let k = 0.5522847498_f64;
+                            let kr = k * r;
+                            path.move_to(cx + r, cy);
+                            path.curve4(cx + r, cy + kr, cx + kr, cy + r, cx, cy + r);
+                            path.curve4(cx - kr, cy + r, cx - r, cy + kr, cx - r, cy);
+                            path.curve4(cx - r, cy - kr, cx - kr, cy - r, cx, cy - r);
+                            path.curve4(cx + kr, cy - r, cx + r, cy - kr, cx + r, cy);
+                            path.close_polygon(PATH_FLAGS_NONE);
                         }
                         SvgSimpleNode::RectHole(r) => {
-                            if let Some(r) = tiny_skia::Rect::from_xywh(r.x, r.y, r.width, r.height)
-                            {
-                                path_builder.push_rect(r);
-                            }
+                            let x = r.x as f64;
+                            let y = r.y as f64;
+                            let w = r.width as f64;
+                            let h = r.height as f64;
+                            path.move_to(x, y);
+                            path.line_to(x + w, y);
+                            path.line_to(x + w, y + h);
+                            path.line_to(x, y + h);
+                            path.close_polygon(PATH_FLAGS_NONE);
                         }
                     }
                 }
-                path_builder.finish()
             }
         }
+        if path.total_vertices() == 0 {
+            return None;
+        }
+        Some(path)
     }
 
-    let mut paint = SkPaint::default();
-    paint.set_color_rgba8(255, 255, 255, 255);
-    paint.anti_alias = style.get_antialias();
-    paint.force_hq_pipeline = style.get_high_quality_aa();
+    let w = image.width as u32;
+    let h = image.height as u32;
+    if w == 0 || h == 0 {
+        return None;
+    }
 
-    let transform = style.get_transform();
-    let transform = SkTransform {
-        sx: transform.sx,
-        kx: transform.kx,
-        ky: transform.ky,
-        sy: transform.sy,
-        tx: transform.tx,
-        ty: transform.ty,
-    };
+    let transform_data = style.get_transform();
+    let transform = TransAffine::new_custom(
+        transform_data.sx as f64,
+        transform_data.ky as f64,
+        transform_data.kx as f64,
+        transform_data.sy as f64,
+        transform_data.tx as f64,
+        transform_data.ty as f64,
+    );
 
-    let mut pixmap = SkPixmap::new(image.width as u32, image.height as u32)?;
-    let path = tiny_skia_translate_node(node)?;
-    let clip_mask = None;
+    let mut agg_path = agg_translate_node(node)?;
+    let white = Rgba8::new(255, 255, 255, 255);
+
+    // Create pixel buffer and render
+    let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), w, h, stride) };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    let mut ras = RasterizerScanlineAa::new();
+    let mut sl = ScanlineU8::new();
 
     match style {
         SvgStyle::Fill(fs) => {
-            pixmap.fill_path(
-                &path,
-                &paint,
-                match fs.fill_rule {
-                    SvgFillRule::Winding => SkFillRule::Winding,
-                    SvgFillRule::EvenOdd => SkFillRule::EvenOdd,
-                },
-                transform,
-                clip_mask,
-            );
+            ras.filling_rule(match fs.fill_rule {
+                SvgFillRule::Winding => FillingRule::NonZero,
+                SvgFillRule::EvenOdd => FillingRule::EvenOdd,
+            });
+            if transform.is_identity(0.0001) {
+                ras.add_path(&mut agg_path, 0);
+            } else {
+                let mut transformed = ConvTransform::new(&mut agg_path, transform);
+                ras.add_path(&mut transformed, 0);
+            }
+            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
         }
         SvgStyle::Stroke(ss) => {
-            let stroke = SkStroke {
-                width: ss.line_width,
-                miter_limit: ss.miter_limit,
-                line_cap: match ss.start_cap {
-                    // TODO: end_cap?
-                    SvgLineCap::Butt => SkLineCap::Butt,
-                    SvgLineCap::Square => SkLineCap::Square,
-                    SvgLineCap::Round => SkLineCap::Round,
-                },
-                line_join: match ss.line_join {
-                    SvgLineJoin::Miter | SvgLineJoin::MiterClip => SkLineJoin::Miter,
-                    SvgLineJoin::Round => SkLineJoin::Round,
-                    SvgLineJoin::Bevel => SkLineJoin::Bevel,
-                },
-                dash: ss.dash_pattern.as_ref().and_then(|d| {
-                    SkStrokeDash::new(
-                        vec![
-                            d.length_1, d.gap_1, d.length_2, d.gap_2, d.length_3, d.gap_3,
-                        ],
-                        d.offset,
-                    )
-                }),
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, transform, clip_mask);
+            let mut stroke = ConvStroke::new(agg_path);
+            stroke.set_width(ss.line_width as f64);
+            stroke.set_miter_limit(ss.miter_limit as f64);
+            stroke.set_line_cap(match ss.start_cap {
+                SvgLineCap::Butt => LineCap::Butt,
+                SvgLineCap::Square => LineCap::Square,
+                SvgLineCap::Round => LineCap::Round,
+            });
+            stroke.set_line_join(match ss.line_join {
+                SvgLineJoin::Miter | SvgLineJoin::MiterClip => LineJoin::Miter,
+                SvgLineJoin::Round => LineJoin::Round,
+                SvgLineJoin::Bevel => LineJoin::Bevel,
+            });
+            if transform.is_identity(0.0001) {
+                ras.add_path(&mut stroke, 0);
+            } else {
+                let mut transformed = ConvTransform::new(&mut stroke, transform);
+                ras.add_path(&mut transformed, 0);
+            }
+            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
         }
     }
 
-    // RGBA to red channel
-    let red_channel = pixmap
-        .take()
+    // Extract red channel from RGBA buffer
+    let red_channel = buf
         .chunks_exact(4)
         .map(|r| r[0])
         .collect::<Vec<_>>();
@@ -2336,7 +2382,6 @@ pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
 #[cfg(feature = "svg")]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
-    use tiny_skia::Pixmap;
 
     let root = s.tree.root();
     let (target_width, target_height) = svgrenderoptions_get_width_height_node(&options, &root)?;
@@ -2345,30 +2390,180 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         return None;
     }
 
-    let mut pixmap = Pixmap::new(target_width, target_height)?;
+    // Walk the usvg tree and render paths using agg-rust
+    let mut buf = vec![0u8; (target_width as usize) * (target_height as usize) * 4];
 
-    pixmap.fill(
-        options
-            .background_color
-            .into_option()
-            .map(translate_color)
-            .unwrap_or(tiny_skia::Color::TRANSPARENT),
-    );
+    // Fill background
+    if let Some(bg) = options.background_color.into_option() {
+        for chunk in buf.chunks_exact_mut(4) {
+            chunk[0] = bg.r;
+            chunk[1] = bg.g;
+            chunk[2] = bg.b;
+            chunk[3] = bg.a;
+        }
+    }
 
-    let _ = resvg::render(
-        &s.tree,
-        translate_transform(options.transform),
-        &mut pixmap.as_mut(),
-    );
+    // Render the usvg tree using agg-rust
+    render_usvg_tree_to_buffer(&s.tree, &mut buf, target_width, target_height, options.transform);
 
     Some(RawImage {
         tag: Vec::new().into(),
-        pixels: RawImageData::U8(pixmap.take().into()),
+        pixels: RawImageData::U8(buf.into()),
         width: target_width as usize,
         height: target_height as usize,
         premultiplied_alpha: true,
         data_format: RawImageFormat::RGBA8,
     })
+}
+
+/// Render a usvg tree into an RGBA buffer using agg-rust.
+#[cfg(feature = "svg")]
+fn render_usvg_tree_to_buffer(
+    tree: &usvg::Tree,
+    buf: &mut [u8],
+    width: u32,
+    height: u32,
+    transform: SvgRenderTransform,
+) {
+    use agg_rust::{
+        basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
+        path_storage::PathStorage,
+        color::Rgba8,
+        conv_stroke::ConvStroke,
+        conv_transform::ConvTransform,
+        math_stroke::{LineCap, LineJoin},
+        pixfmt_rgba::{PixfmtRgba32, PixelFormat},
+        rasterizer_scanline_aa::RasterizerScanlineAa,
+        renderer_base::RendererBase,
+        renderer_scanline::render_scanlines_aa_solid,
+        rendering_buffer::RowAccessor,
+        scanline_u::ScanlineU8,
+        trans_affine::TransAffine,
+    };
+
+    let root_transform = TransAffine::new_custom(
+        transform.sx as f64,
+        transform.ky as f64,
+        transform.kx as f64,
+        transform.sy as f64,
+        transform.tx as f64,
+        transform.ty as f64,
+    );
+
+    // Walk groups recursively
+    fn render_group(
+        group: &usvg::Group,
+        buf: &mut [u8],
+        width: u32,
+        height: u32,
+        parent_transform: &TransAffine,
+    ) {
+        let gt = group.transform();
+        let group_transform = {
+            let mut t = TransAffine::new_custom(
+                gt.sx as f64, gt.ky as f64, gt.kx as f64,
+                gt.sy as f64, gt.tx as f64, gt.ty as f64,
+            );
+            t.premultiply(parent_transform);
+            t
+        };
+
+        for child in group.children() {
+            match child {
+                usvg::Node::Group(ref g) => {
+                    render_group(g, buf, width, height, &group_transform);
+                }
+                usvg::Node::Path(ref p) => {
+                    // Convert usvg path to agg PathStorage
+                    let mut path = PathStorage::new();
+                    for seg in p.data().segments() {
+                        match seg {
+                            usvg::tiny_skia_path::PathSegment::MoveTo(pt) => {
+                                path.move_to(pt.x as f64, pt.y as f64);
+                            }
+                            usvg::tiny_skia_path::PathSegment::LineTo(pt) => {
+                                path.line_to(pt.x as f64, pt.y as f64);
+                            }
+                            usvg::tiny_skia_path::PathSegment::QuadTo(p1, p2) => {
+                                path.curve3(p1.x as f64, p1.y as f64, p2.x as f64, p2.y as f64);
+                            }
+                            usvg::tiny_skia_path::PathSegment::CubicTo(p1, p2, p3) => {
+                                path.curve4(
+                                    p1.x as f64, p1.y as f64,
+                                    p2.x as f64, p2.y as f64,
+                                    p3.x as f64, p3.y as f64,
+                                );
+                            }
+                            usvg::tiny_skia_path::PathSegment::Close => {
+                                path.close_polygon(PATH_FLAGS_NONE);
+                            }
+                        }
+                    }
+
+                    // Apply fill
+                    if let Some(ref fill) = p.fill() {
+                        if let usvg::Paint::Color(c) = fill.paint() {
+                            let color = Rgba8::new(c.red as u32, c.green as u32, c.blue as u32,
+                                ((fill.opacity().get() * 255.0) as u32).min(255));
+                            let rule = match fill.rule() {
+                                usvg::FillRule::NonZero => FillingRule::NonZero,
+                                usvg::FillRule::EvenOdd => FillingRule::EvenOdd,
+                            };
+                            let stride = (width * 4) as i32;
+                            let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), width, height, stride) };
+                            let mut pf = PixfmtRgba32::new(&mut ra);
+                            let mut rb = RendererBase::new(pf);
+                            let mut ras = RasterizerScanlineAa::new();
+                            ras.filling_rule(rule);
+                            let mut transformed = ConvTransform::new(&mut path, group_transform.clone());
+                            ras.add_path(&mut transformed, 0);
+                            let mut sl = ScanlineU8::new();
+                            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &color);
+                        }
+                    }
+
+                    // Apply stroke
+                    if let Some(ref stroke) = p.stroke() {
+                        if let usvg::Paint::Color(c) = stroke.paint() {
+                            let color = Rgba8::new(c.red as u32, c.green as u32, c.blue as u32,
+                                ((stroke.opacity().get() * 255.0) as u32).min(255));
+                            let mut conv_stroke = ConvStroke::new(path.clone());
+                            conv_stroke.set_width(stroke.width().get() as f64);
+                            conv_stroke.set_line_cap(match stroke.linecap() {
+                                usvg::LineCap::Butt => LineCap::Butt,
+                                usvg::LineCap::Round => LineCap::Round,
+                                usvg::LineCap::Square => LineCap::Square,
+                            });
+                            conv_stroke.set_line_join(match stroke.linejoin() {
+                                usvg::LineJoin::Miter | usvg::LineJoin::MiterClip => LineJoin::Miter,
+                                usvg::LineJoin::Round => LineJoin::Round,
+                                usvg::LineJoin::Bevel => LineJoin::Bevel,
+                            });
+                            conv_stroke.set_miter_limit(stroke.miterlimit().get() as f64);
+
+                            let stride = (width * 4) as i32;
+                            let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), width, height, stride) };
+                            let mut pf = PixfmtRgba32::new(&mut ra);
+                            let mut rb = RendererBase::new(pf);
+                            let mut ras = RasterizerScanlineAa::new();
+                            let mut transformed = ConvTransform::new(&mut conv_stroke, group_transform.clone());
+                            ras.add_path(&mut transformed, 0);
+                            let mut sl = ScanlineU8::new();
+                            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &color);
+                        }
+                    }
+                }
+                usvg::Node::Image(_) => {
+                    // TODO: handle embedded raster images in SVG
+                }
+                usvg::Node::Text(_) => {
+                    // usvg converts text to paths, so this shouldn't normally be reached
+                }
+            }
+        }
+    }
+
+    render_group(tree.root(), buf, width, height, &root_transform);
 }
 
 #[cfg(not(feature = "svg"))]
@@ -2413,15 +2608,15 @@ fn svgrenderoptions_get_width_height_node(
 }
 
 #[cfg(feature = "svg")]
-fn translate_transform(e: SvgRenderTransform) -> tiny_skia::Transform {
-    tiny_skia::Transform {
-        sx: e.sx,
-        kx: e.kx,
-        ky: e.ky,
-        sy: e.sy,
-        tx: e.tx,
-        ty: e.ty,
-    }
+fn translate_transform(e: SvgRenderTransform) -> agg_rust::trans_affine::TransAffine {
+    agg_rust::trans_affine::TransAffine::new_custom(
+        e.sx as f64,
+        e.ky as f64,
+        e.kx as f64,
+        e.sy as f64,
+        e.tx as f64,
+        e.ty as f64,
+    )
 }
 
 #[cfg(feature = "svg")]
@@ -2452,8 +2647,8 @@ fn translate_to_usvg_textrendering(e: TextRendering) -> usvg::TextRendering {
 
 #[cfg(feature = "svg")]
 #[allow(dead_code)]
-fn translate_color(i: ColorU) -> tiny_skia::Color {
-    tiny_skia::Color::from_rgba8(i.r, i.g, i.b, i.a)
+fn translate_color(i: ColorU) -> agg_rust::color::Rgba8 {
+    agg_rust::color::Rgba8::new(i.r as u32, i.g as u32, i.b as u32, i.a as u32)
 }
 
 #[cfg(feature = "svg")]

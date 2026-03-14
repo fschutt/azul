@@ -1,6 +1,6 @@
 //! CPU rendering for solver3 DisplayList
 //!
-//! This module renders a flat DisplayList (from solver3) to a tiny-skia Pixmap.
+//! This module renders a flat DisplayList (from solver3) to an AzulPixmap using agg-rust.
 //! Unlike the old hierarchical CachedDisplayList, the new DisplayList is a simple
 //! flat vector of rendering commands that can be executed sequentially.
 
@@ -14,7 +14,22 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::{ColorU, ColorOrSystem, FontRef};
-use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
+
+use agg_rust::{
+    basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
+    path_storage::PathStorage,
+    color::Rgba8,
+    conv_stroke::ConvStroke,
+    conv_transform::ConvTransform,
+    pixfmt_rgba::{PixfmtRgba32, PixelFormat},
+    rasterizer_scanline_aa::RasterizerScanlineAa,
+    renderer_base::RendererBase,
+    renderer_scanline::render_scanlines_aa_solid,
+    rendering_buffer::RowAccessor,
+    rounded_rect::RoundedRect,
+    scanline_u::ScanlineU8,
+    trans_affine::TransAffine,
+};
 
 use crate::{
     font::parsed::ParsedFont,
@@ -22,6 +37,139 @@ use crate::{
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem},
     text3::cache::{FontHash, FontManager},
 };
+
+// ============================================================================
+// AzulPixmap — replacement for tiny_skia::Pixmap
+// ============================================================================
+
+/// A simple RGBA pixel buffer. Replaces tiny_skia::Pixmap.
+pub struct AzulPixmap {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl AzulPixmap {
+    /// Create a new pixmap filled with opaque white.
+    pub fn new(width: u32, height: u32) -> Option<Self> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let len = (width as usize) * (height as usize) * 4;
+        let mut data = vec![255u8; len]; // opaque white
+        Some(Self { data, width, height })
+    }
+
+    /// Fill the entire pixmap with a single color.
+    pub fn fill(&mut self, r: u8, g: u8, b: u8, a: u8) {
+        for chunk in self.data.chunks_exact_mut(4) {
+            chunk[0] = r;
+            chunk[1] = g;
+            chunk[2] = b;
+            chunk[3] = a;
+        }
+    }
+
+    /// Raw RGBA pixel data.
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Mutable raw RGBA pixel data.
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+
+    /// Width in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Height in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Encode to PNG using the `png` crate.
+    pub fn encode_png(&self) -> Result<Vec<u8>, String> {
+        let mut buf = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut buf, self.width, self.height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header()
+                .map_err(|e| format!("PNG header error: {}", e))?;
+            writer.write_image_data(&self.data)
+                .map_err(|e| format!("PNG write error: {}", e))?;
+        }
+        Ok(buf)
+    }
+}
+
+// ============================================================================
+// Simple rect type (replaces tiny_skia::Rect)
+// ============================================================================
+
+#[derive(Debug, Clone, Copy)]
+struct AzRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl AzRect {
+    fn from_xywh(x: f32, y: f32, w: f32, h: f32) -> Option<Self> {
+        if w <= 0.0 || h <= 0.0 || !x.is_finite() || !y.is_finite() || !w.is_finite() || !h.is_finite() {
+            return None;
+        }
+        Some(Self { x, y, width: w, height: h })
+    }
+}
+
+// ============================================================================
+// AGG helper: fill a PathStorage with a solid color into an AzulPixmap
+// ============================================================================
+
+fn agg_fill_path(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    color: &Rgba8,
+    rule: FillingRule,
+) {
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe {
+        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
+    };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(rule);
+    ras.add_path(path, 0);
+    let mut sl = ScanlineU8::new();
+    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
+}
+
+fn agg_fill_transformed_path(
+    pixmap: &mut AzulPixmap,
+    path: &mut PathStorage,
+    color: &Rgba8,
+    rule: FillingRule,
+    transform: &TransAffine,
+) {
+    if transform.is_identity(0.0001) {
+        agg_fill_path(pixmap, path, color, rule);
+    } else {
+        let mut transformed = ConvTransform::new(path, transform.clone());
+        agg_fill_path(pixmap, &mut transformed, color, rule);
+    }
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
 
 pub struct RenderOptions {
     pub width: f32,
@@ -34,20 +182,18 @@ pub fn render(
     res: &RendererResources,
     opts: RenderOptions,
     glyph_cache: &mut GlyphCache,
-) -> Result<Pixmap, String> {
+) -> Result<AzulPixmap, String> {
     let RenderOptions {
         width,
         height,
         dpi_factor,
     } = opts;
 
-    // Create a pixmap with a white background
-    let mut pixmap = Pixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
+    let mut pixmap = AzulPixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
         .ok_or_else(|| "cannot create pixmap".to_string())?;
 
-    pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
+    pixmap.fill(255, 255, 255, 255);
 
-    // Render the display list to the pixmap
     render_display_list(dl, &mut pixmap, dpi_factor, res, None, glyph_cache)?;
 
     Ok(pixmap)
@@ -61,20 +207,18 @@ pub fn render_with_font_manager(
     font_manager: &FontManager<FontRef>,
     opts: RenderOptions,
     glyph_cache: &mut GlyphCache,
-) -> Result<Pixmap, String> {
+) -> Result<AzulPixmap, String> {
     let RenderOptions {
         width,
         height,
         dpi_factor,
     } = opts;
 
-    // Create a pixmap with a white background
-    let mut pixmap = Pixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
+    let mut pixmap = AzulPixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
         .ok_or_else(|| "cannot create pixmap".to_string())?;
 
-    pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
+    pixmap.fill(255, 255, 255, 255);
 
-    // Render the display list to the pixmap using FontManager for fonts
     render_display_list(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache)?;
 
     Ok(pixmap)
@@ -82,16 +226,14 @@ pub fn render_with_font_manager(
 
 fn render_display_list(
     display_list: &DisplayList,
-    pixmap: &mut Pixmap,
+    pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
-    // The display list is already sorted in paint order, so we just render sequentially
-    let mut transform_stack = vec![Transform::identity()];
-    let mut clip_stack: Vec<Option<Rect>> = vec![None];
-    let mut mask_stack: Vec<Option<tiny_skia::Mask>> = Vec::new();
+    let mut transform_stack = vec![TransAffine::new()]; // identity
+    let mut clip_stack: Vec<Option<AzRect>> = vec![None];
 
     for item in &display_list.items {
         match item {
@@ -100,15 +242,13 @@ fn render_display_list(
                 color,
                 border_radius,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     border_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -117,28 +257,24 @@ fn render_display_list(
                 color,
                 border_radius,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     border_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
             DisplayListItem::CursorRect { bounds, color } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     &BorderRadius::default(),
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -149,7 +285,6 @@ fn render_display_list(
                 styles,
                 border_radius,
             } => {
-                // Simplified: Use top border as representative for CPU rendering
                 use azul_css::{css::CssPropertyValue, props::basic::pixel::DEFAULT_FONT_SIZE};
 
                 let width = widths
@@ -169,7 +304,6 @@ fn render_display_list(
                         a: 255,
                     });
 
-                // Convert StyleBorderRadius to BorderRadius for rendering
                 let simple_radius = BorderRadius {
                     top_left: border_radius
                         .top_left
@@ -185,16 +319,14 @@ fn render_display_list(
                         .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                 };
 
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_border(
                     pixmap,
                     bounds.inner(),
                     color,
                     width,
                     &simple_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -203,16 +335,13 @@ fn render_display_list(
                 color,
                 thickness,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
-                // Render underline as a simple filled rectangle
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     &BorderRadius::default(),
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -221,16 +350,13 @@ fn render_display_list(
                 color,
                 thickness,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
-                // Render strikethrough as a simple filled rectangle
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     &BorderRadius::default(),
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -239,16 +365,13 @@ fn render_display_list(
                 color,
                 thickness,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
-                // Render overline as a simple filled rectangle
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     &BorderRadius::default(),
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -259,8 +382,7 @@ fn render_display_list(
                 color,
                 clip_rect,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_text(
                     glyphs,
                     *font_hash,
@@ -268,8 +390,7 @@ fn render_display_list(
                     *color,
                     pixmap,
                     clip_rect.inner(),
-                    *transform,
-                    *clip,
+                    clip,
                     renderer_resources,
                     font_manager,
                     dpi_factor,
@@ -284,17 +405,14 @@ fn render_display_list(
                 color,
             } => {
                 // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
-                // The actual glyphs are rendered via Text items
             }
             DisplayListItem::Image { bounds, image, .. } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_image(
                     pixmap,
                     bounds.inner(),
                     image,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -302,24 +420,21 @@ fn render_display_list(
                 bounds,
                 color,
                 orientation,
-                opacity_key: _, // Ignored in CPU rendering - use color.a directly
-                hit_id: _,      // Ignored in CPU rendering - hit testing is done in platform layer
+                opacity_key: _,
+                hit_id: _,
             } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     *color,
                     &BorderRadius::default(),
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
             DisplayListItem::ScrollBarStyled { info } => {
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
 
                 // Render track
                 if info.track_color.a > 0 {
@@ -328,8 +443,7 @@ fn render_display_list(
                         info.track_bounds.inner(),
                         info.track_color,
                         &BorderRadius::default(),
-                        *transform,
-                        *clip,
+                        clip,
                         dpi_factor,
                     )?;
                 }
@@ -342,8 +456,7 @@ fn render_display_list(
                             btn_bounds.inner(),
                             info.button_color,
                             &BorderRadius::default(),
-                            *transform,
-                            *clip,
+                            clip,
                             dpi_factor,
                         )?;
                     }
@@ -357,8 +470,7 @@ fn render_display_list(
                             btn_bounds.inner(),
                             info.button_color,
                             &BorderRadius::default(),
-                            *transform,
-                            *clip,
+                            clip,
                             dpi_factor,
                         )?;
                     }
@@ -371,8 +483,7 @@ fn render_display_list(
                         info.thumb_bounds.inner(),
                         info.thumb_color,
                         &info.thumb_border_radius,
-                        *transform,
-                        *clip,
+                        clip,
                         dpi_factor,
                     )?;
                 }
@@ -381,8 +492,7 @@ fn render_display_list(
                 bounds,
                 border_radius,
             } => {
-                let transform = *transform_stack.last().unwrap();
-                let new_clip = logical_rect_to_tiny_skia_rect(bounds.inner(), transform, dpi_factor);
+                let new_clip = logical_rect_to_az_rect(bounds.inner(), dpi_factor);
                 clip_stack.push(new_clip);
             }
             DisplayListItem::PopClip => {
@@ -396,12 +506,8 @@ fn render_display_list(
                 content_size,
                 scroll_id,
             } => {
-                // For CPU rendering without scroll interaction, we just treat this as a clip
-                let transform = *transform_stack.last().unwrap();
-                let new_clip = logical_rect_to_tiny_skia_rect(clip_bounds.inner(), transform, dpi_factor);
+                let new_clip = logical_rect_to_az_rect(clip_bounds.inner(), dpi_factor);
                 clip_stack.push(new_clip);
-                // Note: We're not handling scroll offset here. In a full implementation,
-                // we'd look up the scroll state for scroll_id and apply it as a transform.
             }
             DisplayListItem::PopScrollFrame => {
                 clip_stack.pop();
@@ -413,24 +519,15 @@ fn render_display_list(
                 // Hit test areas don't render anything
             }
             DisplayListItem::PushStackingContext { z_index, bounds } => {
-                // For CPU rendering, we don't need to do anything special for stacking contexts
-                // They're already handled by the display list generation order
-                // We could push a transform if we wanted to implement transform support
+                // For CPU rendering, stacking contexts are already handled by display list order
             }
-            DisplayListItem::PopStackingContext => {
-                // For CPU rendering, no action needed
-            }
+            DisplayListItem::PopStackingContext => {}
             DisplayListItem::VirtualView {
                 child_dom_id,
                 bounds,
                 clip_rect,
             } => {
-                // TODO: Implement VirtualView rendering
-                // This would require looking up the child display list by child_dom_id
-                // and recursively rendering it within the bounds/clip_rect.
-                // For now, just render a placeholder rectangle to show where it would be
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
@@ -439,17 +536,13 @@ fn render_display_list(
                         g: 200,
                         b: 255,
                         a: 128,
-                    }, // Light blue placeholder
+                    },
                     &BorderRadius::default(),
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
-            DisplayListItem::VirtualViewPlaceholder { .. } => {
-                // Placeholder should have been replaced by VirtualView in window.rs.
-                // Nothing to render here.
-            }
+            DisplayListItem::VirtualViewPlaceholder { .. } => {}
 
             // Gradient rendering - simplified for CPU render
             DisplayListItem::LinearGradient {
@@ -457,8 +550,7 @@ fn render_display_list(
                 gradient,
                 border_radius,
             } => {
-                // TODO: Implement proper gradient rendering
-                // For now, render a placeholder with the first stop color
+                // TODO: Implement proper gradient rendering with agg SpanGradient
                 let default_color = ColorU {
                     r: 128,
                     g: 128,
@@ -474,15 +566,13 @@ fn render_display_list(
                         ColorOrSystem::System(_) => default_color,
                     })
                     .unwrap_or(default_color);
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     color,
                     border_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -507,15 +597,13 @@ fn render_display_list(
                         ColorOrSystem::System(_) => default_color,
                     })
                     .unwrap_or(default_color);
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     color,
                     border_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -540,15 +628,13 @@ fn render_display_list(
                         ColorOrSystem::System(_) => default_color,
                     })
                     .unwrap_or(default_color);
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     bounds.inner(),
                     color,
                     border_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -559,8 +645,7 @@ fn render_display_list(
                 shadow,
                 border_radius,
             } => {
-                // TODO: Implement proper box shadow rendering
-                // For now, render a slightly offset rectangle with the shadow color
+                // TODO: Implement proper box shadow rendering with agg stack_blur
                 let offset_bounds = LogicalRect {
                     origin: LogicalPosition {
                         x: bounds.0.origin.x + shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
@@ -568,39 +653,27 @@ fn render_display_list(
                     },
                     size: bounds.0.size,
                 };
-                let transform = transform_stack.last().unwrap();
-                let clip = clip_stack.last().unwrap();
+                let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
                     &offset_bounds,
                     shadow.color,
                     border_radius,
-                    *transform,
-                    *clip,
+                    clip,
                     dpi_factor,
                 )?;
             }
 
             // Filter effects - not supported in CPU render
-            DisplayListItem::PushFilter { .. } => {
-                // TODO: Implement filter effects for CPU rendering
-            }
+            DisplayListItem::PushFilter { .. } => {}
             DisplayListItem::PopFilter => {}
-            DisplayListItem::PushBackdropFilter { .. } => {
-                // Backdrop filter requires compositing - not supported in CPU render
-            }
+            DisplayListItem::PushBackdropFilter { .. } => {}
             DisplayListItem::PopBackdropFilter => {}
-            DisplayListItem::PushOpacity { bounds, opacity } => {
-                // TODO: Implement opacity layers for CPU rendering
-            }
+            DisplayListItem::PushOpacity { bounds, opacity } => {}
             DisplayListItem::PopOpacity => {}
-            DisplayListItem::PushReferenceFrame { .. } => {
-                // TODO: Apply transform for CPU rendering
-            }
+            DisplayListItem::PushReferenceFrame { .. } => {}
             DisplayListItem::PopReferenceFrame => {}
-            DisplayListItem::PushTextShadow { .. } => {
-                // TODO: Text shadow not yet implemented in CPU renderer
-            }
+            DisplayListItem::PushTextShadow { .. } => {}
             DisplayListItem::PopTextShadow => {}
 
             DisplayListItem::PushImageMaskClip {
@@ -608,14 +681,9 @@ fn render_display_list(
                 mask_image,
                 mask_rect,
             } => {
-                // For CPU rendering, we extract the mask image data and create a tiny_skia::Mask.
-                // The mask is pushed onto a mask stack and applied to all subsequent drawing ops.
-                let mask = create_mask_from_image(mask_image, mask_rect.inner(), pixmap.width(), pixmap.height(), dpi_factor);
-                mask_stack.push(mask);
+                // TODO: implement image mask clipping with agg AlphaMaskU8
             }
-            DisplayListItem::PopImageMaskClip => {
-                mask_stack.pop();
-            }
+            DisplayListItem::PopImageMaskClip => {}
         }
     }
 
@@ -623,47 +691,31 @@ fn render_display_list(
 }
 
 fn render_rect(
-    pixmap: &mut Pixmap,
+    pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     color: ColorU,
     border_radius: &BorderRadius,
-    transform: Transform,
-    clip: Option<Rect>,
+    _clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     if color.a == 0 {
-        return Ok(()); // Fully transparent, skip
+        return Ok(());
     }
 
-    let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
-    let rect = match rect {
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
         Some(r) => r,
-        None => return Ok(()), // Invalid rect
-    };
-
-    let mut paint = Paint::default();
-    paint.set_color(Color::from_rgba8(color.r, color.g, color.b, color.a));
-    paint.anti_alias = true;
-
-    // Build path (with border radius if needed)
-    let path = if border_radius.is_zero() {
-        build_rect_path(rect, border_radius, dpi_factor)
-    } else {
-        build_rounded_rect_path(rect, border_radius, dpi_factor)
-    };
-
-    let path = match path {
-        Some(p) => p,
         None => return Ok(()),
     };
 
-    // Apply clipping if needed
-    if let Some(clip_rect) = clip {
-        // tiny-skia doesn't have native clipping, so we'd need to implement it manually
-        // For now, we'll skip clipping support
-    }
+    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
 
-    pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+    if border_radius.is_zero() {
+        let mut path = build_rect_path(&rect);
+        agg_fill_path(pixmap, &mut path, &agg_color, FillingRule::NonZero);
+    } else {
+        let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
+        agg_fill_path(pixmap, &mut path, &agg_color, FillingRule::NonZero);
+    }
 
     Ok(())
 }
@@ -673,10 +725,9 @@ fn render_text(
     font_hash: FontHash,
     font_size_px: f32,
     color: ColorU,
-    pixmap: &mut Pixmap,
+    pixmap: &mut AzulPixmap,
     clip_rect: &LogicalRect,
-    transform: Transform,
-    _clip: Option<Rect>,
+    _clip: Option<AzRect>,
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     dpi_factor: f32,
@@ -686,12 +737,9 @@ fn render_text(
         return Ok(());
     }
 
-    let mut paint = Paint::default();
-    paint.set_color_rgba8(color.r, color.g, color.b, color.a);
-    paint.anti_alias = true; // grayscale AA for sub-pixel coverage (matches Chrome)
+    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
 
-    // Try to get the parsed font - first from FontManager (for reftests), then from
-    // RendererResources
+    // Try to get the parsed font
     let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
         match fm.get_font_by_hash(font_hash.font_hash) {
             Some(font_ref) => unsafe { &*(font_ref.get_parsed() as *const ParsedFont) },
@@ -759,21 +807,21 @@ fn render_text(
 
         let glyph_transform = if cached.is_hinted {
             // Hinted path is in pixel coordinates — snap to pixel grid
-            // to preserve grid-fitted stem alignment from bytecode hinting.
-            // Fractional positions would shift hinted stems off-grid,
-            // causing visible 1px artifacts on serifs and stem edges.
-            Transform::from_translate(glyph_x.round(), glyph_baseline_y.round())
+            TransAffine::new_translation(glyph_x.round() as f64, glyph_baseline_y.round() as f64)
         } else {
             // Unhinted path is in font units — apply scale + translate
-            Transform::from_scale(scale, scale).post_translate(glyph_x, glyph_baseline_y)
+            let mut t = TransAffine::new_scaling_uniform(scale as f64);
+            t.multiply(&TransAffine::new_translation(glyph_x as f64, glyph_baseline_y as f64));
+            t
         };
 
-        pixmap.fill_path(
-            cached.path,
-            &paint,
-            tiny_skia::FillRule::Winding,
-            glyph_transform,
-            None,
+        let mut path_clone = cached.path.clone();
+        agg_fill_transformed_path(
+            pixmap,
+            &mut path_clone,
+            &agg_color,
+            FillingRule::NonZero,
+            &glyph_transform,
         );
     }
 
@@ -781,161 +829,146 @@ fn render_text(
 }
 
 fn render_border(
-    pixmap: &mut Pixmap,
+    pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     color: ColorU,
     width: f32,
     border_radius: &BorderRadius,
-    transform: Transform,
-    clip: Option<Rect>,
+    _clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     if color.a == 0 || width <= 0.0 {
         return Ok(());
     }
 
-    let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
-    let rect = match rect {
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
         Some(r) => r,
         None => return Ok(()),
     };
 
     let scaled_width = width * dpi_factor;
-    let mut pb = PathBuilder::new();
+    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+
+    let mut path = PathStorage::new();
 
     // 1. Add Outer Path
-    let x = rect.x();
-    let y = rect.y();
-    let w = rect.width();
-    let h = rect.height();
+    let x = rect.x as f64;
+    let y = rect.y as f64;
+    let w = rect.width as f64;
+    let h = rect.height as f64;
 
     if border_radius.is_zero() {
-        pb.move_to(x, y);
-        pb.line_to(x + w, y);
-        pb.line_to(x + w, y + h);
-        pb.line_to(x, y + h);
-        pb.close();
+        path.move_to(x, y);
+        path.line_to(x + w, y);
+        path.line_to(x + w, y + h);
+        path.line_to(x, y + h);
+        path.close_polygon(PATH_FLAGS_NONE);
     } else {
-        let tl = border_radius.top_left * dpi_factor;
-        let tr = border_radius.top_right * dpi_factor;
-        let br = border_radius.bottom_right * dpi_factor;
-        let bl = border_radius.bottom_left * dpi_factor;
+        let tl = (border_radius.top_left * dpi_factor) as f64;
+        let tr = (border_radius.top_right * dpi_factor) as f64;
+        let br = (border_radius.bottom_right * dpi_factor) as f64;
+        let bl = (border_radius.bottom_left * dpi_factor) as f64;
 
-        pb.move_to(x + tl, y);
-        pb.line_to(x + w - tr, y);
+        path.move_to(x + tl, y);
+        path.line_to(x + w - tr, y);
         if tr > 0.0 {
-            pb.quad_to(x + w, y, x + w, y + tr);
+            path.curve3(x + w, y, x + w, y + tr);
         }
-        pb.line_to(x + w, y + h - br);
+        path.line_to(x + w, y + h - br);
         if br > 0.0 {
-            pb.quad_to(x + w, y + h, x + w - br, y + h);
+            path.curve3(x + w, y + h, x + w - br, y + h);
         }
-        pb.line_to(x + bl, y + h);
+        path.line_to(x + bl, y + h);
         if bl > 0.0 {
-            pb.quad_to(x, y + h, x, y + h - bl);
+            path.curve3(x, y + h, x, y + h - bl);
         }
-        pb.line_to(x, y + tl);
+        path.line_to(x, y + tl);
         if tl > 0.0 {
-            pb.quad_to(x, y, x + tl, y);
+            path.curve3(x, y, x + tl, y);
         }
-        pb.close();
+        path.close_polygon(PATH_FLAGS_NONE);
     }
 
-    // 2. Add Inner Path (wound in same direction - EvenOdd fill will create the hole)
-    let inner_rect = Rect::from_xywh(
-        rect.x() + scaled_width,
-        rect.y() + scaled_width,
-        rect.width() - 2.0 * scaled_width,
-        rect.height() - 2.0 * scaled_width,
+    // 2. Add Inner Path (same winding — EvenOdd fill creates the hole)
+    let sw = scaled_width as f64;
+    let ir = AzRect::from_xywh(
+        rect.x + scaled_width,
+        rect.y + scaled_width,
+        rect.width - 2.0 * scaled_width,
+        rect.height - 2.0 * scaled_width,
     );
 
-    if let Some(ir) = inner_rect {
-        let ix = ir.x();
-        let iy = ir.y();
-        let iw = ir.width();
-        let ih = ir.height();
+    if let Some(ir) = ir {
+        let ix = ir.x as f64;
+        let iy = ir.y as f64;
+        let iw = ir.width as f64;
+        let ih = ir.height as f64;
 
         if border_radius.is_zero() {
-            pb.move_to(ix, iy);
-            pb.line_to(ix + iw, iy);
-            pb.line_to(ix + iw, iy + ih);
-            pb.line_to(ix, iy + ih);
-            pb.close();
+            path.move_to(ix, iy);
+            path.line_to(ix + iw, iy);
+            path.line_to(ix + iw, iy + ih);
+            path.line_to(ix, iy + ih);
+            path.close_polygon(PATH_FLAGS_NONE);
         } else {
-            // Inner radius is max(0, outer - width)
-            let tl = (border_radius.top_left * dpi_factor - scaled_width).max(0.0);
-            let tr = (border_radius.top_right * dpi_factor - scaled_width).max(0.0);
-            let br = (border_radius.bottom_right * dpi_factor - scaled_width).max(0.0);
-            let bl = (border_radius.bottom_left * dpi_factor - scaled_width).max(0.0);
+            let tl = ((border_radius.top_left * dpi_factor - scaled_width).max(0.0)) as f64;
+            let tr = ((border_radius.top_right * dpi_factor - scaled_width).max(0.0)) as f64;
+            let br = ((border_radius.bottom_right * dpi_factor - scaled_width).max(0.0)) as f64;
+            let bl = ((border_radius.bottom_left * dpi_factor - scaled_width).max(0.0)) as f64;
 
-            pb.move_to(ix + tl, iy);
-            pb.line_to(ix + iw - tr, iy);
+            path.move_to(ix + tl, iy);
+            path.line_to(ix + iw - tr, iy);
             if tr > 0.0 {
-                pb.quad_to(ix + iw, iy, ix + iw, iy + tr);
+                path.curve3(ix + iw, iy, ix + iw, iy + tr);
             }
-            pb.line_to(ix + iw, iy + ih - br);
+            path.line_to(ix + iw, iy + ih - br);
             if br > 0.0 {
-                pb.quad_to(ix + iw, iy + ih, ix + iw - br, iy + ih);
+                path.curve3(ix + iw, iy + ih, ix + iw - br, iy + ih);
             }
-            pb.line_to(ix + bl, iy + ih);
+            path.line_to(ix + bl, iy + ih);
             if bl > 0.0 {
-                pb.quad_to(ix, iy + ih, ix, iy + ih - bl);
+                path.curve3(ix, iy + ih, ix, iy + ih - bl);
             }
-            pb.line_to(ix, iy + tl);
+            path.line_to(ix, iy + tl);
             if tl > 0.0 {
-                pb.quad_to(ix, iy, ix + tl, iy);
+                path.curve3(ix, iy, ix + tl, iy);
             }
-            pb.close();
+            path.close_polygon(PATH_FLAGS_NONE);
         }
     }
 
-    // 3. Fill with EvenOdd to create the hole (inner path becomes transparent)
-    let mut paint = Paint::default();
-    paint.set_color(Color::from_rgba8(color.r, color.g, color.b, color.a));
-    paint.anti_alias = true;
-
-    if let Some(path) = pb.finish() {
-        pixmap.fill_path(
-            &path,
-            &paint,
-            FillRule::EvenOdd,
-            Transform::identity(),
-            None,
-        );
-    }
+    // 3. Fill with EvenOdd to create the hole
+    agg_fill_path(pixmap, &mut path, &agg_color, FillingRule::EvenOdd);
 
     Ok(())
 }
 
-fn logical_rect_to_tiny_skia_rect(
+fn logical_rect_to_az_rect(
     bounds: &LogicalRect,
-    transform: Transform,
     dpi_factor: f32,
-) -> Option<Rect> {
+) -> Option<AzRect> {
     let x = bounds.origin.x * dpi_factor;
     let y = bounds.origin.y * dpi_factor;
     let width = bounds.size.width * dpi_factor;
     let height = bounds.size.height * dpi_factor;
 
-    Rect::from_xywh(x, y, width, height)
+    AzRect::from_xywh(x, y, width, height)
 }
 
 fn render_image(
-    pixmap: &mut Pixmap,
+    pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     image: &ImageRef,
-    transform: Transform,
-    _clip: Option<Rect>,
+    _clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
-    let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
-    let rect = match rect {
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
         Some(r) => r,
         None => return Ok(()),
     };
 
     let image_data = image.get_data();
-    let decoded = match &*image_data {
+    let (src_rgba, src_w, src_h) = match &*image_data {
         DecodedImage::Raw((descriptor, data)) => {
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;
@@ -945,23 +978,16 @@ fn render_image(
                 _ => return Ok(()),
             };
 
-            // Convert to RGBA premultiplied for tiny_skia
-            let rgba_premul = match descriptor.format {
+            let rgba = match descriptor.format {
                 azul_core::resources::RawImageFormat::BGRA8 => {
-                    // BGRA → RGBA premultiplied
                     let mut out = Vec::with_capacity(bytes.len());
                     for chunk in bytes.chunks_exact(4) {
                         let b = chunk[0]; let g = chunk[1]; let r = chunk[2]; let a = chunk[3];
-                        let af = a as f32 / 255.0;
-                        out.push((r as f32 * af) as u8);
-                        out.push((g as f32 * af) as u8);
-                        out.push((b as f32 * af) as u8);
-                        out.push(a);
+                        out.push(r); out.push(g); out.push(b); out.push(a);
                     }
                     out
                 }
                 azul_core::resources::RawImageFormat::R8 => {
-                    // Grayscale → RGBA premultiplied (white with alpha = pixel value)
                     let mut out = Vec::with_capacity(bytes.len() * 4);
                     for &v in bytes {
                         out.push(v); out.push(v); out.push(v); out.push(v);
@@ -970,174 +996,138 @@ fn render_image(
                 }
                 _ => {
                     // Unsupported format — render gray placeholder
-                    let mut paint = Paint::default();
-                    paint.set_color(Color::from_rgba8(200, 200, 200, 255));
-                    if let Some(path) = build_rect_path(rect, &BorderRadius::default(), dpi_factor) {
-                        pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
-                    }
+                    let gray = Rgba8::new(200, 200, 200, 255);
+                    let mut path = build_rect_path(&rect);
+                    agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
                     return Ok(());
                 }
             };
 
-            match Pixmap::from_vec(rgba_premul, tiny_skia::IntSize::from_wh(w, h).ok_or("invalid image size")?) {
-                Some(pm) => pm,
-                None => return Ok(()),
-            }
+            (rgba, w, h)
         }
         DecodedImage::NullImage { .. } | DecodedImage::Callback(_) => {
-            // Null or unresolved callback — render gray placeholder
-            let mut paint = Paint::default();
-            paint.set_color(Color::from_rgba8(200, 200, 200, 255));
-            if let Some(path) = build_rect_path(rect, &BorderRadius::default(), dpi_factor) {
-                pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
-            }
+            let gray = Rgba8::new(200, 200, 200, 255);
+            let mut path = build_rect_path(&rect);
+            agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return Ok(());
         }
         _ => return Ok(()),
     };
 
-    // Scale the source image to fit the target rect
-    let sx = rect.width() / decoded.width() as f32;
-    let sy = rect.height() / decoded.height() as f32;
-    let blit_transform = Transform::from_scale(sx, sy).post_translate(rect.x(), rect.y());
+    // Simple nearest-neighbor blit with scaling
+    let dst_x = rect.x as i32;
+    let dst_y = rect.y as i32;
+    let dst_w = rect.width as u32;
+    let dst_h = rect.height as u32;
+    let pw = pixmap.width;
+    let ph = pixmap.height;
 
-    let paint = tiny_skia::PixmapPaint {
-        opacity: 1.0,
-        blend_mode: tiny_skia::BlendMode::SourceOver,
-        quality: tiny_skia::FilterQuality::Bilinear,
-    };
+    let sx = src_w as f32 / dst_w.max(1) as f32;
+    let sy = src_h as f32 / dst_h.max(1) as f32;
 
-    pixmap.draw_pixmap(0, 0, decoded.as_ref(), &paint, blit_transform, None);
+    for py in 0..dst_h {
+        for px in 0..dst_w {
+            let tx = dst_x + px as i32;
+            let ty = dst_y + py as i32;
+            if tx < 0 || ty < 0 || tx >= pw as i32 || ty >= ph as i32 {
+                continue;
+            }
+
+            let src_x = ((px as f32 * sx) as u32).min(src_w - 1);
+            let src_y = ((py as f32 * sy) as u32).min(src_h - 1);
+            let si = ((src_y * src_w + src_x) * 4) as usize;
+            let di = ((ty as u32 * pw + tx as u32) * 4) as usize;
+
+            if si + 3 < src_rgba.len() && di + 3 < pixmap.data.len() {
+                let sa = src_rgba[si + 3] as u32;
+                if sa == 255 {
+                    pixmap.data[di]     = src_rgba[si];
+                    pixmap.data[di + 1] = src_rgba[si + 1];
+                    pixmap.data[di + 2] = src_rgba[si + 2];
+                    pixmap.data[di + 3] = 255;
+                } else if sa > 0 {
+                    // Alpha blend: dst = src * sa + dst * (255 - sa)
+                    let da = 255 - sa;
+                    pixmap.data[di]     = ((src_rgba[si] as u32 * sa + pixmap.data[di] as u32 * da) / 255) as u8;
+                    pixmap.data[di + 1] = ((src_rgba[si + 1] as u32 * sa + pixmap.data[di + 1] as u32 * da) / 255) as u8;
+                    pixmap.data[di + 2] = ((src_rgba[si + 2] as u32 * sa + pixmap.data[di + 2] as u32 * da) / 255) as u8;
+                    pixmap.data[di + 3] = ((sa + pixmap.data[di + 3] as u32 * da / 255).min(255)) as u8;
+                }
+            }
+        }
+    }
 
     Ok(())
 }
 
-/// Creates a tiny_skia::Mask from an R8 image for CPU clip masking.
-fn create_mask_from_image(
-    image: &ImageRef,
-    mask_rect: &LogicalRect,
-    target_width: u32,
-    target_height: u32,
-    dpi_factor: f32,
-) -> Option<tiny_skia::Mask> {
-    let image_data = image.get_data();
-    let (descriptor, data) = match &*image_data {
-        DecodedImage::Raw((desc, data)) => (desc, data),
-        _ => return None,
-    };
-
-    let mask_w = descriptor.width as u32;
-    let mask_h = descriptor.height as u32;
-    if mask_w == 0 || mask_h == 0 { return None; }
-
-    let mut mask = tiny_skia::Mask::new(target_width, target_height)?;
-    let mask_data = mask.data_mut();
-
-    let bytes = match data {
-        azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
-        _ => return None,
-    };
-
-    // Map mask image pixels into the target pixmap coordinate space
-    let dst_x = (mask_rect.origin.x * dpi_factor) as i32;
-    let dst_y = (mask_rect.origin.y * dpi_factor) as i32;
-    let dst_w = (mask_rect.size.width * dpi_factor) as u32;
-    let dst_h = (mask_rect.size.height * dpi_factor) as u32;
-
-    let sx = mask_w as f32 / dst_w.max(1) as f32;
-    let sy = mask_h as f32 / dst_h.max(1) as f32;
-
-    for py in 0..dst_h {
-        for px in 0..dst_w {
-            let tx = (dst_x + px as i32) as u32;
-            let ty = (dst_y + py as i32) as u32;
-            if tx >= target_width || ty >= target_height { continue; }
-
-            let src_x = ((px as f32 * sx) as u32).min(mask_w - 1);
-            let src_y = ((py as f32 * sy) as u32).min(mask_h - 1);
-
-            let alpha = match descriptor.format {
-                azul_core::resources::RawImageFormat::R8 => {
-                    bytes[(src_y * mask_w + src_x) as usize]
-                }
-                azul_core::resources::RawImageFormat::BGRA8 => {
-                    // Use the alpha channel
-                    bytes[((src_y * mask_w + src_x) * 4 + 3) as usize]
-                }
-                _ => 255,
-            };
-
-            mask_data[(ty * target_width + tx) as usize] = alpha;
-        }
-    }
-
-    Some(mask)
-}
-
-fn build_rect_path(rect: Rect, _border_radius: &BorderRadius, _dpi_factor: f32) -> Option<Path> {
-    let mut pb = PathBuilder::new();
-    pb.move_to(rect.x(), rect.y());
-    pb.line_to(rect.x() + rect.width(), rect.y());
-    pb.line_to(rect.x() + rect.width(), rect.y() + rect.height());
-    pb.line_to(rect.x(), rect.y() + rect.height());
-    pb.close();
-    pb.finish()
+fn build_rect_path(rect: &AzRect) -> PathStorage {
+    let mut path = PathStorage::new();
+    let x = rect.x as f64;
+    let y = rect.y as f64;
+    let w = rect.width as f64;
+    let h = rect.height as f64;
+    path.move_to(x, y);
+    path.line_to(x + w, y);
+    path.line_to(x + w, y + h);
+    path.line_to(x, y + h);
+    path.close_polygon(PATH_FLAGS_NONE);
+    path
 }
 
 fn build_rounded_rect_path(
-    rect: Rect,
+    rect: &AzRect,
     border_radius: &BorderRadius,
     dpi_factor: f32,
-) -> Option<Path> {
-    let mut pb = PathBuilder::new();
+) -> PathStorage {
+    let mut path = PathStorage::new();
 
-    let x = rect.x();
-    let y = rect.y();
-    let width = rect.width();
-    let height = rect.height();
+    let x = rect.x as f64;
+    let y = rect.y as f64;
+    let w = rect.width as f64;
+    let h = rect.height as f64;
 
-    let tl = border_radius.top_left * dpi_factor;
-    let tr = border_radius.top_right * dpi_factor;
-    let br = border_radius.bottom_right * dpi_factor;
-    let bl = border_radius.bottom_left * dpi_factor;
+    let tl = (border_radius.top_left * dpi_factor) as f64;
+    let tr = (border_radius.top_right * dpi_factor) as f64;
+    let br = (border_radius.bottom_right * dpi_factor) as f64;
+    let bl = (border_radius.bottom_left * dpi_factor) as f64;
 
     // Start at top-left corner (after radius)
-    pb.move_to(x + tl, y);
+    path.move_to(x + tl, y);
 
     // Top edge
-    pb.line_to(x + width - tr, y);
+    path.line_to(x + w - tr, y);
 
     // Top-right corner
     if tr > 0.0 {
-        pb.quad_to(x + width, y, x + width, y + tr);
+        path.curve3(x + w, y, x + w, y + tr);
     }
 
     // Right edge
-    pb.line_to(x + width, y + height - br);
+    path.line_to(x + w, y + h - br);
 
     // Bottom-right corner
     if br > 0.0 {
-        pb.quad_to(x + width, y + height, x + width - br, y + height);
+        path.curve3(x + w, y + h, x + w - br, y + h);
     }
 
     // Bottom edge
-    pb.line_to(x + bl, y + height);
+    path.line_to(x + bl, y + h);
 
     // Bottom-left corner
     if bl > 0.0 {
-        pb.quad_to(x, y + height, x, y + height - bl);
+        path.curve3(x, y + h, x, y + h - bl);
     }
 
     // Left edge
-    pb.line_to(x, y + tl);
+    path.line_to(x, y + tl);
 
     // Top-left corner
     if tl > 0.0 {
-        pb.quad_to(x, y, x + tl, y);
+        path.curve3(x, y, x + tl, y);
     }
 
-    pb.close();
-    pb.finish()
+    path.close_polygon(PATH_FLAGS_NONE);
+    path
 }
 
 // ============================================================================
@@ -1178,9 +1168,6 @@ pub struct ComponentPreviewResult {
 }
 
 /// Compute the tight bounding box of all display list items.
-///
-/// Returns `(min_x, min_y, max_x, max_y)` in logical coordinates.
-/// Returns `None` if the display list is empty.
 fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
@@ -1221,22 +1208,6 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 }
 
 /// Render a `StyledDom` to a PNG image for component preview.
-///
-/// This is a self-contained function that:
-/// 1. Resolves fonts using the shared `FontManager` (from the running binary)
-/// 2. Runs layout with either the specified or auto-sized viewport
-/// 3. Renders the display list to a pixmap via CPU
-/// 4. Crops to content bounds if sizing to content
-/// 5. Returns PNG bytes + actual dimensions
-///
-/// # Arguments
-/// * `styled_dom` - The styled DOM to render
-/// * `font_manager` - Shared font manager from the running application
-/// * `opts` - Preview options (width, height, dpi, background)
-///
-/// # Returns
-/// * `Ok(ComponentPreviewResult)` with PNG data and dimensions
-/// * `Err(String)` on layout or rendering failure
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 pub fn render_component_preview(
     styled_dom: azul_core::styled_dom::StyledDom,
@@ -1260,7 +1231,6 @@ pub fn render_component_preview(
         font_traits::TextLayoutCache,
     };
 
-    // The "infinite canvas" size for size-to-content mode
     const MAX_SIZE: f32 = 4096.0;
 
     let layout_width = opts.width.unwrap_or(MAX_SIZE);
@@ -1274,14 +1244,12 @@ pub fn render_component_preview(
         },
     };
 
-    // Create a layout-local font manager that shares the parsed font pool
-    // (Arc<Mutex<>>) with the running application but has its own font chain cache.
     let mut preview_font_manager = FontManager::from_arc_shared(
         font_manager.fc_cache.clone(),
         font_manager.parsed_fonts.clone(),
     ).map_err(|e| format!("Failed to create preview font manager: {:?}", e))?;
 
-    // --- Font resolution (same as LayoutWindow::layout_dom_recursive) ---
+    // --- Font resolution ---
     {
         use crate::solver3::getters::{
             collect_and_resolve_font_chains, collect_font_ids_from_chains,
@@ -1290,13 +1258,9 @@ pub fn render_component_preview(
 
         let platform = azul_css::system::Platform::current();
 
-        // Register embedded FontRefs (e.g. Material Icons)
         register_embedded_fonts_from_styled_dom(&styled_dom, &preview_font_manager, &platform);
 
-        // Resolve font chains
         let chains = collect_and_resolve_font_chains(&styled_dom, &preview_font_manager.fc_cache, &platform);
-
-        // Get required font IDs and load any missing ones
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = preview_font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
@@ -1309,11 +1273,9 @@ pub fn render_component_preview(
                 &preview_font_manager.fc_cache,
                 |bytes, index| loader.load_font(bytes, index),
             );
-            // insert_fonts uses internal Mutex — fonts go into the shared pool
             preview_font_manager.insert_fonts(load_result.loaded);
         }
 
-        // Set font chain cache for this layout pass
         preview_font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
 
@@ -1333,7 +1295,7 @@ pub fn render_component_preview(
     let empty_selections = BTreeMap::new();
     let empty_text_selections = BTreeMap::new();
     let renderer_resources = RendererResources::default();
-    let id_namespace = IdNamespace(0xFFFF); // preview namespace
+    let id_namespace = IdNamespace(0xFFFF);
     let dom_id = DomId::ROOT_ID;
     let mut debug_messages = None;
     let get_system_time_fn = azul_core::task::GetSystemTimeCallback {
@@ -1350,12 +1312,12 @@ pub fn render_component_preview(
         &empty_selections,
         &empty_text_selections,
         &mut debug_messages,
-        None, // no GPU cache
+        None,
         &renderer_resources,
         id_namespace,
         dom_id,
-        false, // cursor not visible
-        None,  // no cursor location
+        false,
+        None,
         &azul_core::resources::ImageCache::default(),
         system_style,
         get_system_time_fn,
@@ -1363,10 +1325,8 @@ pub fn render_component_preview(
 
     // --- Determine actual render size ---
     let (render_width, render_height) = if opts.width.is_some() && opts.height.is_some() {
-        // Fixed size — render at exactly the specified dimensions
         (opts.width.unwrap(), opts.height.unwrap())
     } else {
-        // Size to content — measure actual bounds
         match compute_content_bounds(&display_list) {
             Some((_min_x, _min_y, max_x, max_y)) => {
                 let w = if opts.width.is_some() { opts.width.unwrap() } else { max_x.max(1.0).ceil() };
@@ -1374,8 +1334,6 @@ pub fn render_component_preview(
                 (w, h)
             }
             None => {
-                // Empty display list — render a 0x0 transparent image
-                // Return an empty PNG with transparent background
                 return Ok(ComponentPreviewResult {
                     png_data: Vec::new(),
                     content_width: 0.0,
@@ -1385,7 +1343,6 @@ pub fn render_component_preview(
         }
     };
 
-    // Clamp to reasonable max
     let render_width = render_width.min(MAX_SIZE);
     let render_height = render_height.min(MAX_SIZE);
 
@@ -1394,14 +1351,12 @@ pub fn render_component_preview(
     let pixel_w = ((render_width * dpi) as u32).max(1);
     let pixel_h = ((render_height * dpi) as u32).max(1);
 
-    let mut pixmap = Pixmap::new(pixel_w, pixel_h)
+    let mut pixmap = AzulPixmap::new(pixel_w, pixel_h)
         .ok_or_else(|| format!("Cannot create pixmap {}x{}", pixel_w, pixel_h))?;
 
-    // Fill with background color
     let bg = opts.background_color;
-    pixmap.fill(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a));
+    pixmap.fill(bg.r, bg.g, bg.b, bg.a);
 
-    // Render the display list
     let mut preview_glyph_cache = GlyphCache::new();
     render_display_list(
         &display_list,
@@ -1412,7 +1367,6 @@ pub fn render_component_preview(
         &mut preview_glyph_cache,
     )?;
 
-    // Encode to PNG
     let png_data = pixmap.encode_png()
         .map_err(|e| format!("PNG encoding failed: {}", e))?;
 

@@ -16021,6 +16021,12 @@
                                 "OverflowY": {
                                     "type": "LayoutOverflowValue"
                                 },
+                                "OverflowBlock": {
+                                    "type": "LayoutOverflowValue"
+                                },
+                                "OverflowInline": {
+                                    "type": "LayoutOverflowValue"
+                                },
                                 "GridAutoFlow": {
                                     "type": "LayoutGridAutoFlowValue"
                                 },
@@ -28541,6 +28547,8 @@
                                 "BackgroundRepeat": {},
                                 "OverflowX": {},
                                 "OverflowY": {},
+                                "OverflowBlock": {},
+                                "OverflowInline": {},
                                 "PaddingTop": {},
                                 "PaddingLeft": {},
                                 "PaddingRight": {},
@@ -31773,7 +31781,10 @@
                                 "Font": {},
                                 "Columns": {},
                                 "ColumnRule": {},
-                                "GridArea": {}
+                                "GridArea": {},
+                                "TextBox": {},
+                                "InsetBlock": {},
+                                "InsetInline": {}
                             }
                         ],
                         "repr": "C"
@@ -33060,7 +33071,8 @@
                             {
                                 "Normal": {},
                                 "BreakAll": {},
-                                "KeepAll": {}
+                                "KeepAll": {},
+                                "BreakWord": {}
                             }
                         ],
                         "repr": "C"
@@ -33547,6 +33559,9 @@
                         ],
                         "struct_fields": [
                             {
+                                "clip_edge": {
+                                    "type": "VisualBox"
+                                },
                                 "inner": {
                                     "type": "PixelValue"
                                 }
@@ -80489,6 +80504,28 @@
                                 "height": {
                                     "type": "u32"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VisualBox": {
+                        "external": "azul_css::props::layout::overflow::VisualBox",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ContentBox": {},
+                                "PaddingBox": {},
+                                "BorderBox": {}
                             }
                         ],
                         "repr": "C"
