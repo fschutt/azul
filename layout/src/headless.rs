@@ -27,7 +27,7 @@
 //! │                                                          │
 //! │  LayoutWindow  ──→  DisplayList  ──→  cpurender  ──→  PNG│
 //! │       │                                    │              │
-//! │       │         HeadlessResources    (tiny-skia           │
+//! │       │         HeadlessResources    (agg-rust           │
 //! │       │         (font/image            Pixmap)            │
 //! │       │          management)                              │
 //! │       │                             CpuHitTester          │
@@ -330,12 +330,12 @@ impl HeadlessRenderer {
 
     /// Render a display list to a pixel buffer.
     ///
-    /// Returns a tiny-skia `Pixmap` that can be saved as PNG.
+    /// Returns an `AzulPixmap` that can be saved as PNG.
     pub fn render_frame(
         &self,
         display_list: &crate::solver3::display_list::DisplayList,
         renderer_resources: &RendererResources,
-    ) -> Result<tiny_skia::Pixmap, String> {
+    ) -> Result<crate::cpurender::AzulPixmap, String> {
         let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
         crate::cpurender::render(
             display_list,

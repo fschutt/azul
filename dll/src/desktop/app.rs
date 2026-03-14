@@ -149,7 +149,7 @@ impl AppInternal {
 
             // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
             let had_cache = registry.load_from_disk_cache();
-            if had_cache {
+            if had_cache.is_some() {
                 debug_server::log(
                     debug_server::LogLevel::Info,
                     debug_server::LogCategory::Resources,
@@ -170,7 +170,7 @@ impl AppInternal {
 
             // Start with an empty FcFontCache; it will be populated at first layout
             // from the registry via request_fonts() + into_fc_font_cache()
-            let cache = if had_cache {
+            let cache = if had_cache.is_some() {
                 // If we had a disk cache, snapshot the registry now so the fc_cache
                 // is immediately usable (contains cached fonts from last run)
                 Arc::new(registry.into_fc_font_cache())
