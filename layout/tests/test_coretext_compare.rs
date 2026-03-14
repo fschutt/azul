@@ -166,16 +166,10 @@ fn render_coretext(ch: char, font_name: &str, font_size: f32, w: u32, h: u32, ba
     let ct_baseline = baseline_y as f64;
     ct.draw_glyphs(&[glyphs[0]], &[CGPoint::new(1.0, ct_baseline)], ctx.clone());
 
+    // CGBitmapContextGetData returns rows top-down (row 0 = top).
+    // No flip needed — this matches tiny-skia's coordinate system.
     let data = ctx.data().to_vec();
-    // CGBitmapContext is bottom-up (row 0 = bottom of image).
-    // Flip to top-down to match tiny-skia's coordinate system.
-    let mut flipped = vec![0u8; data.len()];
-    for y in 0..h {
-        let src_row = (h - 1 - y) as usize * w as usize;
-        let dst_row = y as usize * w as usize;
-        flipped[dst_row..dst_row + w as usize].copy_from_slice(&data[src_row..src_row + w as usize]);
-    }
-    Some(GrayBitmap { data: flipped, w, h })
+    Some(GrayBitmap { data, w, h })
 }
 
 // ── Azul rendering ─────────────────────────────────────────────────
@@ -229,17 +223,21 @@ fn render_aligned_pair(
 
     // Use font metrics for baseline positioning
     let upem = font.font_metrics.units_per_em as f32;
-    let ascent = font.font_metrics.ascent as f32 / upem * font_size;
-    let descent = (font.font_metrics.descent as f32 / upem * font_size).abs();
+    let ascent_px = (font.font_metrics.ascent as f32 / upem * font_size).ceil();
 
-    // Both renderers place glyph at same baseline pixel row.
-    // Baseline row from top of bitmap = 70% of height (room for ascenders above, descenders below).
-    let baseline_row = (h as f32 * 0.7).round();
+    // Baseline is ascent pixels from the top of the bitmap.
+    let baseline_from_top = ascent_px;
 
-    // CoreText: Y-up. baseline = distance from BOTTOM = h - baseline_row.
-    let ct_baseline = h as f32 - baseline_row;
-    // Azul: Y-down. Glyph path has Y negated. Translate Y = baseline_row.
-    let az_baseline = baseline_row;
+    // Azul: Y-down coordinate system. translate_y = baseline_from_top.
+    let az_baseline = baseline_from_top;
+
+    // CoreText: Y-up coordinate system (Y=0 at bottom).
+    // We pass baseline_y = distance from bottom.
+    // After we flip the bitmap (bottom-up → top-down), a point at
+    // Y=d from bottom becomes Y=(h-d) from top.
+    // We want it at baseline_from_top from top, so:
+    //   h - d = baseline_from_top  →  d = h - baseline_from_top
+    let ct_baseline = h as f32 - baseline_from_top;
 
     let ct = render_coretext(ch, font_name, font_size, w, h, ct_baseline)?;
     let az = render_azul(font, ch, font_size, w, h, az_baseline)?;
