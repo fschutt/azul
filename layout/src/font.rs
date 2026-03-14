@@ -1062,14 +1062,18 @@ pub mod parsed {
                     adv_f26dot6.to_bits(),
                 ).ok()?;
 
-                // Use hinted advance directly (fractional pixels) — matches
-                // Core Text / Chrome on macOS which does NOT round advances.
-                // Rounding to whole pixels accumulates error over many glyphs,
-                // making lines too wide and causing premature line breaks.
-                Some(hinted_adv as f32 / 64.0)
+                // Round hinted advance to pixel grid (nearest 64 F26Dot6).
+                // The glyph program typically doesn't explicitly move the advance
+                // phantom point, so it retains its fractional scaled value.
+                // FreeType rounds advances to grid after hinting (for both TARGET_MONO
+                // and DEFAULT modes).  Without this rounding, fractional advances
+                // accumulate ~0.3px error per glyph, causing visibly wide word spacing.
+                let rounded = (hinted_adv + 32) & !63;
+                Some(rounded as f32 / 64.0)
             } else {
-                // No outline (e.g. space): use scaled advance (no rounding)
-                Some(adv_f26dot6.to_bits() as f32 / 64.0)
+                // No outline (e.g. space): use scaled advance, rounded to grid
+                let rounded = (adv_f26dot6.to_bits() + 32) & !63;
+                Some(rounded as f32 / 64.0)
             }
         }
 
