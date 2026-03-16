@@ -123,8 +123,12 @@ pub fn autofix_api(
     // We'll check this later AFTER generating patches, so patches are always written
     let critical_error_count = ffi_warnings.iter().filter(|w| w.is_critical()).count();
 
-    // Print info about non-critical warnings
-    let info_warnings = ffi_warnings.len() - critical_error_count;
+    // Print info about non-critical warnings (exclude resolved generic type aliases)
+    let info_warnings = ffi_warnings.iter().filter(|w| {
+        !w.is_critical() && !matches!(&w.kind, FfiSafetyWarningKind::GenericTypeAlias {
+            target_in_api, all_args_in_api, ..
+        } if *target_in_api && *all_args_in_api)
+    }).count();
     if info_warnings > 0 {
         println!(
             "\n{} {} informational warnings (non-blocking)",
@@ -2272,14 +2276,19 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
         }
     }
 
-    // Print info warnings
-    if !info.is_empty() {
+    // Print info warnings (skip GenericTypeAlias where target+args are all in api.json)
+    let actionable_info: Vec<_> = info.iter().filter(|w| {
+        !matches!(&w.kind, FfiSafetyWarningKind::GenericTypeAlias {
+            target_in_api, all_args_in_api, ..
+        } if *target_in_api && *all_args_in_api)
+    }).collect();
+    if !actionable_info.is_empty() {
         println!(
             "\n{} {} FFI safety warnings (non-blocking):",
             "[ WARN ]".yellow().bold(),
-            info.len().to_string().yellow().bold()
+            actionable_info.len().to_string().yellow().bold()
         );
-        for warning in &info {
+        for warning in &actionable_info {
             print_single_warning(warning);
         }
     }
