@@ -20,7 +20,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # Core crates - only needed for build-dll and link-static, NOT for link-dynamic
 azul-core = { path = "../core", version = "0.0.7", default-features = false, optional = true }
 azul-css = { path = "../css", version = "0.0.7", default-features = false, optional = true }
-azul-layout = { path = "../layout", version = "0.0.7", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.7", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -141,6 +141,7 @@ build-dll = [
     "azul-core",
     "azul-css",
     "azul-layout",
+    "cpurender",
     "tfd",
     "rust-fontconfig",
     "gl-context-loader",
@@ -268,6 +269,7 @@ pnm = ["azul-layout", "azul-layout/pnm"]
 
 svg = ["azul-layout", "azul-layout/svg"]
 xml = ["azul-layout", "azul-layout/xml"]
+cpurender = ["azul-layout", "azul-layout/cpurender"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]

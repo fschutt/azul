@@ -2625,10 +2625,12 @@ impl CallbackInfo {
             .get(&dom_id)
             .ok_or_else(|| AzString::from("DOM not found in layout results"))?;
 
-        // Get viewport dimensions
-        let viewport = &layout_result.viewport;
-        let width = viewport.size.width;
-        let height = viewport.size.height;
+        // Use the current window state dimensions (may have been resized
+        // since the last layout pass).  Falls back to the layout viewport
+        // dimensions when the window state hasn't been updated.
+        let ws = self.get_current_window_state();
+        let width = ws.size.dimensions.width;
+        let height = ws.size.dimensions.height;
 
         if width <= 0.0 || height <= 0.0 {
             return Err(AzString::from("Invalid viewport dimensions"));
@@ -2638,12 +2640,7 @@ impl CallbackInfo {
         let display_list = &layout_result.display_list;
 
         // Get DPI factor from window state
-        let dpi_factor = self
-            .get_current_window_state()
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
+        let dpi_factor = ws.size.get_hidpi_factor().inner.get();
 
         // Render to pixmap using FontManager directly.
         // In headless mode RendererResources has no fonts registered

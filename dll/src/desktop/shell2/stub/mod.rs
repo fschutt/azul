@@ -414,7 +414,7 @@ impl StubWindow {
             let ws = &self.common.current_window_state;
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.hidpi_factor;
+            let dpi = ws.size.dpi as f32 / 96.0;
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
                     lw,

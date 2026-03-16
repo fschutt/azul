@@ -1103,6 +1103,19 @@ impl AzRect {
         }
         Some(Self { x, y, width: w, height: h })
     }
+
+    /// Intersect this rect with a clip rect. Returns None if fully clipped.
+    fn clip(&self, clip: &AzRect) -> Option<AzRect> {
+        let x1 = self.x.max(clip.x);
+        let y1 = self.y.max(clip.y);
+        let x2 = (self.x + self.width).min(clip.x + clip.width);
+        let y2 = (self.y + self.height).min(clip.y + clip.height);
+        if x2 > x1 && y2 > y1 {
+            Some(AzRect { x: x1, y: y1, width: x2 - x1, height: y2 - y1 })
+        } else {
+            None
+        }
+    }
 }
 
 // ============================================================================
@@ -1115,6 +1128,22 @@ fn agg_fill_path(
     color: &Rgba8,
     rule: FillingRule,
 ) {
+    agg_fill_path_clipped(pixmap, path, color, rule, None);
+}
+
+/// Fill a path with an optional pixel-level clip box.
+///
+/// When `clip` is `Some`, `RendererBase::clip_box_i()` restricts all
+/// scanline output to the clip region.  This handles scroll-frame clips,
+/// border-radius is TODO (would need a mask), transforms are handled by
+/// transforming the clip box through the inverse transform before setting it.
+fn agg_fill_path_clipped(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    color: &Rgba8,
+    rule: FillingRule,
+    clip: Option<AzRect>,
+) {
     let w = pixmap.width;
     let h = pixmap.height;
     let stride = (w * 4) as i32;
@@ -1123,6 +1152,14 @@ fn agg_fill_path(
     };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(rule);
     ras.add_path(path, 0);
@@ -1137,11 +1174,22 @@ fn agg_fill_transformed_path(
     rule: FillingRule,
     transform: &TransAffine,
 ) {
+    agg_fill_transformed_path_clipped(pixmap, path, color, rule, transform, None);
+}
+
+fn agg_fill_transformed_path_clipped(
+    pixmap: &mut AzulPixmap,
+    path: &mut PathStorage,
+    color: &Rgba8,
+    rule: FillingRule,
+    transform: &TransAffine,
+    clip: Option<AzRect>,
+) {
     if transform.is_identity(0.0001) {
-        agg_fill_path(pixmap, path, color, rule);
+        agg_fill_path_clipped(pixmap, path, color, rule, clip);
     } else {
         let mut transformed = ConvTransform::new(path, transform.clone());
-        agg_fill_path(pixmap, &mut transformed, color, rule);
+        agg_fill_path_clipped(pixmap, &mut transformed, color, rule, clip);
     }
 }
 
@@ -1158,6 +1206,19 @@ fn agg_fill_gradient<G: GradientFunction>(
     d1: f64,
     d2: f64,
 ) {
+    agg_fill_gradient_clipped(pixmap, path, lut, gradient_fn, transform, d1, d2, None);
+}
+
+fn agg_fill_gradient_clipped<G: GradientFunction>(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    lut: &GradientLut,
+    gradient_fn: G,
+    transform: TransAffine,
+    d1: f64,
+    d2: f64,
+    clip: Option<AzRect>,
+) {
     let w = pixmap.width;
     let h = pixmap.height;
     let stride = (w * 4) as i32;
@@ -1166,6 +1227,14 @@ fn agg_fill_gradient<G: GradientFunction>(
     };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
     ras.add_path(path, 0);
@@ -1267,6 +1336,7 @@ fn render_linear_gradient(
     bounds: &LogicalRect,
     gradient: &azul_css::props::style::background::LinearGradient,
     border_radius: &BorderRadius,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
@@ -1320,7 +1390,7 @@ fn render_linear_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient(pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0);
+    agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip);
     Ok(())
 }
 
@@ -1329,6 +1399,7 @@ fn render_radial_gradient(
     bounds: &LogicalRect,
     gradient: &azul_css::props::style::background::RadialGradient,
     border_radius: &BorderRadius,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     use azul_css::props::style::background::{RadialGradientSize, Shape};
@@ -1398,7 +1469,7 @@ fn render_radial_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient(pixmap, &mut path, &lut, GradientRadialD, transform, 0.0, 100.0);
+    agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientRadialD, transform, 0.0, 100.0, clip);
     Ok(())
 }
 
@@ -1407,6 +1478,7 @@ fn render_conic_gradient(
     bounds: &LogicalRect,
     gradient: &azul_css::props::style::background::ConicGradient,
     border_radius: &BorderRadius,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
@@ -1448,7 +1520,7 @@ fn render_conic_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient(pixmap, &mut path, &lut, GradientConic, transform, 0.0, d2);
+    agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientConic, transform, 0.0, d2, clip);
     Ok(())
 }
 
@@ -2158,11 +2230,13 @@ fn render_single_item(
                 gradient,
                 border_radius,
             } => {
+                let clip = *clip_stack.last().unwrap();
                 render_linear_gradient(
                     pixmap,
                     bounds.inner(),
                     gradient,
                     border_radius,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -2171,11 +2245,13 @@ fn render_single_item(
                 gradient,
                 border_radius,
             } => {
+                let clip = *clip_stack.last().unwrap();
                 render_radial_gradient(
                     pixmap,
                     bounds.inner(),
                     gradient,
                     border_radius,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -2184,11 +2260,13 @@ fn render_single_item(
                 gradient,
                 border_radius,
             } => {
+                let clip = *clip_stack.last().unwrap();
                 render_conic_gradient(
                     pixmap,
                     bounds.inner(),
                     gradient,
                     border_radius,
+                    clip,
                     dpi_factor,
                 )?;
             }
@@ -2323,7 +2401,7 @@ fn render_rect(
     bounds: &LogicalRect,
     color: ColorU,
     border_radius: &BorderRadius,
-    _clip: Option<AzRect>,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     if color.a == 0 {
@@ -2335,14 +2413,21 @@ fn render_rect(
         None => return Ok(()),
     };
 
+    // Early-out if fully outside clip
+    if let Some(ref c) = clip {
+        if rect.clip(c).is_none() {
+            return Ok(());
+        }
+    }
+
     let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
 
     if border_radius.is_zero() {
         let mut path = build_rect_path(&rect);
-        agg_fill_path(pixmap, &mut path, &agg_color, FillingRule::NonZero);
+        agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     } else {
         let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
-        agg_fill_path(pixmap, &mut path, &agg_color, FillingRule::NonZero);
+        agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     }
 
     Ok(())
@@ -2355,7 +2440,7 @@ fn render_text(
     color: ColorU,
     pixmap: &mut AzulPixmap,
     clip_rect: &LogicalRect,
-    _clip: Option<AzRect>,
+    clip: Option<AzRect>,
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     dpi_factor: f32,
@@ -2363,6 +2448,17 @@ fn render_text(
 ) -> Result<(), String> {
     if color.a == 0 || glyphs.is_empty() {
         return Ok(());
+    }
+
+    // Skip text entirely if its clip_rect is outside the active clip region
+    if let Some(ref c) = clip {
+        let text_rect = match logical_rect_to_az_rect(clip_rect, dpi_factor) {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+        if text_rect.clip(c).is_none() {
+            return Ok(()); // fully clipped
+        }
     }
 
     let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
@@ -2444,12 +2540,13 @@ fn render_text(
         };
 
         let mut path_clone = cached.path.clone();
-        agg_fill_transformed_path(
+        agg_fill_transformed_path_clipped(
             pixmap,
             &mut path_clone,
             &agg_color,
             FillingRule::NonZero,
             &glyph_transform,
+            clip,
         );
     }
 
@@ -2462,7 +2559,7 @@ fn render_border(
     color: ColorU,
     width: f32,
     border_radius: &BorderRadius,
-    _clip: Option<AzRect>,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     if color.a == 0 || width <= 0.0 {
@@ -2473,6 +2570,13 @@ fn render_border(
         Some(r) => r,
         None => return Ok(()),
     };
+
+    // Skip if fully outside clip
+    if let Some(ref c) = clip {
+        if rect.clip(c).is_none() {
+            return Ok(());
+        }
+    }
 
     let scaled_width = width * dpi_factor;
     let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
@@ -2566,7 +2670,7 @@ fn render_border(
     }
 
     // 3. Fill with EvenOdd to create the hole
-    agg_fill_path(pixmap, &mut path, &agg_color, FillingRule::EvenOdd);
+    agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::EvenOdd, clip);
 
     Ok(())
 }
@@ -2587,13 +2691,20 @@ fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     image: &ImageRef,
-    _clip: Option<AzRect>,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
         Some(r) => r,
         None => return Ok(()),
     };
+
+    // Skip if fully outside clip
+    if let Some(ref c) = clip {
+        if rect.clip(c).is_none() {
+            return Ok(());
+        }
+    }
 
     let image_data = image.get_data();
     let (src_rgba, src_w, src_h) = match &*image_data {
@@ -2653,11 +2764,22 @@ fn render_image(
     let sx = src_w as f32 / dst_w.max(1) as f32;
     let sy = src_h as f32 / dst_h.max(1) as f32;
 
+    // Compute pixel-level clip bounds for the blit loop
+    let (clip_x1, clip_y1, clip_x2, clip_y2) = if let Some(ref c) = clip {
+        (c.x as i32, c.y as i32, (c.x + c.width) as i32, (c.y + c.height) as i32)
+    } else {
+        (0, 0, pw as i32, ph as i32)
+    };
+
     for py in 0..dst_h {
         for px in 0..dst_w {
             let tx = dst_x + px as i32;
             let ty = dst_y + py as i32;
             if tx < 0 || ty < 0 || tx >= pw as i32 || ty >= ph as i32 {
+                continue;
+            }
+            // Clip check
+            if tx < clip_x1 || ty < clip_y1 || tx >= clip_x2 || ty >= clip_y2 {
                 continue;
             }
 

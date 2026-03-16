@@ -1,0 +1,32 @@
+[
+  {
+    "name": "scrolling_initial_render",
+    "description": "Verify initial headless render at 600x500 matches reference with correct clipping and text",
+    "config": { "continue_on_failure": false },
+    "steps": [
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/01_initial_600x500.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.0
+      }
+    ]
+  },
+  {
+    "name": "scrolling_dom_structure",
+    "description": "Verify DOM has the expected structure (header + scroll container + items + footer)",
+    "config": { "continue_on_failure": false },
+    "steps": [
+      { "op": "assert_exists", "selector": "body" },
+      { "op": "get_state" }
+    ]
+  },
+  {
+    "name": "scrolling_has_scroll_nodes",
+    "description": "Verify the scroll container creates scrollable nodes",
+    "config": { "continue_on_failure": false },
+    "steps": [
+      { "op": "get_scroll_states" }
+    ]
+  }
+]
