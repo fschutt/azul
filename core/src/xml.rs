@@ -4178,6 +4178,60 @@ pub fn str_to_dom<'a>(
         .map_err(|e| e.into())
 }
 
+/// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not applied).
+///
+/// Unlike `str_to_dom` which returns a fully styled `StyledDom`, this function
+/// returns an unstyled `Dom` whose `css` field carries the parsed `<style>` rules.
+/// The layout framework will apply the CSS during the cascade pass.
+///
+/// This is the correct function for building a `Dom` from XML in layout callbacks
+/// (which must return `Dom`, not `StyledDom`).
+pub fn str_to_dom_unstyled<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+) -> Result<Dom, DomXmlParseError> {
+    let html_node = get_html_node(root_nodes)?;
+    let body_node = get_body_node(html_node.children.as_ref())?;
+
+    let mut global_style = None;
+
+    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
+            let text = style_node.get_text_content();
+            if !text.is_empty() {
+                let parsed_css = Css::from_string(text.into());
+                global_style = Some(parsed_css);
+            }
+        }
+    }
+
+    // Build the DOM tree from the body node
+    let body_dom = xml_node_to_dom_fast(&body_node, component_map)
+        .map_err(|e| DomXmlParseError::from(e))?;
+
+    // Wrap in proper HTML structure
+    use crate::dom::NodeType;
+    let root_node_type = body_dom.root.node_type.clone();
+
+    let mut full_dom = match root_node_type {
+        NodeType::Html => body_dom,
+        NodeType::Body => Dom::create_html().with_child(body_dom),
+        _ => {
+            let body_wrapper = Dom::create_body().with_child(body_dom);
+            Dom::create_html().with_child(body_wrapper)
+        }
+    };
+
+    // Attach CSS to the Dom's css field instead of applying it immediately
+    if let Some(css) = global_style {
+        let mut css_vec: Vec<Css> = Vec::new();
+        css_vec.push(css);
+        full_dom.css = css_vec.into();
+    }
+
+    Ok(full_dom)
+}
+
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
 pub fn str_to_rust_code<'a>(
