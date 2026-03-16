@@ -2108,12 +2108,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .get_caret_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().cloned())
         .map(|c| c.inner)
-        .unwrap_or(ColorU {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255, // White caret by default
-        });
+        .unwrap_or(ColorU::BLACK);
 
     let width = styled_dom
         .css_property_cache

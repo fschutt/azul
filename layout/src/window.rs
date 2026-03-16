@@ -4314,18 +4314,25 @@ impl LayoutWindow {
         // Get the current inline content from cache
         let content = self.get_text_before_textinput(dom_id, node_id);
 
-        // Get current cursor/selection from cursor manager
-        let current_selection = if let Some(cursor) = self.cursor_manager.get_cursor() {
-            vec![Selection::Cursor(cursor.clone())]
-        } else {
-            // No cursor - create one at start of text
-            vec![Selection::Cursor(TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: 0,
-                    start_byte_in_run: 0,
-                },
-                affinity: CursorAffinity::Leading,
-            })]
+        // Get current cursor/selection from cursor manager AND selection manager
+        // If there's an active selection range, use it so that typing replaces selected text
+        let current_selection = {
+            let ranges = self.selection_manager.get_ranges(&dom_id);
+            if let Some(range) = ranges.first() {
+                // Active selection range - typing should replace the selected text
+                vec![Selection::Range(range.clone())]
+            } else if let Some(cursor) = self.cursor_manager.get_cursor() {
+                vec![Selection::Cursor(cursor.clone())]
+            } else {
+                // No cursor - create one at start of text
+                vec![Selection::Cursor(TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: 0,
+                        start_byte_in_run: 0,
+                    },
+                    affinity: CursorAffinity::Leading,
+                })]
+            }
         };
 
         // Capture pre-state for undo/redo BEFORE mutation
@@ -4367,6 +4374,10 @@ impl LayoutWindow {
             self.cursor_manager
                 .move_cursor_to(new_cursor.clone(), dom_id, node_id);
         }
+
+        // Clear selection state after text edit — typing always collapses selection
+        self.selection_manager.clear_selection(&dom_id);
+        self.selection_manager.clear_text_selection(&dom_id);
 
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
@@ -5921,6 +5932,7 @@ impl LayoutWindow {
 
         // Clear selection and place cursor at deletion point
         self.selection_manager.clear_selection(&dom_id);
+        self.selection_manager.clear_text_selection(&dom_id);
 
         if let Some(cursor) = earliest_cursor {
             // Set cursor at deletion point

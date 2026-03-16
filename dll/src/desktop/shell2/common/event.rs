@@ -1933,7 +1933,7 @@ pub trait PlatformWindow {
                 };
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if layout_window.process_mouse_click_for_selection(*position, current_time_ms).is_some() {
-                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -1949,7 +1949,7 @@ pub trait PlatformWindow {
                 }
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if layout_window.process_mouse_drag_for_selection(*start_position, *current_position).is_some() {
-                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -1958,7 +1958,7 @@ pub trait PlatformWindow {
             SystemChange::DeleteTextSelection { target, forward } => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if layout_window.delete_selection(*target, *forward).is_some() {
-                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -2029,7 +2029,7 @@ pub trait PlatformWindow {
                         layout_window.handle_cursor_movement(dom_id, node_id, new_cursor, *extend_selection);
                     }
                 }
-                ProcessEventResult::ShouldReRenderCurrentWindow
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
             // === Keyboard Shortcuts ===
@@ -2056,7 +2056,7 @@ pub trait PlatformWindow {
                         }
                     }
                 }
-                if affected { ProcessEventResult::ShouldReRenderCurrentWindow } else { ProcessEventResult::DoNothing }
+                if affected { ProcessEventResult::ShouldUpdateDisplayListCurrentWindow } else { ProcessEventResult::DoNothing }
             }
 
             SystemChange::PasteFromClipboard => {
@@ -2064,7 +2064,7 @@ pub trait PlatformWindow {
                     if let Some(clipboard_text) = get_system_clipboard() {
                         let affected = layout_window.process_text_input(&clipboard_text);
                         if !affected.is_empty() {
-                            return ProcessEventResult::ShouldReRenderCurrentWindow;
+                            return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                         }
                     }
                 }
@@ -2092,7 +2092,7 @@ pub trait PlatformWindow {
                                         layout_window.cursor_manager.move_cursor_to(end_cursor, dom_id, node_id);
                                     }
                                 }
-                                return ProcessEventResult::ShouldReRenderCurrentWindow;
+                                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                             }
                         }
                     }
@@ -2137,7 +2137,7 @@ pub trait PlatformWindow {
                         }
 
                         layout_window.undo_redo_manager.push_redo(operation);
-                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -2162,7 +2162,7 @@ pub trait PlatformWindow {
                             }
                         }
                         layout_window.undo_redo_manager.push_undo(operation);
-                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -2449,7 +2449,7 @@ pub trait PlatformWindow {
                     };
 
                     layout_window.scroll_selection_into_view(scroll_type, ScrollMode::Instant);
-                    return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                 }
                 ProcessEventResult::DoNothing
             }
