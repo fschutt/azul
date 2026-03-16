@@ -959,7 +959,7 @@ pub struct LayoutNodeInfo {
     pub anonymous_type: Option<String>,
     pub formatting_context: String,
     pub parent: i64,
-    pub children: Vec<usize>,
+    pub children: Vec<usize>,  // populated from layout_tree.children(idx)
 }
 
 /// Response for GetDisplayList
@@ -6489,15 +6489,16 @@ fn process_debug_event(
                         ("Anonymous", -1i64)
                     };
 
+                    let cold = layout_tree.cold(idx);
                     nodes.push(LayoutNodeInfo {
                         layout_idx: idx,
                         dom_idx,
                         node_type: node_type.to_string(),
-                        is_anonymous: node.is_anonymous,
-                        anonymous_type: node.anonymous_type.as_ref().map(|t| format!("{:?}", t)),
+                        is_anonymous: node.dom_node_id.is_none(),
+                        anonymous_type: cold.and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{:?}", t))),
                         formatting_context: format!("{:?}", node.formatting_context),
                         parent: node.parent.map(|p| p as i64).unwrap_or(-1),
-                        children: node.children.clone(),
+                        children: layout_tree.children(idx).to_vec(),
                     });
                 }
 
@@ -7003,9 +7004,11 @@ fn process_debug_event(
             let mut scrollable_nodes = Vec::new();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
-                // Check each node in the layout tree to see if it has scrollbar_info
+                // Check each node in the layout tree to see if it has scrollbar_info (warm tier)
                 for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                    if let Some(ref scrollbar_info) = node.scrollbar_info {
+                    let scrollbar_info = layout_result.layout_tree.warm(node_idx)
+                        .and_then(|w| w.scrollbar_info.as_ref());
+                    if let Some(scrollbar_info) = scrollbar_info {
                         if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                             let container = node.used_size.unwrap_or_default();
                             scrollable_nodes.push(ScrollableNodeInfo {

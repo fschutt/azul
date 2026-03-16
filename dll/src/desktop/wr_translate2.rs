@@ -2918,7 +2918,7 @@ fn process_image_callback_updates(
                     match &mut nd.node_type {
                         NodeType::Image(img_ref) => {
                             // Try get_image_callback_mut first
-                            let callback_result = img_ref.get_image_callback_mut();
+                            let callback_result = img_ref.as_mut().get_image_callback_mut();
                             
                             if callback_result.is_none() {
                                 // The ImageRef has multiple copies - access the data directly

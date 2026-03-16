@@ -11001,14 +11001,14 @@
                                 "Marker": {},
                                 "Placeholder": {},
                                 "Text": {
-                                    "type": "BoxOrStatic<String>"
+                                    "type": "BoxOrStaticString"
                                 },
                                 "Image": {
-                                    "type": "BoxOrStatic<ImageRef>"
+                                    "type": "BoxOrStaticImageRef"
                                 },
                                 "VirtualView": {},
                                 "Icon": {
-                                    "type": "BoxOrStatic<String>"
+                                    "type": "BoxOrStaticString"
                                 }
                             }
                         ],
@@ -32912,6 +32912,32 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "BoxOrStaticString": {
+                        "doc": [
+                            "BoxOrStatic instantiated with String (AzString)"
+                        ],
+                        "external": "azul_css::css::BoxOrStaticString",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "String"
+                            ]
+                        }
+                    },
+                    "BoxOrStaticImageRef": {
+                        "doc": [
+                            "BoxOrStatic instantiated with ImageRef"
+                        ],
+                        "external": "azul_core::dom::BoxOrStaticImageRef",
+                        "derive": [],
+                        "type_alias": {
+                            "target": "BoxOrStatic",
+                            "generic_args": [
+                                "ImageRef"
+                            ]
+                        }
                     },
                     "StyleInitialLetterAlign": {
                         "external": "azul_css::props::style::text::StyleInitialLetterAlign",

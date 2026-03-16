@@ -341,7 +341,7 @@ pub fn regenerate_layout(
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
                 for (idx, new_cb) in image_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.node_type = azul_core::dom::NodeType::Image(Box::new(
+                        old_nd.node_type = azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
                             azul_core::resources::ImageRef::callback(new_cb.callback.clone(), new_cb.refany.clone())
                         ));
                     }
@@ -407,7 +407,10 @@ pub fn regenerate_layout(
     for (dom_id, layout_result) in &layout_window.layout_results {
         for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
             // Check if this node needs scrollbars (has scrollbar_info with needs_v or needs_h)
-            if let Some(ref scrollbar_info) = node.scrollbar_info {
+            // scrollbar_info is in the warm tier
+            let scrollbar_info = layout_result.layout_tree.warm(node_idx)
+                .and_then(|w| w.scrollbar_info.as_ref());
+            if let Some(scrollbar_info) = scrollbar_info {
                 if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                     if let Some(dom_node_id) = node.dom_node_id {
                         // Get container size from used_size (border-box)
@@ -417,14 +420,15 @@ pub fn regenerate_layout(
                         // This must match compute_scrollbar_geometry() which also uses
                         // padding-box (inner_rect = paint_rect - borders).
                         let border_box_size = node.used_size.unwrap_or_default();
-                        let border = &node.box_props.border;
+                        let resolved = node.box_props.unpack();
+                        let border = &resolved.border;
                         let container_size = azul_core::geom::LogicalSize {
-                            width: (border_box_size.width 
+                            width: (border_box_size.width
                                     - border.left - border.right).max(0.0),
-                            height: (border_box_size.height 
+                            height: (border_box_size.height
                                      - border.top - border.bottom).max(0.0),
                         };
-                        
+
                         // Get absolute position from calculated_positions map
                         // IMPORTANT: container_rect must use absolute window coordinates,
                         // not (0,0), so scroll_into_view calculations are correct.
@@ -432,17 +436,17 @@ pub fn regenerate_layout(
                         // in logical pixels.
                         let container_origin = layout_result
                             .calculated_positions
-                    .get(node_idx)
+                            .get(node_idx)
                             .copied()
                             .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
-                        
+
                         let container_rect = azul_core::geom::LogicalRect {
                             origin: container_origin,
                             size: container_size,
                         };
 
-                        // Get content size using the node's method
-                        let content_size = node.get_content_size();
+                        // Get content size using the tree's method
+                        let content_size = layout_result.layout_tree.get_content_size(node_idx);
 
                         // Use the layout-computed scrollbar width, not the
                         // hardcoded default. On macOS with overlay scrollbars,
@@ -551,11 +555,14 @@ pub fn incremental_relayout(
     let now: azul_core::task::Instant = std::time::Instant::now().into();
     for (_dom_id, layout_result) in &layout_window.layout_results {
         for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-            if let Some(ref scrollbar_info) = node.scrollbar_info {
+            let scrollbar_info = layout_result.layout_tree.warm(node_idx)
+                .and_then(|w| w.scrollbar_info.as_ref());
+            if let Some(scrollbar_info) = scrollbar_info {
                 if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                     if let Some(dom_node_id) = node.dom_node_id {
                         let border_box_size = node.used_size.unwrap_or_default();
-                        let border = &node.box_props.border;
+                        let resolved = node.box_props.unpack();
+                        let border = &resolved.border;
                         // padding-box: subtract only border (not padding) from border-box
                         // This matches compute_scrollbar_geometry()'s inner_rect
                         let container_size = azul_core::geom::LogicalSize {
@@ -573,7 +580,7 @@ pub fn incremental_relayout(
                             origin: container_origin,
                             size: container_size,
                         };
-                        let content_size = node.get_content_size();
+                        let content_size = layout_result.layout_tree.get_content_size(node_idx);
                         let scrollbar_thickness = scrollbar_info.scrollbar_width
                             .max(scrollbar_info.scrollbar_height);
                         layout_window.scroll_manager.register_or_update_scroll_node(
