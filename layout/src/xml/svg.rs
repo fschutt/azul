@@ -2184,7 +2184,7 @@ pub fn render_node_clipmask_cpu(
 
 // ---------------------------- SVG RENDERING
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 #[derive(Debug)]
 #[repr(C)]
 pub struct ParsedSvgXmlNode {
@@ -2192,7 +2192,7 @@ pub struct ParsedSvgXmlNode {
     pub run_destructor: bool,
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl Clone for ParsedSvgXmlNode {
     fn clone(&self) -> Self {
         Self {
@@ -2202,7 +2202,7 @@ impl Clone for ParsedSvgXmlNode {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl Drop for ParsedSvgXmlNode {
     fn drop(&mut self) {
         self.run_destructor = false;
@@ -2212,7 +2212,7 @@ impl Drop for ParsedSvgXmlNode {
 #[cfg(not(feature = "svg"))]
 pub use azul_core::svg::SvgXmlNode;
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn svgxmlnode_new(node: usvg::Group) -> ParsedSvgXmlNode {
     ParsedSvgXmlNode {
         node: Box::new(node),
@@ -2220,7 +2220,7 @@ fn svgxmlnode_new(node: usvg::Group) -> ParsedSvgXmlNode {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn svgxmlnode_parse(
     svg_file_data: &[u8],
     options: SvgParseOptions,
@@ -2238,21 +2238,21 @@ pub fn svgxmlnode_parse(
 }
 
 /*
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn svgxmlnode_from_xml(xml: Xml) -> Result<Self, SvgParseError> {
     // https://github.com/RazrFalcon/resvg/issues/308
     Ok(Svg::new(xml.into_tree()))
 }
 */
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 #[repr(C)]
 pub struct ParsedSvg {
     tree: Box<usvg::Tree>, // *mut usvg::Tree,
     pub run_destructor: bool,
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl Clone for ParsedSvg {
     fn clone(&self) -> Self {
         Self {
@@ -2262,14 +2262,14 @@ impl Clone for ParsedSvg {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl Drop for ParsedSvg {
     fn drop(&mut self) {
         self.run_destructor = false;
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl_result!(
     ParsedSvg,
     SvgParseError,
@@ -2281,7 +2281,7 @@ impl_result!(
 #[cfg(not(feature = "svg"))]
 pub use azul_core::svg::Svg;
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl From<ParsedSvg> for azul_core::svg::Svg {
     fn from(mut parsed: ParsedSvg) -> Self {
         // Use ManuallyDrop to prevent the ParsedSvg destructor from running
@@ -2297,14 +2297,14 @@ impl From<ParsedSvg> for azul_core::svg::Svg {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl fmt::Debug for ParsedSvg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         svg_to_string(&self, SvgXmlOptions::default()).fmt(f)
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 impl ParsedSvg {
     /// Parses an SVG from a string
     pub fn from_string(
@@ -2338,7 +2338,7 @@ impl ParsedSvg {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn svg_new(tree: usvg::Tree) -> ParsedSvg {
     ParsedSvg {
         tree: Box::new(tree),
@@ -2347,7 +2347,7 @@ fn svg_new(tree: usvg::Tree) -> ParsedSvg {
 }
 
 /// NOTE: SVG file data may be Zlib compressed
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn svg_parse(
     svg_file_data: &[u8],
     options: SvgParseOptions,
@@ -2366,7 +2366,7 @@ pub fn svg_parse(
     Err(SvgParseError::NoParserAvailable)
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
     svgxmlnode_new(s.tree.root().clone())
 }
@@ -2379,7 +2379,7 @@ pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
 
@@ -2417,7 +2417,7 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
 }
 
 /// Render a usvg tree into an RGBA buffer using agg-rust.
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn render_usvg_tree_to_buffer(
     tree: &usvg::Tree,
     buf: &mut [u8],
@@ -2572,14 +2572,14 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
 }
 
 /*
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
     // https://github.com/RazrFalcon/resvg/issues/308
     Ok(Svg::new(xml.into_tree()))
 }
 */
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 pub fn svg_to_string(s: &ParsedSvg, options: SvgXmlOptions) -> String {
     s.tree.to_string(&translate_to_usvg_xmloptions(options))
 }
@@ -2589,7 +2589,7 @@ pub fn svg_to_string(s: &ParsedSvg, options: SvgXmlOptions) -> String {
     String::new()
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn svgrenderoptions_get_width_height_node(
     s: &SvgRenderOptions,
     node: &usvg::Group,
@@ -2607,7 +2607,7 @@ fn svgrenderoptions_get_width_height_node(
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_transform(e: SvgRenderTransform) -> agg_rust::trans_affine::TransAffine {
     agg_rust::trans_affine::TransAffine::new_custom(
         e.sx as f64,
@@ -2619,7 +2619,7 @@ fn translate_transform(e: SvgRenderTransform) -> agg_rust::trans_affine::TransAf
     )
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_to_usvg_shaperendering(e: ShapeRendering) -> usvg::ShapeRendering {
     match e {
         ShapeRendering::OptimizeSpeed => usvg::ShapeRendering::OptimizeSpeed,
@@ -2628,7 +2628,7 @@ fn translate_to_usvg_shaperendering(e: ShapeRendering) -> usvg::ShapeRendering {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_to_usvg_imagerendering(e: ImageRendering) -> usvg::ImageRendering {
     match e {
         ImageRendering::OptimizeQuality => usvg::ImageRendering::OptimizeQuality,
@@ -2636,7 +2636,7 @@ fn translate_to_usvg_imagerendering(e: ImageRendering) -> usvg::ImageRendering {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_to_usvg_textrendering(e: TextRendering) -> usvg::TextRendering {
     match e {
         TextRendering::OptimizeSpeed => usvg::TextRendering::OptimizeSpeed,
@@ -2645,13 +2645,13 @@ fn translate_to_usvg_textrendering(e: TextRendering) -> usvg::TextRendering {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 #[allow(dead_code)]
 fn translate_color(i: ColorU) -> agg_rust::color::Rgba8 {
     agg_rust::color::Rgba8::new(i.r as u32, i.g as u32, i.b as u32, i.a as u32)
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_to_usvg_parseoptions<'a>(e: SvgParseOptions) -> usvg::Options<'a> {
     use usvg::ImageHrefResolver;
 
@@ -2691,7 +2691,7 @@ fn translate_to_usvg_parseoptions<'a>(e: SvgParseOptions) -> usvg::Options<'a> {
     options
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::WriteOptions {
     usvg::WriteOptions {
         id_prefix: None,
@@ -2704,7 +2704,7 @@ fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::WriteOptions {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
     match e {
         usvg::Error::ElementsLimitReached => SvgParseError::ElementsLimitReached,
@@ -2721,7 +2721,7 @@ fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
     }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "__usvg_legacy")]
 fn translate_xmlwriter_indent(f: Indent) -> xmlwriter::Indent {
     match f {
         Indent::None => xmlwriter::Indent::None,

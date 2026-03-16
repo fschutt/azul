@@ -172,12 +172,11 @@ pnm = ["image_decoding", "image/pnm"]
 # XML parsing support (for SVG and font configs)
 xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
 
-# SVG rendering support (lyon, usvg can convert text to outlines)
+# SVG rendering support (lyon for tessellation, agg-rust for CPU render)
 svg = [
     "dep:lyon",
     "dep:agg-rust",
     "dep:png",
-    "dep:usvg",
     "xml",
     "dep:geo-booleanop",
     "dep:geo",
