@@ -2,7 +2,7 @@
 name = "wr_azul_glyph_rasterizer"
 version = "0.1.0"
 authors = ["The Mozilla Project Developers", "Azul Developers"]
-description = "A pure-rust, API-compatible glyph rasterizer for WebRender using azul-layout and tiny-skia"
+description = "A pure-rust, API-compatible glyph rasterizer for WebRender using azul-layout and agg-rust"
 license = "MPL-2.0"
 edition = "2021"
 
@@ -33,7 +33,7 @@ fxhash = "0.2.1"
 azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }
-tiny-skia = "0.11"
+agg-rust = { path = "/Users/fschutt/Development/agg-rust", default-features = false }
 
 
 [dev-dependencies]

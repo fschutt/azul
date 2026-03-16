@@ -10,7 +10,20 @@ use azul_core::resources::{
 };
 use azul_css::props::basic::font::FontRef;
 use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
-use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Transform};
+
+use agg_rust::{
+    basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
+    color::Rgba8,
+    path_storage::PathStorage,
+    pixfmt_rgba::{PixfmtRgba32, PixelFormat},
+    rasterizer_scanline_aa::RasterizerScanlineAa,
+    renderer_base::RendererBase,
+    renderer_scanline::render_scanlines_aa_solid,
+    rendering_buffer::RowAccessor,
+    scanline_u::ScanlineU8,
+    trans_affine::TransAffine,
+    conv_transform::ConvTransform,
+};
 
 use crate::{
     rasterizer::{
@@ -20,7 +33,7 @@ use crate::{
 };
 
 /// A pure-Rust font context that uses `azul-layout` for font parsing
-/// and `tiny-skia` for glyph rasterization.
+/// and `agg-rust` for glyph rasterization.
 pub struct FontContext {
     fonts: FastHashMap<FontKey, FontRef>,
 }
@@ -107,7 +120,7 @@ impl FontContext {
             .map(azul_layout::font_ref_to_parsed_font)
             .ok_or(GlyphRasterError::LoadFailed)?;
         let glyph_id = key.index() as u16;
-        
+
         // Fix: Glyph not found should return an ERROR, not an empty glyph.
         // Returning Ok() with empty bytes prevents the font fallback mechanism from working.
         // When a glyph is missing from this font, we need to signal the glyph manager
@@ -128,7 +141,7 @@ impl FontContext {
         let scale = font.size.to_f32_px() / units_per_em;
 
         // Check if glyph has an outline - glyphs without outlines (like spaces) return empty
-        let Some(path) = build_path_from_outline(owned_glyph) else {
+        let Some(mut path) = build_path_from_outline(owned_glyph) else {
             // Glyph exists but has no outline (e.g., space character)
             return Ok(RasterizedGlyph {
                 left: 0.0,
@@ -143,7 +156,7 @@ impl FontContext {
 
         let bb = &owned_glyph.bounding_box;
         // Add 1px padding on each side to prevent clipping from anti-aliasing.
-        let padding = 1.0;
+        let padding = 1.0_f32;
         let pixel_width =
             ((bb.max_x - bb.min_x) as f32 * scale).ceil() as u32 + (padding * 2.0) as u32;
         let pixel_height =
@@ -166,25 +179,38 @@ impl FontContext {
             });
         }
 
-        let mut pixmap =
-            Pixmap::new(pixel_width, pixel_height).ok_or(GlyphRasterError::LoadFailed)?;
+        // Create RGBA buffer and render glyph using agg-rust
+        let mut buf = vec![0u8; (pixel_width as usize) * (pixel_height as usize) * 4];
+        let stride = (pixel_width * 4) as i32;
 
-        let mut paint = Paint::default();
-        paint.set_color_rgba8(255, 255, 255, 255);
-        paint.anti_alias = true;
-
-        // Transform to scale from font units and translate to the pixmap's origin.
+        // Transform: scale from font units + translate to pixmap origin
         let (sub_dx, sub_dy) = font.get_subpx_offset(key);
-        let transform = Transform::from_scale(scale, scale).post_translate(
-            -left + padding + sub_dx as f32,
-            top + padding - sub_dy as f32,
-        );
+        let tx = (-left + padding + sub_dx as f32) as f64;
+        let ty = (top + padding - sub_dy as f32) as f64;
+        let transform = {
+            let mut t = TransAffine::new_scaling_uniform(scale as f64);
+            t.multiply(&TransAffine::new_translation(tx, ty));
+            t
+        };
 
-        pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+        {
+            let mut ra = unsafe {
+                RowAccessor::new_with_buf(buf.as_mut_ptr(), pixel_width, pixel_height, stride)
+            };
+            let mut pf = PixfmtRgba32::new(&mut ra);
+            let mut rb = RendererBase::new(pf);
+            let mut ras = RasterizerScanlineAa::new();
+            let mut sl = ScanlineU8::new();
 
-        // Convert the BGRA pixmap data into a pure alpha mask.
+            let white = Rgba8::new(255, 255, 255, 255);
+            let mut transformed = ConvTransform::new(&mut path, transform);
+            ras.add_path(&mut transformed, 0);
+            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
+        }
+
+        // Extract alpha channel from RGBA buffer.
         // WebRender will later convert this to R8 or BGRA8 as needed.
-        let alpha_bytes: Vec<u8> = pixmap.pixels().iter().map(|p| p.alpha()).collect();
+        let alpha_bytes: Vec<u8> = buf.chunks_exact(4).map(|c| c[3]).collect();
 
         // WebRender convention for RasterizedGlyph.top:
         // - Positive value = bitmap top is ABOVE baseline (typical for most glyphs)
@@ -204,43 +230,43 @@ impl FontContext {
     }
 }
 
-/// Converts an `azul-layout` `OwnedGlyph` outline into a `tiny-skia::Path`.
-fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<tiny_skia::Path> {
-    let mut pb = PathBuilder::new();
+/// Converts an `azul-layout` `OwnedGlyph` outline into an agg-rust `PathStorage`.
+fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<PathStorage> {
+    let mut path = PathStorage::new();
     let mut has_ops = false;
     for outline in &glyph.outline {
         for op in outline.operations.as_slice() {
             has_ops = true;
             match op {
                 GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y }) => {
-                    pb.move_to(*x as f32, -(*y as f32));
+                    path.move_to(*x as f64, -(*y as f64));
                 }
                 GlyphOutlineOperation::LineTo(OutlineLineTo { x, y }) => {
-                    pb.line_to(*x as f32, -(*y as f32));
+                    path.line_to(*x as f64, -(*y as f64));
                 }
                 GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
                     ctrl_1_x, ctrl_1_y, end_x, end_y,
                 }) => {
-                    pb.quad_to(
-                        *ctrl_1_x as f32, -(*ctrl_1_y as f32),
-                        *end_x as f32, -(*end_y as f32),
+                    path.curve3(
+                        *ctrl_1_x as f64, -(*ctrl_1_y as f64),
+                        *end_x as f64, -(*end_y as f64),
                     );
                 }
                 GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
                     ctrl_1_x, ctrl_1_y, ctrl_2_x, ctrl_2_y, end_x, end_y,
                 }) => {
-                    pb.cubic_to(
-                        *ctrl_1_x as f32, -(*ctrl_1_y as f32),
-                        *ctrl_2_x as f32, -(*ctrl_2_y as f32),
-                        *end_x as f32, -(*end_y as f32),
+                    path.curve4(
+                        *ctrl_1_x as f64, -(*ctrl_1_y as f64),
+                        *ctrl_2_x as f64, -(*ctrl_2_y as f64),
+                        *end_x as f64, -(*end_y as f64),
                     );
                 }
                 GlyphOutlineOperation::ClosePath => {
-                    pb.close();
+                    path.close_polygon(PATH_FLAGS_NONE);
                 }
             }
         }
     }
     if !has_ops { return None; }
-    pb.finish()
+    Some(path)
 }
