@@ -395,6 +395,12 @@ pub fn regenerate_layout(
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
 
+    // CRITICAL: Update layout_window's cached window state so the next
+    // regenerate_layout correctly detects size changes.  Without this,
+    // resizing back to the original dimensions would be a no-op because
+    // the stale layout_window.current_window_state still held the old size.
+    layout_window.current_window_state = current_window_state.clone();
+
     log_debug!(
         LogCategory::Layout,
         "[regenerate_layout] Layout completed, {} DOMs",
