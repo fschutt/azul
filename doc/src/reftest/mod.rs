@@ -1014,6 +1014,7 @@ fn styled_dom_to_png_with_debug_internal(
     let start_time_render = std::time::Instant::now();
 
     // Render the display list using the new cpurender module with FontManager
+    let mut glyph_cache = azul_layout::glyph_cache::GlyphCache::new();
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &display_list,
         &renderer_resources,
@@ -1023,6 +1024,7 @@ fn styled_dom_to_png_with_debug_internal(
             height: height as f32,
             dpi_factor,
         },
+        &mut glyph_cache,
     )
     .map_err(|e| anyhow::anyhow!("Rendering failed: {}", e))?;
 

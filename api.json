@@ -79851,28 +79851,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "VisualBox": {
-                        "external": "azul_css::props::layout::overflow::VisualBox",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "ContentBox": {},
-                                "PaddingBox": {},
-                                "BorderBox": {}
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
