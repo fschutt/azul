@@ -452,8 +452,149 @@ pub enum NodeType {
     Map,
     /// Image map area.
     Area,
-    /// SVG graphics.
+    // SVG elements — container
+    /// SVG `<svg>` root graphics container.
     Svg,
+    /// SVG `<g>` group element.
+    SvgG,
+    /// SVG `<defs>` — reusable definitions (not rendered directly).
+    SvgDefs,
+    /// SVG `<symbol>` — like defs but with its own viewBox.
+    SvgSymbol,
+    /// SVG `<use>` — references and instantiates a defs element.
+    SvgUse,
+    /// SVG `<switch>` — conditional processing.
+    SvgSwitch,
+
+    // SVG elements — shape
+    /// SVG `<path>` element.
+    SvgPath,
+    /// SVG `<circle>` element.
+    SvgCircle,
+    /// SVG `<rect>` element.
+    SvgRect,
+    /// SVG `<ellipse>` element.
+    SvgEllipse,
+    /// SVG `<line>` element.
+    SvgLine,
+    /// SVG `<polygon>` element.
+    SvgPolygon,
+    /// SVG `<polyline>` element.
+    SvgPolyline,
+
+    // SVG elements — text
+    /// SVG `<text>` element.
+    SvgText(AzString),
+    /// SVG `<tspan>` element.
+    SvgTspan,
+    /// SVG `<textPath>` element.
+    SvgTextPath,
+
+    // SVG elements — paint servers
+    /// SVG `<linearGradient>` element.
+    SvgLinearGradient,
+    /// SVG `<radialGradient>` element.
+    SvgRadialGradient,
+    /// SVG `<stop>` gradient stop element.
+    SvgStop,
+    /// SVG `<pattern>` element.
+    SvgPattern,
+
+    // SVG elements — clipping / masking
+    /// SVG `<clipPath>` element.
+    SvgClipPathElement,
+    /// SVG `<mask>` element.
+    SvgMask,
+
+    // SVG elements — filter
+    /// SVG `<filter>` container element.
+    SvgFilter,
+    /// SVG `<feBlend>`.
+    SvgFeBlend,
+    /// SVG `<feColorMatrix>`.
+    SvgFeColorMatrix,
+    /// SVG `<feComponentTransfer>`.
+    SvgFeComponentTransfer,
+    /// SVG `<feComposite>`.
+    SvgFeComposite,
+    /// SVG `<feConvolveMatrix>`.
+    SvgFeConvolveMatrix,
+    /// SVG `<feDiffuseLighting>`.
+    SvgFeDiffuseLighting,
+    /// SVG `<feDisplacementMap>`.
+    SvgFeDisplacementMap,
+    /// SVG `<feDistantLight>`.
+    SvgFeDistantLight,
+    /// SVG `<feDropShadow>`.
+    SvgFeDropShadow,
+    /// SVG `<feFlood>`.
+    SvgFeFlood,
+    /// SVG `<feFuncR>`.
+    SvgFeFuncR,
+    /// SVG `<feFuncG>`.
+    SvgFeFuncG,
+    /// SVG `<feFuncB>`.
+    SvgFeFuncB,
+    /// SVG `<feFuncA>`.
+    SvgFeFuncA,
+    /// SVG `<feGaussianBlur>`.
+    SvgFeGaussianBlur,
+    /// SVG `<feImage>`.
+    SvgFeImage,
+    /// SVG `<feMerge>`.
+    SvgFeMerge,
+    /// SVG `<feMergeNode>`.
+    SvgFeMergeNode,
+    /// SVG `<feMorphology>`.
+    SvgFeMorphology,
+    /// SVG `<feOffset>`.
+    SvgFeOffset,
+    /// SVG `<fePointLight>`.
+    SvgFePointLight,
+    /// SVG `<feSpecularLighting>`.
+    SvgFeSpecularLighting,
+    /// SVG `<feSpotLight>`.
+    SvgFeSpotLight,
+    /// SVG `<feTile>`.
+    SvgFeTile,
+    /// SVG `<feTurbulence>`.
+    SvgFeTurbulence,
+
+    // SVG elements — marker / image / foreign
+    /// SVG `<marker>` element (not the CSS ::marker pseudo-element).
+    SvgMarker,
+    /// SVG `<image>` element (embedded raster image in SVG).
+    SvgImage(ImageRef),
+    /// SVG `<foreignObject>` element.
+    SvgForeignObject,
+
+    // SVG elements — descriptive / structural
+    /// SVG `<title>` element (distinct from HTML `<title>`).
+    SvgTitle,
+    /// SVG `<desc>` element.
+    SvgDesc,
+    /// SVG `<metadata>` element.
+    SvgMetadata,
+    /// SVG `<a>` hyperlink element (distinct from HTML `<a>`).
+    SvgA,
+    /// SVG `<view>` element.
+    SvgView,
+    /// SVG `<style>` element (distinct from HTML `<style>`).
+    SvgStyle,
+    /// SVG `<script>` element (distinct from HTML `<script>`).
+    SvgScript,
+
+    // SVG elements — animation
+    /// SVG `<animate>` element.
+    SvgAnimate,
+    /// SVG `<animateMotion>` element.
+    SvgAnimateMotion,
+    /// SVG `<animateTransform>` element.
+    SvgAnimateTransform,
+    /// SVG `<set>` element.
+    SvgSet,
+    /// SVG `<mpath>` element.
+    SvgMpath,
 
     // Metadata elements
     /// Document title.
@@ -601,7 +742,52 @@ impl NodeType {
             Track => Track,
             Map => Map,
             Area => Area,
-            Svg => Svg,
+            // SVG container
+            Svg => Svg, SvgG => SvgG, SvgDefs => SvgDefs, SvgSymbol => SvgSymbol,
+            SvgUse => SvgUse, SvgSwitch => SvgSwitch,
+            // SVG shape
+            SvgPath => SvgPath, SvgCircle => SvgCircle, SvgRect => SvgRect,
+            SvgEllipse => SvgEllipse, SvgLine => SvgLine,
+            SvgPolygon => SvgPolygon, SvgPolyline => SvgPolyline,
+            // SVG text
+            SvgText(s) => SvgText(s.clone_self()),
+            SvgTspan => SvgTspan, SvgTextPath => SvgTextPath,
+            // SVG paint
+            SvgLinearGradient => SvgLinearGradient, SvgRadialGradient => SvgRadialGradient,
+            SvgStop => SvgStop, SvgPattern => SvgPattern,
+            // SVG clip/mask
+            SvgClipPathElement => SvgClipPathElement, SvgMask => SvgMask,
+            // SVG filter
+            SvgFilter => SvgFilter, SvgFeBlend => SvgFeBlend,
+            SvgFeColorMatrix => SvgFeColorMatrix,
+            SvgFeComponentTransfer => SvgFeComponentTransfer,
+            SvgFeComposite => SvgFeComposite, SvgFeConvolveMatrix => SvgFeConvolveMatrix,
+            SvgFeDiffuseLighting => SvgFeDiffuseLighting,
+            SvgFeDisplacementMap => SvgFeDisplacementMap,
+            SvgFeDistantLight => SvgFeDistantLight, SvgFeDropShadow => SvgFeDropShadow,
+            SvgFeFlood => SvgFeFlood,
+            SvgFeFuncR => SvgFeFuncR, SvgFeFuncG => SvgFeFuncG,
+            SvgFeFuncB => SvgFeFuncB, SvgFeFuncA => SvgFeFuncA,
+            SvgFeGaussianBlur => SvgFeGaussianBlur, SvgFeImage => SvgFeImage,
+            SvgFeMerge => SvgFeMerge, SvgFeMergeNode => SvgFeMergeNode,
+            SvgFeMorphology => SvgFeMorphology, SvgFeOffset => SvgFeOffset,
+            SvgFePointLight => SvgFePointLight,
+            SvgFeSpecularLighting => SvgFeSpecularLighting,
+            SvgFeSpotLight => SvgFeSpotLight,
+            SvgFeTile => SvgFeTile, SvgFeTurbulence => SvgFeTurbulence,
+            // SVG marker/image/foreign
+            SvgMarker => SvgMarker,
+            SvgImage(i) => SvgImage(i.clone()),
+            SvgForeignObject => SvgForeignObject,
+            // SVG descriptive/structural
+            SvgTitle => SvgTitle, SvgDesc => SvgDesc, SvgMetadata => SvgMetadata,
+            SvgA => SvgA, SvgView => SvgView,
+            SvgStyle => SvgStyle, SvgScript => SvgScript,
+            // SVG animation
+            SvgAnimate => SvgAnimate, SvgAnimateMotion => SvgAnimateMotion,
+            SvgAnimateTransform => SvgAnimateTransform,
+            SvgSet => SvgSet, SvgMpath => SvgMpath,
+            // HTML metadata
             Title => Title,
             Meta => Meta,
             Link => Link,
@@ -614,7 +800,7 @@ impl NodeType {
             Placeholder => Placeholder,
 
             Text(s) => Text(s.clone_self()),
-            Image(i) => Image(i.clone()), // note: shallow clone
+            Image(i) => Image(i.clone()),
             VirtualView => VirtualView,
             Icon(s) => Icon(s.clone_self()),
         }
@@ -738,7 +924,71 @@ impl NodeType {
             Self::Track => NodeTypeTag::Track,
             Self::Map => NodeTypeTag::Map,
             Self::Area => NodeTypeTag::Area,
+            // SVG — all variants map 1:1 to NodeTypeTag
             Self::Svg => NodeTypeTag::Svg,
+            Self::SvgG => NodeTypeTag::SvgG,
+            Self::SvgDefs => NodeTypeTag::SvgDefs,
+            Self::SvgSymbol => NodeTypeTag::SvgSymbol,
+            Self::SvgUse => NodeTypeTag::SvgUse,
+            Self::SvgSwitch => NodeTypeTag::SvgSwitch,
+            Self::SvgPath => NodeTypeTag::SvgPath,
+            Self::SvgCircle => NodeTypeTag::SvgCircle,
+            Self::SvgRect => NodeTypeTag::SvgRect,
+            Self::SvgEllipse => NodeTypeTag::SvgEllipse,
+            Self::SvgLine => NodeTypeTag::SvgLine,
+            Self::SvgPolygon => NodeTypeTag::SvgPolygon,
+            Self::SvgPolyline => NodeTypeTag::SvgPolyline,
+            Self::SvgText(_) => NodeTypeTag::SvgText,
+            Self::SvgTspan => NodeTypeTag::SvgTspan,
+            Self::SvgTextPath => NodeTypeTag::SvgTextPath,
+            Self::SvgLinearGradient => NodeTypeTag::SvgLinearGradient,
+            Self::SvgRadialGradient => NodeTypeTag::SvgRadialGradient,
+            Self::SvgStop => NodeTypeTag::SvgStop,
+            Self::SvgPattern => NodeTypeTag::SvgPattern,
+            Self::SvgClipPathElement => NodeTypeTag::SvgClipPathElement,
+            Self::SvgMask => NodeTypeTag::SvgMask,
+            Self::SvgFilter => NodeTypeTag::SvgFilter,
+            Self::SvgFeBlend => NodeTypeTag::SvgFeBlend,
+            Self::SvgFeColorMatrix => NodeTypeTag::SvgFeColorMatrix,
+            Self::SvgFeComponentTransfer => NodeTypeTag::SvgFeComponentTransfer,
+            Self::SvgFeComposite => NodeTypeTag::SvgFeComposite,
+            Self::SvgFeConvolveMatrix => NodeTypeTag::SvgFeConvolveMatrix,
+            Self::SvgFeDiffuseLighting => NodeTypeTag::SvgFeDiffuseLighting,
+            Self::SvgFeDisplacementMap => NodeTypeTag::SvgFeDisplacementMap,
+            Self::SvgFeDistantLight => NodeTypeTag::SvgFeDistantLight,
+            Self::SvgFeDropShadow => NodeTypeTag::SvgFeDropShadow,
+            Self::SvgFeFlood => NodeTypeTag::SvgFeFlood,
+            Self::SvgFeFuncR => NodeTypeTag::SvgFeFuncR,
+            Self::SvgFeFuncG => NodeTypeTag::SvgFeFuncG,
+            Self::SvgFeFuncB => NodeTypeTag::SvgFeFuncB,
+            Self::SvgFeFuncA => NodeTypeTag::SvgFeFuncA,
+            Self::SvgFeGaussianBlur => NodeTypeTag::SvgFeGaussianBlur,
+            Self::SvgFeImage => NodeTypeTag::SvgFeImage,
+            Self::SvgFeMerge => NodeTypeTag::SvgFeMerge,
+            Self::SvgFeMergeNode => NodeTypeTag::SvgFeMergeNode,
+            Self::SvgFeMorphology => NodeTypeTag::SvgFeMorphology,
+            Self::SvgFeOffset => NodeTypeTag::SvgFeOffset,
+            Self::SvgFePointLight => NodeTypeTag::SvgFePointLight,
+            Self::SvgFeSpecularLighting => NodeTypeTag::SvgFeSpecularLighting,
+            Self::SvgFeSpotLight => NodeTypeTag::SvgFeSpotLight,
+            Self::SvgFeTile => NodeTypeTag::SvgFeTile,
+            Self::SvgFeTurbulence => NodeTypeTag::SvgFeTurbulence,
+            Self::SvgMarker => NodeTypeTag::SvgMarker,
+            Self::SvgImage(_) => NodeTypeTag::SvgImage,
+            Self::SvgForeignObject => NodeTypeTag::SvgForeignObject,
+            Self::SvgTitle => NodeTypeTag::SvgTitle,
+            Self::SvgDesc => NodeTypeTag::SvgDesc,
+            Self::SvgMetadata => NodeTypeTag::SvgMetadata,
+            Self::SvgA => NodeTypeTag::SvgA,
+            Self::SvgView => NodeTypeTag::SvgView,
+            Self::SvgStyle => NodeTypeTag::SvgStyle,
+            Self::SvgScript => NodeTypeTag::SvgScript,
+            Self::SvgAnimate => NodeTypeTag::SvgAnimate,
+            Self::SvgAnimateMotion => NodeTypeTag::SvgAnimateMotion,
+            Self::SvgAnimateTransform => NodeTypeTag::SvgAnimateTransform,
+            Self::SvgSet => NodeTypeTag::SvgSet,
+            Self::SvgMpath => NodeTypeTag::SvgMpath,
+            // HTML metadata
             Self::Title => NodeTypeTag::Title,
             Self::Meta => NodeTypeTag::Meta,
             Self::Link => NodeTypeTag::Link,
@@ -1316,7 +1566,7 @@ impl Hash for NodeData {
             if let Some(ds) = ext.dataset.as_ref() {
                 ds.hash(state);
             }
-            if let Some(c) = ext.clip_mask.as_ref() {
+            if let Some(c) = ext.svg_data.as_ref() {
                 c.hash(state);
             }
             if let Some(c) = ext.menu_bar.as_ref() {
@@ -1387,6 +1637,139 @@ impl Default for ComponentOrigin {
     }
 }
 
+/// SVG-specific data stored on a DOM node.
+///
+/// Each SVG element type stores its parsed attribute data here.
+/// Also used for raster image clip masks (legacy C API).
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum SvgNodeData {
+    /// Raster R8 image clip mask (legacy C API for chart.c style manual masks).
+    ImageClipMask(ImageMask),
+    /// `<path d="...">` — resolved path geometry.
+    Path(crate::svg::SvgMultiPolygon),
+    /// `<circle cx="" cy="" r="">`.
+    Circle { cx: f32, cy: f32, r: f32 },
+    /// `<rect x="" y="" width="" height="" rx="" ry="">`.
+    Rect { x: f32, y: f32, width: f32, height: f32, rx: f32, ry: f32 },
+    /// `<ellipse cx="" cy="" rx="" ry="">`.
+    Ellipse { cx: f32, cy: f32, rx: f32, ry: f32 },
+    /// `<line x1="" y1="" x2="" y2="">`.
+    Line { x1: f32, y1: f32, x2: f32, y2: f32 },
+    /// `<polygon points="">` / `<polyline points="">` — parsed point list.
+    PointsList { points: alloc::vec::Vec<azul_css::props::basic::SvgPoint>, closed: bool },
+    /// `<svg viewBox="" width="" height="">` — viewport attributes.
+    ViewBox { min_x: f32, min_y: f32, width: f32, height: f32 },
+    /// `<linearGradient>` attributes.
+    LinearGradient { x1: f32, y1: f32, x2: f32, y2: f32 },
+    /// `<radialGradient>` attributes.
+    RadialGradient { cx: f32, cy: f32, r: f32, fx: f32, fy: f32 },
+    /// `<stop offset="" stop-color="" stop-opacity="">`.
+    GradientStop { offset: f32 },
+    /// `<use href="" x="" y="">`.
+    Use { href: AzString, x: f32, y: f32 },
+    /// `<image href="" x="" y="" width="" height="">`.
+    SvgImageData { href: AzString, x: f32, y: f32, width: f32, height: f32 },
+}
+
+impl Eq for SvgNodeData {}
+
+impl Ord for SvgNodeData {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(core::cmp::Ordering::Equal)
+    }
+}
+
+impl Hash for SvgNodeData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            SvgNodeData::ImageClipMask(m) => m.hash(state),
+            SvgNodeData::Path(mp) => {
+                for ring in mp.rings.as_ref().iter() {
+                    for item in ring.items.as_ref().iter() {
+                        match item {
+                            crate::svg::SvgPathElement::Line(l) => {
+                                0u8.hash(state);
+                                l.start.x.to_bits().hash(state);
+                                l.start.y.to_bits().hash(state);
+                                l.end.x.to_bits().hash(state);
+                                l.end.y.to_bits().hash(state);
+                            }
+                            crate::svg::SvgPathElement::QuadraticCurve(q) => {
+                                1u8.hash(state);
+                                q.start.x.to_bits().hash(state);
+                                q.start.y.to_bits().hash(state);
+                                q.ctrl.x.to_bits().hash(state);
+                                q.ctrl.y.to_bits().hash(state);
+                                q.end.x.to_bits().hash(state);
+                                q.end.y.to_bits().hash(state);
+                            }
+                            crate::svg::SvgPathElement::CubicCurve(c) => {
+                                2u8.hash(state);
+                                c.start.x.to_bits().hash(state);
+                                c.start.y.to_bits().hash(state);
+                                c.ctrl_1.x.to_bits().hash(state);
+                                c.ctrl_1.y.to_bits().hash(state);
+                                c.ctrl_2.x.to_bits().hash(state);
+                                c.ctrl_2.y.to_bits().hash(state);
+                                c.end.x.to_bits().hash(state);
+                                c.end.y.to_bits().hash(state);
+                            }
+                        }
+                    }
+                }
+            }
+            SvgNodeData::Circle { cx, cy, r } => {
+                cx.to_bits().hash(state); cy.to_bits().hash(state); r.to_bits().hash(state);
+            }
+            SvgNodeData::Rect { x, y, width, height, rx, ry } => {
+                x.to_bits().hash(state); y.to_bits().hash(state);
+                width.to_bits().hash(state); height.to_bits().hash(state);
+                rx.to_bits().hash(state); ry.to_bits().hash(state);
+            }
+            SvgNodeData::Ellipse { cx, cy, rx, ry } => {
+                cx.to_bits().hash(state); cy.to_bits().hash(state);
+                rx.to_bits().hash(state); ry.to_bits().hash(state);
+            }
+            SvgNodeData::Line { x1, y1, x2, y2 } => {
+                x1.to_bits().hash(state); y1.to_bits().hash(state);
+                x2.to_bits().hash(state); y2.to_bits().hash(state);
+            }
+            SvgNodeData::PointsList { points, closed } => {
+                for p in points.iter() {
+                    p.x.to_bits().hash(state); p.y.to_bits().hash(state);
+                }
+                closed.hash(state);
+            }
+            SvgNodeData::ViewBox { min_x, min_y, width, height } => {
+                min_x.to_bits().hash(state); min_y.to_bits().hash(state);
+                width.to_bits().hash(state); height.to_bits().hash(state);
+            }
+            SvgNodeData::LinearGradient { x1, y1, x2, y2 } => {
+                x1.to_bits().hash(state); y1.to_bits().hash(state);
+                x2.to_bits().hash(state); y2.to_bits().hash(state);
+            }
+            SvgNodeData::RadialGradient { cx, cy, r, fx, fy } => {
+                cx.to_bits().hash(state); cy.to_bits().hash(state);
+                r.to_bits().hash(state); fx.to_bits().hash(state);
+                fy.to_bits().hash(state);
+            }
+            SvgNodeData::GradientStop { offset } => {
+                offset.to_bits().hash(state);
+            }
+            SvgNodeData::Use { href, x, y } => {
+                href.hash(state);
+                x.to_bits().hash(state); y.to_bits().hash(state);
+            }
+            SvgNodeData::SvgImageData { href, x, y, width, height } => {
+                href.hash(state);
+                x.to_bits().hash(state); y.to_bits().hash(state);
+                width.to_bits().hash(state); height.to_bits().hash(state);
+            }
+        }
+    }
+}
+
 /// NOTE: NOT EXPOSED IN THE API! Stores extra,
 /// not commonly used information for the NodeData.
 /// This helps keep the primary `NodeData` struct smaller for common cases.
@@ -1397,8 +1780,8 @@ pub struct NodeDataExt {
     pub virtual_view: Option<VirtualViewNode>,
     /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
     pub dataset: Option<RefAny>,
-    /// Optional clip mask for this DOM node.
-    pub clip_mask: Option<ImageMask>,
+    /// SVG-specific data or raster clip mask for this DOM node.
+    pub svg_data: Option<SvgNodeData>,
     /// Menu bar that should be displayed at the top of this nodes rect.
     pub menu_bar: Option<Box<Menu>>,
     /// Context menu that should be opened when the item is left-clicked.
@@ -1875,8 +2258,17 @@ impl NodeData {
     }
 
     #[inline]
-    pub fn get_clip_mask(&self) -> Option<&ImageMask> {
-        self.extra.as_ref().and_then(|e| e.clip_mask.as_ref())
+    pub fn get_svg_data(&self) -> Option<&SvgNodeData> {
+        self.extra.as_ref().and_then(|e| e.svg_data.as_ref())
+    }
+
+    /// Legacy accessor for raster clip mask. Returns `Some` only for `SvgNodeData::ImageClipMask`.
+    #[inline]
+    pub fn get_image_clip_mask(&self) -> Option<&ImageMask> {
+        match self.get_svg_data()? {
+            SvgNodeData::ImageClipMask(m) => Some(m),
+            _ => None,
+        }
     }
     #[inline]
     pub fn get_tab_index(&self) -> Option<TabIndex> {
@@ -1951,7 +2343,13 @@ impl NodeData {
     pub fn set_clip_mask(&mut self, clip_mask: ImageMask) {
         self.extra
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
-            .clip_mask = Some(clip_mask);
+            .svg_data = Some(SvgNodeData::ImageClipMask(clip_mask));
+    }
+    #[inline]
+    pub fn set_svg_data(&mut self, data: SvgNodeData) {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .svg_data = Some(data);
     }
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: TabIndex) {
@@ -4549,6 +4947,18 @@ impl Dom {
     #[inline]
     pub fn with_clip_mask(mut self, clip_mask: ImageMask) -> Self {
         self.root.set_clip_mask(clip_mask);
+        self
+    }
+
+    #[inline]
+    pub fn with_svg_clip_path(mut self, clip: crate::svg::SvgMultiPolygon) -> Self {
+        self.root.set_svg_data(SvgNodeData::Path(clip));
+        self
+    }
+
+    #[inline]
+    pub fn with_svg_data(mut self, data: SvgNodeData) -> Self {
+        self.root.set_svg_data(data);
         self
     }
 

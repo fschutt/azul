@@ -2421,24 +2421,39 @@ where
             Some(nd) => nd,
             None => return false,
         };
-        if let Some(clip_mask) = node_data.get_clip_mask() {
-            let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
-            // Convert mask rect from element-local to window-logical coordinates
-            let mask_rect = LogicalRect {
-                origin: LogicalPosition {
-                    x: paint_rect.origin.x + clip_mask.rect.origin.x,
-                    y: paint_rect.origin.y + clip_mask.rect.origin.y,
-                },
-                size: clip_mask.rect.size,
-            };
-            builder.push_image_mask_clip(
-                paint_rect,
-                clip_mask.image.clone(),
-                mask_rect,
-            );
-            true
-        } else {
-            false
+        match node_data.get_svg_data() {
+            Some(azul_core::dom::SvgNodeData::ImageClipMask(clip_mask)) => {
+                let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+                // Convert mask rect from element-local to window-logical coordinates
+                let mask_rect = LogicalRect {
+                    origin: LogicalPosition {
+                        x: paint_rect.origin.x + clip_mask.rect.origin.x,
+                        y: paint_rect.origin.y + clip_mask.rect.origin.y,
+                    },
+                    size: clip_mask.rect.size,
+                };
+                builder.push_image_mask_clip(
+                    paint_rect,
+                    clip_mask.image.clone(),
+                    mask_rect,
+                );
+                true
+            }
+            #[cfg(feature = "cpurender")]
+            Some(azul_core::dom::SvgNodeData::Path(svg_clip)) => {
+                let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+                if let Some(mask_image) = rasterize_svg_clip_to_r8(svg_clip, &paint_rect) {
+                    builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
+                    true
+                } else {
+                    false
+                }
+            }
+            #[cfg(not(feature = "cpurender"))]
+            Some(azul_core::dom::SvgNodeData::Path(_)) => false,
+            // Other SvgNodeData variants (shapes, gradients, etc.) don't produce clip masks
+            Some(_) => false,
+            None => false,
         }
     }
 
@@ -6000,4 +6015,118 @@ pub fn apply_clip_path(
     // Append PopClip at the end
     display_list.items.push(DisplayListItem::PopClip);
     display_list.node_mapping.push(None);
+}
+
+/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given paint rect size.
+///
+/// Returns `None` if the rect has zero size.
+#[cfg(feature = "cpurender")]
+fn rasterize_svg_clip_to_r8(
+    svg_clip: &azul_core::svg::SvgMultiPolygon,
+    paint_rect: &LogicalRect,
+) -> Option<azul_core::resources::ImageRef> {
+    use agg_rust::{
+        basics::FillingRule,
+        color::Rgba8,
+        path_storage::PathStorage,
+        pixfmt_rgba::PixfmtRgba32,
+        rasterizer_scanline_aa::RasterizerScanlineAa,
+        renderer_base::RendererBase,
+        renderer_scanline::render_scanlines_aa_solid,
+        rendering_buffer::RowAccessor,
+        scanline_u::ScanlineU8,
+    };
+    use azul_core::resources::{ImageRef, RawImage, RawImageFormat, RawImageData};
+
+    let w = paint_rect.size.width.ceil() as u32;
+    let h = paint_rect.size.height.ceil() as u32;
+    if w == 0 || h == 0 {
+        return None;
+    }
+
+    // Build agg PathStorage from SvgMultiPolygon
+    let mut path = PathStorage::new();
+    for ring in svg_clip.rings.as_ref().iter() {
+        let mut first = true;
+        for item in ring.items.as_ref().iter() {
+            match item {
+                azul_core::svg::SvgPathElement::Line(l) => {
+                    if first {
+                        path.move_to(
+                            (l.start.x - paint_rect.origin.x) as f64,
+                            (l.start.y - paint_rect.origin.y) as f64,
+                        );
+                        first = false;
+                    }
+                    path.line_to(
+                        (l.end.x - paint_rect.origin.x) as f64,
+                        (l.end.y - paint_rect.origin.y) as f64,
+                    );
+                }
+                azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
+                    if first {
+                        path.move_to(
+                            (q.start.x - paint_rect.origin.x) as f64,
+                            (q.start.y - paint_rect.origin.y) as f64,
+                        );
+                        first = false;
+                    }
+                    path.curve3(
+                        (q.ctrl.x - paint_rect.origin.x) as f64,
+                        (q.ctrl.y - paint_rect.origin.y) as f64,
+                        (q.end.x - paint_rect.origin.x) as f64,
+                        (q.end.y - paint_rect.origin.y) as f64,
+                    );
+                }
+                azul_core::svg::SvgPathElement::CubicCurve(c) => {
+                    if first {
+                        path.move_to(
+                            (c.start.x - paint_rect.origin.x) as f64,
+                            (c.start.y - paint_rect.origin.y) as f64,
+                        );
+                        first = false;
+                    }
+                    path.curve4(
+                        (c.ctrl_1.x - paint_rect.origin.x) as f64,
+                        (c.ctrl_1.y - paint_rect.origin.y) as f64,
+                        (c.ctrl_2.x - paint_rect.origin.x) as f64,
+                        (c.ctrl_2.y - paint_rect.origin.y) as f64,
+                        (c.end.x - paint_rect.origin.x) as f64,
+                        (c.end.y - paint_rect.origin.y) as f64,
+                    );
+                }
+            }
+        }
+    }
+
+    // Rasterize to RGBA32 buffer
+    let mut rgba_buf = vec![0u8; (w * h * 4) as usize];
+    {
+        let stride = (w * 4) as i32;
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(rgba_buf.as_mut_ptr(), w, h, stride)
+        };
+        let pf = PixfmtRgba32::new(&mut ra);
+        let mut rb = RendererBase::new(pf);
+
+        let mut ras = RasterizerScanlineAa::new();
+        ras.filling_rule(FillingRule::NonZero);
+        ras.add_path(&mut path, 0);
+
+        let mut sl = ScanlineU8::new();
+        let white = Rgba8 { r: 255, g: 255, b: 255, a: 255 };
+        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
+    }
+
+    // Extract alpha channel as R8 mask
+    let r8_data: Vec<u8> = rgba_buf.chunks_exact(4).map(|px| px[3]).collect();
+
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(r8_data.into()),
+        width: w as usize,
+        height: h as usize,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::R8,
+        tag: Vec::new().into(),
+    })
 }

@@ -2318,7 +2318,62 @@ fn tag_to_node_type(tag: &str) -> NodeType {
         "track" => NodeType::Track,
         "map" => NodeType::Map,
         "area" => NodeType::Area,
+        // SVG elements
         "svg" => NodeType::Svg,
+        "g" => NodeType::SvgG,
+        "defs" => NodeType::SvgDefs,
+        "symbol" => NodeType::SvgSymbol,
+        "use" => NodeType::SvgUse,
+        "switch" => NodeType::SvgSwitch,
+        "path" => NodeType::SvgPath,
+        "circle" => NodeType::SvgCircle,
+        "rect" => NodeType::SvgRect,
+        "ellipse" => NodeType::SvgEllipse,
+        "line" => NodeType::SvgLine,
+        "polygon" => NodeType::SvgPolygon,
+        "polyline" => NodeType::SvgPolyline,
+        "tspan" => NodeType::SvgTspan,
+        "textpath" => NodeType::SvgTextPath,
+        "lineargradient" => NodeType::SvgLinearGradient,
+        "radialgradient" => NodeType::SvgRadialGradient,
+        "stop" => NodeType::SvgStop,
+        "pattern" => NodeType::SvgPattern,
+        "clippath" => NodeType::SvgClipPathElement,
+        "mask" => NodeType::SvgMask,
+        "filter" => NodeType::SvgFilter,
+        "feblend" => NodeType::SvgFeBlend,
+        "fecolormatrix" => NodeType::SvgFeColorMatrix,
+        "fecomponenttransfer" => NodeType::SvgFeComponentTransfer,
+        "fecomposite" => NodeType::SvgFeComposite,
+        "feconvolvematrix" => NodeType::SvgFeConvolveMatrix,
+        "fediffuselighting" => NodeType::SvgFeDiffuseLighting,
+        "fedisplacementmap" => NodeType::SvgFeDisplacementMap,
+        "fedistantlight" => NodeType::SvgFeDistantLight,
+        "fedropshadow" => NodeType::SvgFeDropShadow,
+        "feflood" => NodeType::SvgFeFlood,
+        "fefuncr" => NodeType::SvgFeFuncR,
+        "fefuncg" => NodeType::SvgFeFuncG,
+        "fefuncb" => NodeType::SvgFeFuncB,
+        "fefunca" => NodeType::SvgFeFuncA,
+        "fegaussianblur" => NodeType::SvgFeGaussianBlur,
+        "feimage" => NodeType::SvgFeImage,
+        "femerge" => NodeType::SvgFeMerge,
+        "femergenode" => NodeType::SvgFeMergeNode,
+        "femorphology" => NodeType::SvgFeMorphology,
+        "feoffset" => NodeType::SvgFeOffset,
+        "fepointlight" => NodeType::SvgFePointLight,
+        "fespecularlighting" => NodeType::SvgFeSpecularLighting,
+        "fespotlight" => NodeType::SvgFeSpotLight,
+        "fetile" => NodeType::SvgFeTile,
+        "feturbulence" => NodeType::SvgFeTurbulence,
+        "foreignobject" => NodeType::SvgForeignObject,
+        "desc" => NodeType::SvgDesc,
+        "view" => NodeType::SvgView,
+        "animate" => NodeType::SvgAnimate,
+        "animatemotion" => NodeType::SvgAnimateMotion,
+        "animatetransform" => NodeType::SvgAnimateTransform,
+        "set" => NodeType::SvgSet,
+        "mpath" => NodeType::SvgMpath,
         // Metadata
         "meta" => NodeType::Meta,
         "link" => NodeType::Link,
@@ -2448,6 +2503,60 @@ fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
         "map" => NodeTypeTag::Map,
         "area" => NodeTypeTag::Area,
         "svg" => NodeTypeTag::Svg,
+        "g" => NodeTypeTag::SvgG,
+        "defs" => NodeTypeTag::SvgDefs,
+        "symbol" => NodeTypeTag::SvgSymbol,
+        "use" => NodeTypeTag::SvgUse,
+        "switch" => NodeTypeTag::SvgSwitch,
+        "path" => NodeTypeTag::SvgPath,
+        "circle" => NodeTypeTag::SvgCircle,
+        "rect" => NodeTypeTag::SvgRect,
+        "ellipse" => NodeTypeTag::SvgEllipse,
+        "line" => NodeTypeTag::SvgLine,
+        "polygon" => NodeTypeTag::SvgPolygon,
+        "polyline" => NodeTypeTag::SvgPolyline,
+        "tspan" => NodeTypeTag::SvgTspan,
+        "textpath" => NodeTypeTag::SvgTextPath,
+        "lineargradient" => NodeTypeTag::SvgLinearGradient,
+        "radialgradient" => NodeTypeTag::SvgRadialGradient,
+        "stop" => NodeTypeTag::SvgStop,
+        "pattern" => NodeTypeTag::SvgPattern,
+        "clippath" => NodeTypeTag::SvgClipPathElement,
+        "mask" => NodeTypeTag::SvgMask,
+        "filter" => NodeTypeTag::SvgFilter,
+        "feblend" => NodeTypeTag::SvgFeBlend,
+        "fecolormatrix" => NodeTypeTag::SvgFeColorMatrix,
+        "fecomponenttransfer" => NodeTypeTag::SvgFeComponentTransfer,
+        "fecomposite" => NodeTypeTag::SvgFeComposite,
+        "feconvolvematrix" => NodeTypeTag::SvgFeConvolveMatrix,
+        "fediffuselighting" => NodeTypeTag::SvgFeDiffuseLighting,
+        "fedisplacementmap" => NodeTypeTag::SvgFeDisplacementMap,
+        "fedistantlight" => NodeTypeTag::SvgFeDistantLight,
+        "fedropshadow" => NodeTypeTag::SvgFeDropShadow,
+        "feflood" => NodeTypeTag::SvgFeFlood,
+        "fefuncr" => NodeTypeTag::SvgFeFuncR,
+        "fefuncg" => NodeTypeTag::SvgFeFuncG,
+        "fefuncb" => NodeTypeTag::SvgFeFuncB,
+        "fefunca" => NodeTypeTag::SvgFeFuncA,
+        "fegaussianblur" => NodeTypeTag::SvgFeGaussianBlur,
+        "feimage" => NodeTypeTag::SvgFeImage,
+        "femerge" => NodeTypeTag::SvgFeMerge,
+        "femergenode" => NodeTypeTag::SvgFeMergeNode,
+        "femorphology" => NodeTypeTag::SvgFeMorphology,
+        "feoffset" => NodeTypeTag::SvgFeOffset,
+        "fepointlight" => NodeTypeTag::SvgFePointLight,
+        "fespecularlighting" => NodeTypeTag::SvgFeSpecularLighting,
+        "fespotlight" => NodeTypeTag::SvgFeSpotLight,
+        "fetile" => NodeTypeTag::SvgFeTile,
+        "feturbulence" => NodeTypeTag::SvgFeTurbulence,
+        "foreignobject" => NodeTypeTag::SvgForeignObject,
+        "desc" => NodeTypeTag::SvgDesc,
+        "view" => NodeTypeTag::SvgView,
+        "animate" => NodeTypeTag::SvgAnimate,
+        "animatemotion" => NodeTypeTag::SvgAnimateMotion,
+        "animatetransform" => NodeTypeTag::SvgAnimateTransform,
+        "set" => NodeTypeTag::SvgSet,
+        "mpath" => NodeTypeTag::SvgMpath,
         // Metadata
         "meta" => NodeTypeTag::Meta,
         "link" => NodeTypeTag::Link,
@@ -4206,7 +4315,7 @@ pub fn str_to_dom_unstyled<'a>(
     }
 
     // Build the DOM tree from the body node
-    let body_dom = xml_node_to_dom_fast(&body_node, component_map)
+    let body_dom = xml_node_to_dom_fast(&body_node, component_map, false)
         .map_err(|e| DomXmlParseError::from(e))?;
 
     // Wrap in proper HTML structure
@@ -4442,11 +4551,51 @@ pub fn compile_component(
     )
 }
 
+/// Parse an SVG numeric attribute value to f32.
+fn parse_svg_float(attr: Option<&AzString>) -> Option<f32> {
+    attr?.as_str().trim().parse::<f32>().ok()
+}
+
+/// Parse an SVG `points` attribute (used by `<polygon>` and `<polyline>`).
+fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygon> {
+    let nums: Vec<f32> = pts
+        .split(|c: char| c == ',' || c.is_ascii_whitespace())
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<f32>().ok())
+        .collect();
+    if nums.len() < 4 || nums.len() % 2 != 0 {
+        return None;
+    }
+    let mut elements = Vec::new();
+    let points: Vec<azul_css::props::basic::SvgPoint> = nums
+        .chunks_exact(2)
+        .map(|c| azul_css::props::basic::SvgPoint { x: c[0], y: c[1] })
+        .collect();
+    for w in points.windows(2) {
+        elements.push(crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(w[0], w[1])));
+    }
+    if close && points.len() >= 2 {
+        let first = points[0];
+        let last = *points.last().unwrap();
+        if (first.x - last.x).abs() > 0.001 || (first.y - last.y).abs() > 0.001 {
+            elements.push(crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(last, first)));
+        }
+    }
+    Some(crate::svg::SvgMultiPolygon {
+        rings: crate::svg::SvgPathVec::from_vec(vec![
+            crate::svg::SvgPath {
+                items: crate::svg::SvgPathElementVec::from_vec(elements),
+            }
+        ]),
+    })
+}
+
 /// Fast XML to Dom conversion that builds Dom tree directly without intermediate StyledDom
 /// This is O(n) instead of O(n²) for large documents
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
+    inside_svg: bool,
 ) -> Result<Dom, RenderDomError> {
     use crate::dom::{Dom, NodeType, IdOrClass, TabIndex};
 
@@ -4515,12 +4664,133 @@ fn xml_node_to_dom_fast<'a>(
         }
     }
 
+    // Handle SVG shape elements when inside an <svg> context
+    let tag = component_name.as_str();
+    let child_inside_svg = inside_svg || tag == "svg";
+    let is_svg_shape = inside_svg && matches!(tag, "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline");
+
+    if is_svg_shape {
+        let clip = match tag {
+            "path" => {
+                xml_node.attributes.get_key("d").and_then(|d| {
+                    crate::svg_path_parser::parse_svg_path_d(d.as_str()).ok()
+                })
+            }
+            "circle" => {
+                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
+                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
+                let r = parse_svg_float(xml_node.attributes.get_key("r")).unwrap_or(0.0);
+                if r > 0.0 {
+                    Some(crate::svg::SvgMultiPolygon {
+                        rings: crate::svg::SvgPathVec::from_vec(vec![
+                            crate::svg_path_parser::svg_circle_to_paths(cx, cy, r)
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            }
+            "rect" => {
+                let x = parse_svg_float(xml_node.attributes.get_key("x")).unwrap_or(0.0);
+                let y = parse_svg_float(xml_node.attributes.get_key("y")).unwrap_or(0.0);
+                let w = parse_svg_float(xml_node.attributes.get_key("width")).unwrap_or(0.0);
+                let h = parse_svg_float(xml_node.attributes.get_key("height")).unwrap_or(0.0);
+                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
+                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(rx);
+                if w > 0.0 && h > 0.0 {
+                    Some(crate::svg::SvgMultiPolygon {
+                        rings: crate::svg::SvgPathVec::from_vec(vec![
+                            crate::svg_path_parser::svg_rect_to_path(x, y, w, h, rx, ry)
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            }
+            "ellipse" => {
+                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
+                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
+                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
+                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
+                if rx > 0.0 && ry > 0.0 {
+                    // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for y-kappa)
+                    use azul_css::props::basic::{SvgPoint, SvgCubicCurve};
+                    const KAPPA: f32 = 0.5522847498;
+                    let kx = rx * KAPPA;
+                    let ky = ry * KAPPA;
+                    let elements = vec![
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx, y: cy - ry },
+                            ctrl_1: SvgPoint { x: cx + kx, y: cy - ry },
+                            ctrl_2: SvgPoint { x: cx + rx, y: cy - ky },
+                            end: SvgPoint { x: cx + rx, y: cy },
+                        }),
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx + rx, y: cy },
+                            ctrl_1: SvgPoint { x: cx + rx, y: cy + ky },
+                            ctrl_2: SvgPoint { x: cx + kx, y: cy + ry },
+                            end: SvgPoint { x: cx, y: cy + ry },
+                        }),
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx, y: cy + ry },
+                            ctrl_1: SvgPoint { x: cx - kx, y: cy + ry },
+                            ctrl_2: SvgPoint { x: cx - rx, y: cy + ky },
+                            end: SvgPoint { x: cx - rx, y: cy },
+                        }),
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx - rx, y: cy },
+                            ctrl_1: SvgPoint { x: cx - rx, y: cy - ky },
+                            ctrl_2: SvgPoint { x: cx - kx, y: cy - ry },
+                            end: SvgPoint { x: cx, y: cy - ry },
+                        }),
+                    ];
+                    Some(crate::svg::SvgMultiPolygon {
+                        rings: crate::svg::SvgPathVec::from_vec(vec![
+                            crate::svg::SvgPath { items: crate::svg::SvgPathElementVec::from_vec(elements) }
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            }
+            "line" => {
+                let x1 = parse_svg_float(xml_node.attributes.get_key("x1")).unwrap_or(0.0);
+                let y1 = parse_svg_float(xml_node.attributes.get_key("y1")).unwrap_or(0.0);
+                let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
+                let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
+                Some(crate::svg::SvgMultiPolygon {
+                    rings: crate::svg::SvgPathVec::from_vec(vec![
+                        crate::svg::SvgPath {
+                            items: crate::svg::SvgPathElementVec::from_vec(vec![
+                                crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                                    azul_css::props::basic::SvgPoint { x: x1, y: y1 },
+                                    azul_css::props::basic::SvgPoint { x: x2, y: y2 },
+                                ))
+                            ]),
+                        }
+                    ]),
+                })
+            }
+            "polygon" | "polyline" => {
+                xml_node.attributes.get_key("points").and_then(|pts| {
+                    parse_svg_points(pts.as_str(), tag == "polygon")
+                })
+            }
+            _ => None,
+        };
+
+        if let Some(mp) = clip {
+            dom.root.set_svg_data(crate::dom::SvgNodeData::Path(mp));
+        }
+
+    }
+
     // Recursively convert children
     let mut children = Vec::new();
     for child in xml_node.children.as_ref().iter() {
         match child {
             XmlNodeChild::Element(child_node) => {
-                let child_dom = xml_node_to_dom_fast(child_node, component_map)?;
+                let child_dom = xml_node_to_dom_fast(child_node, component_map, child_inside_svg)?;
                 children.push(child_dom);
             }
             XmlNodeChild::Text(text) => {
@@ -4546,7 +4816,7 @@ pub fn render_dom_from_body_node<'a>(
 ) -> Result<StyledDom, RenderDomError> {
     // OPTIMIZATION: Build Dom tree first, then style once at the end
     // This avoids O(n) StyledDom::create() calls for each of the ~360k nodes
-    let body_dom = xml_node_to_dom_fast(body_node, component_map)?;
+    let body_dom = xml_node_to_dom_fast(body_node, component_map, false)?;
     
     // OPTIMIZATION: Combine all CSS rules and apply ONCE instead of multiple restyle() calls
     // Each restyle() is O(n * m) where n=nodes and m=CSS rules

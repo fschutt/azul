@@ -244,3 +244,15 @@ path = "tests/test_hint_debug.rs"
 [[test]]
 name = "test_hint_vs_freetype"
 path = "tests/test_hint_vs_freetype.rs"
+
+[[test]]
+name = "svg_path_parser"
+path = "tests/svg_path_parser.rs"
+
+[[test]]
+name = "svg_render"
+path = "tests/svg_render.rs"
+
+[[test]]
+name = "svg_xml_dom"
+path = "tests/svg_xml_dom.rs"

@@ -1921,3 +1921,40 @@ pub fn render_component_preview(
         content_height: render_height,
     })
 }
+
+/// Render a `Dom` + `Css` to a PNG image at the given dimensions.
+///
+/// This is a convenience API that creates a `StyledDom`, lays it out,
+/// and rasterizes via the CPU renderer.
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+pub fn render_dom_to_image(
+    mut dom: azul_core::dom::Dom,
+    css: azul_css::css::Css,
+    width: f32,
+    height: f32,
+    dpi: f32,
+) -> Result<Vec<u8>, String> {
+    use azul_core::styled_dom::StyledDom;
+    use crate::font_traits::FontManager;
+
+    let styled_dom = StyledDom::create(&mut dom, css);
+
+    let fc_cache = crate::font::loading::build_font_cache();
+    let font_manager = FontManager::new(fc_cache)
+        .map_err(|e| format!("Failed to create font manager: {:?}", e))?;
+
+    let opts = ComponentPreviewOptions {
+        width: Some(width),
+        height: Some(height),
+        dpi_factor: dpi,
+        background_color: azul_css::props::basic::ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
+    };
+
+    let result = render_component_preview(styled_dom, &font_manager, opts, None)?;
+    Ok(result.png_data)
+}
