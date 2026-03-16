@@ -2089,9 +2089,13 @@ fn render_svg_group_with_style(
                 render_svg_group_with_style(child_node, pixmap, &group_transform, &group_style);
             }
             "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
-                let mut path = build_agg_path(child_node);
-                if path.is_none() { continue; }
-                let path = path.as_mut().unwrap();
+                let path_storage = match build_agg_path(child_node) {
+                    Some(p) => p,
+                    None => continue,
+                };
+
+                // Flatten bezier curves into line segments for the rasterizer
+                let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
 
                 // Per-element transform
                 let elem_transform = if let Some(t) = child_node.attributes.get_key("transform") {
@@ -2130,7 +2134,8 @@ fn render_svg_group_with_style(
                         _ => FillingRule::NonZero,
                     };
 
-                    agg_fill_transformed_path(pixmap, path, &color, rule, &elem_transform);
+                    let mut transformed = ConvTransform::new(&mut curved, elem_transform.clone());
+                    agg_fill_path(pixmap, &mut transformed, &color, rule);
                 }
 
                 // Stroke: element overrides group
@@ -2153,7 +2158,7 @@ fn render_svg_group_with_style(
                         .or(group_style.stroke_width)
                         .unwrap_or(1.0);
 
-                    let mut conv_stroke = ConvStroke::new(path.clone());
+                    let mut conv_stroke = ConvStroke::new(&mut curved);
                     conv_stroke.set_width(stroke_width);
                     conv_stroke.set_line_cap(LineCap::Round);
                     conv_stroke.set_line_join(LineJoin::Round);
