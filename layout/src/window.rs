@@ -277,6 +277,15 @@ pub struct DirtyTextNode {
     pub needs_ancestor_relayout: bool,
 }
 
+/// Result of applying a text changeset
+pub struct TextChangesetResult {
+    /// Nodes that need dirty marking
+    pub dirty_nodes: Vec<azul_core::dom::DomNodeId>,
+    /// Whether the text size changed enough to require full re-layout
+    /// (e.g., for scroll container recomputation)
+    pub needs_relayout: bool,
+}
+
 /// A window-level layout manager that encapsulates all layout state and caching.
 ///
 /// This struct owns the layout and text caches, and provides methods dir_to:
@@ -4254,15 +4263,18 @@ impl LayoutWindow {
     ///
     /// Also updates the cursor position to reflect the edit.
     ///
-    /// Returns the nodes that need to be marked dirty for re-layout.
-    pub fn apply_text_changeset(&mut self) -> Vec<azul_core::dom::DomNodeId> {
+    /// Returns the nodes that need to be marked dirty for re-layout,
+    /// and whether a full re-layout is needed (text size changed).
+    pub fn apply_text_changeset(&mut self) -> TextChangesetResult {
         // Get the changeset from TextInputManager
+        let empty = TextChangesetResult { dirty_nodes: Vec::new(), needs_relayout: false };
+
         let changeset = match self.text_input_manager.get_pending_changeset() {
             Some(cs) => {
                 cs.clone()
             }
             None => {
-                return Vec::new();
+                return empty;
             }
         };
 
@@ -4270,7 +4282,7 @@ impl LayoutWindow {
             Some(id) => id,
             None => {
                 self.text_input_manager.clear_changeset();
-                return Vec::new();
+                return empty;
             }
         };
 
@@ -4281,7 +4293,7 @@ impl LayoutWindow {
             Some(lr) => lr,
             None => {
                 self.text_input_manager.clear_changeset();
-                return Vec::new();
+                return empty;
             }
         };
 
@@ -4294,7 +4306,7 @@ impl LayoutWindow {
             Some(node) => node,
             None => {
                 self.text_input_manager.clear_changeset();
-                return Vec::new();
+                return empty;
             }
         };
 
@@ -4308,7 +4320,7 @@ impl LayoutWindow {
 
         if !is_contenteditable {
             self.text_input_manager.clear_changeset();
-            return Vec::new();
+            return empty;
         }
 
         // Get the current inline content from cache
@@ -4435,9 +4447,13 @@ impl LayoutWindow {
         // Clear the changeset now that it's been applied
         self.text_input_manager.clear_changeset();
 
+        // Check if any dirty text node needs ancestor relayout (text size changed)
+        let needs_relayout = self.dirty_text_nodes.values()
+            .any(|d| d.needs_ancestor_relayout);
+
         // Return nodes that need dirty marking
         let dirty_nodes = self.determine_dirty_text_nodes(dom_id, node_id);
-        dirty_nodes
+        TextChangesetResult { dirty_nodes, needs_relayout }
     }
 
     /// Determine which nodes need to be marked dirty after a text edit
@@ -5313,7 +5329,7 @@ impl LayoutWindow {
         );
 
         // Immediately apply the changeset (A11y doesn't go through callbacks)
-        self.apply_text_changeset()
+        self.apply_text_changeset().dirty_nodes
     }
 
     #[cfg(not(feature = "a11y"))]

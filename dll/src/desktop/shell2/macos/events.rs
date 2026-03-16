@@ -519,9 +519,13 @@ impl MacOSWindow {
 
         // Apply text changeset after callbacks
         if let Some(layout_window) = self.get_layout_window_mut() {
-            let dirty_nodes = layout_window.apply_text_changeset();
-            if !dirty_nodes.is_empty() {
-                overall_result = overall_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+            let changeset_result = layout_window.apply_text_changeset();
+            if !changeset_result.dirty_nodes.is_empty() {
+                if changeset_result.needs_relayout {
+                    overall_result = overall_result.max(ProcessEventResult::ShouldIncrementalRelayout);
+                } else {
+                    overall_result = overall_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                }
             }
         }
 

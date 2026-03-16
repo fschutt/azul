@@ -1744,9 +1744,14 @@ pub trait PlatformWindow {
 
                 // Apply text changeset
                 if let Some(lw) = self.get_layout_window_mut() {
-                    let dirty_nodes = lw.apply_text_changeset();
-                    if !dirty_nodes.is_empty() {
-                        result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                    let changeset_result = lw.apply_text_changeset();
+                    if !changeset_result.dirty_nodes.is_empty() {
+                        if changeset_result.needs_relayout {
+                            // Text size changed — need full re-layout for scroll container update
+                            result = result.max(ProcessEventResult::ShouldIncrementalRelayout);
+                        } else {
+                            result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
                         lw.scroll_selection_into_view(
                             azul_layout::window::SelectionScrollType::Cursor,
                             azul_layout::window::ScrollMode::Instant,
@@ -2176,8 +2181,11 @@ pub trait PlatformWindow {
 
             SystemChange::ApplyTextChangeset => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let dirty_nodes = layout_window.apply_text_changeset();
-                    if !dirty_nodes.is_empty() {
+                    let changeset_result = layout_window.apply_text_changeset();
+                    if !changeset_result.dirty_nodes.is_empty() {
+                        if changeset_result.needs_relayout {
+                            return ProcessEventResult::ShouldIncrementalRelayout;
+                        }
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
