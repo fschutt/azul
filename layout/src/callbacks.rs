@@ -2614,7 +2614,7 @@ impl CallbackInfo {
     /// ```
     #[cfg(feature = "cpurender")]
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
-        use crate::cpurender::{render, RenderOptions};
+        use crate::cpurender::{render_with_font_manager, RenderOptions};
 
         let layout_window = self.get_layout_window();
         let renderer_resources = &layout_window.renderer_resources;
@@ -2645,7 +2645,10 @@ impl CallbackInfo {
             .inner
             .get();
 
-        // Render to pixmap
+        // Render to pixmap using FontManager directly.
+        // In headless mode RendererResources has no fonts registered
+        // (fonts are only in FontManager), so we must use the
+        // font_manager path to get text rendering.
         let opts = RenderOptions {
             width,
             height,
@@ -2653,8 +2656,13 @@ impl CallbackInfo {
         };
 
         let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
-        let pixmap =
-            render(display_list, renderer_resources, opts, &mut glyph_cache).map_err(|e| AzString::from(e))?;
+        let pixmap = render_with_font_manager(
+            display_list,
+            renderer_resources,
+            &layout_window.font_manager,
+            opts,
+            &mut glyph_cache,
+        ).map_err(|e| AzString::from(e))?;
 
         // Encode to PNG
         let png_data = pixmap
