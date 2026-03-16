@@ -357,6 +357,11 @@ pub fn run(
         let app = NSApplication::sharedApplication(mtm);
         unsafe {
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+            // finishLaunching posts NSApplicationDidFinishLaunchingNotification,
+            // which is required for the Window Server to fully register the app.
+            // Without this, accessibility queries return kAXErrorCannotComplete
+            // because macOS considers the app "not yet launched".
+            app.finishLaunching();
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
         }
