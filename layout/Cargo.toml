@@ -31,11 +31,8 @@ serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
-usvg                    = { version = "0.45.0",   default-features = false, optional = true }
 agg-rust                = { path = "/Users/fschutt/Development/agg-rust", default-features = false, optional = true }
 png                     = { version = "0.17", default-features = false, optional = true }
-geo-booleanop           = { version = "0.3.2", default-features = false, optional = true }
-geo                     = { version = "0.31.0", default-features = false, optional = true }
 roxmltree               = { version = "0.21.1",   default-features = false, optional = true }
 xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }
 xmlparser               = { version = "0.13.6",   default-features = false, optional = true }
@@ -178,8 +175,6 @@ svg = [
     "dep:agg-rust",
     "dep:png",
     "xml",
-    "dep:geo-booleanop",
-    "dep:geo",
     "dep:gl-context-loader"
 ]
 
