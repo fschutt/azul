@@ -805,6 +805,23 @@ impl CallbackInfo {
         unsafe { core::mem::take(&mut *self.changes) }
     }
 
+    /// Check if pending changes contain any `ModifyWindowState` entries.
+    ///
+    /// Used by the E2E test runner to detect when it needs to yield to the
+    /// event loop (to let the resize + relayout happen) before continuing
+    /// with subsequent steps like `take_screenshot`.
+    #[cfg(feature = "std")]
+    pub fn has_pending_window_state_change(&self) -> bool {
+        // Peek at changes without consuming them
+        unsafe {
+            if let Ok(changes) = (*self.changes).lock() {
+                changes.iter().any(|c| matches!(c, CallbackChange::ModifyWindowState { .. }))
+            } else {
+                false
+            }
+        }
+    }
+
     // Modern Api (using CallbackChange transactions)
 
     /// Add a timer to this window (applied after callback returns)

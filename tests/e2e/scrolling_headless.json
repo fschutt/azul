@@ -1,8 +1,7 @@
 [
   {
-    "name": "scrolling_initial_render",
-    "description": "Verify initial headless render at 600x500 matches reference with correct clipping and text",
-    "config": { "continue_on_failure": false },
+    "name": "scrolling_initial_600x500",
+    "description": "Verify initial headless render at 600x500 matches reference",
     "steps": [
       {
         "op": "assert_screenshot",
@@ -13,20 +12,55 @@
     ]
   },
   {
-    "name": "scrolling_dom_structure",
-    "description": "Verify DOM has the expected structure (header + scroll container + items + footer)",
-    "config": { "continue_on_failure": false },
+    "name": "scrolling_resize_800x600",
+    "description": "Resize to 800x600 and verify layout adapts correctly",
     "steps": [
-      { "op": "assert_exists", "selector": "body" },
-      { "op": "get_state" }
+      { "op": "resize", "width": 800, "height": 600 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/02_resized_800x600.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.0
+      }
     ]
   },
   {
-    "name": "scrolling_has_scroll_nodes",
-    "description": "Verify the scroll container creates scrollable nodes",
-    "config": { "continue_on_failure": false },
+    "name": "scrolling_resize_400x300",
+    "description": "Resize to 400x300 and verify compact layout",
     "steps": [
-      { "op": "get_scroll_states" }
+      { "op": "resize", "width": 400, "height": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/03_resized_400x300.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.0
+      }
+    ]
+  },
+  {
+    "name": "scrolling_resize_back_600x500",
+    "description": "Resize back to original 600x500 and verify matches initial",
+    "steps": [
+      { "op": "resize", "width": 600, "height": 500 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/04_back_600x500.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.0
+      }
+    ]
+  },
+  {
+    "name": "scrolling_resize_1024x768",
+    "description": "Resize to 1024x768 and verify large view with clipped scroll content",
+    "steps": [
+      { "op": "resize", "width": 1024, "height": 768 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/05_resize_1024x768.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.0
+      }
     ]
   }
 ]
