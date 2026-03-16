@@ -8106,6 +8106,20 @@
                                 ],
                                 "fn_body": "azul_core::dom::Dom::from_data(node_data)"
                             },
+                            "from_parsed_xml": {
+                                "doc": [
+                                    "Creates a Dom from an already-parsed Xml structure.",
+                                    "CSS from <style> tags is attached to the Dom.css field",
+                                    "and will be applied during the cascade pass.",
+                                    "This is the correct function for layout callbacks that return Dom."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "xml": "Xml"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::extra::dom_from_parsed_xml(xml)"
+                            },
                             "create_html": {
                                 "doc": [
                                     "Creates the root HTML element.",
