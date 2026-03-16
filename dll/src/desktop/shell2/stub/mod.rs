@@ -130,7 +130,7 @@ pub struct CpuBackend {
     /// Last rendered pixmap (if CPU rendering is enabled).
     /// `None` when rendering is disabled (layout-only mode).
     #[cfg(feature = "cpurender")]
-    pub last_frame: Option<tiny_skia::Pixmap>,
+    pub last_frame: Option<azul_layout::cpurender::AzulPixmap>,
 }
 
 impl CpuBackend {

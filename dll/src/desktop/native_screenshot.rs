@@ -8,7 +8,15 @@ use azul_css::AzString;
 use azul_layout::callbacks::CallbackInfo;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use tiny_skia;
+fn encode_rgba_png(pixels: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    let mut encoder = png::Encoder::new(&mut buf, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| format!("PNG header error: {}", e))?;
+    writer.write_image_data(&pixels).map_err(|e| format!("PNG write error: {}", e))?;
+    Ok(buf)
+}
 
 /// Extension trait for native screenshot functionality
 ///
@@ -308,16 +316,8 @@ fn take_native_screenshot_windows(
             chunk.swap(0, 2);
         }
 
-        let pixmap = tiny_skia::Pixmap::from_vec(
-            pixels,
-            tiny_skia::IntSize::from_wh(width as u32, height as u32)
-                .ok_or_else(|| AzString::from("Invalid image dimensions"))?,
-        )
-        .ok_or_else(|| AzString::from("Failed to create pixmap"))?;
-
-        let png_data = pixmap
-            .encode_png()
-            .map_err(|e| AzString::from(format!("PNG encoding failed: {}", e)))?;
+        let png_data = encode_rgba_png(pixels, width as u32, height as u32)
+            .map_err(|e| AzString::from(e))?;
 
         std::fs::write(path, png_data)
             .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
@@ -493,17 +493,9 @@ fn take_native_screenshot_xlib(
 
         destroy_image(image);
 
-        // Create PNG using tiny-skia
-        let pixmap = tiny_skia::Pixmap::from_vec(
-            pixels,
-            tiny_skia::IntSize::from_wh(width, height)
-                .ok_or_else(|| AzString::from("Invalid image dimensions"))?,
-        )
-        .ok_or_else(|| AzString::from("Failed to create pixmap"))?;
-
-        let png_data = pixmap
-            .encode_png()
-            .map_err(|e| AzString::from(format!("PNG encoding failed: {}", e)))?;
+        // Create PNG using png crate
+        let png_data = encode_rgba_png(pixels, width, height)
+            .map_err(|e| AzString::from(e))?;
 
         std::fs::write(path, png_data)
             .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
