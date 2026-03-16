@@ -138,6 +138,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "extendmode", // ExtendMode
             "flow",       // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
             "arithmetic", // ArithmeticCoefficients
+            "visualbox",  // VisualBox (overflow-clip-margin)
         ],
     );
 
