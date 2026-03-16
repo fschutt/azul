@@ -7966,6 +7966,127 @@
                                 "type": "RefAny"
                             }
                         }
+                    },
+                    "VirtualViewReturn": {
+                        "doc": [
+                            "Return value for a VirtualView rendering callback. # Dual Size Model VirtualView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualViewReturn { dom: OptionDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualViewReturn { dom: OptionDom::Some(new_dom), ... } } ``` # Example: Basic VirtualView ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualView!\")); let styled_dom = dom; VirtualViewReturn { // The rendered content dom: OptionDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtual_view_callback(data: &mut TableData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualViewReturn { dom: OptionDom::Some(dom), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
+                        ],
+                        "external": "azul_core::callbacks::VirtualViewReturn",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "PartialEq",
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "dom": {
+                                    "type": "OptionDom",
+                                    "doc": [
+                                        "The DOM with actual rendered content, or None to keep current DOM. - `OptionDom::Some(dom)` - Replace current content with this new DOM - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds Returning `None` is an optimization when the callback determines that the current content is sufficient (e.g., already rendered ahead of scroll position)."
+                                    ]
+                                }
+                            },
+                            {
+                                "scroll_size": {
+                                    "type": "LogicalSize",
+                                    "doc": [
+                                        "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows x 30px each)."
+                                    ]
+                                }
+                            },
+                            {
+                                "scroll_offset": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Offset of the actual rendered content within the virtual coordinate space. This positions the rendered content within the larger virtual space. For virtualized content, this will be non-zero to indicate where the rendered \"window\" starts. **Example**: For a table showing rows 10-30, this might be y=300 (row 10 starts 300px from the top)."
+                                    ]
+                                }
+                            },
+                            {
+                                "virtual_scroll_size": {
+                                    "type": "LogicalSize",
+                                    "doc": [
+                                        "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows x 30px each), even though only 20 rows are actually rendered."
+                                    ]
+                                }
+                            },
+                            {
+                                "virtual_scroll_offset": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Offset of the virtual content (usually zero). This is typically `(0, 0)` since the virtual space usually starts at the origin. Advanced use cases might use this for complex virtualization scenarios."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "with_dom": {
+                                "doc": [
+                                    "Creates a new VirtualViewReturn with updated DOM content.",
+                                    "",
+                                    "Use this when the callback has rendered new content to display.",
+                                    "",
+                                    "# Arguments",
+                                    "- `dom` - The new DOM to render",
+                                    "- `scroll_size` - Size of the actual rendered content",
+                                    "- `scroll_offset` - Position of rendered content in virtual space",
+                                    "- `virtual_scroll_size` - Size for scrollbar representation",
+                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "dom": "Dom"
+                                    },
+                                    {
+                                        "scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "scroll_offset": "LogicalPosition"
+                                    },
+                                    {
+                                        "virtual_scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "virtual_scroll_offset": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "azul_core::callbacks::VirtualViewReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                            },
+                            "keep_current": {
+                                "doc": [
+                                    "Creates a return value that keeps the current DOM unchanged.",
+                                    "",
+                                    "Use this when the callback determines that the existing content",
+                                    "is sufficient (e.g., already rendered ahead of scroll position).",
+                                    "This is an optimization to avoid rebuilding the DOM unnecessarily.",
+                                    "",
+                                    "# Arguments",
+                                    "- `scroll_size` - Size of the current rendered content",
+                                    "- `scroll_offset` - Position of current content in virtual space",
+                                    "- `virtual_scroll_size` - Size for scrollbar representation",
+                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "scroll_offset": "LogicalPosition"
+                                    },
+                                    {
+                                        "virtual_scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "virtual_scroll_offset": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "azul_core::callbacks::VirtualViewReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -14612,6 +14733,28 @@
                                 "ctx": {
                                     "type": "OptionRefAny"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollIntoViewBehavior": {
+                        "external": "azul_core::events::ScrollIntoViewBehavior",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Instant": {},
+                                "Smooth": {}
                             }
                         ],
                         "repr": "C"
@@ -33118,6 +33261,1016 @@
                                 "BidiOverride": {},
                                 "IsolateOverride": {},
                                 "Plaintext": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MediaType": {
+                        "doc": [
+                            "Media type for @media queries"
+                        ],
+                        "external": "azul_css::dynamic_selector::MediaType",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Screen": {}
+                            },
+                            {
+                                "Print": {}
+                            },
+                            {
+                                "All": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OrientationType": {
+                        "doc": [
+                            "Orientation type for responsive styling"
+                        ],
+                        "external": "azul_css::dynamic_selector::OrientationType",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Portrait": {}
+                            },
+                            {
+                                "Landscape": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CalcAstItem": {
+                        "external": "azul_css::props::layout::dimensions::CalcAstItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Value": {
+                                    "type": "PixelValue"
+                                },
+                                "Add": {},
+                                "Sub": {},
+                                "Mul": {},
+                                "Div": {},
+                                "BraceOpen": {},
+                                "BraceClose": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OsVersionCondition": {
+                        "doc": [
+                            "OS version condition for version-specific styling"
+                        ],
+                        "external": "azul_css::dynamic_selector::OsVersionCondition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Min": {
+                                    "type": "OsVersion"
+                                },
+                                "Max": {
+                                    "type": "OsVersion"
+                                },
+                                "Exact": {
+                                    "type": "OsVersion"
+                                },
+                                "DesktopEnvironment": {
+                                    "type": "LinuxDesktopEnv"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "U16VecSlice": {
+                        "external": "azul_css::corety::U16VecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "u16",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AudioMetrics": {
+                        "external": "azul_css::system::AudioMetrics",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "event_sounds_enabled": {
+                                    "type": "bool"
+                                },
+                                "input_feedback_sounds_enabled": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollPhysics": {
+                        "doc": [
+                            "Scroll physics configuration for momentum scrolling.",
+                            "Controls how scrolling feels - the 'weight' and 'friction' of the scroll."
+                        ],
+                        "external": "azul_css::props::style::scrollbar::ScrollPhysics",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "smooth_scroll_duration_ms": {
+                                    "type": "u32"
+                                },
+                                "deceleration_rate": {
+                                    "type": "f32"
+                                },
+                                "min_velocity_threshold": {
+                                    "type": "f32"
+                                },
+                                "max_velocity": {
+                                    "type": "f32"
+                                },
+                                "wheel_multiplier": {
+                                    "type": "f32"
+                                },
+                                "invert_direction": {
+                                    "type": "bool"
+                                },
+                                "overscroll_elasticity": {
+                                    "type": "f32"
+                                },
+                                "max_overscroll_distance": {
+                                    "type": "f32"
+                                },
+                                "bounce_back_duration_ms": {
+                                    "type": "u32"
+                                },
+                                "timer_interval_ms": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TitlebarMetrics": {
+                        "doc": [
+                            "Metrics for titlebar layout and window chrome.",
+                            "Provides information needed to correctly position custom titlebar",
+                            "content when using WindowDecorations::NoTitle (expanded title mode)."
+                        ],
+                        "external": "azul_css::system::TitlebarMetrics",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "button_side": {
+                                    "type": "TitlebarButtonSide",
+                                    "doc": [
+                                        "Which side the window control buttons are on"
+                                    ]
+                                },
+                                "buttons": {
+                                    "type": "TitlebarButtons",
+                                    "doc": [
+                                        "Which buttons are available"
+                                    ]
+                                },
+                                "height": {
+                                    "type": "OptionPixelValue",
+                                    "doc": [
+                                        "Height of the titlebar in pixels"
+                                    ]
+                                },
+                                "button_area_width": {
+                                    "type": "OptionPixelValue",
+                                    "doc": [
+                                        "Width reserved for window control buttons (close/min/max)"
+                                    ]
+                                },
+                                "padding_horizontal": {
+                                    "type": "OptionPixelValue",
+                                    "doc": [
+                                        "Horizontal padding inside the titlebar"
+                                    ]
+                                },
+                                "safe_area": {
+                                    "type": "SafeAreaInsets",
+                                    "doc": [
+                                        "Safe area insets for notched/rounded displays"
+                                    ]
+                                },
+                                "title_font": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "Title text font"
+                                    ]
+                                },
+                                "title_font_size": {
+                                    "type": "OptionF32",
+                                    "doc": [
+                                        "Title text font size"
+                                    ]
+                                },
+                                "title_font_weight": {
+                                    "type": "OptionU16",
+                                    "doc": [
+                                        "Title text font weight (400 = normal, 600 = semibold, 700 = bold)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "windows": {
+                                "doc": [
+                                    "Windows-style titlebar (buttons on right)"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_css::system::TitlebarMetrics::windows()"
+                            },
+                            "macos": {
+                                "doc": [
+                                    "macOS-style titlebar (buttons on left, traffic lights)"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_css::system::TitlebarMetrics::macos()"
+                            },
+                            "linux_gnome": {
+                                "doc": [
+                                    "Linux GNOME-style titlebar"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_css::system::TitlebarMetrics::linux_gnome()"
+                            },
+                            "ios": {
+                                "doc": [
+                                    "iOS-style safe area (for notched devices)"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_css::system::TitlebarMetrics::ios()"
+                            },
+                            "android": {
+                                "doc": [
+                                    "Android-style titlebar (action bar)"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_css::system::TitlebarMetrics::android()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "OsVersion": {
+                        "external": "azul_css::dynamic_selector::OsVersion",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "os": {
+                                    "type": "OsFamily"
+                                },
+                                "version_id": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DynamicSelector": {
+                        "doc": [
+                            "Dynamic selector for runtime CSS evaluation based on OS, media, container, theme, and pseudo-state"
+                        ],
+                        "external": "azul_css::dynamic_selector::DynamicSelector",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Os": {
+                                    "type": "OsCondition"
+                                },
+                                "OsVersion": {
+                                    "type": "OsVersionCondition"
+                                },
+                                "Media": {
+                                    "type": "MediaType"
+                                },
+                                "ViewportWidth": {
+                                    "type": "MinMaxRange"
+                                },
+                                "ViewportHeight": {
+                                    "type": "MinMaxRange"
+                                },
+                                "ContainerWidth": {
+                                    "type": "MinMaxRange"
+                                },
+                                "ContainerHeight": {
+                                    "type": "MinMaxRange"
+                                },
+                                "ContainerName": {
+                                    "type": "String"
+                                },
+                                "Theme": {
+                                    "type": "ThemeCondition"
+                                },
+                                "AspectRatio": {
+                                    "type": "MinMaxRange"
+                                },
+                                "Orientation": {
+                                    "type": "OrientationType"
+                                },
+                                "PrefersReducedMotion": {
+                                    "type": "BoolCondition"
+                                },
+                                "PrefersHighContrast": {
+                                    "type": "BoolCondition"
+                                },
+                                "PseudoState": {
+                                    "type": "PseudoStateType"
+                                },
+                                "Language": {
+                                    "type": "LanguageCondition"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SystemMetricRef": {
+                        "doc": [
+                            "Reference to a specific system metric value.",
+                            "These are resolved at runtime based on the user's system preferences.",
+                            "CSS syntax: system:button-padding, system:button-radius, etc."
+                        ],
+                        "external": "azul_css::props::basic::pixel::SystemMetricRef",
+                        "custom_impls": [
+                            "Default",
+                            "Display"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ButtonRadius": {
+                                    "doc": [
+                                        "Button corner radius (system:button-radius)"
+                                    ]
+                                }
+                            },
+                            {
+                                "ButtonPaddingHorizontal": {
+                                    "doc": [
+                                        "Button horizontal padding (system:button-padding-horizontal)"
+                                    ]
+                                }
+                            },
+                            {
+                                "ButtonPaddingVertical": {
+                                    "doc": [
+                                        "Button vertical padding (system:button-padding-vertical)"
+                                    ]
+                                }
+                            },
+                            {
+                                "ButtonBorderWidth": {
+                                    "doc": [
+                                        "Button border width (system:button-border-width)"
+                                    ]
+                                }
+                            },
+                            {
+                                "TitlebarHeight": {
+                                    "doc": [
+                                        "Titlebar height (system:titlebar-height)"
+                                    ]
+                                }
+                            },
+                            {
+                                "TitlebarButtonWidth": {
+                                    "doc": [
+                                        "Titlebar button area width (system:titlebar-button-width)"
+                                    ]
+                                }
+                            },
+                            {
+                                "TitlebarPadding": {
+                                    "doc": [
+                                        "Titlebar horizontal padding (system:titlebar-padding)"
+                                    ]
+                                }
+                            },
+                            {
+                                "SafeAreaTop": {
+                                    "doc": [
+                                        "Safe area top inset for notched devices (system:safe-area-top)"
+                                    ]
+                                }
+                            },
+                            {
+                                "SafeAreaBottom": {
+                                    "doc": [
+                                        "Safe area bottom inset (system:safe-area-bottom)"
+                                    ]
+                                }
+                            },
+                            {
+                                "SafeAreaLeft": {
+                                    "doc": [
+                                        "Safe area left inset (system:safe-area-left)"
+                                    ]
+                                }
+                            },
+                            {
+                                "SafeAreaRight": {
+                                    "doc": [
+                                        "Safe area right inset (system:safe-area-right)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InvalidValueErrOwned": {
+                        "external": "azul_css::props::basic::error::InvalidValueErrOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PseudoStateType": {
+                        "doc": [
+                            "Pseudo-state type for element state conditions"
+                        ],
+                        "external": "azul_css::dynamic_selector::PseudoStateType",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Hover": {},
+                                "Active": {},
+                                "Focus": {},
+                                "Disabled": {},
+                                "Checked": {},
+                                "FocusWithin": {},
+                                "Visited": {},
+                                "Backdrop": {},
+                                "Dragging": {},
+                                "DragOver": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OsCondition": {
+                        "doc": [
+                            "Operating system condition for OS-specific styling"
+                        ],
+                        "external": "azul_css::dynamic_selector::OsCondition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Any": {}
+                            },
+                            {
+                                "Apple": {}
+                            },
+                            {
+                                "MacOS": {}
+                            },
+                            {
+                                "IOS": {}
+                            },
+                            {
+                                "Linux": {}
+                            },
+                            {
+                                "Windows": {}
+                            },
+                            {
+                                "Android": {}
+                            },
+                            {
+                                "Web": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CalcAstItemVecSlice": {
+                        "external": "azul_css::props::layout::dimensions::CalcAstItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "CalcAstItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MinMaxRange": {
+                        "doc": [
+                            "Min/Max range for numeric conditions (NaN = no limit)"
+                        ],
+                        "external": "azul_css::dynamic_selector::MinMaxRange",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "min": {
+                                    "type": "f32"
+                                },
+                                "max": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AspectRatioValue": {
+                        "external": "azul_css::props::style::effects::AspectRatioValue",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemMetrics": {
+                        "external": "azul_css::system::SystemMetrics",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "corner_radius": {
+                                    "type": "OptionPixelValue"
+                                },
+                                "border_width": {
+                                    "type": "OptionPixelValue"
+                                },
+                                "button_padding_horizontal": {
+                                    "type": "OptionPixelValue",
+                                    "doc": [
+                                        "The horizontal (left/right) padding for buttons and similar controls."
+                                    ]
+                                },
+                                "button_padding_vertical": {
+                                    "type": "OptionPixelValue",
+                                    "doc": [
+                                        "The vertical (top/bottom) padding for buttons and similar controls."
+                                    ]
+                                },
+                                "titlebar": {
+                                    "type": "TitlebarMetrics",
+                                    "doc": [
+                                        "Titlebar layout information (button positions, safe areas, etc.)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "F32VecSlice": {
+                        "external": "azul_css::corety::F32VecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "f32",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Void": {
+                        "external": "azul_css::corety::Void",
+                        "custom_impls": [
+                            "Default",
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a new Void value (equivalent to `()`)"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_css::corety::Void::new()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "U32VecSlice": {
+                        "external": "azul_css::corety::U32VecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "u32",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BoxOrStatic": {
+                        "doc": [
+                            "Enum that stores either a heap-allocated Box<T> or a *const T pointer to static data.",
+                            "Used to optimize CSS property values by storing compile-time constants as static pointers",
+                            "instead of heap allocations. Size: 16 bytes on 64-bit (1 tag + 7 padding + 8 pointer)."
+                        ],
+                        "external": "azul_css::css::BoxOrStatic",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Deref",
+                            "Display",
+                            "Drop",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Boxed": {
+                                    "type": "*mut T"
+                                },
+                                "Static": {
+                                    "type": "*const T"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8",
+                        "generic_params": [
+                            "T"
+                        ]
+                    },
+                    "VisualHints": {
+                        "external": "azul_css::system::VisualHints",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "toolbar_style": {
+                                    "type": "ToolbarStyle"
+                                },
+                                "show_button_images": {
+                                    "type": "bool"
+                                },
+                                "show_menu_images": {
+                                    "type": "bool"
+                                },
+                                "show_tooltips": {
+                                    "type": "bool"
+                                },
+                                "flash_on_alert": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OsFamily": {
+                        "external": "azul_css::dynamic_selector::OsFamily",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Windows": {},
+                                "MacOS": {},
+                                "IOS": {},
+                                "Linux": {},
+                                "Android": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "LanguageCondition": {
+                        "external": "azul_css::dynamic_selector::LanguageCondition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Exact": {
+                                    "type": "String"
+                                },
+                                "Prefix": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "BoolCondition": {
+                        "doc": [
+                            "Boolean condition for accessibility preferences"
+                        ],
+                        "external": "azul_css::dynamic_selector::BoolCondition",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "False": {}
+                            },
+                            {
+                                "True": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DynamicSelectorVecSlice": {
+                        "external": "azul_css::dynamic_selector::DynamicSelectorVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DynamicSelector",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "U8VecSlice": {
+                        "external": "azul_css::corety::U8VecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "u8",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "LinuxCustomization": {
+                        "external": "azul_css::system::LinuxCustomization",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "gtk_theme": {
+                                    "type": "OptionString"
+                                },
+                                "icon_theme": {
+                                    "type": "OptionString"
+                                },
+                                "cursor_theme": {
+                                    "type": "OptionString"
+                                },
+                                "cursor_size": {
+                                    "type": "u32"
+                                },
+                                "titlebar_button_layout": {
+                                    "type": "OptionString"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -77563,360 +78716,6 @@
             },
             "misc": {
                 "classes": {
-                    "OsVersionCondition": {
-                        "doc": [
-                            "OS version condition for version-specific styling"
-                        ],
-                        "external": "azul_css::dynamic_selector::OsVersionCondition",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Min": {
-                                    "type": "OsVersion"
-                                },
-                                "Max": {
-                                    "type": "OsVersion"
-                                },
-                                "Exact": {
-                                    "type": "OsVersion"
-                                },
-                                "DesktopEnvironment": {
-                                    "type": "LinuxDesktopEnv"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "OrientationType": {
-                        "doc": [
-                            "Orientation type for responsive styling"
-                        ],
-                        "external": "azul_css::dynamic_selector::OrientationType",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Portrait": {}
-                            },
-                            {
-                                "Landscape": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DynamicSelector": {
-                        "doc": [
-                            "Dynamic selector for runtime CSS evaluation based on OS, media, container, theme, and pseudo-state"
-                        ],
-                        "external": "azul_css::dynamic_selector::DynamicSelector",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Os": {
-                                    "type": "OsCondition"
-                                },
-                                "OsVersion": {
-                                    "type": "OsVersionCondition"
-                                },
-                                "Media": {
-                                    "type": "MediaType"
-                                },
-                                "ViewportWidth": {
-                                    "type": "MinMaxRange"
-                                },
-                                "ViewportHeight": {
-                                    "type": "MinMaxRange"
-                                },
-                                "ContainerWidth": {
-                                    "type": "MinMaxRange"
-                                },
-                                "ContainerHeight": {
-                                    "type": "MinMaxRange"
-                                },
-                                "ContainerName": {
-                                    "type": "String"
-                                },
-                                "Theme": {
-                                    "type": "ThemeCondition"
-                                },
-                                "AspectRatio": {
-                                    "type": "MinMaxRange"
-                                },
-                                "Orientation": {
-                                    "type": "OrientationType"
-                                },
-                                "PrefersReducedMotion": {
-                                    "type": "BoolCondition"
-                                },
-                                "PrefersHighContrast": {
-                                    "type": "BoolCondition"
-                                },
-                                "PseudoState": {
-                                    "type": "PseudoStateType"
-                                },
-                                "Language": {
-                                    "type": "LanguageCondition"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "BoolCondition": {
-                        "doc": [
-                            "Boolean condition for accessibility preferences"
-                        ],
-                        "external": "azul_css::dynamic_selector::BoolCondition",
-                        "custom_impls": [
-                            "From"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "False": {}
-                            },
-                            {
-                                "True": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "MediaType": {
-                        "doc": [
-                            "Media type for @media queries"
-                        ],
-                        "external": "azul_css::dynamic_selector::MediaType",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Screen": {}
-                            },
-                            {
-                                "Print": {}
-                            },
-                            {
-                                "All": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "OsCondition": {
-                        "doc": [
-                            "Operating system condition for OS-specific styling"
-                        ],
-                        "external": "azul_css::dynamic_selector::OsCondition",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Any": {}
-                            },
-                            {
-                                "Apple": {}
-                            },
-                            {
-                                "MacOS": {}
-                            },
-                            {
-                                "IOS": {}
-                            },
-                            {
-                                "Linux": {}
-                            },
-                            {
-                                "Windows": {}
-                            },
-                            {
-                                "Android": {}
-                            },
-                            {
-                                "Web": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "MinMaxRange": {
-                        "doc": [
-                            "Min/Max range for numeric conditions (NaN = no limit)"
-                        ],
-                        "external": "azul_css::dynamic_selector::MinMaxRange",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "min": {
-                                    "type": "f32"
-                                },
-                                "max": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "PseudoStateType": {
-                        "doc": [
-                            "Pseudo-state type for element state conditions"
-                        ],
-                        "external": "azul_css::dynamic_selector::PseudoStateType",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialOrd"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Normal": {},
-                                "Hover": {},
-                                "Active": {},
-                                "Focus": {},
-                                "Disabled": {},
-                                "Checked": {},
-                                "FocusWithin": {},
-                                "Visited": {},
-                                "Backdrop": {},
-                                "Dragging": {},
-                                "DragOver": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "LanguageCondition": {
-                        "external": "azul_css::dynamic_selector::LanguageCondition",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Exact": {
-                                    "type": "String"
-                                },
-                                "Prefix": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "ScrollPhysics": {
-                        "doc": [
-                            "Scroll physics configuration for momentum scrolling.",
-                            "Controls how scrolling feels - the 'weight' and 'friction' of the scroll."
-                        ],
-                        "external": "azul_css::props::style::scrollbar::ScrollPhysics",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "smooth_scroll_duration_ms": {
-                                    "type": "u32"
-                                },
-                                "deceleration_rate": {
-                                    "type": "f32"
-                                },
-                                "min_velocity_threshold": {
-                                    "type": "f32"
-                                },
-                                "max_velocity": {
-                                    "type": "f32"
-                                },
-                                "wheel_multiplier": {
-                                    "type": "f32"
-                                },
-                                "invert_direction": {
-                                    "type": "bool"
-                                },
-                                "overscroll_elasticity": {
-                                    "type": "f32"
-                                },
-                                "max_overscroll_distance": {
-                                    "type": "f32"
-                                },
-                                "bounce_back_duration_ms": {
-                                    "type": "u32"
-                                },
-                                "timer_interval_ms": {
-                                    "type": "u32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "FormatLength": {
-                        "external": "azul_layout::icu::FormatLength",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Short": {},
-                                "Medium": {},
-                                "Long": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "FmtValue": {
                         "external": "azul_layout::fmt::FmtValue",
                         "custom_impls": [
@@ -78686,40 +79485,6 @@
                         ],
                         "repr": "C"
                     },
-                    "Void": {
-                        "external": "azul_css::corety::Void",
-                        "custom_impls": [
-                            "Default",
-                            "From"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "_reserved": {
-                                    "type": "u8"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "Create a new Void value (equivalent to `()`)"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_css::corety::Void::new()"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "DirEntry": {
                         "external": "azul_layout::file::DirEntry",
                         "derive": [
@@ -78823,178 +79588,6 @@
                         },
                         "repr": "C"
                     },
-                    "SystemMetrics": {
-                        "external": "azul_css::system::SystemMetrics",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "corner_radius": {
-                                    "type": "OptionPixelValue"
-                                },
-                                "border_width": {
-                                    "type": "OptionPixelValue"
-                                },
-                                "button_padding_horizontal": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "The horizontal (left/right) padding for buttons and similar controls."
-                                    ]
-                                },
-                                "button_padding_vertical": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "The vertical (top/bottom) padding for buttons and similar controls."
-                                    ]
-                                },
-                                "titlebar": {
-                                    "type": "TitlebarMetrics",
-                                    "doc": [
-                                        "Titlebar layout information (button positions, safe areas, etc.)"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "TitlebarMetrics": {
-                        "doc": [
-                            "Metrics for titlebar layout and window chrome.",
-                            "Provides information needed to correctly position custom titlebar",
-                            "content when using WindowDecorations::NoTitle (expanded title mode)."
-                        ],
-                        "external": "azul_css::system::TitlebarMetrics",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "button_side": {
-                                    "type": "TitlebarButtonSide",
-                                    "doc": [
-                                        "Which side the window control buttons are on"
-                                    ]
-                                },
-                                "buttons": {
-                                    "type": "TitlebarButtons",
-                                    "doc": [
-                                        "Which buttons are available"
-                                    ]
-                                },
-                                "height": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Height of the titlebar in pixels"
-                                    ]
-                                },
-                                "button_area_width": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Width reserved for window control buttons (close/min/max)"
-                                    ]
-                                },
-                                "padding_horizontal": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Horizontal padding inside the titlebar"
-                                    ]
-                                },
-                                "safe_area": {
-                                    "type": "SafeAreaInsets",
-                                    "doc": [
-                                        "Safe area insets for notched/rounded displays"
-                                    ]
-                                },
-                                "title_font": {
-                                    "type": "OptionString",
-                                    "doc": [
-                                        "Title text font"
-                                    ]
-                                },
-                                "title_font_size": {
-                                    "type": "OptionF32",
-                                    "doc": [
-                                        "Title text font size"
-                                    ]
-                                },
-                                "title_font_weight": {
-                                    "type": "OptionU16",
-                                    "doc": [
-                                        "Title text font weight (400 = normal, 600 = semibold, 700 = bold)"
-                                    ]
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "windows": {
-                                "doc": [
-                                    "Windows-style titlebar (buttons on right)"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_css::system::TitlebarMetrics::windows()"
-                            },
-                            "macos": {
-                                "doc": [
-                                    "macOS-style titlebar (buttons on left, traffic lights)"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_css::system::TitlebarMetrics::macos()"
-                            },
-                            "linux_gnome": {
-                                "doc": [
-                                    "Linux GNOME-style titlebar"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_css::system::TitlebarMetrics::linux_gnome()"
-                            },
-                            "ios": {
-                                "doc": [
-                                    "iOS-style safe area (for notched devices)"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_css::system::TitlebarMetrics::ios()"
-                            },
-                            "android": {
-                                "doc": [
-                                    "Android-style titlebar (action bar)"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_css::system::TitlebarMetrics::android()"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "ScrollIntoViewBehavior": {
-                        "external": "azul_core::events::ScrollIntoViewBehavior",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash",
-                            "PartialOrd",
-                            "Ord",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Instant": {},
-                                "Smooth": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ExternalResource": {
                         "external": "azul_core::xml::ExternalResource",
                         "derive": [
@@ -79064,58 +79657,6 @@
                             {
                                 "ptr": {
                                     "type": "ExternalResource",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "U8VecSlice": {
-                        "external": "azul_css::corety::U8VecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "u8",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "U16VecSlice": {
-                        "external": "azul_css::corety::U16VecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "u16",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -79209,32 +79750,6 @@
                         ],
                         "repr": "C"
                     },
-                    "F32VecSlice": {
-                        "external": "azul_css::corety::F32VecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "f32",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "JsonVecSlice": {
                         "external": "azul_core::json::JsonVecSlice",
                         "derive": [
@@ -79256,235 +79771,6 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "U32VecSlice": {
-                        "external": "azul_css::corety::U32VecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "u32",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DynamicSelectorVecSlice": {
-                        "external": "azul_css::dynamic_selector::DynamicSelectorVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "DynamicSelector",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "OsVersion": {
-                        "external": "azul_css::dynamic_selector::OsVersion",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "os": {
-                                    "type": "OsFamily"
-                                },
-                                "version_id": {
-                                    "type": "u32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "OsFamily": {
-                        "external": "azul_css::dynamic_selector::OsFamily",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Windows": {},
-                                "MacOS": {},
-                                "IOS": {},
-                                "Linux": {},
-                                "Android": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SystemMetricRef": {
-                        "doc": [
-                            "Reference to a specific system metric value.",
-                            "These are resolved at runtime based on the user's system preferences.",
-                            "CSS syntax: system:button-padding, system:button-radius, etc."
-                        ],
-                        "external": "azul_css::props::basic::pixel::SystemMetricRef",
-                        "custom_impls": [
-                            "Default",
-                            "Display"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "ButtonRadius": {
-                                    "doc": [
-                                        "Button corner radius (system:button-radius)"
-                                    ]
-                                }
-                            },
-                            {
-                                "ButtonPaddingHorizontal": {
-                                    "doc": [
-                                        "Button horizontal padding (system:button-padding-horizontal)"
-                                    ]
-                                }
-                            },
-                            {
-                                "ButtonPaddingVertical": {
-                                    "doc": [
-                                        "Button vertical padding (system:button-padding-vertical)"
-                                    ]
-                                }
-                            },
-                            {
-                                "ButtonBorderWidth": {
-                                    "doc": [
-                                        "Button border width (system:button-border-width)"
-                                    ]
-                                }
-                            },
-                            {
-                                "TitlebarHeight": {
-                                    "doc": [
-                                        "Titlebar height (system:titlebar-height)"
-                                    ]
-                                }
-                            },
-                            {
-                                "TitlebarButtonWidth": {
-                                    "doc": [
-                                        "Titlebar button area width (system:titlebar-button-width)"
-                                    ]
-                                }
-                            },
-                            {
-                                "TitlebarPadding": {
-                                    "doc": [
-                                        "Titlebar horizontal padding (system:titlebar-padding)"
-                                    ]
-                                }
-                            },
-                            {
-                                "SafeAreaTop": {
-                                    "doc": [
-                                        "Safe area top inset for notched devices (system:safe-area-top)"
-                                    ]
-                                }
-                            },
-                            {
-                                "SafeAreaBottom": {
-                                    "doc": [
-                                        "Safe area bottom inset (system:safe-area-bottom)"
-                                    ]
-                                }
-                            },
-                            {
-                                "SafeAreaLeft": {
-                                    "doc": [
-                                        "Safe area left inset (system:safe-area-left)"
-                                    ]
-                                }
-                            },
-                            {
-                                "SafeAreaRight": {
-                                    "doc": [
-                                        "Safe area right inset (system:safe-area-right)"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "LinuxCustomization": {
-                        "external": "azul_css::system::LinuxCustomization",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "gtk_theme": {
-                                    "type": "OptionString"
-                                },
-                                "icon_theme": {
-                                    "type": "OptionString"
-                                },
-                                "cursor_theme": {
-                                    "type": "OptionString"
-                                },
-                                "cursor_size": {
-                                    "type": "u32"
-                                },
-                                "titlebar_button_layout": {
-                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -79573,310 +79859,6 @@
                             }
                         },
                         "repr": "C"
-                    },
-                    "VisualHints": {
-                        "external": "azul_css::system::VisualHints",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "toolbar_style": {
-                                    "type": "ToolbarStyle"
-                                },
-                                "show_button_images": {
-                                    "type": "bool"
-                                },
-                                "show_menu_images": {
-                                    "type": "bool"
-                                },
-                                "show_tooltips": {
-                                    "type": "bool"
-                                },
-                                "flash_on_alert": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "AudioMetrics": {
-                        "external": "azul_css::system::AudioMetrics",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "event_sounds_enabled": {
-                                    "type": "bool"
-                                },
-                                "input_feedback_sounds_enabled": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "CalcAstItem": {
-                        "external": "azul_css::props::layout::dimensions::CalcAstItem",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Value": {
-                                    "type": "PixelValue"
-                                },
-                                "Add": {},
-                                "Sub": {},
-                                "Mul": {},
-                                "Div": {},
-                                "BraceOpen": {},
-                                "BraceClose": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "CalcAstItemVecSlice": {
-                        "external": "azul_css::props::layout::dimensions::CalcAstItemVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "CalcAstItem",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "InvalidValueErrOwned": {
-                        "external": "azul_css::props::basic::error::InvalidValueErrOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "value": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "BoxOrStatic": {
-                        "doc": [
-                            "Enum that stores either a heap-allocated Box<T> or a *const T pointer to static data.",
-                            "Used to optimize CSS property values by storing compile-time constants as static pointers",
-                            "instead of heap allocations. Size: 16 bytes on 64-bit (1 tag + 7 padding + 8 pointer)."
-                        ],
-                        "external": "azul_css::css::BoxOrStatic",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Default",
-                            "Deref",
-                            "Display",
-                            "Drop",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Boxed": {
-                                    "type": "*mut T"
-                                },
-                                "Static": {
-                                    "type": "*const T"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8",
-                        "generic_params": [
-                            "T"
-                        ]
-                    },
-                    "VirtualViewReturn": {
-                        "doc": [
-                            "Return value for a VirtualView rendering callback. # Dual Size Model VirtualView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualViewReturn { dom: OptionDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualViewReturn { dom: OptionDom::Some(new_dom), ... } } ``` # Example: Basic VirtualView ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualView!\")); let styled_dom = dom; VirtualViewReturn { // The rendered content dom: OptionDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtual_view_callback(data: &mut TableData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualViewReturn { dom: OptionDom::Some(dom), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
-                        ],
-                        "external": "azul_core::callbacks::VirtualViewReturn",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "PartialEq",
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "dom": {
-                                    "type": "OptionDom",
-                                    "doc": [
-                                        "The DOM with actual rendered content, or None to keep current DOM. - `OptionDom::Some(dom)` - Replace current content with this new DOM - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds Returning `None` is an optimization when the callback determines that the current content is sufficient (e.g., already rendered ahead of scroll position)."
-                                    ]
-                                }
-                            },
-                            {
-                                "scroll_size": {
-                                    "type": "LogicalSize",
-                                    "doc": [
-                                        "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows x 30px each)."
-                                    ]
-                                }
-                            },
-                            {
-                                "scroll_offset": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Offset of the actual rendered content within the virtual coordinate space. This positions the rendered content within the larger virtual space. For virtualized content, this will be non-zero to indicate where the rendered \"window\" starts. **Example**: For a table showing rows 10-30, this might be y=300 (row 10 starts 300px from the top)."
-                                    ]
-                                }
-                            },
-                            {
-                                "virtual_scroll_size": {
-                                    "type": "LogicalSize",
-                                    "doc": [
-                                        "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows x 30px each), even though only 20 rows are actually rendered."
-                                    ]
-                                }
-                            },
-                            {
-                                "virtual_scroll_offset": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Offset of the virtual content (usually zero). This is typically `(0, 0)` since the virtual space usually starts at the origin. Advanced use cases might use this for complex virtualization scenarios."
-                                    ]
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "with_dom": {
-                                "doc": [
-                                    "Creates a new VirtualViewReturn with updated DOM content.",
-                                    "",
-                                    "Use this when the callback has rendered new content to display.",
-                                    "",
-                                    "# Arguments",
-                                    "- `dom` - The new DOM to render",
-                                    "- `scroll_size` - Size of the actual rendered content",
-                                    "- `scroll_offset` - Position of rendered content in virtual space",
-                                    "- `virtual_scroll_size` - Size for scrollbar representation",
-                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "dom": "Dom"
-                                    },
-                                    {
-                                        "scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "scroll_offset": "LogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "LogicalPosition"
-                                    }
-                                ],
-                                "fn_body": "azul_core::callbacks::VirtualViewReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
-                            },
-                            "keep_current": {
-                                "doc": [
-                                    "Creates a return value that keeps the current DOM unchanged.",
-                                    "",
-                                    "Use this when the callback determines that the existing content",
-                                    "is sufficient (e.g., already rendered ahead of scroll position).",
-                                    "This is an optimization to avoid rebuilding the DOM unnecessarily.",
-                                    "",
-                                    "# Arguments",
-                                    "- `scroll_size` - Size of the current rendered content",
-                                    "- `scroll_offset` - Position of current content in virtual space",
-                                    "- `virtual_scroll_size` - Size for scrollbar representation",
-                                    "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "scroll_offset": "LogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "LogicalPosition"
-                                    }
-                                ],
-                                "fn_body": "azul_core::callbacks::VirtualViewReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "AspectRatioValue": {
-                        "external": "azul_css::props::style::effects::AspectRatioValue",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "width": {
-                                    "type": "u32"
-                                },
-                                "height": {
-                                    "type": "u32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -79947,6 +79929,24 @@
                                 "day": {
                                     "type": "u8"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FormatLength": {
+                        "external": "azul_layout::icu::FormatLength",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Short": {},
+                                "Medium": {},
+                                "Long": {}
                             }
                         ],
                         "repr": "C"
