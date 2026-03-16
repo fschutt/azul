@@ -198,6 +198,24 @@ pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo
         );
     }
 
+    // Check for BoxOrStatic<T> - collapse to concrete alias (e.g., BoxOrStaticString)
+    if let Some(inner) = extract_generic_type(trimmed, "BoxOrStatic") {
+        let (inner_normalized, _) = normalize_generic_type(&inner);
+        let mut inner_clean = inner_normalized.replace(" ", "");
+        // Strip Az prefix from inner type (AzString → String, AzImageRef → ImageRef)
+        if should_normalize_az_prefix(&inner_clean) {
+            inner_clean = inner_clean[2..].to_string();
+        }
+        let normalized = format!("BoxOrStatic{}", inner_clean);
+        return (
+            normalized.clone(),
+            Some(GenericTypeInfo::Vec {
+                inner_type: inner_clean,
+                normalized_name: normalized,
+            }),
+        );
+    }
+
     // Check for Box<T> - always convert to *const c_void (opaque in FFI)
     // Box<T> types cannot be represented in C ABI, so we treat them as opaque pointers
     if let Some(_inner) = extract_generic_type(trimmed, "Box") {

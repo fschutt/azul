@@ -941,7 +941,7 @@ pub fn show_internal_only_types(api_data: &ApiData) {
 
 /// Show types that are in the wrong module
 pub fn show_wrong_module_types(api_data: &ApiData) {
-    use crate::autofix::module_map::{determine_module, get_correct_module};
+    use crate::autofix::module_map::{determine_module, get_correct_module_with_path};
 
     println!("\n=== Wrong Module Analysis ===\n");
 
@@ -959,8 +959,9 @@ pub fn show_wrong_module_types(api_data: &ApiData) {
     let mut wrong_module: Vec<(String, String, String, String)> = Vec::new(); // (current_module, type_name, correct_module, reason)
 
     for (module_name, module) in api.iter() {
-        for (class_name, _) in module.classes.iter() {
-            if let Some(correct) = get_correct_module(class_name, module_name) {
+        for (class_name, class_data) in module.classes.iter() {
+            let ext_path = class_data.external.as_deref();
+            if let Some(correct) = get_correct_module_with_path(class_name, module_name, ext_path) {
                 let (_, is_misc_fallback) = determine_module(class_name);
                 let reason = if is_misc_fallback {
                     "no matching keywords".to_string()

@@ -17,7 +17,7 @@ use crate::{
     api::ApiData,
     autofix::{
         message::{AutofixMessage, AutofixMessages, ClassAdded, PatchSummary, SkipReason},
-        module_map::{get_correct_module, MODULES},
+        module_map::{get_correct_module_with_path, MODULES},
         unified_index::TypeLookup,
     },
     patch::{
@@ -878,9 +878,10 @@ pub fn generate_patches<T: TypeLookup>(
     // 5.5. Generate MoveModule patches for types in wrong modules
     // Check each type in api.json and generate move patches if needed
     for (module_name, module_data) in &version_data.api {
-        for (class_name, _class_data) in &module_data.classes {
+        for (class_name, class_data) in &module_data.classes {
             // Determine where this type should actually be
-            if let Some(correct_module) = get_correct_module(class_name, module_name) {
+            let ext_path = class_data.external.as_deref();
+            if let Some(correct_module) = get_correct_module_with_path(class_name, module_name, ext_path) {
                 // Type is in wrong module, generate move patch
                 let key = (module_name.clone(), class_name.clone());
                 all_patches

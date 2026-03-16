@@ -11,7 +11,7 @@ use std::{
 use anyhow::Result;
 
 use super::{
-    module_map::get_correct_module,
+    module_map::get_correct_module_with_path,
     type_index::{TypeDefKind, TypeDefinition, TypeIndex},
     type_resolver::{ResolutionContext, ResolvedType, ResolvedTypeSet, TypeResolver, TypeWarning},
     utils::canonicalize_option_type_name,
@@ -1175,7 +1175,7 @@ fn generate_diff_v2(
                 ));
 
                 // Check if type is in the wrong module
-                if let Some(correct_module) = get_correct_module(matched_api_name, &api_info.module)
+                if let Some(correct_module) = get_correct_module_with_path(matched_api_name, &api_info.module, Some(&api_info.path))
                 {
                     diff.module_moves.push(ModuleMove {
                         type_name: matched_api_name.to_string(),
@@ -1231,7 +1231,7 @@ fn generate_diff_v2(
 
         // Check if ANY type (matched or not) is in the wrong module
         // This ensures we move legacy module types even if they weren't resolved from workspace
-        if let Some(correct_module) = get_correct_module(api_name, &api_info.module) {
+        if let Some(correct_module) = get_correct_module_with_path(api_name, &api_info.module, Some(&api_info.path)) {
             // Avoid duplicate moves (already added in matched types loop)
             let already_has_move = diff.module_moves.iter().any(|m| m.type_name == *api_name);
 
@@ -1794,7 +1794,11 @@ fn compare_enum_variants(
             .zip(api_variants.iter())
             .any(|(ws, (api_name, api_type))| {
                 let name_differs = ws.name != *api_name;
-                let workspace_normalized = ws.ty.as_ref().map(|t| normalize_type_name(t));
+                let workspace_normalized = ws.ty.as_ref().map(|t| {
+                    // Use normalize_generic_type to collapse BoxOrStatic<T> → BoxOrStaticT, etc.
+                    let (normalized, _) = crate::autofix::utils::normalize_generic_type(t);
+                    normalize_type_name(&normalized)
+                });
                 let api_normalized = api_type.as_ref().map(|t| normalize_type_name(t));
                 let type_differs = workspace_normalized != api_normalized;
                 name_differs || type_differs
@@ -1803,10 +1807,22 @@ fn compare_enum_variants(
 
     // If any difference exists, replace ALL variants with the correct ones from workspace
     if variants_differ && !workspace_variants.is_empty() {
+        // Normalize variant types (collapse BoxOrStatic<T> → BoxOrStaticT, strip Az prefix)
+        let normalized_variants: Vec<EnumVariantInfo> = workspace_variants
+            .into_iter()
+            .map(|mut v| {
+                if let Some(ref ty) = v.ty {
+                    let (normalized, _) = crate::autofix::utils::normalize_generic_type(ty);
+                    v.ty = Some(normalize_type_name(&normalized));
+                }
+                v
+            })
+            .collect();
+
         modifications.push(TypeModification {
             type_name: type_name.to_string(),
             kind: ModificationKind::EnumVariantsReplaced {
-                variants: workspace_variants,
+                variants: normalized_variants,
             },
         });
     }

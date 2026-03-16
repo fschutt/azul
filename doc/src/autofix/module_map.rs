@@ -138,7 +138,8 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "extendmode", // ExtendMode
             "flow",       // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
             "arithmetic", // ArithmeticCoefficients
-            "visualbox",  // VisualBox (overflow-clip-margin)
+            "visualbox",       // VisualBox (overflow-clip-margin)
+            "boxorstatic",     // BoxOrStatic, BoxOrStaticString, BoxOrStaticImageRef
         ],
     );
 
@@ -546,17 +547,86 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     (matches[0].0.to_string(), false)
 }
 
-/// Check if a type is in the correct module and return the correct module if not
-/// Uses determine_module to figure out where the type should be based on its name
-/// If the type is already in the correct module, returns None
-/// If the type should be moved, returns Some(target_module)
+/// Check if a type is in the correct module and return the correct module if not.
+/// Uses the external path (if available) as the primary signal, falling back to
+/// keyword-based `determine_module` if no external path is provided.
+/// If the type is already in the correct module, returns None.
+/// If the type should be moved, returns Some(target_module).
 pub fn get_correct_module(type_name: &str, current_module: &str) -> Option<String> {
-    let (correct_module, _) = determine_module(type_name);
-    if correct_module != current_module {
-        Some(correct_module)
-    } else {
-        None
+    get_correct_module_with_path(type_name, current_module, None)
+}
+
+/// Like `get_correct_module` but accepts an optional external path for better accuracy.
+pub fn get_correct_module_with_path(type_name: &str, current_module: &str, external_path: Option<&str>) -> Option<String> {
+    let (name_module, is_warning) = determine_module(type_name);
+
+    // Hard-coded module assignments (Vec/Option/Error) always win — they're structural
+    let lower_name = type_name.to_lowercase();
+    let is_structural = lower_name.starts_with("option")
+        || lower_name.ends_with("vec")
+        || lower_name.ends_with("vecdestructor")
+        || lower_name.ends_with("vecdestructortype")
+        || lower_name.ends_with("vecref")
+        || lower_name.ends_with("vecrefmut")
+        || lower_name.ends_with("vecslice")
+        || lower_name.ends_with("error")
+        || lower_name.starts_with("result");
+
+    if is_structural && !is_warning {
+        if name_module != current_module {
+            return Some(name_module);
+        } else {
+            return None; // structural type is in correct module
+        }
     }
+
+    // For non-structural types: if keyword matching is confident, trust it
+    if !is_warning {
+        if name_module != current_module {
+            return Some(name_module);
+        } else {
+            return None;
+        }
+    }
+
+    // Keyword matching fell through to "misc" — use external path as tiebreaker
+    if let Some(path) = external_path {
+        if let Some(path_module) = module_from_external_path(path) {
+            if path_module != current_module {
+                return Some(path_module);
+            } else {
+                return None;
+            }
+        }
+    }
+
+    // Both keyword and path failed — suggest misc
+    if name_module != current_module {
+        return Some(name_module);
+    }
+
+    None
+}
+
+/// Derive the api.json module name from a Rust external path like "azul_css::css::BoxOrStaticString".
+fn module_from_external_path(path: &str) -> Option<String> {
+    // azul_css::* → css (all CSS types)
+    if path.starts_with("azul_css::") {
+        return Some("css".to_string());
+    }
+    // azul_core submodules
+    if path.starts_with("azul_core::dom::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_core::window::") { return Some("window".to_string()); }
+    if path.starts_with("azul_core::callbacks::") { return Some("callbacks".to_string()); }
+    if path.starts_with("azul_core::a11y::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_core::resources::") { return Some("image".to_string()); }
+    if path.starts_with("azul_core::styled_dom::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_core::diff::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_core::events::") { return Some("dom".to_string()); }
+    // azul_layout submodules
+    if path.starts_with("azul_layout::icu::") { return Some("icu".to_string()); }
+    if path.starts_with("azul_layout::xml::") { return Some("dom".to_string()); }
+    None
 }
 
 /// Types that should be excluded from the C API entirely
