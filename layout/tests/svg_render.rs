@@ -88,4 +88,33 @@ mod tests {
         assert!(!png.is_empty());
         let _ = std::fs::write("/tmp/azul_svg_star.png", &png);
     }
+
+    #[test]
+    fn test_render_tiger_svg() {
+        use azul_layout::cpurender::render_svg_to_png;
+
+        let svg_data = std::fs::read(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/assets/svg/tiger.svg")
+        ).expect("Failed to read tiger.svg — check path");
+
+        let png = render_svg_to_png(&svg_data, 900, 900).unwrap();
+        assert!(!png.is_empty());
+        assert_eq!(&png[0..4], &[0x89, b'P', b'N', b'G']);
+        std::fs::write("/tmp/azul_tiger_svg.png", &png).unwrap();
+        eprintln!("Tiger rendered to /tmp/azul_tiger_svg.png ({} bytes)", png.len());
+    }
+
+    #[test]
+    fn test_render_test_svg() {
+        use azul_layout::cpurender::render_svg_to_png;
+
+        let svg_data = std::fs::read(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/assets/svg/test.svg")
+        ).expect("Failed to read test.svg");
+
+        let png = render_svg_to_png(&svg_data, 400, 400).unwrap();
+        assert!(!png.is_empty());
+        std::fs::write("/tmp/azul_test_svg.png", &png).unwrap();
+        eprintln!("Test SVG rendered to /tmp/azul_test_svg.png ({} bytes)", png.len());
+    }
 }
