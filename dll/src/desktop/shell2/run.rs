@@ -524,20 +524,37 @@ pub fn run(
                         }
 
                         // PHASE 4: Wait for next event (blocking)
-                        // This prevents busy-waiting and reduces CPU usage to near-zero when idle
+                        // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
+                        // so that ALL run loop sources are processed — including Mach ports
+                        // used by macOS accessibility (VoiceOver, System Events).
+                        // nextEventMatchingMask only dequeues NSEvents and ignores other
+                        // run loop sources, which causes accessibility queries to time out
+                        // with kAXErrorCannotComplete (-25204).
                         let distant_future = objc2_foundation::NSDate::distantFuture();
-                        let event = unsafe {
-                            app.nextEventMatchingMask_untilDate_inMode_dequeue(
-                                NSEventMask::Any,
-                                Some(&distant_future), // Block until event arrives
-                                objc2_foundation::ns_string!("kCFRunLoopDefaultMode"),
-                                true,
-                            )
-                        };
+                        let run_loop = objc2_foundation::NSRunLoop::currentRunLoop();
+                        unsafe {
+                            run_loop.runMode_beforeDate(
+                                objc2_foundation::NSDefaultRunLoopMode,
+                                &distant_future,
+                            );
+                        }
 
-                        if let Some(event) = event {
-                            unsafe {
-                                app.sendEvent(&event);
+                        // After the run loop wakes, drain any pending NSEvents
+                        loop {
+                            let event = unsafe {
+                                app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                                    NSEventMask::Any,
+                                    None, // Non-blocking
+                                    objc2_foundation::ns_string!("kCFRunLoopDefaultMode"),
+                                    true,
+                                )
+                            };
+                            if let Some(event) = event {
+                                unsafe {
+                                    app.sendEvent(&event);
+                                }
+                            } else {
+                                break;
                             }
                         }
                     });

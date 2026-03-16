@@ -111,9 +111,15 @@ impl MacOSAccessibilityAdapter {
 
         // Update active tree - wrapped in catch_unwind to prevent panics
         // from crashing the application
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.adapter.update_if_active(|| tree_update);
         }));
+        if let Err(e) = result {
+            let msg = e.downcast_ref::<String>().cloned()
+                .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| format!("{:?}", e));
+            eprintln!("[a11y] ERROR: update_if_active panicked: {}", msg);
+        }
     }
 
     /// Poll for action requests from assistive technologies

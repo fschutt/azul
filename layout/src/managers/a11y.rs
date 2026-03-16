@@ -74,9 +74,10 @@ impl A11yManager {
         // Map to collect children for each parent
         let mut parent_children_map: HashMap<A11yNodeId, Vec<A11yNodeId>> = HashMap::new();
 
-        // Create root window node
+        // Create root window node and add it to the nodes list
         let mut root_node = Node::new(Role::Window);
         root_node.set_label(window_title.as_str());
+        nodes.push((root_id, root_node));
 
         // Traverse all DOMs and their layout trees - FIRST PASS: Create all nodes
         for (dom_id, layout_result) in layout_results {
@@ -89,8 +90,9 @@ impl A11yManager {
                 };
 
                 // Generate stable A11yNodeId from DomId + NodeId
+                // Offset by 1 to avoid collision with root_id (which is 0)
                 let node_index = dom_node_id.index();
-                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | node_index as u64);
+                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | (node_index as u64) + 1);
 
                 // Get accessibility info from NodeData
                 let node_data = styled_dom.node_data.as_ref().get(dom_node_id.index());
@@ -99,10 +101,19 @@ impl A11yManager {
                 };
                 let a11y_info = node_data.get_accessibility_info();
 
-                // Only create accessibility nodes for elements with accessibility info
-                // or semantic HTML elements
-                let should_create_node =
-                    a11y_info.is_some() || node_data.node_type.is_semantic_for_accessibility();
+                // Include nodes that have explicit a11y info, are semantic HTML elements,
+                // or are structurally important (Body, Div with text, Text nodes,
+                // contenteditable elements)
+                let is_contenteditable = node_data.is_contenteditable();
+                let has_text = matches!(node_data.node_type, NodeType::Text(_));
+                let is_body = matches!(node_data.node_type, NodeType::Body);
+                let is_container = matches!(node_data.node_type, NodeType::Div);
+                let should_create_node = a11y_info.is_some()
+                    || node_data.node_type.is_semantic_for_accessibility()
+                    || has_text
+                    || is_body
+                    || is_contenteditable
+                    || is_container;
 
                 if !should_create_node {
                     continue;
@@ -140,10 +151,9 @@ impl A11yManager {
                 let hierarchy_item = &node_hierarchy[node_index];
 
                 // Find accessible parent by walking up the tree
-                // Safety: limit iterations to prevent infinite loops in case of malformed hierarchy
                 let mut parent_node_index = hierarchy_item.parent;
                 let mut accessible_parent_id = None;
-                let max_hierarchy_depth = 10_000; // Limit for UI tree depth
+                let max_hierarchy_depth = 10_000;
                 let mut iterations = 0;
 
                 while parent_node_index != usize::MAX && iterations < max_hierarchy_depth {
@@ -155,8 +165,6 @@ impl A11yManager {
                         accessible_parent_id = Some(*parent_a11y_id);
                         break;
                     }
-                    // Parent doesn't have a11y node, walk up further
-                    // Check bounds before accessing
                     if parent_node_index >= node_hierarchy.len() {
                         break;
                     }
@@ -164,30 +172,25 @@ impl A11yManager {
                     parent_node_index = parent_item.parent;
                 }
 
-                // Add this node as child to its accessible parent
                 if let Some(parent_id) = accessible_parent_id {
                     parent_children_map
                         .entry(parent_id)
                         .or_insert_with(Vec::new)
                         .push(a11y_node_id);
                 } else {
-                    // No accessible parent - this is a top-level node
+                    // No accessible parent — child of root window node
                     root_children.push(a11y_node_id);
                 }
             }
         }
 
-        // Third pass: Set children on all nodes
+        // Third pass: Set children on all nodes (including root)
         for (node_id, node) in nodes.iter_mut() {
-            if let Some(children) = parent_children_map.get(node_id) {
-                node.set_children(children.clone());
-            }
-        }
-
-        // Set children on root node (first node in list)
-        if let Some((node_id, root_node)) = nodes.first_mut() {
             if *node_id == root_id {
-                root_node.set_children(root_children);
+                // Root window node gets top-level DOM nodes as children
+                node.set_children(root_children.clone());
+            } else if let Some(children) = parent_children_map.get(node_id) {
+                node.set_children(children.clone());
             }
         }
 
