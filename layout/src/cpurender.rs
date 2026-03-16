@@ -17,17 +17,22 @@ use azul_css::props::basic::{ColorU, ColorOrSystem, FontRef};
 
 use agg_rust::{
     basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
+    blur::stack_blur_rgba32,
     path_storage::PathStorage,
     color::Rgba8,
     conv_stroke::ConvStroke,
     conv_transform::ConvTransform,
+    gradient_lut::GradientLut,
     pixfmt_rgba::{PixfmtRgba32, PixelFormat},
     rasterizer_scanline_aa::RasterizerScanlineAa,
     renderer_base::RendererBase,
-    renderer_scanline::render_scanlines_aa_solid,
+    renderer_scanline::{render_scanlines_aa, render_scanlines_aa_solid},
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
+    span_allocator::SpanAllocator,
+    span_gradient::{GradientConic, GradientFunction, GradientRadialD, GradientX, SpanGradient},
+    span_interpolator_linear::SpanInterpolatorLinear,
     trans_affine::TransAffine,
 };
 
@@ -168,6 +173,587 @@ fn agg_fill_transformed_path(
 }
 
 // ============================================================================
+// AGG helper: fill a path with a gradient into an AzulPixmap
+// ============================================================================
+
+fn agg_fill_gradient<G: GradientFunction>(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    lut: &GradientLut,
+    gradient_fn: G,
+    transform: TransAffine,
+    d1: f64,
+    d2: f64,
+) {
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe {
+        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
+    };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(FillingRule::NonZero);
+    ras.add_path(path, 0);
+    let mut sl = ScanlineU8::new();
+
+    let interp = SpanInterpolatorLinear::new(transform);
+    let mut sg = SpanGradient::new(interp, gradient_fn, lut, d1, d2);
+    let mut alloc = SpanAllocator::<Rgba8>::new();
+    render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, &mut sg);
+}
+
+// ============================================================================
+// Gradient helpers
+// ============================================================================
+
+/// Resolve a ColorOrSystem to a concrete ColorU (system colors fall back to gray).
+fn resolve_color(color: &ColorOrSystem) -> ColorU {
+    match color {
+        ColorOrSystem::Color(c) => *c,
+        ColorOrSystem::System(_) => ColorU { r: 128, g: 128, b: 128, a: 255 },
+    }
+}
+
+/// Build a GradientLut from normalized linear color stops.
+fn build_gradient_lut_linear(
+    stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
+) -> GradientLut {
+    let mut lut = GradientLut::new_default();
+    let stops_slice = stops.as_ref();
+    if stops_slice.len() < 2 {
+        // Need at least 2 stops; fill with transparent
+        lut.add_color(0.0, Rgba8::new(0, 0, 0, 0));
+        lut.add_color(1.0, Rgba8::new(0, 0, 0, 0));
+        lut.build_lut();
+        return lut;
+    }
+    for stop in stops_slice {
+        let offset = stop.offset.normalized() as f64; // 0.0..1.0
+        let c = resolve_color(&stop.color);
+        lut.add_color(offset, Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32));
+    }
+    lut.build_lut();
+    lut
+}
+
+/// Build a GradientLut from normalized radial (conic) color stops.
+fn build_gradient_lut_radial(
+    stops: &azul_css::props::style::background::NormalizedRadialColorStopVec,
+) -> GradientLut {
+    let mut lut = GradientLut::new_default();
+    let stops_slice = stops.as_ref();
+    if stops_slice.len() < 2 {
+        lut.add_color(0.0, Rgba8::new(0, 0, 0, 0));
+        lut.add_color(1.0, Rgba8::new(0, 0, 0, 0));
+        lut.build_lut();
+        return lut;
+    }
+    for stop in stops_slice {
+        // Conic stops use angle — normalize to 0..1 fraction of full circle
+        let offset = (stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0) as f64;
+        let c = resolve_color(&stop.color);
+        lut.add_color(offset, Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32));
+    }
+    lut.build_lut();
+    lut
+}
+
+/// Resolve a background position to (x_fraction, y_fraction) in 0..1 range.
+fn resolve_background_position(
+    pos: &azul_css::props::style::background::StyleBackgroundPosition,
+    width: f32,
+    height: f32,
+) -> (f32, f32) {
+    use azul_css::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
+
+    let x = match pos.horizontal {
+        BackgroundPositionHorizontal::Left => 0.0,
+        BackgroundPositionHorizontal::Center => 0.5,
+        BackgroundPositionHorizontal::Right => 1.0,
+        BackgroundPositionHorizontal::Exact(px) => {
+            let val = px.to_pixels_internal(width, 16.0);
+            if width > 0.0 { val / width } else { 0.5 }
+        }
+    };
+    let y = match pos.vertical {
+        BackgroundPositionVertical::Top => 0.0,
+        BackgroundPositionVertical::Center => 0.5,
+        BackgroundPositionVertical::Bottom => 1.0,
+        BackgroundPositionVertical::Exact(px) => {
+            let val = px.to_pixels_internal(height, 16.0);
+            if height > 0.0 { val / height } else { 0.5 }
+        }
+    };
+    (x, y)
+}
+
+fn render_linear_gradient(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    gradient: &azul_css::props::style::background::LinearGradient,
+    border_radius: &BorderRadius,
+    dpi_factor: f32,
+) -> Result<(), String> {
+    use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
+
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    let stops = gradient.stops.as_ref();
+    if stops.is_empty() {
+        return Ok(());
+    }
+
+    let lut = build_gradient_lut_linear(&gradient.stops);
+
+    // Convert Direction to start/end points using the existing to_points method
+    let layout_rect = LayoutRect {
+        origin: azul_css::props::basic::geometry::LayoutPoint::new(0, 0),
+        size: LayoutSize {
+            width: (rect.width as isize),
+            height: (rect.height as isize),
+        },
+    };
+    let (from_pt, to_pt) = gradient.direction.to_points(&layout_rect);
+
+    // Pixel-space start/end
+    let x1 = rect.x as f64 + from_pt.x as f64;
+    let y1 = rect.y as f64 + from_pt.y as f64;
+    let x2 = rect.x as f64 + to_pt.x as f64;
+    let y2 = rect.y as f64 + to_pt.y as f64;
+
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 0.001 {
+        return Ok(());
+    }
+
+    // Build transform: maps gradient line to X axis
+    // We need the inverse: pixel space -> gradient space
+    let angle = dy.atan2(dx);
+    let mut transform = TransAffine::new_translation(x1, y1);
+    transform.rotate(angle);
+    transform.scale(len / 100.0, len / 100.0); // scale so d1=0, d2=100 maps to gradient length
+    transform.invert();
+
+    let mut path = if border_radius.is_zero() {
+        build_rect_path(&rect)
+    } else {
+        build_rounded_rect_path(&rect, border_radius, dpi_factor)
+    };
+
+    agg_fill_gradient(pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0);
+    Ok(())
+}
+
+fn render_radial_gradient(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    gradient: &azul_css::props::style::background::RadialGradient,
+    border_radius: &BorderRadius,
+    dpi_factor: f32,
+) -> Result<(), String> {
+    use azul_css::props::style::background::{RadialGradientSize, Shape};
+
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    let stops = gradient.stops.as_ref();
+    if stops.is_empty() {
+        return Ok(());
+    }
+
+    let lut = build_gradient_lut_linear(&gradient.stops);
+
+    let w = rect.width as f64;
+    let h = rect.height as f64;
+
+    // Compute center from position
+    let (cx_frac, cy_frac) = resolve_background_position(&gradient.position, rect.width, rect.height);
+    let cx = rect.x as f64 + cx_frac as f64 * w;
+    let cy = rect.y as f64 + cy_frac as f64 * h;
+
+    // Compute radius based on shape and size
+    let radius = match gradient.size {
+        RadialGradientSize::ClosestSide => {
+            let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
+            let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
+            match gradient.shape {
+                Shape::Circle => dx.min(dy),
+                Shape::Ellipse => dx.min(dy), // simplified
+            }
+        }
+        RadialGradientSize::FarthestSide => {
+            let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
+            let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
+            match gradient.shape {
+                Shape::Circle => dx.max(dy),
+                Shape::Ellipse => dx.max(dy),
+            }
+        }
+        RadialGradientSize::ClosestCorner => {
+            let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
+            let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
+            (dx * dx + dy * dy).sqrt()
+        }
+        RadialGradientSize::FarthestCorner => {
+            let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
+            let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
+            (dx * dx + dy * dy).sqrt()
+        }
+    };
+
+    if radius < 0.001 {
+        return Ok(());
+    }
+
+    // Build transform: maps center to origin, scales radius to 100
+    let mut transform = TransAffine::new_translation(cx, cy);
+    transform.scale(radius / 100.0, radius / 100.0);
+    transform.invert();
+
+    let mut path = if border_radius.is_zero() {
+        build_rect_path(&rect)
+    } else {
+        build_rounded_rect_path(&rect, border_radius, dpi_factor)
+    };
+
+    agg_fill_gradient(pixmap, &mut path, &lut, GradientRadialD, transform, 0.0, 100.0);
+    Ok(())
+}
+
+fn render_conic_gradient(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    gradient: &azul_css::props::style::background::ConicGradient,
+    border_radius: &BorderRadius,
+    dpi_factor: f32,
+) -> Result<(), String> {
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    let stops = gradient.stops.as_ref();
+    if stops.is_empty() {
+        return Ok(());
+    }
+
+    let lut = build_gradient_lut_radial(&gradient.stops);
+
+    let w = rect.width as f64;
+    let h = rect.height as f64;
+
+    // Compute center
+    let (cx_frac, cy_frac) = resolve_background_position(&gradient.center, rect.width, rect.height);
+    let cx = rect.x as f64 + cx_frac as f64 * w;
+    let cy = rect.y as f64 + cy_frac as f64 * h;
+
+    // Start angle (CSS conic gradients start at 12 o'clock = -90deg in math coords)
+    let start_angle_deg = gradient.angle.to_degrees();
+    let start_angle_rad = ((start_angle_deg - 90.0) as f64).to_radians();
+
+    // Build transform: translate center to origin, rotate by start angle
+    let mut transform = TransAffine::new_translation(cx, cy);
+    transform.rotate(start_angle_rad);
+    transform.invert();
+
+    // GradientConic maps atan2(y,x) * d / pi, covering [0, d] for the half-circle.
+    // We use d2 = 100 as the range; the LUT maps 0..1 over that.
+    let d2 = 100.0;
+
+    let mut path = if border_radius.is_zero() {
+        build_rect_path(&rect)
+    } else {
+        build_rounded_rect_path(&rect, border_radius, dpi_factor)
+    };
+
+    agg_fill_gradient(pixmap, &mut path, &lut, GradientConic, transform, 0.0, d2);
+    Ok(())
+}
+
+// ============================================================================
+// Box shadow rendering
+// ============================================================================
+
+fn render_box_shadow(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    shadow: &azul_css::props::style::box_shadow::StyleBoxShadow,
+    border_radius: &BorderRadius,
+    dpi_factor: f32,
+) -> Result<(), String> {
+    use azul_css::props::style::box_shadow::BoxShadowClipMode;
+
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0) * dpi_factor;
+    let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0) * dpi_factor;
+    let blur_r = (shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0) * dpi_factor).max(0.0);
+    let spread = shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0) * dpi_factor;
+
+    let color = shadow.color;
+    if color.a == 0 {
+        return Ok(());
+    }
+
+    // Compute shadow rect (expanded by spread, padded by blur)
+    let padding = blur_r.ceil();
+    let shadow_x = rect.x + offset_x - spread - padding;
+    let shadow_y = rect.y + offset_y - spread - padding;
+    let shadow_w = rect.width + 2.0 * spread + 2.0 * padding;
+    let shadow_h = rect.height + 2.0 * spread + 2.0 * padding;
+
+    if shadow_w <= 0.0 || shadow_h <= 0.0 {
+        return Ok(());
+    }
+
+    let sw = shadow_w.ceil() as u32;
+    let sh = shadow_h.ceil() as u32;
+
+    if sw == 0 || sh == 0 || sw > 4096 || sh > 4096 {
+        return Ok(());
+    }
+
+    // Create temp buffer and draw the shadow shape into it
+    let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
+    tmp.fill(0, 0, 0, 0); // transparent
+
+    // The shape origin within the temp buffer
+    let shape_x = padding + spread;
+    let shape_y = padding + spread;
+    let shape_rect = match AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+    if border_radius.is_zero() {
+        let mut path = build_rect_path(&shape_rect);
+        agg_fill_path(&mut tmp, &mut path, &agg_color, FillingRule::NonZero);
+    } else {
+        let mut path = build_rounded_rect_path(&shape_rect, border_radius, dpi_factor);
+        agg_fill_path(&mut tmp, &mut path, &agg_color, FillingRule::NonZero);
+    }
+
+    // Apply blur
+    if blur_r > 0.5 {
+        let blur_radius = (blur_r.ceil() as u32).min(254);
+        let stride = (sw * 4) as i32;
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), sw, sh, stride)
+        };
+        stack_blur_rgba32(&mut ra, blur_radius, blur_radius);
+    }
+
+    // Blit the shadow buffer onto the main pixmap
+    let dst_x = shadow_x as i32;
+    let dst_y = shadow_y as i32;
+    blit_buffer(pixmap, &tmp.data, sw, sh, dst_x, dst_y);
+
+    Ok(())
+}
+
+/// Alpha-blend one RGBA buffer onto another at (dx, dy).
+fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
+    let dw = dst.width as i32;
+    let dh = dst.height as i32;
+
+    for py in 0..src_h as i32 {
+        let ty = dy + py;
+        if ty < 0 || ty >= dh {
+            continue;
+        }
+        for px in 0..src_w as i32 {
+            let tx = dx + px;
+            if tx < 0 || tx >= dw {
+                continue;
+            }
+
+            let si = ((py as u32 * src_w + px as u32) * 4) as usize;
+            let di = ((ty as u32 * dst.width + tx as u32) * 4) as usize;
+
+            if si + 3 >= src.len() || di + 3 >= dst.data.len() {
+                continue;
+            }
+
+            let sa = src[si + 3] as u32;
+            if sa == 0 {
+                continue;
+            }
+            if sa == 255 {
+                dst.data[di] = src[si];
+                dst.data[di + 1] = src[si + 1];
+                dst.data[di + 2] = src[si + 2];
+                dst.data[di + 3] = 255;
+            } else {
+                let da = 255 - sa;
+                dst.data[di] = ((src[si] as u32 * sa + dst.data[di] as u32 * da) / 255) as u8;
+                dst.data[di + 1] = ((src[si + 1] as u32 * sa + dst.data[di + 1] as u32 * da) / 255) as u8;
+                dst.data[di + 2] = ((src[si + 2] as u32 * sa + dst.data[di + 2] as u32 * da) / 255) as u8;
+                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * da / 255).min(255)) as u8;
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Image mask clipping
+// ============================================================================
+
+/// Entry on the mask stack for PushImageMaskClip / PopImageMaskClip.
+struct MaskEntry {
+    /// Snapshot of the pixmap region before mask was pushed.
+    snapshot: Vec<u8>,
+    /// R8 mask data scaled to target dimensions.
+    mask_data: Vec<u8>,
+    /// Target region in pixel coordinates.
+    origin_x: i32,
+    origin_y: i32,
+    width: u32,
+    height: u32,
+}
+
+/// Take a snapshot of a rectangular region of the pixmap.
+fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
+    let pw = pixmap.width as i32;
+    let ph = pixmap.height as i32;
+    let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
+
+    for py in 0..h as i32 {
+        let sy = y + py;
+        if sy < 0 || sy >= ph {
+            continue;
+        }
+        for px in 0..w as i32 {
+            let sx = x + px;
+            if sx < 0 || sx >= pw {
+                continue;
+            }
+            let si = ((sy as u32 * pixmap.width + sx as u32) * 4) as usize;
+            let di = ((py as u32 * w + px as u32) * 4) as usize;
+            if si + 3 < pixmap.data.len() && di + 3 < snap.len() {
+                snap[di] = pixmap.data[si];
+                snap[di + 1] = pixmap.data[si + 1];
+                snap[di + 2] = pixmap.data[si + 2];
+                snap[di + 3] = pixmap.data[si + 3];
+            }
+        }
+    }
+    snap
+}
+
+/// Extract and scale mask image data (R8) to target dimensions.
+fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
+    let image_data = mask_image.get_data();
+    let (mask_bytes, src_w, src_h) = match &*image_data {
+        DecodedImage::Raw((descriptor, data)) => {
+            let w = descriptor.width as u32;
+            let h = descriptor.height as u32;
+            if w == 0 || h == 0 {
+                return None;
+            }
+            let bytes = match data {
+                azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
+                _ => return None,
+            };
+            match descriptor.format {
+                azul_core::resources::RawImageFormat::R8 => {
+                    (bytes.to_vec(), w, h)
+                }
+                azul_core::resources::RawImageFormat::BGRA8 => {
+                    // Use alpha channel as mask
+                    let mut r8 = Vec::with_capacity((w * h) as usize);
+                    for chunk in bytes.chunks_exact(4) {
+                        r8.push(chunk[3]); // alpha
+                    }
+                    (r8, w, h)
+                }
+                _ => {
+                    // Use first channel as grayscale mask
+                    let chan_count = bytes.len() / (w * h) as usize;
+                    if chan_count == 0 {
+                        return None;
+                    }
+                    let mut r8 = Vec::with_capacity((w * h) as usize);
+                    for i in 0..(w * h) as usize {
+                        r8.push(bytes[i * chan_count]);
+                    }
+                    (r8, w, h)
+                }
+            }
+        }
+        _ => return None,
+    };
+
+    if target_w == 0 || target_h == 0 {
+        return None;
+    }
+
+    // Scale mask to target dimensions via nearest-neighbor
+    let mut scaled = vec![0u8; (target_w * target_h) as usize];
+    let sx = src_w as f32 / target_w as f32;
+    let sy = src_h as f32 / target_h as f32;
+    for py in 0..target_h {
+        for px in 0..target_w {
+            let mx = ((px as f32 * sx) as u32).min(src_w - 1);
+            let my = ((py as f32 * sy) as u32).min(src_h - 1);
+            scaled[(py * target_w + px) as usize] = mask_bytes[(my * src_w + mx) as usize];
+        }
+    }
+    Some(scaled)
+}
+
+/// Apply a mask: for each pixel in the mask region, blend between the snapshot
+/// (pre-mask state) and the current pixmap state using the mask value.
+fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
+    let pw = pixmap.width as i32;
+    let ph = pixmap.height as i32;
+
+    for py in 0..entry.height as i32 {
+        let dy = entry.origin_y + py;
+        if dy < 0 || dy >= ph {
+            continue;
+        }
+        for px in 0..entry.width as i32 {
+            let dx = entry.origin_x + px;
+            if dx < 0 || dx >= pw {
+                continue;
+            }
+
+            let mi = (py as u32 * entry.width + px as u32) as usize;
+            let mask_val = entry.mask_data.get(mi).copied().unwrap_or(0) as u32;
+
+            let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
+            let si = ((py as u32 * entry.width + px as u32) * 4) as usize;
+
+            if pi + 3 >= pixmap.data.len() || si + 3 >= entry.snapshot.len() {
+                continue;
+            }
+
+            // Blend: result = snapshot * (255 - mask) + current * mask
+            // mask_val 255 = fully visible (keep current), 0 = fully clipped (restore snapshot)
+            let inv_mask = 255 - mask_val;
+            for c in 0..4 {
+                let snap_c = entry.snapshot[si + c] as u32;
+                let cur_c = pixmap.data[pi + c] as u32;
+                pixmap.data[pi + c] = ((cur_c * mask_val + snap_c * inv_mask) / 255) as u8;
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -234,6 +820,7 @@ fn render_display_list(
 ) -> Result<(), String> {
     let mut transform_stack = vec![TransAffine::new()]; // identity
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
+    let mut mask_stack: Vec<MaskEntry> = Vec::new();
 
     for item in &display_list.items {
         match item {
@@ -544,35 +1131,17 @@ fn render_display_list(
             }
             DisplayListItem::VirtualViewPlaceholder { .. } => {}
 
-            // Gradient rendering - simplified for CPU render
+            // Gradient rendering
             DisplayListItem::LinearGradient {
                 bounds,
                 gradient,
                 border_radius,
             } => {
-                // TODO: Implement proper gradient rendering with agg SpanGradient
-                let default_color = ColorU {
-                    r: 128,
-                    g: 128,
-                    b: 128,
-                    a: 255,
-                };
-                let color = gradient
-                    .stops
-                    .as_ref()
-                    .first()
-                    .map(|s| match s.color {
-                        ColorOrSystem::Color(c) => c,
-                        ColorOrSystem::System(_) => default_color,
-                    })
-                    .unwrap_or(default_color);
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
+                render_linear_gradient(
                     pixmap,
                     bounds.inner(),
-                    color,
+                    gradient,
                     border_radius,
-                    clip,
                     dpi_factor,
                 )?;
             }
@@ -581,29 +1150,11 @@ fn render_display_list(
                 gradient,
                 border_radius,
             } => {
-                // TODO: Implement proper radial gradient rendering
-                let default_color = ColorU {
-                    r: 128,
-                    g: 128,
-                    b: 128,
-                    a: 255,
-                };
-                let color = gradient
-                    .stops
-                    .as_ref()
-                    .first()
-                    .map(|s| match s.color {
-                        ColorOrSystem::Color(c) => c,
-                        ColorOrSystem::System(_) => default_color,
-                    })
-                    .unwrap_or(default_color);
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
+                render_radial_gradient(
                     pixmap,
                     bounds.inner(),
-                    color,
+                    gradient,
                     border_radius,
-                    clip,
                     dpi_factor,
                 )?;
             }
@@ -612,54 +1163,26 @@ fn render_display_list(
                 gradient,
                 border_radius,
             } => {
-                // TODO: Implement proper conic gradient rendering
-                let default_color = ColorU {
-                    r: 128,
-                    g: 128,
-                    b: 128,
-                    a: 255,
-                };
-                let color = gradient
-                    .stops
-                    .as_ref()
-                    .first()
-                    .map(|s| match s.color {
-                        ColorOrSystem::Color(c) => c,
-                        ColorOrSystem::System(_) => default_color,
-                    })
-                    .unwrap_or(default_color);
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
+                render_conic_gradient(
                     pixmap,
                     bounds.inner(),
-                    color,
+                    gradient,
                     border_radius,
-                    clip,
                     dpi_factor,
                 )?;
             }
 
-            // BoxShadow - simplified
+            // BoxShadow
             DisplayListItem::BoxShadow {
                 bounds,
                 shadow,
                 border_radius,
             } => {
-                // TODO: Implement proper box shadow rendering with agg stack_blur
-                let offset_bounds = LogicalRect {
-                    origin: LogicalPosition {
-                        x: bounds.0.origin.x + shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
-                        y: bounds.0.origin.y + shadow.offset_y.inner.to_pixels_internal(0.0, 16.0),
-                    },
-                    size: bounds.0.size,
-                };
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
+                render_box_shadow(
                     pixmap,
-                    &offset_bounds,
-                    shadow.color,
+                    bounds.inner(),
+                    shadow,
                     border_radius,
-                    clip,
                     dpi_factor,
                 )?;
             }
@@ -681,9 +1204,31 @@ fn render_display_list(
                 mask_image,
                 mask_rect,
             } => {
-                // TODO: implement image mask clipping with agg AlphaMaskU8
+                let mr = mask_rect.inner();
+                let px_x = (mr.origin.x * dpi_factor) as i32;
+                let px_y = (mr.origin.y * dpi_factor) as i32;
+                let px_w = (mr.size.width * dpi_factor).ceil() as u32;
+                let px_h = (mr.size.height * dpi_factor).ceil() as u32;
+
+                if px_w > 0 && px_h > 0 {
+                    let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
+                    let mask_data = extract_mask_data(mask_image, px_w, px_h)
+                        .unwrap_or_else(|| vec![255u8; (px_w * px_h) as usize]);
+                    mask_stack.push(MaskEntry {
+                        snapshot,
+                        mask_data,
+                        origin_x: px_x,
+                        origin_y: px_y,
+                        width: px_w,
+                        height: px_h,
+                    });
+                }
             }
-            DisplayListItem::PopImageMaskClip => {}
+            DisplayListItem::PopImageMaskClip => {
+                if let Some(entry) = mask_stack.pop() {
+                    apply_mask(pixmap, &entry);
+                }
+            }
         }
     }
 
