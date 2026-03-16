@@ -626,7 +626,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let cache_map_back = std::mem::take(&mut ctx.cache_map);
 
     cache.tree = Some(new_tree);
-    cache.calculated_positions = calculated_positions;
+    cache.previous_positions = std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids.clone();
     cache.scroll_id_to_node_id = scroll_id_to_node_id;

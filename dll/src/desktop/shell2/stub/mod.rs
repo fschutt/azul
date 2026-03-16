@@ -121,9 +121,9 @@ pub enum StubEvent {
 /// | `AsyncHitTester`       | `CpuHitTester` (layout-based)               |
 /// | `swapBuffers`          | no-op (or write PNG for screenshots)        |
 ///
-/// The backend is intentionally less efficient than WebRender; the target
-/// are small CPU-rendered windows (Linux menu bars, tooltip popups) and
-/// headless E2E testing.
+/// The backend holds a retained-mode `CompositorState` for efficient
+/// incremental re-rendering.  On resize, only the root layer pixbuf is
+/// reallocated; scroll and damage use pixel-shift / partial re-render.
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: azul_layout::headless::CpuHitTester,
@@ -131,6 +131,12 @@ pub struct CpuBackend {
     /// `None` when rendering is disabled (layout-only mode).
     #[cfg(feature = "cpurender")]
     pub last_frame: Option<azul_layout::cpurender::AzulPixmap>,
+    /// Retained compositor state with per-layer pixbufs.
+    #[cfg(feature = "cpurender")]
+    pub compositor: Option<azul_layout::cpurender::CompositorState>,
+    /// Glyph cache — persists across frames for text rendering.
+    #[cfg(feature = "cpurender")]
+    pub glyph_cache: azul_layout::glyph_cache::GlyphCache,
 }
 
 impl CpuBackend {
@@ -139,7 +145,83 @@ impl CpuBackend {
             hit_tester: azul_layout::headless::CpuHitTester::new(),
             #[cfg(feature = "cpurender")]
             last_frame: None,
+            #[cfg(feature = "cpurender")]
+            compositor: None,
+            #[cfg(feature = "cpurender")]
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
         }
+    }
+
+    /// Render the current display list into `last_frame`.
+    ///
+    /// Called after each layout pass.  Uses the retained `CompositorState`
+    /// for efficient incremental rendering when only damage rects changed.
+    #[cfg(feature = "cpurender")]
+    pub fn render_frame(
+        &mut self,
+        layout_window: &azul_layout::window::LayoutWindow,
+        renderer_resources: &azul_core::resources::RendererResources,
+        width: f32,
+        height: f32,
+        dpi_factor: f32,
+    ) {
+        use azul_core::dom::DomId;
+
+        // Get the display list from layout results
+        let dom_id = DomId { inner: 0 };
+        let display_list = match layout_window.layout_results.get(&dom_id) {
+            Some(result) => &result.display_list,
+            None => return,
+        };
+
+        let pixel_w = (width * dpi_factor).ceil() as u32;
+        let pixel_h = (height * dpi_factor).ceil() as u32;
+        if pixel_w == 0 || pixel_h == 0 {
+            return;
+        }
+
+        // Allocate or resize compositor
+        let compositor = self.compositor.get_or_insert_with(|| {
+            azul_layout::cpurender::CompositorState::new(pixel_w, pixel_h)
+        });
+
+        // Check if we need to resize the root layer
+        let root = compositor.layers.get(&compositor.root_layer);
+        let needs_resize = match root {
+            Some(layer) => {
+                layer.pixbuf.width() != pixel_w || layer.pixbuf.height() != pixel_h
+            }
+            None => true,
+        };
+
+        if needs_resize {
+            // Recreate compositor for new size
+            *compositor = azul_layout::cpurender::CompositorState::new(pixel_w, pixel_h);
+        }
+
+        // Allocate layers from display list
+        compositor.allocate_layers_from_display_list(display_list, dpi_factor);
+
+        // Render into layers
+        if let Err(e) = compositor.render_layers(
+            display_list,
+            dpi_factor,
+            renderer_resources,
+            Some(&layout_window.font_manager),
+            &mut self.glyph_cache,
+        ) {
+            eprintln!("[CpuBackend] render_layers error: {}", e);
+        }
+
+        // Composite layers into final output
+        let mut output = match azul_layout::cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+            Some(p) => p,
+            None => return,
+        };
+        output.fill(255, 255, 255, 255);
+        compositor.composite_frame(&mut output, dpi_factor);
+
+        self.last_frame = Some(output);
     }
 }
 
@@ -324,6 +406,24 @@ impl StubWindow {
         // Rebuild CPU hit-tester from new layout results
         if let Some(lw) = self.common.layout_window.as_ref() {
             self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+        }
+
+        // CPU-render the frame (retained compositor handles efficient resize)
+        #[cfg(feature = "cpurender")]
+        {
+            let ws = &self.common.current_window_state;
+            let width = ws.size.dimensions.width;
+            let height = ws.size.dimensions.height;
+            let dpi = ws.size.hidpi_factor;
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.render_frame(
+                    lw,
+                    &self.common.renderer_resources,
+                    width,
+                    height,
+                    dpi,
+                );
+            }
         }
 
         // Mark that frame needs regeneration

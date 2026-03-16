@@ -3116,6 +3116,7 @@ impl AssertionResult {
 /// | `assert_css`         | `selector`, `property`, `expected`           |
 /// | `assert_app_state`   | `path`, `expected`                           |
 /// | `assert_scroll`      | `selector`, `x?`, `y?`, `tolerance?`         |
+/// | `assert_screenshot`  | `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -3138,6 +3139,7 @@ pub fn evaluate_assertion(
         "assert_css" => eval_assert_css(params, callback_info),
         "assert_app_state" => eval_assert_app_state(params, app_data),
         "assert_scroll" => eval_assert_scroll(params, callback_info),
+        "assert_screenshot" => eval_assert_screenshot(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -3579,6 +3581,114 @@ fn eval_assert_scroll(
     AssertionResult::pass(format!(
         "assert_scroll: '{}' at ({:.1}, {:.1})", selector, offset.x, offset.y
     ))
+}
+
+/// `assert_screenshot`: compare current CPU-rendered frame against a reference PNG.
+///
+/// Parameters:
+/// - `reference` (required): path to reference PNG file
+/// - `threshold` (optional, default 2): per-channel tolerance (0=exact, 2=anti-alias)
+/// - `max_diff_ratio` (optional, default 0.0): max fraction of pixels allowed to differ
+/// - `save_actual` (optional): path to save the actual screenshot for debugging
+#[cfg(feature = "std")]
+fn eval_assert_screenshot(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    #[cfg(not(feature = "cpurender"))]
+    {
+        return AssertionResult::fail("assert_screenshot: cpurender feature not enabled");
+    }
+
+    #[cfg(feature = "cpurender")]
+    {
+        let reference_path = match params.get("reference").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s,
+            _ => return AssertionResult::fail("assert_screenshot: missing 'reference' path"),
+        };
+        let threshold = params.get("threshold").and_then(|v| v.as_u64()).unwrap_or(2) as u8;
+        let max_diff_ratio = params.get("max_diff_ratio").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let save_actual = params.get("save_actual").and_then(|v| v.as_str());
+
+        // Take a screenshot of the current frame
+        let dom_id = azul_core::dom::DomId { inner: 0 };
+        let png_bytes = match callback_info.take_screenshot(dom_id) {
+            Ok(bytes) => bytes,
+            Err(e) => return AssertionResult::fail(
+                format!("assert_screenshot: screenshot failed: {}", e.as_str())
+            ),
+        };
+
+        // Decode the rendered screenshot
+        let rendered = match azul_layout::cpurender::AzulPixmap::decode_png(&png_bytes) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(
+                format!("assert_screenshot: decode rendered PNG failed: {}", e)
+            ),
+        };
+
+        // Save the actual screenshot if requested
+        if let Some(actual_path) = save_actual {
+            let _ = std::fs::write(actual_path, &png_bytes);
+        }
+
+        // Load and compare against reference
+        let ref_bytes = match std::fs::read(reference_path) {
+            Ok(b) => b,
+            Err(e) => {
+                // If reference doesn't exist, save the actual as baseline
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    if let Err(we) = std::fs::write(reference_path, &png_bytes) {
+                        return AssertionResult::fail(
+                            format!("assert_screenshot: reference not found and could not save baseline: {}", we)
+                        );
+                    }
+                    return AssertionResult::pass(format!(
+                        "assert_screenshot: baseline saved to {} ({}x{})",
+                        reference_path, rendered.width(), rendered.height()
+                    ));
+                }
+                return AssertionResult::fail(
+                    format!("assert_screenshot: cannot read reference {}: {}", reference_path, e)
+                );
+            }
+        };
+
+        let reference = match azul_layout::cpurender::AzulPixmap::decode_png(&ref_bytes) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(
+                format!("assert_screenshot: decode reference PNG failed: {}", e)
+            ),
+        };
+
+        let result = azul_layout::cpurender::pixel_diff(&reference, &rendered, threshold);
+
+        if !result.dimensions_match {
+            return AssertionResult::fail_with(
+                format!("assert_screenshot: dimension mismatch"),
+                format!("{}x{}", result.ref_width, result.ref_height),
+                format!("{}x{}", result.test_width, result.test_height),
+            );
+        }
+
+        let ratio = result.diff_ratio();
+        if ratio > max_diff_ratio {
+            return AssertionResult::fail_with(
+                format!(
+                    "assert_screenshot: {}/{} pixels differ (max_delta={})",
+                    result.diff_count, result.total_pixels, result.max_delta
+                ),
+                format!("diff_ratio <= {:.4}", max_diff_ratio),
+                format!("diff_ratio = {:.4}", ratio),
+            );
+        }
+
+        AssertionResult::pass(format!(
+            "assert_screenshot: match ({}x{}, {}/{} pixels differ, threshold={})",
+            rendered.width(), rendered.height(),
+            result.diff_count, result.total_pixels, threshold
+        ))
+    }
 }
 
 // ==================== Timer Callback ====================
