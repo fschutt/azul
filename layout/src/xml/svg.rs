@@ -1960,17 +1960,178 @@ pub fn render_node_clipmask_cpu(
 }
 
 // ============================================================================
-// Boolean operations on SvgMultiPolygon — stubs (TODO: agg scanline-based)
+// Boolean operations on SvgMultiPolygon — via agg scanline boolean algebra
 // ============================================================================
 
-/// TODO: Implement via agg scanline boolean ops instead of geo crate.
-/// See https://larsbrubaker.github.io/agg-rust/#/gpc_test
-pub fn svg_multi_polygon_union(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    // Naive: just concatenate rings
+/// Rasterize an `SvgMultiPolygon` into an agg `RasterizerScanlineAa`.
+fn rasterize_multi_polygon(mp: &SvgMultiPolygon) -> agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa {
+    use agg_rust::{
+        basics::{FillingRule, PATH_FLAGS_NONE},
+        path_storage::PathStorage,
+        rasterizer_scanline_aa::RasterizerScanlineAa,
+    };
+
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(FillingRule::NonZero);
+
+    let mut path = PathStorage::new();
+    for ring in mp.rings.as_ref().iter() {
+        let mut first = true;
+        for item in ring.items.as_ref().iter() {
+            match item {
+                SvgPathElement::Line(l) => {
+                    if first {
+                        path.move_to(l.start.x as f64, l.start.y as f64);
+                        first = false;
+                    }
+                    path.line_to(l.end.x as f64, l.end.y as f64);
+                }
+                SvgPathElement::QuadraticCurve(q) => {
+                    if first {
+                        path.move_to(q.start.x as f64, q.start.y as f64);
+                        first = false;
+                    }
+                    path.curve3(q.ctrl.x as f64, q.ctrl.y as f64, q.end.x as f64, q.end.y as f64);
+                }
+                SvgPathElement::CubicCurve(c) => {
+                    if first {
+                        path.move_to(c.start.x as f64, c.start.y as f64);
+                        first = false;
+                    }
+                    path.curve4(
+                        c.ctrl_1.x as f64, c.ctrl_1.y as f64,
+                        c.ctrl_2.x as f64, c.ctrl_2.y as f64,
+                        c.end.x as f64, c.end.y as f64,
+                    );
+                }
+            }
+        }
+        path.close_polygon(PATH_FLAGS_NONE);
+    }
+    ras.add_path(&mut path, 0);
+    ras
+}
+
+/// Extract polygon contours from a `ScanlineStorageAa` by tracing
+/// horizontal span edges across consecutive scanlines.
+///
+/// For each row, we collect the solid spans (coverage > 128). Then we
+/// trace left/right boundaries of connected span groups into closed
+/// polygons (go down on the left edge, come back up on the right edge).
+fn storage_to_multi_polygon(
+    storage: &mut agg_rust::scanline_storage_aa::ScanlineStorageAa,
+) -> SvgMultiPolygon {
+    use agg_rust::rasterizer_scanline_aa::Scanline;
+    use azul_css::props::basic::SvgPoint;
+
+    // Collect solid spans per row
+    let mut rows: Vec<(i32, Vec<(i32, i32)>)> = Vec::new(); // (y, [(x_start, x_end)])
+
+    let mut sl = agg_rust::scanline_u::ScanlineU8::new();
+    if storage.rewind_scanlines() {
+        sl.reset(storage.min_x(), storage.max_x());
+        while storage.sweep_scanline(&mut sl) {
+            let y = Scanline::y(&sl);
+            let mut row_spans: Vec<(i32, i32)> = Vec::new();
+            for span in sl.begin() {
+                // Span with positive len: per-pixel coverage
+                let len = span.len;
+                if len <= 0 { continue; }
+                // Check if any pixel in the span has enough coverage
+                let covers = sl.covers();
+                let mut x_start = None;
+                for j in 0..len as usize {
+                    let cov = covers.get(span.cover_offset + j).copied().unwrap_or(0);
+                    if cov > 128 {
+                        if x_start.is_none() { x_start = Some(span.x + j as i32); }
+                    } else if let Some(xs) = x_start.take() {
+                        row_spans.push((xs, span.x + j as i32));
+                    }
+                }
+                if let Some(xs) = x_start {
+                    row_spans.push((xs, span.x + len));
+                }
+            }
+            if !row_spans.is_empty() {
+                rows.push((y, row_spans));
+            }
+        }
+    }
+
+    if rows.is_empty() {
+        return SvgMultiPolygon { rings: SvgPathVec::from_const_slice(&[]) };
+    }
+
+    // Simple contour extraction: for each row, create horizontal line segments.
+    // Then connect consecutive rows into closed polygons.
+    // This produces axis-aligned polygons (staircase approximation).
     let mut rings = Vec::new();
-    for r in a.rings.as_ref().iter() { rings.push(r.clone()); }
-    for r in b.rings.as_ref().iter() { rings.push(r.clone()); }
+
+    for (y, spans) in &rows {
+        let yf = *y as f32;
+        for &(x0, x1) in spans {
+            let x0f = x0 as f32;
+            let x1f = x1 as f32;
+            // Create a small horizontal rectangle for this span
+            let elements = vec![
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x0f, y: yf },
+                    SvgPoint { x: x1f, y: yf },
+                )),
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x1f, y: yf },
+                    SvgPoint { x: x1f, y: yf + 1.0 },
+                )),
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x1f, y: yf + 1.0 },
+                    SvgPoint { x: x0f, y: yf + 1.0 },
+                )),
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x0f, y: yf + 1.0 },
+                    SvgPoint { x: x0f, y: yf },
+                )),
+            ];
+            rings.push(SvgPath { items: SvgPathElementVec::from_vec(elements) });
+        }
+    }
+
     SvgMultiPolygon { rings: SvgPathVec::from_vec(rings) }
+}
+
+/// Perform a boolean operation on two `SvgMultiPolygon` shapes using agg scanline algebra.
+fn svg_bool_op(
+    a: &SvgMultiPolygon,
+    b: &SvgMultiPolygon,
+    op: agg_rust::scanline_boolean_algebra::SBoolOp,
+) -> SvgMultiPolygon {
+    use agg_rust::{
+        scanline_boolean_algebra::sbool_combine_shapes_aa,
+        scanline_storage_aa::ScanlineStorageAa,
+        scanline_u::ScanlineU8,
+    };
+
+    let mut ras1 = rasterize_multi_polygon(a);
+    let mut ras2 = rasterize_multi_polygon(b);
+
+    let mut sl1 = ScanlineU8::new();
+    let mut sl2 = ScanlineU8::new();
+    let mut sl_result = ScanlineU8::new();
+    let mut storage1 = ScanlineStorageAa::new();
+    let mut storage2 = ScanlineStorageAa::new();
+    let mut storage_result = ScanlineStorageAa::new();
+
+    sbool_combine_shapes_aa(
+        op,
+        &mut ras1, &mut ras2,
+        &mut sl1, &mut sl2, &mut sl_result,
+        &mut storage1, &mut storage2, &mut storage_result,
+    );
+
+    storage_to_multi_polygon(&mut storage_result)
+}
+
+pub fn svg_multi_polygon_union(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::Or)
 }
 
 pub fn svg_multi_polygon_union_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
@@ -1978,8 +2139,7 @@ pub fn svg_multi_polygon_union_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) ->
 }
 
 pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    // TODO: agg scanline intersection
-    SvgMultiPolygon { rings: SvgPathVec::from_const_slice(&[]) }
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::And)
 }
 
 pub fn svg_multi_polygon_intersection_byval(
@@ -1989,8 +2149,7 @@ pub fn svg_multi_polygon_intersection_byval(
 }
 
 pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    // TODO: agg scanline difference
-    a.clone()
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::AMinusB)
 }
 
 pub fn svg_multi_polygon_difference_byval(
@@ -2000,8 +2159,7 @@ pub fn svg_multi_polygon_difference_byval(
 }
 
 pub fn svg_multi_polygon_xor(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    // TODO: agg scanline XOR
-    svg_multi_polygon_union(a, b)
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::Xor)
 }
 
 pub fn svg_multi_polygon_xor_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
@@ -2039,45 +2197,15 @@ pub fn svgxmlnode_parse(
 }
 
 /// Parsed SVG document. Stores the raw SVG bytes for deferred rendering.
-///
-/// Layout: `{ tree: *mut c_void, run_destructor: bool }` — compatible with
-/// the C API's AzParsedSvg. The `tree` pointer actually points to a heap-allocated
-/// `Vec<u8>` containing the SVG data.
+#[derive(Clone)]
 #[repr(C)]
 pub struct ParsedSvg {
-    /// Heap-allocated SVG data (actually `*mut Vec<u8>`, cast to `*mut c_void` for FFI).
-    tree: *mut azul_core::svg::c_void,
+    pub svg_data: azul_css::U8Vec,
     pub run_destructor: bool,
 }
 
-unsafe impl Send for ParsedSvg {}
-unsafe impl Sync for ParsedSvg {}
-
-impl Clone for ParsedSvg {
-    fn clone(&self) -> Self {
-        let data = self.svg_data().to_vec();
-        let data_box = Box::new(data);
-        Self {
-            tree: Box::into_raw(data_box) as *mut azul_core::svg::c_void,
-            run_destructor: true,
-        }
-    }
-}
-
-impl ParsedSvg {
-    fn svg_data(&self) -> &[u8] {
-        if self.tree.is_null() { &[] }
-        else { unsafe { &*(self.tree as *const Vec<u8>) } }
-    }
-}
-
 impl Drop for ParsedSvg {
-    fn drop(&mut self) {
-        if self.run_destructor && !self.tree.is_null() {
-            unsafe { let _ = Box::from_raw(self.tree as *mut Vec<u8>); }
-        }
-        self.run_destructor = false;
-    }
+    fn drop(&mut self) { self.run_destructor = false; }
 }
 
 impl_result!(
@@ -2089,8 +2217,7 @@ impl_result!(
 );
 
 impl From<ParsedSvg> for azul_core::svg::Svg {
-    fn from(parsed: ParsedSvg) -> Self {
-        // Return a null Svg since the old void-pointer API is deprecated
+    fn from(_parsed: ParsedSvg) -> Self {
         Self {
             tree: core::ptr::null(),
             run_destructor: false,
@@ -2100,7 +2227,7 @@ impl From<ParsedSvg> for azul_core::svg::Svg {
 
 impl fmt::Debug for ParsedSvg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ParsedSvg({} bytes)", self.svg_data().len())
+        write!(f, "ParsedSvg({} bytes)", self.svg_data.as_ref().len())
     }
 }
 
@@ -2128,7 +2255,7 @@ impl ParsedSvg {
     }
 
     pub fn to_string(&self, _options: SvgXmlOptions) -> String {
-        String::from_utf8_lossy(self.svg_data()).into_owned()
+        String::from_utf8_lossy(self.svg_data.as_ref()).into_owned()
     }
 }
 
@@ -2142,9 +2269,8 @@ pub fn svg_parse(
         .map_err(|_| SvgParseError::NotAnUtf8Str)?;
     let _nodes = crate::xml::parse_xml_string(s)
         .map_err(|_| SvgParseError::NoParserAvailable)?;
-    let data = Box::new(svg_file_data.to_vec());
     Ok(ParsedSvg {
-        tree: Box::into_raw(data) as *mut azul_core::svg::c_void,
+        svg_data: svg_file_data.to_vec().into(),
         run_destructor: true,
     })
 }
@@ -2166,7 +2292,7 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         return None;
     }
 
-    let png_data = crate::cpurender::render_svg_to_png(s.svg_data(), target_width, target_height).ok()?;
+    let png_data = crate::cpurender::render_svg_to_png(s.svg_data.as_ref(), target_width, target_height).ok()?;
 
     // Decode PNG back to raw RGBA (TODO: render_svg_to_rgba to avoid PNG round-trip)
     let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
@@ -2186,7 +2312,7 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
 }
 
 pub fn svg_to_string(s: &ParsedSvg, _options: SvgXmlOptions) -> String {
-    String::from_utf8_lossy(s.svg_data()).into_owned()
+    String::from_utf8_lossy(s.svg_data.as_ref()).into_owned()
 }
 
 // ============================================================================

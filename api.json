@@ -52679,9 +52679,8 @@
                         ],
                         "struct_fields": [
                             {
-                                "tree": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
+                                "svg_data": {
+                                    "type": "U8Vec"
                                 },
                                 "run_destructor": {
                                     "type": "bool"
