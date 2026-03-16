@@ -24,7 +24,6 @@ struct TreeActivationHandler {
 #[cfg(feature = "a11y")]
 impl accesskit::ActivationHandler for TreeActivationHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-        // Use try_lock to avoid blocking - return None if lock unavailable
         self.tree_provider
             .try_lock()
             .ok()
@@ -105,14 +104,13 @@ impl MacOSAccessibilityAdapter {
         if let Ok(mut guard) = self.tree_provider.try_lock() {
             *guard = Some(tree_update.clone());
         } else {
-            // Lock contention - skip this update to avoid blocking the UI
             return;
         }
 
         // Update active tree - wrapped in catch_unwind to prevent panics
         // from crashing the application
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.adapter.update_if_active(|| tree_update);
+            self.adapter.update_if_active(|| tree_update)
         }));
         if let Err(e) = result {
             let msg = e.downcast_ref::<String>().cloned()

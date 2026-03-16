@@ -79,31 +79,15 @@ impl A11yManager {
         root_node.set_label(window_title.as_str());
         nodes.push((root_id, root_node));
 
-        // Traverse all DOMs and their layout trees - FIRST PASS: Create all nodes
         for (dom_id, layout_result) in layout_results {
             let styled_dom = &layout_result.styled_dom;
+            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+            let node_data_slice = styled_dom.node_data.as_ref();
 
-            // Process each layout node
-            for (node_idx, layout_node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                let Some(dom_node_id) = layout_node.dom_node_id else {
-                    continue;
-                };
-
-                // Generate stable A11yNodeId from DomId + NodeId
-                // Offset by 1 to avoid collision with root_id (which is 0)
-                let node_index = dom_node_id.index();
-                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | (node_index as u64) + 1);
-
-                // Get accessibility info from NodeData
-                let node_data = styled_dom.node_data.as_ref().get(dom_node_id.index());
-                let Some(node_data) = node_data else {
-                    continue;
-                };
+            // First pass: Create a11y nodes for each DOM node
+            for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
                 let a11y_info = node_data.get_accessibility_info();
 
-                // Include nodes that have explicit a11y info, are semantic HTML elements,
-                // or are structurally important (Body, Div with text, Text nodes,
-                // contenteditable elements)
                 let is_contenteditable = node_data.is_contenteditable();
                 let has_text = matches!(node_data.node_type, NodeType::Text(_));
                 let is_body = matches!(node_data.node_type, NodeType::Body);
@@ -119,57 +103,71 @@ impl A11yManager {
                     continue;
                 }
 
-                // Build the accesskit Node
+                // Generate stable A11yNodeId: offset by 1 to avoid collision with root_id(0)
+                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | (dom_idx as u64) + 1);
+
+                // Try to get layout info for bounds from the layout tree
+                let dom_node_id = NodeId::new(dom_idx);
+                let layout_info = layout_result.layout_tree.dom_to_layout
+                    .get(&dom_node_id)
+                    .and_then(|indices| indices.first())
+                    .and_then(|&layout_idx| {
+                        let hot = layout_result.layout_tree.get(layout_idx)?;
+                        let warm = layout_result.layout_tree.warm(layout_idx);
+                        Some((hot, warm))
+                    });
+
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
-                let warm_node = layout_result.layout_tree.warm(node_idx);
-                let node = Self::build_node(node_data, layout_node, warm_node, a11y_info_ref);
+                let node = match layout_info {
+                    Some((layout_node, warm_node)) => {
+                        Self::build_node(node_data, layout_node, warm_node, a11y_info_ref)
+                    }
+                    None => {
+                        let role = if let Some(info) = a11y_info_ref {
+                            Self::map_role(&info.role)
+                        } else {
+                            Self::node_type_to_role(&node_data.node_type)
+                        };
+                        let mut builder = Node::new(role);
+                        if let NodeType::Text(text) = &node_data.node_type {
+                            builder.set_label(text.as_str());
+                        }
+                        builder
+                    }
+                };
 
-                // Store node ID mapping
-                node_id_map.insert((dom_id.inner as u32, node_index as u32), a11y_node_id);
-
+                node_id_map.insert((dom_id.inner as u32, dom_idx as u32), a11y_node_id);
                 nodes.push((a11y_node_id, node));
             }
-        }
 
-        // Second pass: Build parent-child relationships
-        for (dom_id, layout_result) in layout_results {
-            let styled_dom = &layout_result.styled_dom;
-            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
-
-            for layout_node in layout_result.layout_tree.nodes.iter() {
-                let Some(dom_node_id) = layout_node.dom_node_id else {
-                    continue;
-                };
-
-                let node_index = dom_node_id.index();
-                let a11y_node_id = match node_id_map.get(&(dom_id.inner as u32, node_index as u32))
-                {
+            // Second pass: Build parent-child relationships using DOM hierarchy
+            for (dom_idx, _) in node_data_slice.iter().enumerate() {
+                let a11y_node_id = match node_id_map.get(&(dom_id.inner as u32, dom_idx as u32)) {
                     Some(id) => *id,
-                    None => continue, // Node was filtered out
+                    None => continue,
                 };
 
-                let hierarchy_item = &node_hierarchy[node_index];
+                let hierarchy_item = &node_hierarchy[dom_idx];
 
-                // Find accessible parent by walking up the tree
-                let mut parent_node_index = hierarchy_item.parent;
+                // Walk up the DOM tree to find the nearest accessible ancestor.
+                // parent_id() decodes the 1-based encoding: 0 = None, n+1 = Some(NodeId(n))
+                let mut current_parent = hierarchy_item.parent_id();
                 let mut accessible_parent_id = None;
-                let max_hierarchy_depth = 10_000;
                 let mut iterations = 0;
 
-                while parent_node_index != usize::MAX && iterations < max_hierarchy_depth {
+                while let Some(parent_node_id) = current_parent {
                     iterations += 1;
+                    if iterations > 10_000 { break; }
 
+                    let parent_idx = parent_node_id.index();
                     if let Some(parent_a11y_id) =
-                        node_id_map.get(&(dom_id.inner as u32, parent_node_index as u32))
+                        node_id_map.get(&(dom_id.inner as u32, parent_idx as u32))
                     {
                         accessible_parent_id = Some(*parent_a11y_id);
                         break;
                     }
-                    if parent_node_index >= node_hierarchy.len() {
-                        break;
-                    }
-                    let parent_item = &node_hierarchy[parent_node_index];
-                    parent_node_index = parent_item.parent;
+                    if parent_idx >= node_hierarchy.len() { break; }
+                    current_parent = node_hierarchy[parent_idx].parent_id();
                 }
 
                 if let Some(parent_id) = accessible_parent_id {
@@ -178,7 +176,6 @@ impl A11yManager {
                         .or_insert_with(Vec::new)
                         .push(a11y_node_id);
                 } else {
-                    // No accessible parent — child of root window node
                     root_children.push(a11y_node_id);
                 }
             }
@@ -286,6 +283,11 @@ impl A11yManager {
     /// the appropriate role from semantic HTML elements.
     const fn node_type_to_role(node_type: &NodeType) -> Role {
         match node_type {
+            // Text nodes must use Label (NOT GenericContainer) so accesskit's
+            // common_filter includes them. GenericContainer is excluded by default.
+            NodeType::Text(_) => Role::Label,
+            NodeType::Body => Role::Group,
+            NodeType::Div => Role::Group,
             NodeType::Button => Role::Button,
             NodeType::Input => Role::TextInput,
             NodeType::TextArea => Role::MultilineTextInput,
@@ -304,6 +306,15 @@ impl A11yManager {
             NodeType::Header => Role::Header,
             NodeType::Footer => Role::Footer,
             NodeType::Aside => Role::Complementary,
+            NodeType::P => Role::Paragraph,
+            NodeType::Ul => Role::List,
+            NodeType::Ol => Role::List,
+            NodeType::Li => Role::ListItem,
+            NodeType::Table => Role::Table,
+            NodeType::Tr => Role::Row,
+            NodeType::Td => Role::Cell,
+            NodeType::Th => Role::ColumnHeader,
+            NodeType::Image(_) => Role::Image,
             _ => Role::GenericContainer,
         }
     }
