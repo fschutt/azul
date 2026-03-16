@@ -611,17 +611,23 @@ fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32
 // Image mask clipping
 // ============================================================================
 
-/// Entry on the mask stack for PushImageMaskClip / PopImageMaskClip.
-struct MaskEntry {
-    /// Snapshot of the pixmap region before mask was pushed.
-    snapshot: Vec<u8>,
-    /// R8 mask data scaled to target dimensions.
-    mask_data: Vec<u8>,
-    /// Target region in pixel coordinates.
-    origin_x: i32,
-    origin_y: i32,
-    width: u32,
-    height: u32,
+/// Entry on the mask/opacity stack.
+enum MaskEntry {
+    /// Image mask clip (R8 mask).
+    ImageMask {
+        snapshot: Vec<u8>,
+        mask_data: Vec<u8>,
+        origin_x: i32,
+        origin_y: i32,
+        width: u32,
+        height: u32,
+    },
+    /// Opacity layer.
+    Opacity {
+        snapshot: Vec<u8>,
+        rect: AzRect,
+        opacity: f32,
+    },
 }
 
 /// Take a snapshot of a rectangular region of the pixmap.
@@ -717,27 +723,34 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
 /// Apply a mask: for each pixel in the mask region, blend between the snapshot
 /// (pre-mask state) and the current pixmap state using the mask value.
 fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
+    let (snapshot, mask_data, origin_x, origin_y, width, height) = match entry {
+        MaskEntry::ImageMask { snapshot, mask_data, origin_x, origin_y, width, height } => {
+            (snapshot, mask_data.as_slice(), *origin_x, *origin_y, *width, *height)
+        }
+        _ => return,
+    };
+
     let pw = pixmap.width as i32;
     let ph = pixmap.height as i32;
 
-    for py in 0..entry.height as i32 {
-        let dy = entry.origin_y + py;
+    for py in 0..height as i32 {
+        let dy = origin_y + py;
         if dy < 0 || dy >= ph {
             continue;
         }
-        for px in 0..entry.width as i32 {
-            let dx = entry.origin_x + px;
+        for px in 0..width as i32 {
+            let dx = origin_x + px;
             if dx < 0 || dx >= pw {
                 continue;
             }
 
-            let mi = (py as u32 * entry.width + px as u32) as usize;
-            let mask_val = entry.mask_data.get(mi).copied().unwrap_or(0) as u32;
+            let mi = (py as u32 * width + px as u32) as usize;
+            let mask_val = mask_data.get(mi).copied().unwrap_or(0) as u32;
 
             let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
-            let si = ((py as u32 * entry.width + px as u32) * 4) as usize;
+            let si = ((py as u32 * width + px as u32) * 4) as usize;
 
-            if pi + 3 >= pixmap.data.len() || si + 3 >= entry.snapshot.len() {
+            if pi + 3 >= pixmap.data.len() || si + 3 >= snapshot.len() {
                 continue;
             }
 
@@ -745,7 +758,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             // mask_val 255 = fully visible (keep current), 0 = fully clipped (restore snapshot)
             let inv_mask = 255 - mask_val;
             for c in 0..4 {
-                let snap_c = entry.snapshot[si + c] as u32;
+                let snap_c = snapshot[si + c] as u32;
                 let cur_c = pixmap.data[pi + c] as u32;
                 pixmap.data[pi + c] = ((cur_c * mask_val + snap_c * inv_mask) / 255) as u8;
             }
@@ -1090,16 +1103,24 @@ fn render_display_list(
             }
             DisplayListItem::PushScrollFrame {
                 clip_bounds,
-                content_size,
-                scroll_id,
+                content_size: _,
+                scroll_id: _,
             } => {
+                // Scroll frame = clip + translation
+                // The display list builder already offsets child positions by scroll amount,
+                // so we only need the clip. But we push a transform identity marker
+                // so PopScrollFrame can restore the transform stack.
                 let new_clip = logical_rect_to_az_rect(clip_bounds.inner(), dpi_factor);
                 clip_stack.push(new_clip);
+                transform_stack.push(transform_stack.last().cloned().unwrap_or_else(TransAffine::new));
             }
             DisplayListItem::PopScrollFrame => {
                 clip_stack.pop();
                 if clip_stack.is_empty() {
                     return Err("Clip stack underflow from scroll frame".to_string());
+                }
+                if transform_stack.len() > 1 {
+                    transform_stack.pop();
                 }
             }
             DisplayListItem::HitTestArea { bounds, tag } => {
@@ -1187,15 +1208,78 @@ fn render_display_list(
                 )?;
             }
 
-            // Filter effects - not supported in CPU render
+            // --- Opacity layers ---
+            DisplayListItem::PushOpacity { bounds, opacity } => {
+                let rect = logical_rect_to_az_rect(bounds.inner(), dpi_factor);
+                if let Some(r) = rect {
+                    let snap = snapshot_region(pixmap, r.x as i32, r.y as i32, r.width as u32, r.height as u32);
+                    mask_stack.push(MaskEntry::Opacity {
+                        snapshot: snap,
+                        rect: r,
+                        opacity: *opacity,
+                    });
+                }
+            }
+            DisplayListItem::PopOpacity => {
+                if let Some(MaskEntry::Opacity { snapshot, rect, opacity }) = mask_stack.pop() {
+                    let x = rect.x as i32;
+                    let y = rect.y as i32;
+                    let w = rect.width as u32;
+                    let h = rect.height as u32;
+                    let pw = pixmap.width as i32;
+                    let ph = pixmap.height as i32;
+                    // Blend: result = snapshot + (current - snapshot) * opacity
+                    for py in 0..h as i32 {
+                        let dy = y + py;
+                        if dy < 0 || dy >= ph { continue; }
+                        for px in 0..w as i32 {
+                            let dx = x + px;
+                            if dx < 0 || dx >= pw { continue; }
+                            let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
+                            let si = ((py as u32 * w + px as u32) * 4) as usize;
+                            if pi + 3 >= pixmap.data.len() || si + 3 >= snapshot.len() { continue; }
+                            let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+                            let inv_op = 255 - op;
+                            for c in 0..4 {
+                                let snap_c = snapshot[si + c] as u32;
+                                let cur_c = pixmap.data[pi + c] as u32;
+                                pixmap.data[pi + c] = ((cur_c * op + snap_c * inv_op) / 255) as u8;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Reference frames (CSS transforms) ---
+            DisplayListItem::PushReferenceFrame {
+                transform_key: _,
+                initial_transform,
+                bounds,
+            } => {
+                // Extract 2D affine from the 4x4 matrix and compose with current transform
+                let m = &initial_transform.m;
+                let tf = TransAffine::new_custom(
+                    m[0][0] as f64, m[0][1] as f64, // sx, shy
+                    m[1][0] as f64, m[1][1] as f64, // shx, sy
+                    m[3][0] as f64, m[3][1] as f64, // tx, ty
+                );
+                let current = transform_stack.last().cloned().unwrap_or_else(TransAffine::new);
+                let mut composed = tf;
+                composed.premultiply(&current);
+                transform_stack.push(composed);
+            }
+            DisplayListItem::PopReferenceFrame => {
+                if transform_stack.len() > 1 {
+                    transform_stack.pop();
+                }
+            }
+
+            // --- Filter effects ---
+            // TODO: proper compositing architecture with per-layer pixbufs
             DisplayListItem::PushFilter { .. } => {}
             DisplayListItem::PopFilter => {}
             DisplayListItem::PushBackdropFilter { .. } => {}
             DisplayListItem::PopBackdropFilter => {}
-            DisplayListItem::PushOpacity { bounds, opacity } => {}
-            DisplayListItem::PopOpacity => {}
-            DisplayListItem::PushReferenceFrame { .. } => {}
-            DisplayListItem::PopReferenceFrame => {}
             DisplayListItem::PushTextShadow { .. } => {}
             DisplayListItem::PopTextShadow => {}
 
@@ -1214,7 +1298,7 @@ fn render_display_list(
                     let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
                     let mask_data = extract_mask_data(mask_image, px_w, px_h)
                         .unwrap_or_else(|| vec![255u8; (px_w * px_h) as usize]);
-                    mask_stack.push(MaskEntry {
+                    mask_stack.push(MaskEntry::ImageMask {
                         snapshot,
                         mask_data,
                         origin_x: px_x,
