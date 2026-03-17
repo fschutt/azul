@@ -5362,28 +5362,26 @@ impl MacOSWindow {
         let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
         self.accessibility_adapter = Some(adapter);
 
-        // Update with initial tree (stores it for lazy activation)
-        self.update_accessibility();
-
-        // Force the adapter from Inactive → Active by querying accessibilityChildren
-        // on our own view. Without this, the adapter stays Inactive until VoiceOver
-        // first queries the view, by which time VoiceOver has already focused the
-        // titlebar. Forcing activation ensures update_view_focus_state works.
+        // Force the adapter from Inactive → Placeholder by querying accessibilityChildren.
+        // request_initial_tree() returns None intentionally, so the adapter creates a
+        // Placeholder. Then update_accessibility() transitions Placeholder → Active,
+        // which generates proper focus events (AXFocusedUIElementChanged) that VoiceOver
+        // needs. Going directly Inactive → Active (by returning Some from
+        // request_initial_tree) does NOT generate focus events.
         unsafe {
             let view = view_ptr as *const objc2_app_kit::NSView;
             let _: Option<objc2::rc::Retained<objc2_foundation::NSArray>> =
                 objc2::msg_send_id![&*view, accessibilityChildren];
         }
 
-        // Now that the adapter is Active, set focus state.
-        // VoiceOver starts navigation at the focused element.
+        // Now transition Placeholder → Active with the real tree.
+        // This generates focus events that VoiceOver needs.
+        self.update_accessibility();
+
+        // Set focus state after tree is active.
         if let Some(adapter) = self.accessibility_adapter.as_mut() {
             adapter.update_view_focus_state(true);
         }
-
-        // Send the tree update again — now the adapter is Active so it will
-        // raise events (including focus change notifications)
-        self.update_accessibility();
 
         log_debug!(
             LogCategory::Platform,

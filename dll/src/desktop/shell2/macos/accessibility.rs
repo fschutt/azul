@@ -24,13 +24,13 @@ struct TreeActivationHandler {
 #[cfg(feature = "a11y")]
 impl accesskit::ActivationHandler for TreeActivationHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-        let result = self.tree_provider
-            .try_lock()
-            .ok()
-            .and_then(|mut guard| guard.take());
-        eprintln!("[a11y] request_initial_tree: returning {} nodes",
-            result.as_ref().map(|t| t.nodes.len()).unwrap_or(0));
-        result
+        // Return None to let the adapter go through the Placeholder state first.
+        // When update_if_active() is later called with the real tree, the
+        // Placeholder → Active transition generates proper focus events
+        // (AXFocusedUIElementChanged) that VoiceOver needs to navigate correctly.
+        // Returning Some here would skip Placeholder and go directly Inactive → Active,
+        // which does NOT generate focus events.
+        None
     }
 }
 
