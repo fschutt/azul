@@ -231,8 +231,11 @@ impl A11yManager {
         a11y_info: Option<&AccessibilityInfo>,
         hidpi_factor: f32,
     ) -> Node {
-        // Set role based on NodeType or AccessibilityInfo
-        let role = if let Some(info) = a11y_info {
+        // Set role based on NodeType or AccessibilityInfo.
+        // Contenteditable overrides to TextInput so VoiceOver treats it as editable.
+        let role = if node_data.is_contenteditable() {
+            Role::MultilineTextInput
+        } else if let Some(info) = a11y_info {
             Self::map_role(&info.role)
         } else {
             Self::node_type_to_role(&node_data.node_type)

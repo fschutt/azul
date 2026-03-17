@@ -5322,6 +5322,42 @@ impl MacOSWindow {
             return;
         };
 
+        // Replace NSWindow's accessibilityFocusedUIElement to forward to contentView.
+        // This is required because NSWindow's default implementation returns its own
+        // native controls (titlebar buttons), not our accesskit content.
+        // Uses msg_send to call class_replaceMethod via the Objective-C runtime.
+        unsafe {
+            extern "C" fn focus_forwarder(
+                this: &objc2_app_kit::NSWindow,
+                _cmd: objc2::runtime::Sel,
+            ) -> *mut objc2::runtime::AnyObject {
+                unsafe {
+                    this.contentView().map_or_else(std::ptr::null_mut, |view| {
+                        objc2::msg_send![&*view, accessibilityFocusedUIElement]
+                    })
+                }
+            }
+
+            // Use the raw C function directly
+            extern "C" {
+                fn class_replaceMethod(
+                    cls: *mut std::ffi::c_void,
+                    name: *const std::ffi::c_void,
+                    imp: *const std::ffi::c_void,
+                    types: *const std::ffi::c_char,
+                ) -> *const std::ffi::c_void;
+            }
+
+            let cls = objc2::runtime::AnyClass::get(c"NSWindow").unwrap();
+            let sel = objc2::sel!(accessibilityFocusedUIElement);
+            class_replaceMethod(
+                cls as *const _ as *mut _,
+                std::mem::transmute(sel),
+                focus_forwarder as *const std::ffi::c_void,
+                c"@@:".as_ptr(),
+            );
+        }
+
         // Create the adapter
         let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
         self.accessibility_adapter = Some(adapter);
