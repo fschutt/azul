@@ -2355,15 +2355,13 @@ fn render_single_item(
                 }
             }
             DisplayListItem::PushScrollFrame {
-                clip_bounds,
                 scroll_id,
                 ..
             } => {
-                // Scroll frame = clip + translation.
-                // Look up the current scroll offset by scroll_id from the
-                // externally-provided map (not embedded in the display list).
-                let new_clip = logical_rect_to_az_rect(clip_bounds.inner(), dpi_factor);
-                clip_stack.push(new_clip);
+                // Scroll frame = scroll offset only.
+                // The display list generator always emits PushClip before
+                // PushScrollFrame with the same clip bounds, so we don't
+                // need to push another clip here — that would double-clip.
                 transform_stack.push(transform_stack.last().cloned().unwrap_or_else(TransAffine::new));
                 let frame_offset = render_state.scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
                 let new_scroll = (
@@ -2373,10 +2371,8 @@ fn render_single_item(
                 scroll_offset_stack.push(new_scroll);
             }
             DisplayListItem::PopScrollFrame => {
-                clip_stack.pop();
-                if clip_stack.is_empty() {
-                    return Err("Clip stack underflow from scroll frame".to_string());
-                }
+                // Only pop transform and scroll offset — the clip was pushed
+                // by a separate PushClip and will be popped by PopClip.
                 if transform_stack.len() > 1 {
                     transform_stack.pop();
                 }
