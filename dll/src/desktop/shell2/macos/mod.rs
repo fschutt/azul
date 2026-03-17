@@ -725,12 +725,16 @@ define_class!(
                 }
             }
 
-            // On first drawRect, trigger a full render to fill the framebuffer.
-            // Subsequent frames are rendered by tick_timers → render_and_present_in_draw_rect.
+            // CPU render on every drawRect that needs it (first frame, after
+            // keyboard/mouse input, after timer callbacks).  In GPU mode drawRect
+            // is only called from GLView which calls render_and_present itself.
             if let Some(window_ptr) = *ivars.window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
-                    if !macos_window.common.display_list_initialized {
+                    if !macos_window.common.display_list_initialized
+                        || macos_window.common.frame_needs_regeneration
+                        || macos_window.common.display_list_dirty
+                    {
                         let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
