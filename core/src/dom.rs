@@ -2600,6 +2600,50 @@ impl NodeData {
         }
     }
 
+    /// Returns the accessible label for this node.
+    ///
+    /// Priority: `aria-label` attribute > `alt` attribute > `title` attribute > None.
+    /// Does NOT include child text — the caller should collect that separately
+    /// using the DOM hierarchy.
+    pub fn get_accessible_label(&self) -> Option<&str> {
+        for attr in self.attributes().as_ref() {
+            match attr {
+                AttributeType::AriaLabel(s) => return Some(s.as_str()),
+                _ => {}
+            }
+        }
+        for attr in self.attributes().as_ref() {
+            match attr {
+                AttributeType::Alt(s) | AttributeType::Title(s) => return Some(s.as_str()),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Returns the accessible value for this node.
+    ///
+    /// Priority: `value` attribute > None.
+    /// For text inputs, this is the input's current value.
+    pub fn get_accessible_value(&self) -> Option<&str> {
+        for attr in self.attributes().as_ref() {
+            if let AttributeType::Value(s) = attr {
+                return Some(s.as_str());
+            }
+        }
+        None
+    }
+
+    /// Returns the placeholder text for this node.
+    pub fn get_placeholder(&self) -> Option<&str> {
+        for attr in self.attributes().as_ref() {
+            if let AttributeType::Placeholder(s) = attr {
+                return Some(s.as_str());
+            }
+        }
+        None
+    }
+
     pub fn get_virtual_view_node(&mut self) -> Option<&mut VirtualViewNode> {
         self.extra.as_mut()?.virtual_view.as_mut()
     }

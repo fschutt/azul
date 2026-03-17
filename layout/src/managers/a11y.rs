@@ -130,7 +130,7 @@ impl A11yManager {
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
                 let mut node = match layout_info {
                     Some((layout_node, _layout_idx, abs_pos)) => {
-                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor)
+                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
                     }
                     None => {
                         let role = if let Some(info) = a11y_info_ref {
@@ -146,25 +146,37 @@ impl A11yManager {
                     }
                 };
 
-                // For contenteditable / text input elements, collect child text
-                // and set as AXValue so VoiceOver reads the content.
-                if node_data.is_contenteditable()
-                    || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input)
+                // Collect child text content and promote to this node's label or value.
+                // VoiceOver reads the node's label/value — it doesn't automatically
+                // concatenate child text nodes. Without this, headings, paragraphs,
+                // list items, etc. would be announced as empty containers.
                 {
-                    let mut text_content = String::new();
                     let hierarchy_item = &node_hierarchy[dom_idx];
+                    let mut text_content = String::new();
+                    // Recursively collect text from immediate children
                     let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
                     while let Some(child_id) = child {
                         if let Some(child_data) = node_data_slice.get(child_id.index()) {
                             if let NodeType::Text(t) = &child_data.node_type {
+                                if !text_content.is_empty() { text_content.push(' '); }
                                 text_content.push_str(t.as_str());
                             }
                         }
                         if child_id.index() >= node_hierarchy.len() { break; }
                         child = node_hierarchy[child_id.index()].next_sibling_id();
                     }
+
                     if !text_content.is_empty() {
-                        node.set_value(text_content.as_str());
+                        if node_data.is_contenteditable()
+                            || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input)
+                        {
+                            // Text inputs: set as AXValue (editable content)
+                            node.set_value(text_content.as_str());
+                        } else {
+                            // Everything else (headings, paragraphs, list items, links,
+                            // buttons, table cells, etc.): set as label so VoiceOver reads it
+                            node.set_label(text_content.as_str());
+                        }
                     }
                 }
 
@@ -258,9 +270,9 @@ impl A11yManager {
         abs_pos: Option<LogicalPosition>,
         a11y_info: Option<&AccessibilityInfo>,
         hidpi_factor: f32,
+        window_size: LogicalSize,
     ) -> Node {
         // Set role based on NodeType or AccessibilityInfo.
-        // Contenteditable overrides to TextInput so VoiceOver treats it as editable.
         let role = if node_data.is_contenteditable() {
             Role::MultilineTextInput
         } else if let Some(info) = a11y_info {
@@ -271,65 +283,59 @@ impl A11yManager {
 
         let mut builder = Node::new(role);
 
-        // Set node properties based on AccessibilityInfo and NodeType
+        // Set HTML tag name for screen readers that use it
+        let tag = node_data.node_type.get_path().to_string();
+        if !tag.is_empty() {
+            builder.set_html_tag(tag.as_str());
+        }
+
+        // === Label and Value ===
+        // Priority: explicit a11y info > DOM attributes > text content
         if let Some(info) = a11y_info {
-            // Name/Label
             if let Some(name) = info.accessibility_name.as_option() {
                 builder.set_label(name.as_str());
             }
-
-            // Value (for inputs, sliders, etc.)
             if let Some(value) = info.accessibility_value.as_option() {
                 builder.set_value(value.as_str());
             }
-
-            // States from AccessibilityStateVec
-            for state in info.states.as_ref() {
-                match state {
-                    AccessibilityState::Unavailable => {
-                        builder.set_disabled();
-                    }
-                    AccessibilityState::Readonly => {
-                        builder.set_read_only();
-                    }
-                    AccessibilityState::CheckedTrue => {
-                        builder.set_toggled(accesskit::Toggled::True);
-                    }
-                    AccessibilityState::CheckedFalse => {
-                        builder.set_toggled(accesskit::Toggled::False);
-                    }
-                    AccessibilityState::Expanded => {
-                        builder.set_expanded(true);
-                    }
-                    AccessibilityState::Collapsed => {
-                        builder.set_expanded(false);
-                    }
-                    AccessibilityState::Focusable => {
-                        builder.add_action(Action::Focus);
-                    }
-                    AccessibilityState::Selected => {
-                        builder.set_selected(true);
-                    }
-                    AccessibilityState::Busy => {
-                        builder.set_busy();
-                    }
-                    AccessibilityState::Offscreen => {
-                        builder.set_hidden();
-                    }
-                    _ => {
-                        // Other states: Focused (handled by focus manager via TreeUpdate.focus),
-                        // Default, Linked, Traversed, Selectable, etc.
-                    }
-                }
-            }
         }
 
-        // Extract text content for Text nodes
+        // DOM attribute overrides
+        if let Some(label) = node_data.get_accessible_label() {
+            builder.set_label(label);
+        }
+        if let Some(value) = node_data.get_accessible_value() {
+            builder.set_value(value);
+        }
+        if let Some(placeholder) = node_data.get_placeholder() {
+            builder.set_placeholder(placeholder);
+        }
+
+        // Text node: set as label
         if let NodeType::Text(text) = &node_data.node_type {
             builder.set_label(text.as_str());
         }
 
-        // Set heading level for H1-H6
+        // === States from AccessibilityInfo ===
+        if let Some(info) = a11y_info {
+            for state in info.states.as_ref() {
+                match state {
+                    AccessibilityState::Unavailable => { builder.set_disabled(); }
+                    AccessibilityState::Readonly => { builder.set_read_only(); }
+                    AccessibilityState::CheckedTrue => { builder.set_toggled(accesskit::Toggled::True); }
+                    AccessibilityState::CheckedFalse => { builder.set_toggled(accesskit::Toggled::False); }
+                    AccessibilityState::Expanded => { builder.set_expanded(true); }
+                    AccessibilityState::Collapsed => { builder.set_expanded(false); }
+                    AccessibilityState::Focusable => { builder.add_action(Action::Focus); }
+                    AccessibilityState::Selected => { builder.set_selected(true); }
+                    AccessibilityState::Busy => { builder.set_busy(); }
+                    AccessibilityState::Offscreen => { builder.set_hidden(); }
+                    _ => {}
+                }
+            }
+        }
+
+        // === Heading level ===
         match &node_data.node_type {
             NodeType::H1 => { builder.set_level(1); }
             NodeType::H2 => { builder.set_level(2); }
@@ -387,9 +393,8 @@ impl A11yManager {
             }
         }
 
-        // Set bounds using absolute position (window-relative) scaled to physical pixels.
-        // AccessKit requires coordinates in physical pixels relative to the window origin.
-        // Offset by padding + border to get the content box (where text actually is).
+        // Set bounds: absolute position, offset by padding+border, scaled to physical pixels,
+        // clipped to window viewport so VoiceOver highlights don't extend off-screen.
         if let (Some(pos), Some(size)) = (abs_pos, layout_node.used_size) {
             let bp = layout_node.box_props.unpack();
             let pad_left = bp.padding.left + bp.border.left;
@@ -398,12 +403,17 @@ impl A11yManager {
             let pad_bottom = bp.padding.bottom + bp.border.bottom;
 
             let s = hidpi_factor as f64;
-            builder.set_bounds(Rect {
-                x0: (pos.x + pad_left) as f64 * s,
-                y0: (pos.y + pad_top) as f64 * s,
-                x1: (pos.x + size.width - pad_right) as f64 * s,
-                y1: (pos.y + size.height - pad_bottom) as f64 * s,
-            });
+            let ww = window_size.width as f64 * s;
+            let wh = window_size.height as f64 * s;
+
+            let x0 = ((pos.x + pad_left) as f64 * s).max(0.0).min(ww);
+            let y0 = ((pos.y + pad_top) as f64 * s).max(0.0).min(wh);
+            let x1 = ((pos.x + size.width - pad_right) as f64 * s).max(0.0).min(ww);
+            let y1 = ((pos.y + size.height - pad_bottom) as f64 * s).max(0.0).min(wh);
+
+            if x1 > x0 && y1 > y0 {
+                builder.set_bounds(Rect { x0, y0, x1, y1 });
+            }
         }
 
         // Add supported actions based on the DOM node's own properties.
