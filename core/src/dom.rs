@@ -1065,7 +1065,9 @@ pub enum AttributeType {
     /// Input is readonly (`readonly`)
     Readonly,
     /// Input is checked (checkbox/radio) (`checked`)
-    Checked,
+    CheckedTrue,
+    /// Input is unchecked (checkbox/radio)
+    CheckedFalse,
     /// Input is selected (option) (`selected`)
     Selected,
     /// Maximum value for number inputs (`max="..."`)
@@ -1168,7 +1170,8 @@ impl AttributeType {
             AttributeType::Required => "required",
             AttributeType::Disabled => "disabled",
             AttributeType::Readonly => "readonly",
-            AttributeType::Checked => "checked",
+            AttributeType::CheckedTrue => "checked",
+            AttributeType::CheckedFalse => "checked",
             AttributeType::Selected => "selected",
             AttributeType::Max(_) => "max",
             AttributeType::Min(_) => "min",
@@ -1243,7 +1246,8 @@ impl AttributeType {
             AttributeType::Required
             | AttributeType::Disabled
             | AttributeType::Readonly
-            | AttributeType::Checked
+            | AttributeType::CheckedTrue
+                | AttributeType::CheckedFalse
             | AttributeType::Selected
             | AttributeType::Hidden => "".into(), // Boolean attributes
         }
@@ -1256,7 +1260,8 @@ impl AttributeType {
             AttributeType::Required
                 | AttributeType::Disabled
                 | AttributeType::Readonly
-                | AttributeType::Checked
+                | AttributeType::CheckedTrue
+                | AttributeType::CheckedFalse
                 | AttributeType::Selected
                 | AttributeType::Hidden
         )

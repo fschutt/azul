@@ -11676,116 +11676,23 @@
                         ],
                         "enum_fields": [
                             {
-                                "Unavailable": {
-                                    "doc": [
-                                        "The element is unavailable and cannot be interacted with. - **Purpose**: To indicate that a control is disabled or grayed out. - **When to use**: For disabled buttons, non-interactive menu items, or any control that is temporarily non-functional. - **Example**: A \"Save\" button that is disabled until the user makes changes to a document."
-                                    ]
-                                }
-                            },
-                            {
-                                "Selected": {
-                                    "doc": [
-                                        "The element is selected. - **Purpose**: To indicate that an item is currently chosen or highlighted. This is distinct from having focus. - **When to use**: For selected items in a list, highlighted text, or the currently active tab in a tab list. - **Example**: A file highlighted in a file explorer, or multiple selected emails in an inbox."
-                                    ]
-                                }
-                            },
-                            {
-                                "Focused": {
-                                    "doc": [
-                                        "The element has the keyboard focus. - **Purpose**: To identify the single element that will receive keyboard input. - **When to use**: For the control that is currently active and ready to be manipulated by the keyboard. - **Example**: A text box with a blinking cursor, or a button with a dotted outline around it."
-                                    ]
-                                }
-                            },
-                            {
-                                "Checked": {
-                                    "doc": [
-                                        "The element is checked, toggled, or in a mixed state. - **Purpose**: To represent the state of controls like checkboxes, radio buttons, and toggle buttons. - **When to use**: For checkboxes that are ticked, selected radio buttons, or toggle buttons that are \"on.\" - **Example**: A checked \"I agree\" checkbox, a selected \"Yes\" radio button, or an active \"Bold\" button in a toolbar."
-                                    ]
-                                }
-                            },
-                            {
-                                "Readonly": {
-                                    "doc": [
-                                        "The element's content cannot be edited by the user. - **Purpose**: To indicate that the element's value can be viewed and copied, but not modified. - **When to use**: For display-only text fields or documents. - **Example**: A text box displaying a license agreement that the user can scroll through but cannot edit."
-                                    ]
-                                }
-                            },
-                            {
-                                "Default": {
-                                    "doc": [
-                                        "The element is the default action in a dialog or form. - **Purpose**: To identify the button that will be activated if the user presses the Enter key. - **When to use**: For the primary confirmation button in a dialog. - **Example**: The \"OK\" button in a dialog box, which often has a thicker or colored border."
-                                    ]
-                                }
-                            },
-                            {
-                                "Expanded": {
-                                    "doc": [
-                                        "The element is expanded, showing its child items. - **Purpose**: To indicate that a collapsible element is currently open and its contents are visible. - **When to use**: For tree view nodes, combo boxes with their lists open, or expanded accordion panels. - **Example**: A folder in a file explorer's tree view that has been clicked to show its subfolders."
-                                    ]
-                                }
-                            },
-                            {
-                                "Collapsed": {
-                                    "doc": [
-                                        "The element is collapsed, hiding its child items. - **Purpose**: To indicate that a collapsible element is closed and its contents are hidden. - **When to use**: The counterpart to `Expanded` for any collapsible UI element. - **Example**: A closed folder in a file explorer's tree view, hiding its contents."
-                                    ]
-                                }
-                            },
-                            {
-                                "Busy": {
-                                    "doc": [
-                                        "The element is busy and cannot respond to user interaction. - **Purpose**: To indicate that the element or application is performing an operation and is temporarily unresponsive. - **When to use**: When an application is loading, processing data, or otherwise occupied. - **Example**: A window that is grayed out and shows a spinning cursor while saving a large file."
-                                    ]
-                                }
-                            },
-                            {
-                                "Offscreen": {
-                                    "doc": [
-                                        "The element is not currently visible on the screen. - **Purpose**: To indicate that an element exists but is currently scrolled out of the visible area. - **When to use**: For items in a long list or a large document that are not within the current viewport. - **Example**: A list item in a long dropdown that you would have to scroll down to see."
-                                    ]
-                                }
-                            },
-                            {
-                                "Focusable": {
-                                    "doc": [
-                                        "The element can accept keyboard focus. - **Purpose**: To indicate that the user can navigate to this element using the keyboard (e.g., with the Tab key). - **When to use**: On all interactive elements like buttons, links, and input fields, whether they currently have focus or not. - **Example**: A button that can receive focus, even if it is not the currently focused element."
-                                    ]
-                                }
-                            },
-                            {
-                                "Selectable": {
-                                    "doc": [
-                                        "The element is a container whose children can be selected. - **Purpose**: To indicate that the element contains items that can be chosen. - **When to use**: On container controls like list boxes, tree views, or text spans where text can be highlighted. - **Example**: A list box control is `Selectable`, while its individual list items have the `Selected` state when chosen."
-                                    ]
-                                }
-                            },
-                            {
-                                "Linked": {
-                                    "doc": [
-                                        "The element is a hyperlink. - **Purpose**: To identify an object that navigates to another resource or location when activated. - **When to use**: On any object that functions as a hyperlink. - **Example**: Text or an image that, when clicked, opens a web page."
-                                    ]
-                                }
-                            },
-                            {
-                                "Traversed": {
-                                    "doc": [
-                                        "The element is a hyperlink that has been visited. - **Purpose**: To indicate that a hyperlink has already been followed by the user. - **When to use**: On a `Linked` object that the user has previously activated. - **Example**: A hyperlink on a web page that has changed color to show it has been visited."
-                                    ]
-                                }
-                            },
-                            {
-                                "Multiselectable": {
-                                    "doc": [
-                                        "The element allows multiple of its children to be selected at once. - **Purpose**: To indicate that a container control supports multi-selection. - **When to use**: On container controls like list boxes or file explorers that support multiple selections (e.g., with Ctrl-click). - **Example**: A file list that allows the user to select several files at once for a copy operation."
-                                    ]
-                                }
-                            },
-                            {
-                                "Protected": {
-                                    "doc": [
-                                        "The element contains protected content that should not be read aloud. - **Purpose**: To prevent assistive technologies from speaking the content of a sensitive field. - **When to use**: Primarily for password input fields. - **Example**: A password text box where typed characters are masked with asterisks or dots."
-                                    ]
-                                }
+                                "Unavailable": {},
+                                "Selected": {},
+                                "Focused": {},
+                                "CheckedTrue": {},
+                                "CheckedFalse": {},
+                                "Readonly": {},
+                                "Default": {},
+                                "Expanded": {},
+                                "Collapsed": {},
+                                "Busy": {},
+                                "Offscreen": {},
+                                "Focusable": {},
+                                "Selectable": {},
+                                "Linked": {},
+                                "Traversed": {},
+                                "Multiselectable": {},
+                                "Protected": {}
                             }
                         ],
                         "repr": "C"
@@ -12450,7 +12357,8 @@
                                 "Required": {},
                                 "Disabled": {},
                                 "Readonly": {},
-                                "Checked": {},
+                                "CheckedTrue": {},
+                                "CheckedFalse": {},
                                 "Selected": {},
                                 "Max": {
                                     "type": "String"
@@ -33809,7 +33717,8 @@
                                 "Active": {},
                                 "Focus": {},
                                 "Disabled": {},
-                                "Checked": {},
+                                "CheckedTrue": {},
+                                "CheckedFalse": {},
                                 "FocusWithin": {},
                                 "Visited": {},
                                 "Backdrop": {},

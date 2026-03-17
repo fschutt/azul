@@ -32,7 +32,8 @@ impl PseudoStateFlags {
             PseudoStateType::Active => self.active,
             PseudoStateType::Focus => self.focused,
             PseudoStateType::Disabled => self.disabled,
-            PseudoStateType::Checked => self.checked,
+            PseudoStateType::CheckedTrue => self.checked,
+            PseudoStateType::CheckedFalse => !self.checked,
             PseudoStateType::FocusWithin => self.focus_within,
             PseudoStateType::Visited => self.visited,
             PseudoStateType::Backdrop => self.backdrop,
@@ -667,7 +668,9 @@ pub enum PseudoStateType {
     /// Element is disabled (:disabled)
     Disabled,
     /// Element is checked/selected (:checked)
-    Checked,
+    CheckedTrue,
+    /// Element is unchecked (:not(:checked))
+    CheckedFalse,
     /// Element or child has focus (:focus-within)
     FocusWithin,
     /// Link has been visited (:visited)
@@ -894,7 +897,8 @@ impl DynamicSelector {
             PseudoStateType::Active => node_state.active,
             PseudoStateType::Focus => node_state.focused,
             PseudoStateType::Disabled => node_state.disabled,
-            PseudoStateType::Checked => node_state.checked,
+            PseudoStateType::CheckedTrue => node_state.checked,
+            PseudoStateType::CheckedFalse => !node_state.checked,
             PseudoStateType::FocusWithin => node_state.focus_within,
             PseudoStateType::Visited => node_state.visited,
             // :backdrop is true when window is NOT focused (opposite of window_focused)
@@ -1263,7 +1267,7 @@ impl CssPropertyWithConditionsVec {
                 "focus" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Focus)]),
                 "focus-within" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::FocusWithin)]),
                 "disabled" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Disabled)]),
-                "checked" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Checked)]),
+                "checked" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::CheckedTrue)]),
                 "visited" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Visited)]),
                 "backdrop" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Backdrop)]),
                 "dragging" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Dragging)]),

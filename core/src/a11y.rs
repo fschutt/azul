@@ -619,14 +619,14 @@ pub enum AccessibilityState {
     ///   it.
     Focused,
 
-    /// The element is checked, toggled, or in a mixed state.
-    /// - **Purpose**: To represent the state of controls like checkboxes, radio buttons, and
-    ///   toggle buttons.
-    /// - **When to use**: For checkboxes that are ticked, selected radio buttons, or toggle
-    ///   buttons that are "on."
-    /// - **Example**: A checked "I agree" checkbox, a selected "Yes" radio button, or an active
-    ///   "Bold" button in a toolbar.
-    Checked,
+    /// The element is checked, toggled, or in an "on" state.
+    /// - **Purpose**: To represent checked checkboxes, selected radio buttons, and active toggles.
+    /// - **Example**: A checked "I agree" checkbox, a selected "Yes" radio button.
+    CheckedTrue,
+    /// The element is unchecked, untoggled, or in an "off" state.
+    /// - **Purpose**: To explicitly represent an unchecked checkbox or unselected radio button.
+    /// - **Example**: An unchecked checkbox that the user has not yet ticked.
+    CheckedFalse,
 
     /// The element's content cannot be edited by the user.
     /// - **Purpose**: To indicate that the element's value can be viewed and copied, but not

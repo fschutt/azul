@@ -90,16 +90,22 @@ impl A11yManager {
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
                 let a11y_info = node_data.get_accessibility_info();
 
-                let is_contenteditable = node_data.is_contenteditable();
-                let has_text = matches!(node_data.node_type, NodeType::Text(_));
-                let is_body = matches!(node_data.node_type, NodeType::Body);
-                let is_container = matches!(node_data.node_type, NodeType::Div);
+                // Include every node that has a meaningful role.
+                // The only types we skip are metadata (Head, Meta, Script, Style, etc.)
+                // and pseudo-elements that don't represent real content.
                 let should_create_node = a11y_info.is_some()
-                    || node_data.node_type.is_semantic_for_accessibility()
-                    || has_text
-                    || is_body
-                    || is_contenteditable
-                    || is_container;
+                    || node_data.is_contenteditable()
+                    || node_data.is_focusable()
+                    || !matches!(node_data.node_type,
+                        NodeType::Head | NodeType::Meta | NodeType::Link
+                        | NodeType::Script | NodeType::Style | NodeType::Base
+                        | NodeType::Before | NodeType::After | NodeType::Marker
+                        | NodeType::Placeholder | NodeType::Source | NodeType::Track
+                        | NodeType::Param | NodeType::Col | NodeType::ColGroup
+                        | NodeType::Wbr | NodeType::Rp | NodeType::Rtc
+                        | NodeType::Bdo | NodeType::Bdi | NodeType::Data
+                        | NodeType::Map | NodeType::Area | NodeType::VirtualView
+                    );
 
                 if !should_create_node {
                     continue;
@@ -122,7 +128,7 @@ impl A11yManager {
                     });
 
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
-                let node = match layout_info {
+                let mut node = match layout_info {
                     Some((layout_node, _layout_idx, abs_pos)) => {
                         Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor)
                     }
@@ -139,6 +145,28 @@ impl A11yManager {
                         builder
                     }
                 };
+
+                // For contenteditable / text input elements, collect child text
+                // and set as AXValue so VoiceOver reads the content.
+                if node_data.is_contenteditable()
+                    || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input)
+                {
+                    let mut text_content = String::new();
+                    let hierarchy_item = &node_hierarchy[dom_idx];
+                    let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
+                    while let Some(child_id) = child {
+                        if let Some(child_data) = node_data_slice.get(child_id.index()) {
+                            if let NodeType::Text(t) = &child_data.node_type {
+                                text_content.push_str(t.as_str());
+                            }
+                        }
+                        if child_id.index() >= node_hierarchy.len() { break; }
+                        child = node_hierarchy[child_id.index()].next_sibling_id();
+                    }
+                    if !text_content.is_empty() {
+                        node.set_value(text_content.as_str());
+                    }
+                }
 
                 node_id_map.insert((dom_id.inner as u32, dom_idx as u32), a11y_node_id);
                 nodes.push((a11y_node_id, node));
@@ -264,8 +292,11 @@ impl A11yManager {
                     AccessibilityState::Readonly => {
                         builder.set_read_only();
                     }
-                    AccessibilityState::Checked => {
+                    AccessibilityState::CheckedTrue => {
                         builder.set_toggled(accesskit::Toggled::True);
+                    }
+                    AccessibilityState::CheckedFalse => {
+                        builder.set_toggled(accesskit::Toggled::False);
                     }
                     AccessibilityState::Expanded => {
                         builder.set_expanded(true);
@@ -293,9 +324,67 @@ impl A11yManager {
             }
         }
 
-        // Extract text content for Text and StaticText nodes
+        // Extract text content for Text nodes
         if let NodeType::Text(text) = &node_data.node_type {
             builder.set_label(text.as_str());
+        }
+
+        // Set heading level for H1-H6
+        match &node_data.node_type {
+            NodeType::H1 => { builder.set_level(1); }
+            NodeType::H2 => { builder.set_level(2); }
+            NodeType::H3 => { builder.set_level(3); }
+            NodeType::H4 => { builder.set_level(4); }
+            NodeType::H5 => { builder.set_level(5); }
+            NodeType::H6 => { builder.set_level(6); }
+            _ => {}
+        }
+
+        // Wire up HTML attributes to accesskit properties
+        for attr in node_data.attributes().as_ref() {
+            match attr {
+                azul_core::dom::AttributeType::AriaLabel(s) => {
+                    builder.set_label(s.as_str());
+                }
+                azul_core::dom::AttributeType::Title(s)
+                | azul_core::dom::AttributeType::Alt(s) => {
+                    builder.set_description(s.as_str());
+                }
+                azul_core::dom::AttributeType::Placeholder(s) => {
+                    builder.set_placeholder(s.as_str());
+                }
+                azul_core::dom::AttributeType::Value(s) => {
+                    builder.set_value(s.as_str());
+                }
+                azul_core::dom::AttributeType::Disabled => {
+                    builder.set_disabled();
+                }
+                azul_core::dom::AttributeType::Readonly => {
+                    builder.set_read_only();
+                }
+                azul_core::dom::AttributeType::CheckedTrue => {
+                    builder.set_toggled(accesskit::Toggled::True);
+                }
+                azul_core::dom::AttributeType::CheckedFalse => {
+                    builder.set_toggled(accesskit::Toggled::False);
+                }
+                azul_core::dom::AttributeType::Required => {
+                    builder.set_required();
+                }
+                azul_core::dom::AttributeType::Hidden => {
+                    builder.set_hidden();
+                }
+                azul_core::dom::AttributeType::Lang(s) => {
+                    builder.set_language(s.as_str());
+                }
+                azul_core::dom::AttributeType::ColSpan(n) => {
+                    builder.set_column_span(*n as usize);
+                }
+                azul_core::dom::AttributeType::RowSpan(n) => {
+                    builder.set_row_span(*n as usize);
+                }
+                _ => {}
+            }
         }
 
         // Set bounds using absolute position (window-relative) scaled to physical pixels.
@@ -331,32 +420,43 @@ impl A11yManager {
 
     /// Maps an HTML `NodeType` to an accesskit `Role`.
     ///
-    /// Used when no explicit accessibility info is provided to infer
-    /// the appropriate role from semantic HTML elements.
+    /// Every role used here must pass accesskit's `common_filter` (i.e. NOT be
+    /// `GenericContainer` or `TextRun`) or VoiceOver will skip the node entirely.
+    /// Use `Group` for structural containers, `Paragraph` for text blocks, `Label`
+    /// for inline text, and semantic roles for everything else.
     const fn node_type_to_role(node_type: &NodeType) -> Role {
         match node_type {
-            // Text nodes must use Label (NOT GenericContainer) so accesskit's
-            // common_filter includes them. GenericContainer is excluded by default
-            // but its children get promoted to the parent — this is desirable for
-            // Body/Div which are structural containers, not semantic elements.
+            // === Text content ===
             NodeType::Text(_) => Role::Label,
-            // Body and Div use Group (not GenericContainer) so VoiceOver can
-            // navigate into them. GenericContainer is excluded by accesskit's filter,
-            // which flattens the tree but prevents VoiceOver from navigating between
-            // sibling text elements.
+            NodeType::P => Role::Paragraph,
+            NodeType::Pre => Role::Pre,
+            NodeType::BlockQuote => Role::Blockquote,
+            NodeType::Code => Role::Code,
+            NodeType::Em | NodeType::I => Role::Emphasis,
+            NodeType::Strong | NodeType::B => Role::Strong,
+            NodeType::Mark => Role::Mark,
+            NodeType::Del => Role::ContentDeletion,
+            NodeType::Ins => Role::ContentInsertion,
+            NodeType::Abbr | NodeType::Acronym => Role::Abbr,
+            NodeType::Q => Role::Blockquote,
+            NodeType::Time => Role::Time,
+            NodeType::Cite | NodeType::Dfn | NodeType::Var
+            | NodeType::Samp | NodeType::Kbd => Role::Label,
+            NodeType::Small | NodeType::Big | NodeType::Sub
+            | NodeType::Sup | NodeType::U | NodeType::S => Role::Label,
+            NodeType::Ruby => Role::Ruby,
+            NodeType::Rt => Role::RubyAnnotation,
+            NodeType::Br => Role::LineBreak,
+            NodeType::Hr => Role::Splitter,
+
+            // === Structural containers ===
+            // Group (not GenericContainer) so VoiceOver can navigate into them
             NodeType::Body => Role::Group,
             NodeType::Div => Role::Group,
-            NodeType::Button => Role::Button,
-            NodeType::Input => Role::TextInput,
-            NodeType::TextArea => Role::MultilineTextInput,
-            NodeType::Select => Role::ComboBox,
-            NodeType::A => Role::Link,
-            NodeType::H1
-            | NodeType::H2
-            | NodeType::H3
-            | NodeType::H4
-            | NodeType::H5
-            | NodeType::H6 => Role::Heading,
+            NodeType::Span => Role::Group,
+            NodeType::Html => Role::Group,
+
+            // === Semantic sections ===
             NodeType::Article => Role::Article,
             NodeType::Section => Role::Section,
             NodeType::Nav => Role::Navigation,
@@ -364,16 +464,65 @@ impl A11yManager {
             NodeType::Header => Role::Header,
             NodeType::Footer => Role::Footer,
             NodeType::Aside => Role::Complementary,
-            NodeType::P => Role::Paragraph,
-            NodeType::Ul => Role::List,
-            NodeType::Ol => Role::List,
+            NodeType::Address => Role::Group,
+            NodeType::Figure => Role::Figure,
+            NodeType::FigCaption => Role::FigureCaption,
+            NodeType::Details => Role::Details,
+            NodeType::Summary => Role::DisclosureTriangle,
+            NodeType::Dialog => Role::Dialog,
+
+            // === Headings ===
+            NodeType::H1 | NodeType::H2 | NodeType::H3
+            | NodeType::H4 | NodeType::H5 | NodeType::H6 => Role::Heading,
+
+            // === Lists ===
+            NodeType::Ul | NodeType::Ol | NodeType::Dir => Role::List,
             NodeType::Li => Role::ListItem,
+            NodeType::Dl => Role::DescriptionList,
+            NodeType::Dt => Role::DescriptionListTerm,
+            NodeType::Dd => Role::DescriptionListDetail,
+            NodeType::Menu => Role::Menu,
+            NodeType::MenuItem => Role::MenuItem,
+
+            // === Tables ===
             NodeType::Table => Role::Table,
+            NodeType::Caption => Role::Caption,
+            NodeType::THead | NodeType::TBody | NodeType::TFoot => Role::RowGroup,
             NodeType::Tr => Role::Row,
-            NodeType::Td => Role::Cell,
             NodeType::Th => Role::ColumnHeader,
+            NodeType::Td => Role::Cell,
+            NodeType::ColGroup | NodeType::Col => Role::GenericContainer,
+
+            // === Forms ===
+            NodeType::Form => Role::Form,
+            NodeType::FieldSet => Role::Group,
+            NodeType::Legend => Role::Legend,
+            NodeType::Label => Role::Label,
+            NodeType::Input => Role::TextInput,
+            NodeType::Button => Role::Button,
+            NodeType::Select => Role::ComboBox,
+            NodeType::OptGroup => Role::Group,
+            NodeType::SelectOption => Role::ListBoxOption,
+            NodeType::TextArea => Role::MultilineTextInput,
+            NodeType::Output => Role::Status,
+            NodeType::Progress => Role::ProgressIndicator,
+            NodeType::Meter => Role::Meter,
+            NodeType::DataList => Role::ListBox,
+
+            // === Links ===
+            NodeType::A => Role::Link,
+
+            // === Embedded content ===
             NodeType::Image(_) => Role::Image,
-            _ => Role::GenericContainer,
+            NodeType::Icon(_) => Role::Image,
+            NodeType::Canvas => Role::Canvas,
+            NodeType::Audio => Role::Audio,
+            NodeType::Video => Role::Video,
+            NodeType::Svg => Role::SvgRoot,
+            NodeType::Object | NodeType::Embed => Role::EmbeddedObject,
+
+            // === Everything else: Group (visible to VoiceOver) ===
+            _ => Role::Group,
         }
     }
 

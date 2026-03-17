@@ -202,6 +202,11 @@ impl ClassPatch {
 impl ApiPatch {
     /// Load patch from file - supports both AutofixPatch and legacy ApiPatch formats
     pub fn from_file(path: &Path) -> Result<Self> {
+        Self::from_file_with_context(path, None)
+    }
+
+    /// Load patch from file, using existing API data to resolve module names
+    pub fn from_file_with_context(path: &Path, existing_api: Option<&crate::api::ApiData>) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read patch file: {}", path.display()))?;
 
@@ -209,7 +214,7 @@ impl ApiPatch {
         if let Ok(autofix_patch) =
             serde_json::from_str::<crate::autofix::patch_format::AutofixPatch>(&content)
         {
-            return Ok(autofix_patch.to_api_patch());
+            return Ok(autofix_patch.to_api_patch_with_context(existing_api));
         }
 
         // Fall back to legacy ApiPatch format
@@ -219,6 +224,11 @@ impl ApiPatch {
 
     /// Load all patches from a directory
     pub fn from_directory(dir_path: &Path) -> Result<Vec<(String, Self)>> {
+        Self::from_directory_with_context(dir_path, None)
+    }
+
+    /// Load all patches from a directory, using existing API data for module resolution
+    pub fn from_directory_with_context(dir_path: &Path, existing_api: Option<&crate::api::ApiData>) -> Result<Vec<(String, Self)>> {
         if !dir_path.is_dir() {
             anyhow::bail!("Not a directory: {}", dir_path.display());
         }
@@ -245,7 +255,7 @@ impl ApiPatch {
                     .unwrap_or("unknown")
                     .to_string();
 
-                match Self::from_file(&path) {
+                match Self::from_file_with_context(&path, existing_api) {
                     Ok(patch) => patches.push((filename, patch)),
                     Err(e) => {
                         eprintln!("[WARN]  Failed to load {}: {}", filename, e);
@@ -343,7 +353,7 @@ impl PatchStats {
 
 /// Apply patches from a directory
 pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> Result<PatchStats> {
-    let patches = ApiPatch::from_directory(dir_path)?;
+    let patches = ApiPatch::from_directory_with_context(dir_path, Some(api_data))?;
 
     let mut stats = PatchStats {
         total_patches: patches.len(),
@@ -983,6 +993,41 @@ fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> 
                     result.patches_applied += count;
                 }
                 Err(e) => result.errors.push(e.to_string()),
+            }
+        }
+    }
+
+    // Post-processing: remove duplicate types from "misc" module.
+    // When the keyword mapping is updated and a type moves from "misc" to its
+    // correct module, autofix creates a modify/add patch in the new module but
+    // doesn't remove the old copy from "misc". Clean that up here.
+    if let Some(misc_module) = version_data.api.get("misc") {
+        let misc_classes: Vec<String> = misc_module.classes.keys().cloned().collect();
+        let mut to_remove_from_misc = Vec::new();
+
+        for class_name in &misc_classes {
+            // Check if this class exists in any non-misc module
+            for (mod_name, mod_data) in &version_data.api {
+                if mod_name == "misc" {
+                    continue;
+                }
+                if mod_data.classes.contains_key(class_name) {
+                    to_remove_from_misc.push(class_name.clone());
+                    break;
+                }
+            }
+        }
+
+        if !to_remove_from_misc.is_empty() {
+            if let Some(misc_module) = version_data.api.get_mut("misc") {
+                for class_name in &to_remove_from_misc {
+                    misc_module.classes.shift_remove(class_name);
+                    println!(
+                        "  [DEDUP] Removed '{}' from 'misc' (exists in another module)",
+                        class_name
+                    );
+                    result.patches_applied += 1;
+                }
             }
         }
     }

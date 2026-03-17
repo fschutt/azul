@@ -659,7 +659,27 @@ impl AutofixPatch {
     /// Convert this patch to the legacy ApiPatch format that can be applied
     ///
     /// Uses the current API version and determines the module from the type name.
+    /// If `existing_api` is provided, looks up the module where a type already exists
+    /// instead of using the keyword-based fallback (avoids creating duplicates in misc).
     pub fn to_api_patch(&self) -> ApiPatch {
+        self.to_api_patch_with_context(None)
+    }
+
+    /// Like `to_api_patch`, but with optional access to the existing API data
+    /// to resolve module names for types that already exist.
+    pub fn to_api_patch_with_context(&self, existing_api: Option<&crate::api::ApiData>) -> ApiPatch {
+        // Helper: find which module a type currently lives in (searching existing api.json)
+        let find_existing_module = |type_name: &str| -> Option<String> {
+            let api = existing_api?;
+            for (_version, version_data) in api.0.iter() {
+                for (mod_name, mod_data) in &version_data.api {
+                    if mod_data.classes.contains_key(type_name) {
+                        return Some(mod_name.clone());
+                    }
+                }
+            }
+            None
+        };
         let mut api_patch = ApiPatch::default();
         
         // First pass: collect AddDependencyType changes and generate AddStruct patches for them
@@ -703,17 +723,19 @@ impl AutofixPatch {
             match op {
                 PatchOperation::Modify(m) => {
                     let class_patch = self.modify_to_class_patch(m);
-                    // Use explicit module or determine from type name
-                    let module_name = m.module.clone().unwrap_or_else(|| {
-                        let (module, warn) = determine_module(&m.type_name);
-                        if warn {
-                            eprintln!(
-                                "Warning: Could not determine module for '{}', using 'misc'",
-                                m.type_name
-                            );
-                        }
-                        module
-                    });
+                    // Use explicit module, or look up existing module, or determine from type name
+                    let module_name = m.module.clone()
+                        .or_else(|| find_existing_module(&m.type_name))
+                        .unwrap_or_else(|| {
+                            let (module, warn) = determine_module(&m.type_name);
+                            if warn {
+                                eprintln!(
+                                    "Warning: Could not determine module for '{}', using 'misc'",
+                                    m.type_name
+                                );
+                            }
+                            module
+                        });
                     insert_class_patch(
                         &mut api_patch,
                         API_VERSION,
@@ -1217,9 +1239,17 @@ impl AutofixPatch {
 
     /// Load from a JSON file and convert to applicable format
     pub fn load_and_convert(path: &std::path::Path) -> anyhow::Result<ApiPatch> {
+        Self::load_and_convert_with_context(path, None)
+    }
+
+    /// Load from a JSON file and convert, using existing API data to resolve module names
+    pub fn load_and_convert_with_context(
+        path: &std::path::Path,
+        existing_api: Option<&crate::api::ApiData>,
+    ) -> anyhow::Result<ApiPatch> {
         let content = std::fs::read_to_string(path)?;
         let patch: AutofixPatch = serde_json::from_str(&content)?;
-        Ok(patch.to_api_patch())
+        Ok(patch.to_api_patch_with_context(existing_api))
     }
 }
 
