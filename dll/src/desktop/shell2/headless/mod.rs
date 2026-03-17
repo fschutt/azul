@@ -1,4 +1,4 @@
-//! Stub/headless backend for testing and CPU-only rendering.
+//! Headless backend for testing and CPU-only rendering (`AZ_BACKEND=headless`).
 //!
 //! This backend implements the full `PlatformWindow` trait without
 //! GPU / OpenGL. It behaves like a real platform window — DOM is laid out,
@@ -20,7 +20,7 @@
 //!
 //! ## Headless Event Loop
 //!
-//! `StubWindow::run()` blocks in an infinite loop just like every other
+//! `HeadlessWindow::run()` blocks in an infinite loop just like every other
 //! platform's `run()`. Instead of busy-waiting or `thread::sleep`, it
 //! blocks on a **`Condvar`** that is signalled when:
 //!
@@ -40,10 +40,10 @@
 //! ## Architecture
 //!
 //! ```text
-//! StubWindow
+//! HeadlessWindow
 //! ├── common: CommonWindowState        (shared with all platforms)
 //! ├── cpu_backend: CpuBackend          (replaces WebRender)
-//! ├── event_queue: VecDeque<StubEvent> (programmatic event injection)
+//! ├── event_queue: VecDeque<HeadlessEvent> (programmatic event injection)
 //! └── pending_window_creates: Vec      (popup/dialog queue)
 //! ```
 
@@ -78,10 +78,10 @@ use crate::desktop::shell2::common::{
 };
 use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
-/// Events that can be injected into a StubWindow for testing or
+/// Events that can be injected into a HeadlessWindow for testing or
 /// via the debug server.
 #[derive(Debug, Clone)]
-pub enum StubEvent {
+pub enum HeadlessEvent {
     /// Simulate window close
     Close,
     /// Simulate mouse move to position
@@ -226,7 +226,7 @@ impl CpuBackend {
 }
 
 // ---------------------------------------------------------------------------
-// StubWindow
+// HeadlessWindow
 // ---------------------------------------------------------------------------
 
 /// Shared wake-up state for the condvar-based event loop.
@@ -244,7 +244,7 @@ struct WakeState {
 /// Behaves identically to platform windows for layout, callbacks, and state
 /// management.  Instead of a GPU context it holds a [`CpuBackend`] for
 /// hit-testing and optional CPU rendering.
-pub struct StubWindow {
+pub struct HeadlessWindow {
     /// Common window state (layout, resources, etc.) — shared with all platforms.
     pub common: CommonWindowState,
     /// CPU rendering backend (replaces WebRender).
@@ -252,7 +252,7 @@ pub struct StubWindow {
     /// Whether the window is "open".
     is_open: bool,
     /// Event queue for programmatic event injection.
-    event_queue: VecDeque<StubEvent>,
+    event_queue: VecDeque<HeadlessEvent>,
     /// Timer storage (timer_id -> Timer).
     stub_timers: BTreeMap<usize, azul_layout::timer::Timer>,
     /// Thread poll timer running flag.
@@ -275,7 +275,7 @@ pub struct StubWindow {
 /// by the X11 backend.
 const TIMER_POLL_MS: u64 = 16;
 
-impl StubWindow {
+impl HeadlessWindow {
     /// Create a new headless window with the given options.
     ///
     /// This constructor mirrors the real platform window constructors:
@@ -341,7 +341,7 @@ impl StubWindow {
     // === Lifecycle ===
 
     /// Poll the next event from the queue.
-    pub fn poll_event(&mut self) -> Option<StubEvent> {
+    pub fn poll_event(&mut self) -> Option<HeadlessEvent> {
         self.event_queue.pop_front()
     }
 
@@ -359,7 +359,7 @@ impl StubWindow {
 
     /// Regenerate layout and rebuild CPU hit-tester.
     ///
-    /// This is the StubWindow equivalent of `MacOSWindow::regenerate_layout()` /
+    /// This is the HeadlessWindow equivalent of `MacOSWindow::regenerate_layout()` /
     /// `WinWindow::regenerate_layout()` etc. It calls the shared
     /// `common::layout::regenerate_layout()` (which no longer requires WebRender
     /// types) and then rebuilds the `CpuHitTester` from the new layout results.
@@ -437,13 +437,13 @@ impl StubWindow {
     /// Inject an event into the queue for the next poll cycle.
     ///
     /// Wakes the blocking event loop if it is sleeping on the condvar.
-    pub fn inject_event(&mut self, event: StubEvent) {
+    pub fn inject_event(&mut self, event: HeadlessEvent) {
         self.event_queue.push_back(event);
         self.wake();
     }
 
     /// Inject multiple events at once.
-    pub fn inject_events(&mut self, events: impl IntoIterator<Item = StubEvent>) {
+    pub fn inject_events(&mut self, events: impl IntoIterator<Item = HeadlessEvent>) {
         self.event_queue.extend(events);
         self.wake();
     }
@@ -470,7 +470,7 @@ impl StubWindow {
 
     /// Run the headless event loop — **blocks** until the window closes.
     ///
-    /// This is the StubWindow equivalent of `NSApplication.run()` / the
+    /// This is the HeadlessWindow equivalent of `NSApplication.run()` / the
     /// Win32 `GetMessage` loop / the X11 `XNextEvent` loop.
     ///
     /// The loop uses a `Condvar` for zero-CPU blocking:
@@ -489,32 +489,32 @@ impl StubWindow {
 
         log_info!(
             LogCategory::EventLoop,
-            "[Stub] Entering condvar-based blocking event loop (debug={})",
+            "[Headless] Entering condvar-based blocking event loop (debug={})",
             debug_enabled,
         );
 
         // -- Perform initial layout (same as every platform) --
         log_debug!(
             LogCategory::Layout,
-            "[Stub] Performing initial layout"
+            "[Headless] Performing initial layout"
         );
         if let Err(e) = self.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
-                "[Stub] WARNING: Initial layout failed: {}",
+                "[Headless] WARNING: Initial layout failed: {}",
                 e
             );
         }
 
-        // -- child windows (sub-StubWindows for menus, dialogs) --
-        let mut children: Vec<StubWindow> = Vec::new();
+        // -- child windows (sub-HeadlessWindows for menus, dialogs) --
+        let mut children: Vec<HeadlessWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
 
         while self.is_open() {
             // ── Phase 1: Process injected events ─────────────────
             while let Some(event) = self.poll_event() {
                 match event {
-                    StubEvent::Close => {
+                    HeadlessEvent::Close => {
                         self.close();
                     }
                     // TODO: wire mouse/keyboard events into
@@ -537,20 +537,20 @@ impl StubWindow {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
                         LogCategory::Layout,
-                        "[Stub] Layout regeneration failed: {}",
+                        "[Headless] Layout regeneration failed: {}",
                         e
                     );
                 }
             }
 
-            // ── Phase 3: Spawn sub-StubWindows for pending creates ─
+            // ── Phase 3: Spawn sub-HeadlessWindows for pending creates ─
             while let Some(pending_create) = self.pending_window_creates.pop() {
                 log_debug!(
                     LogCategory::Window,
-                    "[Stub] Spawning sub-StubWindow (type: {:?})",
+                    "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
                     pending_create.window_state.flags.window_type
                 );
-                match StubWindow::new(
+                match HeadlessWindow::new(
                     pending_create,
                     self.common.app_data.clone(),
                     self.config.clone(),
@@ -562,7 +562,7 @@ impl StubWindow {
                     Err(e) => {
                         log_error!(
                             LogCategory::Window,
-                            "[Stub] Failed to create sub-StubWindow: {:?}",
+                            "[Headless] Failed to create sub-HeadlessWindow: {:?}",
                             e
                         );
                     }
@@ -573,7 +573,7 @@ impl StubWindow {
             children.retain_mut(|child| {
                 while let Some(ev) = child.poll_event() {
                     match ev {
-                        StubEvent::Close => { child.close(); }
+                        HeadlessEvent::Close => { child.close(); }
                         _ => {}
                     }
                 }
@@ -591,7 +591,7 @@ impl StubWindow {
             if !has_wake_sources && !warned_no_wake_sources {
                 warned_no_wake_sources = true;
                 eprintln!(
-                    "[azul] StubWindow: no timers, threads, or debug server active. \
+                    "[azul] HeadlessWindow: no timers, threads, or debug server active. \
                      The event loop will block indefinitely on a condvar \
                      (same as a desktop window nobody interacts with). \
                      Set AZUL_DEBUG=1 to enable the debug server, or \
@@ -621,7 +621,7 @@ impl StubWindow {
 
         log_info!(
             LogCategory::EventLoop,
-            "[Stub] Event loop finished (elapsed: {:.1}s)",
+            "[Headless] Event loop finished (elapsed: {:.1}s)",
             start.elapsed().as_secs_f64()
         );
 
@@ -640,7 +640,7 @@ impl StubWindow {
 
 // === PlatformWindow Trait Implementation ===
 
-impl PlatformWindow for StubWindow {
+impl PlatformWindow for HeadlessWindow {
     // 28 getter/setter methods generated by macro — identical to all other platforms
     impl_platform_window_getters!(common);
 
@@ -734,7 +734,7 @@ impl PlatformWindow for StubWindow {
         _menu: &azul_core::menu::Menu,
         _position: LogicalPosition,
     ) {
-        // TODO: could create a sub-StubWindow with the menu content
+        // TODO: could create a sub-HeadlessWindow with the menu content
     }
 
     fn show_tooltip_from_callback(
@@ -762,12 +762,12 @@ impl PlatformWindow for StubWindow {
 mod tests {
     use super::*;
 
-    fn make_stub() -> StubWindow {
+    fn make_stub() -> HeadlessWindow {
         use azul_core::icon::{IconProviderHandle, SharedIconProvider};
         let fc_cache = Arc::new(FcFontCache::default());
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
         let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
-        StubWindow::new(
+        HeadlessWindow::new(
             WindowCreateOptions::default(),
             app_data,
             AppConfig::default(),
@@ -796,11 +796,11 @@ mod tests {
 
         assert!(window.poll_event().is_none());
 
-        window.inject_event(StubEvent::MouseMove { x: 100.0, y: 200.0 });
-        window.inject_event(StubEvent::Close);
+        window.inject_event(HeadlessEvent::MouseMove { x: 100.0, y: 200.0 });
+        window.inject_event(HeadlessEvent::Close);
 
-        assert!(matches!(window.poll_event(), Some(StubEvent::MouseMove { .. })));
-        assert!(matches!(window.poll_event(), Some(StubEvent::Close)));
+        assert!(matches!(window.poll_event(), Some(HeadlessEvent::MouseMove { .. })));
+        assert!(matches!(window.poll_event(), Some(HeadlessEvent::Close)));
         assert!(window.poll_event().is_none());
     }
 

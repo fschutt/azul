@@ -27,8 +27,8 @@
 //!
 //! # Environment Variables
 //!
-//! - `AZUL_COMPOSITOR` - Force compositor mode: "cpu", "gpu", "auto" (default)
-//! - `AZUL_BACKEND` - Force Linux backend: "x11", "wayland" (auto-detect default)
+//! - `AZ_BACKEND` - Rendering backend: "auto" (default), "gpu", "cpu", "headless"
+//! - `AZ_DISPLAY` - Force Linux display server: "x11", "wayland" (auto-detect default)
 
 pub mod common;
 
@@ -42,15 +42,16 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-// Always available for testing
-pub mod stub;
+// Always available — headless window (no native window, CPU rendering)
+pub mod headless;
 // Main event loop implementation
 pub mod run;
 
 // Re-export common types
 pub use common::{
-    select_compositor_mode, Compositor, CompositorError, CompositorMode, CpuCompositor, DlError,
-    DynamicLibrary, RenderContext, SystemCapabilities, WindowError,
+    select_compositor_mode, AzBackend, Compositor, CompositorError, CompositorMode,
+    CpuCompositor, DlError, DynamicLibrary, GpuCheckResult, GpuInfo, RenderContext,
+    SystemCapabilities, WindowError,
 };
 // Re-export run function
 pub use run::run;
@@ -70,9 +71,9 @@ cfg_if::cfg_if! {
         pub use linux::LinuxWindow as Window;
         pub use linux::LinuxEvent as WindowEvent;
     } else {
-        // Unknown platform - use stub
-        pub use stub::StubWindow as Window;
-        pub use stub::StubEvent as WindowEvent;
+        // Unknown platform - use headless
+        pub use headless::HeadlessWindow as Window;
+        pub use headless::HeadlessEvent as WindowEvent;
     }
 }
 

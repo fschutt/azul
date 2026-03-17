@@ -46,6 +46,193 @@ impl CompositorMode {
     }
 }
 
+// ============================================================================
+// AZ_BACKEND — unified backend selection
+// ============================================================================
+
+/// Backend selection for the entire application.
+///
+/// Replaces the fragmented `AZUL_HEADLESS`, `AZUL_RENDERER`, and
+/// `AZUL_COMPOSITOR` env vars with a single `AZ_BACKEND` variable.
+///
+/// ```text
+/// AZ_BACKEND=auto      (default) Try GPU, fall back to CPU on failure
+/// AZ_BACKEND=gpu       Force GPU rendering, fail if unavailable
+/// AZ_BACKEND=cpu       CPU rendering in a native window (no GL context)
+/// AZ_BACKEND=headless  CPU rendering without any window (for E2E tests)
+/// ```
+///
+/// The old env vars (`AZUL_HEADLESS`, `AZUL_RENDERER`) are still
+/// recognised for backward compatibility but `AZ_BACKEND` takes priority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AzBackend {
+    /// Try GPU, fall back to CPU on GL init failure or blacklisted GPU.
+    Auto,
+    /// Force GPU rendering (OpenGL / Metal / D3D). Fails if unavailable.
+    Gpu,
+    /// CPU rendering inside a native window (no GL context).
+    Cpu,
+    /// CPU rendering with no native window (headless / E2E testing).
+    /// Implies `Cpu` for the compositor and `HeadlessWindow` for the
+    /// window implementation.
+    Headless,
+}
+
+impl Default for AzBackend {
+    fn default() -> Self {
+        AzBackend::Auto
+    }
+}
+
+impl AzBackend {
+    /// Resolve the backend from environment variable and config.
+    ///
+    /// Priority order:
+    /// 1. `AZ_BACKEND` env var (highest)
+    /// 2. `WindowCreateOptions.renderer.hw_accel` (programmatic)
+    /// 3. Default: `Auto`
+    pub fn resolve(hw_accel: Option<azul_core::window::HwAcceleration>) -> Self {
+        // 1. AZ_BACKEND env var
+        if let Ok(val) = std::env::var("AZ_BACKEND") {
+            match val.to_lowercase().as_str() {
+                "headless" => return AzBackend::Headless,
+                "cpu" => return AzBackend::Cpu,
+                "gpu" | "opengl" | "gl" => return AzBackend::Gpu,
+                "auto" => return AzBackend::Auto,
+                _ => {} // unrecognised — fall through
+            }
+        }
+
+        // 2. Programmatic: HwAcceleration from WindowCreateOptions
+        if let Some(hw) = hw_accel {
+            match hw {
+                azul_core::window::HwAcceleration::Disabled => return AzBackend::Cpu,
+                azul_core::window::HwAcceleration::Enabled => return AzBackend::Gpu,
+                azul_core::window::HwAcceleration::DontCare => {} // fall through to Auto
+            }
+        }
+
+        // 3. Default
+        AzBackend::Auto
+    }
+
+    /// Whether this backend needs a native platform window.
+    pub fn needs_native_window(self) -> bool {
+        match self {
+            AzBackend::Headless => false,
+            AzBackend::Cpu | AzBackend::Gpu | AzBackend::Auto => true,
+        }
+    }
+
+    /// Whether this backend uses GPU rendering.
+    /// Returns `None` for `Auto` (needs runtime probe).
+    pub fn uses_gpu(self) -> Option<bool> {
+        match self {
+            AzBackend::Gpu => Some(true),
+            AzBackend::Cpu | AzBackend::Headless => Some(false),
+            AzBackend::Auto => None,
+        }
+    }
+
+    /// Convert to CompositorMode (for the rendering pipeline).
+    pub fn to_compositor_mode(self) -> CompositorMode {
+        match self {
+            AzBackend::Gpu => CompositorMode::GPU,
+            AzBackend::Cpu | AzBackend::Headless => CompositorMode::CPU,
+            AzBackend::Auto => CompositorMode::Auto,
+        }
+    }
+}
+
+// ============================================================================
+// GPU blacklist — skip GPU on known-broken drivers
+// ============================================================================
+
+/// GPU information gathered from the GL driver.
+#[derive(Debug, Clone, Default)]
+pub struct GpuInfo {
+    /// GL_VENDOR string (e.g. "NVIDIA Corporation")
+    pub vendor: String,
+    /// GL_RENDERER string (e.g. "GeForce GTX 1060/PCIe/SSE2")
+    pub renderer: String,
+    /// GL_VERSION string (e.g. "4.6.0 NVIDIA 535.183.01")
+    pub version: String,
+    /// GL_SHADING_LANGUAGE_VERSION (e.g. "4.60 NVIDIA")
+    pub glsl_version: String,
+}
+
+/// Result of checking the GPU against the blacklist.
+#[derive(Debug, Clone)]
+pub enum GpuCheckResult {
+    /// GPU is fine, proceed with GPU rendering.
+    Ok(GpuInfo),
+    /// GPU is blacklisted, reason given. Fall back to CPU.
+    Blacklisted { info: GpuInfo, reason: String },
+    /// Could not query GPU info (GL init failed). Fall back to CPU.
+    QueryFailed(String),
+}
+
+/// Check if the current GPU is blacklisted.
+///
+/// Called during `Auto` backend resolution after successfully creating
+/// an OpenGL context.  If the GPU is blacklisted, the window switches
+/// to CPU rendering and the GL context is destroyed.
+///
+/// Known problematic configurations (see azul#220):
+/// - NVIDIA with missing shader compiler (driver bug on some Linux distros)
+/// - Mesa software rasteriser (llvmpipe) — works but is slower than cpurender
+/// - Very old Intel HD Graphics with GL < 3.0
+pub fn check_gpu_blacklist(info: &GpuInfo) -> GpuCheckResult {
+    let vendor_lower = info.vendor.to_lowercase();
+    let renderer_lower = info.renderer.to_lowercase();
+    let version_lower = info.version.to_lowercase();
+
+    // Mesa llvmpipe — software rasteriser, cpurender is faster
+    if renderer_lower.contains("llvmpipe") || renderer_lower.contains("softpipe") {
+        return GpuCheckResult::Blacklisted {
+            info: info.clone(),
+            reason: "Mesa software rasteriser (llvmpipe/softpipe) detected — \
+                     cpurender is faster for this configuration".into(),
+        };
+    }
+
+    // NVIDIA shader compiler missing (azul#220)
+    // Detected by GLSL version being empty or "0.0"
+    if vendor_lower.contains("nvidia") && (
+        info.glsl_version.is_empty() ||
+        info.glsl_version.starts_with("0.") ||
+        info.glsl_version == "0"
+    ) {
+        return GpuCheckResult::Blacklisted {
+            info: info.clone(),
+            reason: "NVIDIA driver without shader compiler (azul#220) — \
+                     the GL driver loads but cannot compile shaders".into(),
+        };
+    }
+
+    // Intel HD with GL < 3.0 (too old for WebRender)
+    if vendor_lower.contains("intel") {
+        // Try to parse major GL version
+        let major = version_lower
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse::<u32>()
+            .unwrap_or(0);
+        if major > 0 && major < 3 {
+            return GpuCheckResult::Blacklisted {
+                info: info.clone(),
+                reason: format!(
+                    "Intel GPU with OpenGL {}.x — WebRender requires OpenGL 3.0+",
+                    major
+                ),
+            };
+        }
+    }
+
+    GpuCheckResult::Ok(info.clone())
+}
+
 /// Render context handle - platform-specific rendering context.
 #[derive(Debug, Clone, Copy)]
 pub enum RenderContext {

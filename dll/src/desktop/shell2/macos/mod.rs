@@ -1882,28 +1882,18 @@ impl event::PlatformWindow for MacOSWindow {
 }
 
 impl MacOSWindow {
-    /// Determine which rendering backend to use
+    /// Determine which rendering backend to use.
+    ///
+    /// Delegates to `AzBackend::resolve()` for env-var / config priority,
+    /// then maps `Auto` → try OpenGL, fall back on blacklist/failure.
     fn determine_backend(options: &WindowCreateOptions) -> RenderBackend {
-        // 1. Check environment variable override
-        if let Ok(val) = std::env::var("AZUL_RENDERER") {
-            match val.to_lowercase().as_str() {
-                "cpu" => return RenderBackend::CPU,
-                "opengl" | "gl" => return RenderBackend::OpenGL,
-                _ => {}
-            }
+        use crate::desktop::shell2::AzBackend;
+        let hw_accel = options.renderer.as_option().map(|r| r.hw_accel);
+        match AzBackend::resolve(hw_accel) {
+            AzBackend::Gpu => RenderBackend::OpenGL,
+            AzBackend::Cpu | AzBackend::Headless => RenderBackend::CPU,
+            AzBackend::Auto => RenderBackend::OpenGL, // caller handles fallback
         }
-
-        // 2. Check options.renderer - if it's Some, check hw_accel field
-        if let Some(renderer) = options.renderer.as_option() {
-            match renderer.hw_accel {
-                HwAcceleration::Disabled => return RenderBackend::CPU,
-                HwAcceleration::Enabled => return RenderBackend::OpenGL,
-                HwAcceleration::DontCare => {} // Continue to default
-            }
-        }
-
-        // 3. Default: Try OpenGL
-        RenderBackend::OpenGL
     }
 
     /// Create OpenGL view with context and functions
