@@ -2593,7 +2593,6 @@ pub trait PlatformWindow {
         use azul_core::window::CursorPosition;
         use azul_layout::managers::hover::InputPointId;
 
-        let document_id = self.get_document_id();
         let hidpi_factor = self.get_current_window_state().size.get_hidpi_factor();
 
         // Get focused node before borrowing layout_window
@@ -2609,7 +2608,8 @@ pub trait PlatformWindow {
 
         // Hit test: use CPU hit tester when WebRender isn't available (CPU backend)
         let hit_test = if self.get_hit_tester().is_some() {
-            // GPU path — WebRender hit testing
+            // GPU path — WebRender hit testing (document_id required)
+            let document_id = self.get_document_id();
             let resolved_hit_tester = self.get_hit_tester_mut().resolve();
             let layout_window = self.get_layout_window().unwrap();
             crate::desktop::wr_translate2::fullhittest_new_webrender(
@@ -2621,7 +2621,7 @@ pub trait PlatformWindow {
                 hidpi_factor,
             )
         } else if let Some(cpu_ht) = self.get_cpu_hit_tester() {
-            // CPU path — layout-based hit testing
+            // CPU path — layout-based hit testing (no WebRender)
             let nodes = cpu_ht.hit_test(position);
             let layout_window = self.get_layout_window().unwrap();
             crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
