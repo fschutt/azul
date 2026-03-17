@@ -476,6 +476,12 @@ pub fn run(
                                     // Event handling is done inside poll_event
                                 }
 
+                                // Process accessibility actions from VoiceOver.
+                                // These arrive asynchronously via accesskit's channel
+                                // and must be polled outside of NSEvent processing.
+                                #[cfg(feature = "a11y")]
+                                window.process_accessibility_actions();
+
                                 // Process pending window creates (for popup menus, dialogs, etc.)
                                 while let Some(pending_create) = window.pending_window_creates.pop()
                                 {
