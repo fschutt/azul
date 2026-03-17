@@ -1809,8 +1809,20 @@ impl event::PlatformWindow for MacOSWindow {
                     repeats: true
                 ]
             }
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            // CPU mode: schedule timer on CPUView instead of GLView
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**cpu_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
         } else {
-            return; // No view, can't create timer
+            return; // No view at all
         };
 
         self.timers.insert(timer_id, timer_obj);
