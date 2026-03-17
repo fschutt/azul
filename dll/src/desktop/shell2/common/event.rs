@@ -571,6 +571,52 @@ pub struct CommonWindowState {
     pub display_list_dirty: bool,
 }
 
+impl CommonWindowState {
+    /// Perform a hit test using whichever backend is available (GPU or CPU).
+    ///
+    /// Encapsulates the GPU vs CPU dispatch so callers don't need if/else chains.
+    pub fn perform_hit_test(
+        &mut self,
+        position: azul_core::geom::LogicalPosition,
+    ) -> azul_core::hit_test::FullHitTest {
+        use azul_core::window::CursorPosition;
+
+        let focused_node = self.layout_window
+            .as_ref()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
+        let layout_results_ptr = match self.layout_window.as_ref() {
+            Some(lw) => lw as *const azul_layout::window::LayoutWindow,
+            None => return azul_core::hit_test::FullHitTest::empty(focused_node),
+        };
+
+        // GPU path: WebRender hit tester
+        if let Some(ref mut ht) = self.hit_tester {
+            if let (Some(doc_id), Some(_)) = (self.document_id, self.id_namespace) {
+                let resolved = ht.resolve();
+                let hidpi = self.current_window_state.size.get_hidpi_factor();
+                // SAFETY: layout_results is not modified by hit testing
+                let layout_results = unsafe { &(*layout_results_ptr).layout_results };
+                return crate::desktop::wr_translate2::fullhittest_new_webrender(
+                    &*resolved, doc_id, focused_node, layout_results,
+                    &CursorPosition::InWindow(position), hidpi,
+                );
+            }
+        }
+
+        // CPU path: layout-based hit tester
+        if let Some(ref cpu_ht) = self.cpu_hit_tester {
+            let layout_results = unsafe { &(*layout_results_ptr).layout_results };
+            let nodes = cpu_ht.hit_test(position);
+            return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
+                &nodes, focused_node, layout_results,
+            );
+        }
+
+        azul_core::hit_test::FullHitTest::empty(focused_node)
+    }
+}
+
 /// Generates all 28 PlatformWindow getter/setter implementations
 /// by delegating to `self.$field` (a `CommonWindowState` field).
 ///
@@ -617,6 +663,9 @@ macro_rules! impl_platform_window_getters {
         }
         fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
             &self.$field.app_data
+        }
+        fn get_common_mut(&mut self) -> &mut crate::desktop::shell2::common::event::CommonWindowState {
+            &mut self.$field
         }
         fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
             self.$field.scrollbar_drag_state.as_ref()
@@ -757,6 +806,9 @@ pub trait PlatformWindow {
 
     /// Get the system style
     fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle>;
+
+    /// Get mutable access to the underlying CommonWindowState
+    fn get_common_mut(&mut self) -> &mut CommonWindowState;
 
     /// Get the shared application data
     fn get_app_data(&self) -> &Arc<RefCell<RefAny>>;
@@ -2590,49 +2642,10 @@ pub trait PlatformWindow {
     /// ## Parameters
     /// * `position` - The logical position to hit test at
     fn update_hit_test_at(&mut self, position: azul_core::geom::LogicalPosition) {
-        use azul_core::window::CursorPosition;
         use azul_layout::managers::hover::InputPointId;
 
-        let hidpi_factor = self.get_current_window_state().size.get_hidpi_factor();
-
-        // Get focused node before borrowing layout_window
-        let focused_node = self
-            .get_layout_window()
-            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-
-        // Check if layout window exists
-        let has_layout_window = self.get_layout_window().is_some();
-        if !has_layout_window {
-            return;
-        }
-
-        // Hit test: use CPU hit tester when WebRender isn't available (CPU backend)
-        let hit_test = if self.get_hit_tester().is_some() {
-            // GPU path — WebRender hit testing (document_id required)
-            let document_id = self.get_document_id();
-            let resolved_hit_tester = self.get_hit_tester_mut().resolve();
-            let layout_window = self.get_layout_window().unwrap();
-            crate::desktop::wr_translate2::fullhittest_new_webrender(
-                &*resolved_hit_tester,
-                document_id,
-                focused_node,
-                &layout_window.layout_results,
-                &CursorPosition::InWindow(position),
-                hidpi_factor,
-            )
-        } else if let Some(cpu_ht) = self.get_cpu_hit_tester() {
-            // CPU path — layout-based hit testing (no WebRender)
-            let nodes = cpu_ht.hit_test(position);
-            let layout_window = self.get_layout_window().unwrap();
-            crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
-                &nodes,
-                focused_node,
-                &layout_window.layout_results,
-            )
-        } else {
-            // No hit tester at all — return empty
-            azul_core::hit_test::FullHitTest::empty(focused_node)
-        };
+        // Single dispatch via CommonWindowState — handles GPU vs CPU internally
+        let hit_test = self.get_common_mut().perform_hit_test(position);
 
         // Store hit test in hover manager
         if let Some(layout_window) = self.get_layout_window_mut() {
