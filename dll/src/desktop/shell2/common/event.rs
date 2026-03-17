@@ -565,6 +565,9 @@ pub struct CommonWindowState {
     /// Whether the display list was updated internally (e.g. by text editing)
     /// and needs to be sent to WebRender without a full DOM rebuild.
     pub display_list_dirty: bool,
+    /// Whether the accessibility tree needs to be rebuilt and sent to the OS.
+    /// Set on focus change, DOM rebuild, text edit — NOT on every mouse move.
+    pub a11y_dirty: bool,
 }
 
 /// Generates all 28 PlatformWindow getter/setter implementations

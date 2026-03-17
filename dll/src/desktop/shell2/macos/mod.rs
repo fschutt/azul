@@ -1459,8 +1459,11 @@ define_class!(
 
                     // Notify accessibility adapter that the view is focused
                     #[cfg(feature = "a11y")]
-                    if let Some(adapter) = macos_window.accessibility_adapter.as_mut() {
-                        adapter.update_view_focus_state(true);
+                    {
+                        if let Some(adapter) = macos_window.accessibility_adapter.as_mut() {
+                            adapter.update_view_focus_state(true);
+                        }
+                        macos_window.common.a11y_dirty = true;
                     }
                 }
             }
@@ -2751,6 +2754,7 @@ impl MacOSWindow {
                 frame_needs_regeneration: false,
                 display_list_initialized: false,
                 display_list_dirty: false,
+                a11y_dirty: true,
                 scrollbar_drag_state: None,
             },
             font_registry,
@@ -2989,9 +2993,11 @@ impl MacOSWindow {
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
 
-        // Update accessibility tree after layout
+        // Mark accessibility tree for update after layout
         #[cfg(feature = "a11y")]
-        self.update_accessibility();
+        {
+            self.common.a11y_dirty = true;
+        }
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
@@ -4389,15 +4395,16 @@ impl MacOSWindow {
             self.common.frame_needs_regeneration = false;
         }
 
-        // Process a11y actions and update tree
+        // Process a11y actions from VoiceOver (sets a11y_dirty if needed)
         #[cfg(feature = "a11y")]
         self.process_accessibility_actions();
 
-        // Update accessibility tree after event processing.
-        // This ensures focus changes from clicks, tab navigation, etc.
-        // are reflected in the a11y tree so VoiceOver tracks the cursor.
+        // Only update accessibility tree when something changed — not on every mouse move
         #[cfg(feature = "a11y")]
-        self.update_accessibility();
+        if self.common.a11y_dirty {
+            self.update_accessibility();
+            self.common.a11y_dirty = false;
+        }
     }
 
     /// Set the mouse cursor to a specific system cursor
@@ -5478,8 +5485,8 @@ impl MacOSWindow {
             }
         }
 
-        // After processing actions, update the a11y tree and request redraw
-        self.update_accessibility();
+        // After processing actions, mark a11y dirty and request redraw
+        self.common.a11y_dirty = true;
         self.request_redraw();
     }
 

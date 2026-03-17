@@ -241,6 +241,7 @@ impl StubWindow {
                 frame_needs_regeneration: true,
                 display_list_initialized: false,
                 display_list_dirty: false,
+                a11y_dirty: true,
             },
             cpu_backend: CpuBackend::new(),
             is_open: true,

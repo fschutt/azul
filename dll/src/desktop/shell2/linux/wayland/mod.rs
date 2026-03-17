@@ -868,6 +868,7 @@ impl WaylandWindow {
                 frame_needs_regeneration: false,
                 display_list_initialized: false,
                 display_list_dirty: false,
+                a11y_dirty: true,
             },
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             keyboard_state: events::WaylandKeyboardState::new(),

@@ -2491,6 +2491,13 @@ impl NodeData {
     }
 
     pub fn is_focusable(&self) -> bool {
+        // Inherently focusable elements per HTML spec
+        if matches!(self.node_type,
+            NodeType::A | NodeType::Button | NodeType::Input
+            | NodeType::Select | NodeType::TextArea
+        ) {
+            return true;
+        }
         // Element is focusable if it has a tab index or any focus-related callback
         self.get_tab_index().is_some()
             || self
@@ -2512,8 +2519,13 @@ impl NodeData {
     ///
     /// See: https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior
     pub fn has_activation_behavior(&self) -> bool {
+        // Inherently activatable elements per HTML spec
+        if matches!(self.node_type, NodeType::A | NodeType::Button) {
+            return true;
+        }
+
         use crate::events::{EventFilter, HoverEventFilter};
-        
+
         // Check for click callback (most common case for Azul)
         // In Azul, "click" is typically LeftMouseUp
         let has_click_callback = self
