@@ -4388,6 +4388,12 @@ impl MacOSWindow {
             self.request_redraw();
             self.common.frame_needs_regeneration = false;
         }
+
+        // Update accessibility tree after event processing.
+        // This ensures focus changes from clicks, tab navigation, etc.
+        // are reflected in the a11y tree so VoiceOver tracks the cursor.
+        #[cfg(feature = "a11y")]
+        self.update_accessibility();
     }
 
     /// Set the mouse cursor to a specific system cursor
@@ -5365,12 +5371,14 @@ impl MacOSWindow {
             None => return,
         };
 
-        // Generate tree update from current layout
+        // Generate tree update from current layout, with current focus
+        let focused_node = layout_window.focus_manager.get_focused_node().copied();
         let tree_update = azul_layout::managers::a11y::A11yManager::update_tree(
             layout_window.a11y_manager.root_id,
             &layout_window.layout_results,
             &self.common.current_window_state.title,
             self.common.current_window_state.size.dimensions,
+            focused_node,
         );
 
         // Submit to OS

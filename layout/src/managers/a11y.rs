@@ -24,7 +24,7 @@ use azul_core::{
 };
 use azul_css::AzString;
 
-use crate::{solver3::layout_tree::{LayoutNodeHot, LayoutNodeWarm}, window::DomLayoutResult};
+use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 
 /// Manager for accessibility tree state and updates.
 ///
@@ -64,6 +64,7 @@ impl A11yManager {
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
         window_title: &AzString,
         window_size: LogicalSize,
+        focused_node: Option<azul_core::dom::DomNodeId>,
     ) -> TreeUpdate {
         let mut nodes = Vec::new();
         let mut root_children = Vec::new();
@@ -106,21 +107,23 @@ impl A11yManager {
                 // Generate stable A11yNodeId: offset by 1 to avoid collision with root_id(0)
                 let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | (dom_idx as u64) + 1);
 
-                // Try to get layout info for bounds from the layout tree
+                // Get layout info: absolute position from calculated_positions,
+                // size from layout node. Uses dom_to_layout to map DOM → layout index.
                 let dom_node_id = NodeId::new(dom_idx);
                 let layout_info = layout_result.layout_tree.dom_to_layout
                     .get(&dom_node_id)
                     .and_then(|indices| indices.first())
                     .and_then(|&layout_idx| {
                         let hot = layout_result.layout_tree.get(layout_idx)?;
-                        let warm = layout_result.layout_tree.warm(layout_idx);
-                        Some((hot, warm))
+                        let abs_pos = layout_result.calculated_positions
+                            .get(layout_idx).copied();
+                        Some((hot, layout_idx, abs_pos))
                     });
 
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
                 let node = match layout_info {
-                    Some((layout_node, warm_node)) => {
-                        Self::build_node(node_data, layout_node, warm_node, a11y_info_ref)
+                    Some((layout_node, _layout_idx, abs_pos)) => {
+                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref)
                     }
                     None => {
                         let role = if let Some(info) = a11y_info_ref {
@@ -191,15 +194,23 @@ impl A11yManager {
             }
         }
 
-        // Set focus to the first focusable node (not GenericContainer or Window).
-        // VoiceOver navigates to the focused element first, so it must be a real
-        // content node like Label/Button, not a structural container.
-        let focus = nodes.iter()
-            .find(|(id, node)| {
-                *id != root_id && !matches!(node.role(), Role::GenericContainer | Role::Window)
+        // Set focus to the currently focused DOM node (from FocusManager).
+        // If no node is focused, fall back to the first visible content node.
+        // VoiceOver navigates to the focused element on activation.
+        let focus = focused_node
+            .and_then(|dom_node_id| {
+                let dom_idx = dom_node_id.node.into_crate_internal()?.index();
+                node_id_map.get(&(dom_node_id.dom.inner as u32, dom_idx as u32)).copied()
             })
-            .map(|(id, _)| *id)
-            .unwrap_or(root_id);
+            .unwrap_or_else(|| {
+                // Fallback: first non-container node
+                nodes.iter()
+                    .find(|(id, node)| {
+                        *id != root_id && !matches!(node.role(), Role::GenericContainer | Role::Window)
+                    })
+                    .map(|(id, _)| *id)
+                    .unwrap_or(root_id)
+            });
 
         // Create the tree update
         let tree_update = TreeUpdate {
@@ -215,7 +226,7 @@ impl A11yManager {
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
-        warm_node: Option<&LayoutNodeWarm>,
+        abs_pos: Option<LogicalPosition>,
         a11y_info: Option<&AccessibilityInfo>,
     ) -> Node {
         // Set role based on NodeType or AccessibilityInfo
@@ -282,9 +293,9 @@ impl A11yManager {
             builder.set_label(text.as_str());
         }
 
-        // Set bounds from layout node
-        let relative_position = warm_node.and_then(|w| w.relative_position);
-        if let (Some(pos), Some(size)) = (relative_position, layout_node.used_size) {
+        // Set bounds using absolute position (window-relative, as required by accesskit)
+        // and size from the layout node.
+        if let (Some(pos), Some(size)) = (abs_pos, layout_node.used_size) {
             builder.set_bounds(Rect {
                 x0: pos.x as f64,
                 y0: pos.y as f64,

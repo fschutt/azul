@@ -701,6 +701,7 @@ impl LayoutWindow {
                     &self.layout_results,
                     &self.current_window_state.title,
                     self.current_window_state.size.dimensions,
+                    self.focus_manager.get_focused_node().copied(),
                 )
             }));
 
