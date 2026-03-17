@@ -1187,23 +1187,9 @@ impl MacOSWindow {
 
     /// Update hit test at given position and store in current_window_state.
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        if let Some(layout_window) = self.common.layout_window.as_mut() {
-            let cursor_position = CursorPosition::InWindow(position);
-            // Get focused node from FocusManager
-            let focused_node = layout_window.focus_manager.get_focused_node().copied();
-            let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
-                &*self.common.hit_tester.as_mut().unwrap().resolve(),
-                self.common.document_id.unwrap(),
-                focused_node,
-                &layout_window.layout_results,
-                &cursor_position,
-                self.common.current_window_state.size.get_hidpi_factor(),
-            );
-            use azul_layout::managers::hover::InputPointId;
-            layout_window
-                .hover_manager
-                .push_hit_test(InputPointId::Mouse, hit_test);
-        }
+        // Delegate to the unified cross-platform hit test in PlatformWindow trait
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        self.update_hit_test_at(position);
     }
 
     /// Get the first hovered node from current mouse hit test.
