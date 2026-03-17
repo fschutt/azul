@@ -411,6 +411,32 @@ impl ScrollManager {
         self.scroll_dirty = false;
     }
 
+    /// Build a map from scroll_id (LocalScrollId) to current scroll offset.
+    ///
+    /// Used by the CPU renderer to look up scroll positions at render time
+    /// without embedding them in the display list.
+    ///
+    /// `scroll_ids` maps layout-tree node index → scroll_id. We need to
+    /// convert our (DomId, NodeId) keys to scroll_ids.
+    pub fn build_scroll_offset_map(
+        &self,
+        dom_id: DomId,
+        scroll_ids: &std::collections::HashMap<usize, u64>,
+    ) -> std::collections::HashMap<u64, (f32, f32)> {
+        let mut map = std::collections::HashMap::new();
+        for ((d, node_id), state) in &self.states {
+            if *d != dom_id { continue; }
+            // Find the scroll_id for this node_id by searching scroll_ids
+            // (scroll_ids maps layout_index → scroll_id, and node_id.index() == layout_index
+            // for the root DOM)
+            let node_idx = node_id.index();
+            if let Some(&scroll_id) = scroll_ids.get(&node_idx) {
+                map.insert(scroll_id, (state.current_offset.x, state.current_offset.y));
+            }
+        }
+        map
+    }
+
     // ========================================================================
     // Input Recording API (timer-based architecture)
     // ========================================================================

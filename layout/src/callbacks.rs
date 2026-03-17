@@ -2635,7 +2635,7 @@ impl CallbackInfo {
     /// ```
     #[cfg(feature = "cpurender")]
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
-        use crate::cpurender::{render_with_font_manager, RenderOptions};
+        use crate::cpurender::{render_with_font_manager_and_scroll, RenderOptions, ScrollOffsetMap};
 
         let layout_window = self.get_layout_window();
         let renderer_resources = &layout_window.renderer_resources;
@@ -2646,9 +2646,7 @@ impl CallbackInfo {
             .get(&dom_id)
             .ok_or_else(|| AzString::from("DOM not found in layout results"))?;
 
-        // Use the current window state dimensions (may have been resized
-        // since the last layout pass).  Falls back to the layout viewport
-        // dimensions when the window state hasn't been updated.
+        // Use the current window state dimensions
         let ws = self.get_current_window_state();
         let width = ws.size.dimensions.width;
         let height = ws.size.dimensions.height;
@@ -2657,16 +2655,16 @@ impl CallbackInfo {
             return Err(AzString::from("Invalid viewport dimensions"));
         }
 
-        // Get the display list
         let display_list = &layout_result.display_list;
-
-        // Get DPI factor from window state
         let dpi_factor = ws.size.get_hidpi_factor().inner.get();
 
-        // Render to pixmap using FontManager directly.
-        // In headless mode RendererResources has no fonts registered
-        // (fonts are only in FontManager), so we must use the
-        // font_manager path to get text rendering.
+        // Build scroll offset map from the current ScrollManager state.
+        // This decouples the display list from scroll state — the display
+        // list keeps absolute coordinates and the renderer applies scroll
+        // offsets at render time by scroll_id lookup.
+        let scroll_offsets = layout_window.scroll_manager
+            .build_scroll_offset_map(dom_id, &layout_result.scroll_ids);
+
         let opts = RenderOptions {
             width,
             height,
@@ -2674,12 +2672,13 @@ impl CallbackInfo {
         };
 
         let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
-        let pixmap = render_with_font_manager(
+        let pixmap = render_with_font_manager_and_scroll(
             display_list,
             renderer_resources,
             &layout_window.font_manager,
             opts,
             &mut glyph_cache,
+            &scroll_offsets,
         ).map_err(|e| AzString::from(e))?;
 
         // Encode to PNG

@@ -353,7 +353,6 @@ impl DisplayList {
                     clip_bounds,
                     content_size,
                     scroll_id,
-                    scroll_offset,
                 } => {
                     scroll_depth += 1;
                     writeln!(json, "    {{").unwrap();
@@ -658,10 +657,6 @@ pub enum DisplayListItem {
         content_size: LogicalSize,
         /// An ID for the renderer to track this scrollable area between frames.
         scroll_id: LocalScrollId,
-        /// Current scroll offset (x, y) in logical pixels.
-        /// CPU renderers use this to translate child content; GPU renderers
-        /// (WebRender) ignore it and use their own scroll state.
-        scroll_offset: (f32, f32),
     },
     /// Pops the current scroll frame.
     PopScrollFrame,
@@ -1187,13 +1182,11 @@ impl DisplayListBuilder {
         clip_bounds: LogicalRect,
         content_size: LogicalSize,
         scroll_id: LocalScrollId,
-        scroll_offset: (f32, f32),
     ) {
         self.push_item(DisplayListItem::PushScrollFrame {
             clip_bounds: clip_bounds.into(),
             content_size,
             scroll_id,
-            scroll_offset,
         });
     }
     pub fn pop_scroll_frame(&mut self) {
@@ -2624,13 +2617,7 @@ where
                 builder.push_clip(clip_rect, border_radius);
                 let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
                 let content_size = get_scroll_content_size(node);
-                let scroll_offset = self.scroll_offsets.get(&dom_id)
-                    .map(|pos| (
-                        pos.children_rect.origin.x - pos.parent_rect.origin.x,
-                        pos.children_rect.origin.y - pos.parent_rect.origin.y,
-                    ))
-                    .unwrap_or((0.0, 0.0));
-                builder.push_scroll_frame(clip_rect, content_size, scroll_id, scroll_offset);
+                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
             }
         } else {
             // Simple clip for hidden/clip
@@ -5540,12 +5527,10 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             clip_bounds,
             content_size,
             scroll_id,
-            scroll_offset,
         } => DisplayListItem::PushScrollFrame {
             clip_bounds: offset_rect_y(clip_bounds.into_inner(), y_offset).into(),
             content_size: *content_size,
             scroll_id: *scroll_id,
-            scroll_offset: *scroll_offset,
         },
         DisplayListItem::PushStackingContext { bounds, z_index } => {
             DisplayListItem::PushStackingContext {

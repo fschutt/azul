@@ -838,13 +838,12 @@ fn render_display_list_range(
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
-    // Create a sub-display-list view and render it
-    // For now, we render the full range using the existing render_display_list logic
-    // Items have absolute coordinates, so non-root layers need coordinate offset
+    let empty_scroll_offsets = ScrollOffsetMap::new();
     let mut transform_stack = vec![TransAffine::new()];
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    let scroll_offsets = &empty_scroll_offsets;
 
     for i in start..end {
         let item = &display_list.items[i];
@@ -859,6 +858,7 @@ fn render_display_list_range(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
+            scroll_offsets,
         )?;
     }
 
@@ -1845,14 +1845,27 @@ pub fn render(
     Ok(pixmap)
 }
 
-/// Render a display list using fonts from FontManager directly
-/// This is used in reftest scenarios where RendererResources doesn't have fonts registered
+/// Render a display list using fonts from FontManager directly.
+/// This is used in reftest scenarios where RendererResources doesn't have fonts registered.
 pub fn render_with_font_manager(
     dl: &DisplayList,
     res: &RendererResources,
     font_manager: &FontManager<FontRef>,
     opts: RenderOptions,
     glyph_cache: &mut GlyphCache,
+) -> Result<AzulPixmap, String> {
+    render_with_font_manager_and_scroll(dl, res, font_manager, opts, glyph_cache, &ScrollOffsetMap::new())
+}
+
+/// Render with FontManager and explicit scroll offsets.
+/// Used by `take_screenshot` to render with the current scroll state.
+pub fn render_with_font_manager_and_scroll(
+    dl: &DisplayList,
+    res: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    opts: RenderOptions,
+    glyph_cache: &mut GlyphCache,
+    scroll_offsets: &ScrollOffsetMap,
 ) -> Result<AzulPixmap, String> {
     let RenderOptions {
         width,
@@ -1865,10 +1878,15 @@ pub fn render_with_font_manager(
 
     pixmap.fill(255, 255, 255, 255);
 
-    render_display_list(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache)?;
+    render_display_list_with_scroll(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache, scroll_offsets)?;
 
     Ok(pixmap)
 }
+
+/// Scroll offsets keyed by scroll_id (LocalScrollId).
+/// Passed to the renderer so it can look up the current scroll position
+/// for each PushScrollFrame without embedding it in the display list.
+pub type ScrollOffsetMap = HashMap<LocalScrollId, (f32, f32)>;
 
 fn render_display_list(
     display_list: &DisplayList,
@@ -1877,6 +1895,19 @@ fn render_display_list(
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
+) -> Result<(), String> {
+    let empty_scroll_offsets = ScrollOffsetMap::new();
+    render_display_list_with_scroll(display_list, pixmap, dpi_factor, renderer_resources, font_manager, glyph_cache, &empty_scroll_offsets)
+}
+
+fn render_display_list_with_scroll(
+    display_list: &DisplayList,
+    pixmap: &mut AzulPixmap,
+    dpi_factor: f32,
+    renderer_resources: &RendererResources,
+    font_manager: Option<&FontManager<FontRef>>,
+    glyph_cache: &mut GlyphCache,
+    scroll_offsets: &ScrollOffsetMap,
 ) -> Result<(), String> {
     let mut transform_stack = vec![TransAffine::new()]; // identity
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
@@ -1899,6 +1930,7 @@ fn render_display_list(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
+            scroll_offsets,
         )?;
     }
 
@@ -1916,6 +1948,7 @@ fn render_single_item(
     clip_stack: &mut Vec<Option<AzRect>>,
     mask_stack: &mut Vec<MaskEntry>,
     scroll_offset_stack: &mut Vec<(f32, f32)>,
+    scroll_offsets: &ScrollOffsetMap,
 ) -> Result<(), String> {
     // Current accumulated scroll offset — applied to all item bounds.
     // Negative because scrolling down (positive offset) moves content up.
@@ -2095,6 +2128,7 @@ fn render_single_item(
                     font_manager,
                     dpi_factor,
                     glyph_cache,
+                    (scroll_dx, scroll_dy),
                 )?;
             }
             DisplayListItem::TextLayout {
@@ -2203,20 +2237,19 @@ fn render_single_item(
             }
             DisplayListItem::PushScrollFrame {
                 clip_bounds,
-                scroll_offset,
+                scroll_id,
                 ..
             } => {
                 // Scroll frame = clip + translation.
-                // Child items have absolute window coordinates — the scroll
-                // offset is applied at render time by shifting all items
-                // inside the scroll frame.
+                // Look up the current scroll offset by scroll_id from the
+                // externally-provided map (not embedded in the display list).
                 let new_clip = logical_rect_to_az_rect(clip_bounds.inner(), dpi_factor);
                 clip_stack.push(new_clip);
                 transform_stack.push(transform_stack.last().cloned().unwrap_or_else(TransAffine::new));
-                // Accumulate scroll offset: parent offset + this frame's offset
+                let frame_offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
                 let new_scroll = (
-                    scroll_dx + scroll_offset.0,
-                    scroll_dy + scroll_offset.1,
+                    scroll_dx + frame_offset.0,
+                    scroll_dy + frame_offset.1,
                 );
                 scroll_offset_stack.push(new_scroll);
             }
@@ -2482,6 +2515,7 @@ fn render_text(
     font_manager: Option<&FontManager<FontRef>>,
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
 ) -> Result<(), String> {
     if color.a == 0 || glyphs.is_empty() {
         return Ok(());
@@ -2563,8 +2597,8 @@ fn render_text(
             None => continue,
         };
 
-        let glyph_x = glyph.point.x * dpi_factor;
-        let glyph_baseline_y = glyph.point.y * dpi_factor;
+        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
         let glyph_transform = if cached.is_hinted {
             // Hinted path is in pixel coordinates — snap to pixel grid
