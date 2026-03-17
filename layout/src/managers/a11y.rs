@@ -146,20 +146,23 @@ impl A11yManager {
                     }
                 };
 
-                // Collect child text content and promote to this node's label or value.
-                // VoiceOver reads the node's label/value — it doesn't automatically
-                // concatenate child text nodes. Without this, headings, paragraphs,
-                // list items, etc. would be announced as empty containers.
+                // Collect child text and promote to this node's label or value.
+                // Only do this when all children are text nodes — if the node has
+                // interactive children (links, buttons, inputs), DON'T set a group
+                // label, so VoiceOver navigates into the children individually.
                 {
                     let hierarchy_item = &node_hierarchy[dom_idx];
                     let mut text_content = String::new();
-                    // Recursively collect text from immediate children
+                    let mut has_non_text_children = false;
+
                     let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
                     while let Some(child_id) = child {
                         if let Some(child_data) = node_data_slice.get(child_id.index()) {
                             if let NodeType::Text(t) = &child_data.node_type {
                                 if !text_content.is_empty() { text_content.push(' '); }
                                 text_content.push_str(t.as_str());
+                            } else {
+                                has_non_text_children = true;
                             }
                         }
                         if child_id.index() >= node_hierarchy.len() { break; }
@@ -170,11 +173,10 @@ impl A11yManager {
                         if node_data.is_contenteditable()
                             || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input)
                         {
-                            // Text inputs: set as AXValue (editable content)
                             node.set_value(text_content.as_str());
-                        } else {
-                            // Everything else (headings, paragraphs, list items, links,
-                            // buttons, table cells, etc.): set as label so VoiceOver reads it
+                        } else if !has_non_text_children {
+                            // Only promote text when there are NO interactive children.
+                            // Otherwise VoiceOver reads the label instead of navigating children.
                             node.set_label(text_content.as_str());
                         }
                     }
