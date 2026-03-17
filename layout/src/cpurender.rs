@@ -838,12 +838,12 @@ fn render_display_list_range(
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
-    let empty_scroll_offsets = ScrollOffsetMap::new();
+    let empty_state = CpuRenderState::new(ScrollOffsetMap::new());
+    let render_state = &empty_state;
     let mut transform_stack = vec![TransAffine::new()];
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
-    let scroll_offsets = &empty_scroll_offsets;
 
     for i in start..end {
         let item = &display_list.items[i];
@@ -858,7 +858,7 @@ fn render_display_list_range(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
-            scroll_offsets,
+            render_state,
         )?;
     }
 
@@ -1854,18 +1854,19 @@ pub fn render_with_font_manager(
     opts: RenderOptions,
     glyph_cache: &mut GlyphCache,
 ) -> Result<AzulPixmap, String> {
-    render_with_font_manager_and_scroll(dl, res, font_manager, opts, glyph_cache, &ScrollOffsetMap::new())
+    let empty_state = CpuRenderState::new(ScrollOffsetMap::new());
+    render_with_font_manager_and_scroll(dl, res, font_manager, opts, glyph_cache, &empty_state)
 }
 
-/// Render with FontManager and explicit scroll offsets.
-/// Used by `take_screenshot` to render with the current scroll state.
+/// Render with FontManager and explicit render state (scroll offsets + GPU values).
+/// Used by `take_screenshot` to render with the current scroll/transform/opacity state.
 pub fn render_with_font_manager_and_scroll(
     dl: &DisplayList,
     res: &RendererResources,
     font_manager: &FontManager<FontRef>,
     opts: RenderOptions,
     glyph_cache: &mut GlyphCache,
-    scroll_offsets: &ScrollOffsetMap,
+    render_state: &CpuRenderState,
 ) -> Result<AzulPixmap, String> {
     let RenderOptions {
         width,
@@ -1878,7 +1879,7 @@ pub fn render_with_font_manager_and_scroll(
 
     pixmap.fill(255, 255, 255, 255);
 
-    render_display_list_with_scroll(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache, scroll_offsets)?;
+    render_display_list_with_state(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache, render_state)?;
 
     Ok(pixmap)
 }
@@ -1888,6 +1889,92 @@ pub fn render_with_font_manager_and_scroll(
 /// for each PushScrollFrame without embedding it in the display list.
 pub type ScrollOffsetMap = HashMap<LocalScrollId, (f32, f32)>;
 
+/// Consolidated render-time state for CPU rendering.
+///
+/// Bundles scroll offsets and GPU-animated values (transforms, opacities)
+/// that WebRender would normally manage internally. In cpurender these
+/// are looked up from the `GpuValueCache` at screenshot time.
+pub struct CpuRenderState {
+    /// Scroll offsets by scroll_id
+    pub scroll_offsets: ScrollOffsetMap,
+    /// Transform values keyed by TransformKey.id — scrollbar thumb positions
+    /// and CSS transforms that are GPU-animated in WebRender.
+    pub transforms: HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    /// Opacity values keyed by OpacityKey.id — scrollbar fade-in/out.
+    /// For WhenScrolling mode, opacity is 1.0 when recently scrolled,
+    /// fades to 0.0 after idle. For Always mode, opacity is always 1.0.
+    pub opacities: HashMap<usize, f32>,
+}
+
+impl CpuRenderState {
+    pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
+        Self {
+            scroll_offsets,
+            transforms: HashMap::new(),
+            opacities: HashMap::new(),
+        }
+    }
+
+    /// Build from a GpuValueCache snapshot.
+    pub fn from_gpu_cache(
+        gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
+        dom_id: azul_core::dom::DomId,
+        scroll_offsets: &ScrollOffsetMap,
+    ) -> Self {
+        let mut transforms = HashMap::new();
+        let mut opacities = HashMap::new();
+
+        if let Some(cache) = gpu_cache {
+            // Scrollbar thumb transforms (vertical)
+            for (node_id, key) in &cache.transform_keys {
+                if let Some(value) = cache.current_transform_values.get(node_id) {
+                    transforms.insert(key.id, value.clone());
+                }
+            }
+            // Scrollbar thumb transforms (horizontal)
+            for (node_id, key) in &cache.h_transform_keys {
+                if let Some(value) = cache.h_current_transform_values.get(node_id) {
+                    transforms.insert(key.id, value.clone());
+                }
+            }
+            // CSS transforms
+            for (node_id, key) in &cache.css_transform_keys {
+                if let Some(value) = cache.css_current_transform_values.get(node_id) {
+                    transforms.insert(key.id, value.clone());
+                }
+            }
+            // Scrollbar opacity (vertical)
+            for ((d, node_id), key) in &cache.scrollbar_v_opacity_keys {
+                if *d == dom_id {
+                    if let Some(&value) = cache.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
+                        opacities.insert(key.id, value);
+                    }
+                }
+            }
+            // Scrollbar opacity (horizontal)
+            for ((d, node_id), key) in &cache.scrollbar_h_opacity_keys {
+                if *d == dom_id {
+                    if let Some(&value) = cache.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
+                        opacities.insert(key.id, value);
+                    }
+                }
+            }
+            // CSS opacity
+            for (node_id, key) in &cache.opacity_keys {
+                if let Some(&value) = cache.current_opacity_values.get(node_id) {
+                    opacities.insert(key.id, value);
+                }
+            }
+        }
+
+        Self {
+            scroll_offsets: scroll_offsets.clone(),
+            transforms,
+            opacities,
+        }
+    }
+}
+
 fn render_display_list(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1896,18 +1983,18 @@ fn render_display_list(
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
-    let empty_scroll_offsets = ScrollOffsetMap::new();
-    render_display_list_with_scroll(display_list, pixmap, dpi_factor, renderer_resources, font_manager, glyph_cache, &empty_scroll_offsets)
+    let empty_state = CpuRenderState::new(ScrollOffsetMap::new());
+    render_display_list_with_state(display_list, pixmap, dpi_factor, renderer_resources, font_manager, glyph_cache, &empty_state)
 }
 
-fn render_display_list_with_scroll(
+fn render_display_list_with_state(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
-    scroll_offsets: &ScrollOffsetMap,
+    render_state: &CpuRenderState,
 ) -> Result<(), String> {
     let mut transform_stack = vec![TransAffine::new()]; // identity
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
@@ -1930,7 +2017,7 @@ fn render_display_list_with_scroll(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
-            scroll_offsets,
+            render_state,
         )?;
     }
 
@@ -1948,7 +2035,7 @@ fn render_single_item(
     clip_stack: &mut Vec<Option<AzRect>>,
     mask_stack: &mut Vec<MaskEntry>,
     scroll_offset_stack: &mut Vec<(f32, f32)>,
-    scroll_offsets: &ScrollOffsetMap,
+    render_state: &CpuRenderState,
 ) -> Result<(), String> {
     // Current accumulated scroll offset — applied to all item bounds.
     // Negative because scrolling down (positive offset) moves content up.
@@ -2170,6 +2257,19 @@ fn render_single_item(
             DisplayListItem::ScrollBarStyled { info } => {
                 let clip = *clip_stack.last().unwrap();
 
+                // Resolve scrollbar opacity from the GPU value cache.
+                // WhenScrolling mode starts at 0.0 and fades to 1.0 on scroll.
+                // In cpurender we read the current value; if none is cached
+                // (e.g. headless mode never ran synchronize_scrollbar_opacity)
+                // default to 1.0 so the scrollbar is always visible.
+                let scrollbar_opacity = info.opacity_key
+                    .and_then(|key| render_state.opacities.get(&key.id).copied())
+                    .unwrap_or(1.0);
+
+                if scrollbar_opacity <= 0.001 {
+                    // Fully transparent — skip rendering
+                } else {
+
                 // Render track
                 if info.track_color.a > 0 {
                     render_rect(
@@ -2210,17 +2310,36 @@ fn render_single_item(
                     }
                 }
 
-                // Render thumb
+                // Render thumb — the thumb is wrapped in PushReferenceFrame
+                // with a thumb_transform_key, so the GPU cache lookup handles
+                // positioning dynamically. Here we just apply the initial
+                // transform embedded in the display list item as a fallback.
                 if info.thumb_color.a > 0 {
+                    let thumb_rect = info.thumb_bounds.inner();
+                    // Look up live transform from render_state if available
+                    let transform = info.thumb_transform_key
+                        .and_then(|key| render_state.transforms.get(&key.id))
+                        .unwrap_or(&info.thumb_initial_transform);
+                    let tx = transform.m[3][0];
+                    let ty = transform.m[3][1];
+                    let transformed_thumb = LogicalRect {
+                        origin: LogicalPosition {
+                            x: thumb_rect.origin.x + tx,
+                            y: thumb_rect.origin.y + ty,
+                        },
+                        size: thumb_rect.size,
+                    };
                     render_rect(
                         pixmap,
-                        &scroll_rect(info.thumb_bounds.inner()),
+                        &scroll_rect(&transformed_thumb),
                         info.thumb_color,
                         &info.thumb_border_radius,
                         clip,
                         dpi_factor,
                     )?;
                 }
+
+                } // end scrollbar_opacity > 0
             }
             DisplayListItem::PushClip {
                 bounds,
@@ -2246,7 +2365,7 @@ fn render_single_item(
                 let new_clip = logical_rect_to_az_rect(clip_bounds.inner(), dpi_factor);
                 clip_stack.push(new_clip);
                 transform_stack.push(transform_stack.last().cloned().unwrap_or_else(TransAffine::new));
-                let frame_offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                let frame_offset = render_state.scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
                 let new_scroll = (
                     scroll_dx + frame_offset.0,
                     scroll_dy + frame_offset.1,
@@ -2400,12 +2519,19 @@ fn render_single_item(
 
             // --- Reference frames (CSS transforms) ---
             DisplayListItem::PushReferenceFrame {
-                transform_key: _,
+                transform_key,
                 initial_transform,
                 bounds,
             } => {
-                // Extract 2D affine from the 4x4 matrix and compose with current transform
-                let m = &initial_transform.m;
+                // Look up the current GPU-cached transform value for this key.
+                // For scrollbar thumbs, the GpuValueCache stores the up-to-date
+                // thumb translation. For CSS transforms, it stores the computed
+                // matrix. Falls back to the initial_transform baked in the DL.
+                let live_transform = render_state.transforms.get(&transform_key.id);
+                let m = match live_transform {
+                    Some(t) => &t.m,
+                    None => &initial_transform.m,
+                };
                 let tf = TransAffine::new_custom(
                     m[0][0] as f64, m[0][1] as f64, // sx, shy
                     m[1][0] as f64, m[1][1] as f64, // shx, sy

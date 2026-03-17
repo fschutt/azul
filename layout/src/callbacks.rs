@@ -2635,7 +2635,7 @@ impl CallbackInfo {
     /// ```
     #[cfg(feature = "cpurender")]
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
-        use crate::cpurender::{render_with_font_manager_and_scroll, RenderOptions, ScrollOffsetMap};
+        use crate::cpurender::{render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap};
 
         let layout_window = self.get_layout_window();
         let renderer_resources = &layout_window.renderer_resources;
@@ -2658,12 +2658,20 @@ impl CallbackInfo {
         let display_list = &layout_result.display_list;
         let dpi_factor = ws.size.get_hidpi_factor().inner.get();
 
-        // Build scroll offset map from the current ScrollManager state.
-        // This decouples the display list from scroll state — the display
-        // list keeps absolute coordinates and the renderer applies scroll
-        // offsets at render time by scroll_id lookup.
+        // Build scroll offset map from the current ScrollManager state
         let scroll_offsets = layout_window.scroll_manager
             .build_scroll_offset_map(dom_id, &layout_result.scroll_ids);
+
+        // Build CPU render state from GpuValueCache — provides current
+        // transform values (scrollbar thumb positions) and opacity values
+        // (scrollbar visibility fading) that the GPU path animates dynamically.
+        let gpu_cache = layout_window.gpu_state_manager
+            .get_cache(dom_id);
+        let render_state = CpuRenderState::from_gpu_cache(
+            gpu_cache,
+            dom_id,
+            &scroll_offsets,
+        );
 
         let opts = RenderOptions {
             width,
@@ -2678,7 +2686,7 @@ impl CallbackInfo {
             &layout_window.font_manager,
             opts,
             &mut glyph_cache,
-            &scroll_offsets,
+            &render_state,
         ).map_err(|e| AzString::from(e))?;
 
         // Encode to PNG

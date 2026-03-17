@@ -214,6 +214,10 @@ impl GpuStateManager {
     }
 
     /// Gets or creates the GPU cache for a specific DOM.
+    pub fn get_cache(&self, dom_id: DomId) -> Option<&GpuValueCache> {
+        self.caches.get(&dom_id)
+    }
+
     pub fn get_or_create_cache(&mut self, dom_id: DomId) -> &mut GpuValueCache {
         self.caches.entry(dom_id).or_default()
     }

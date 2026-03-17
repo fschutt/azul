@@ -311,7 +311,7 @@ impl StubWindow {
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: OptionGlContextPtr::None,
-                system_style: Arc::new(azul_css::system::SystemStyle::default()),
+                system_style: Arc::new(azul_css::system::SystemStyle::detect()),
                 app_data,
                 scrollbar_drag_state: None,
                 hit_tester: None,

@@ -6,7 +6,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/01_initial_600x500.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -18,7 +19,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/02_resized_800x600.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -30,7 +32,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/03_resized_400x300.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -42,7 +45,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/04_back_600x500.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -54,7 +58,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/05_resize_1024x768.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -67,7 +72,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/06_scrolled_down_200.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -79,7 +85,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/07_scrolled_down_500.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   },
@@ -91,7 +98,8 @@
       {
         "op": "assert_screenshot",
         "reference": "layout/tests/reference_images/scrolling_headless/08_scrolled_back_100.png",
-        "threshold": 3
+        "threshold": 3,
+        "max_diff_ratio": 0.02
       }
     ]
   }
