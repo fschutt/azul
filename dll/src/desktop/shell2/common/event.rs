@@ -543,7 +543,11 @@ pub struct CommonWindowState {
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes).
     /// `None` only during initialization on X11/Wayland before WebRender is set up.
+    /// Not used in CPU mode — see `cpu_hit_tester` instead.
     pub hit_tester: Option<AsyncHitTester>,
+    /// CPU-based hit tester for AZ_BACKEND=cpu mode.
+    /// Rebuilt from layout results after each layout pass. Works without WebRender.
+    pub cpu_hit_tester: Option<azul_layout::headless::CpuHitTester>,
     /// Last hovered node (for hover state tracking)
     pub last_hovered_node: Option<HitTestNode>,
     /// WebRender document ID. `None` only during X11/Wayland initialization.
@@ -623,8 +627,11 @@ macro_rules! impl_platform_window_getters {
         fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
             self.$field.scrollbar_drag_state = state;
         }
-        fn get_hit_tester(&self) -> &AsyncHitTester {
-            self.$field.hit_tester.as_ref().expect("hit_tester not initialized")
+        fn get_hit_tester(&self) -> Option<&AsyncHitTester> {
+            self.$field.hit_tester.as_ref()
+        }
+        fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester> {
+            self.$field.cpu_hit_tester.as_ref()
         }
         fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
             self.$field.hit_tester.as_mut().expect("hit_tester not initialized")
@@ -767,8 +774,11 @@ pub trait PlatformWindow {
 
     // Hit Testing
 
-    /// Get the async hit tester
-    fn get_hit_tester(&self) -> &AsyncHitTester;
+    /// Get the async hit tester (None in CPU mode)
+    fn get_hit_tester(&self) -> Option<&AsyncHitTester>;
+
+    /// Get CPU-based hit tester (None in GPU mode)
+    fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester>;
 
     /// Get mutable access to hit tester
     fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester;
@@ -2597,13 +2607,11 @@ pub trait PlatformWindow {
             return;
         }
 
-        // Resolve hit tester first (this mutates self.hit_tester from Requested to Resolved)
-        let resolved_hit_tester = self.get_hit_tester_mut().resolve();
-
-        // Now get layout window immutably for hit testing
-        let hit_test = {
+        // Hit test: use CPU hit tester when WebRender isn't available (CPU backend)
+        let hit_test = if self.get_hit_tester().is_some() {
+            // GPU path — WebRender hit testing
+            let resolved_hit_tester = self.get_hit_tester_mut().resolve();
             let layout_window = self.get_layout_window().unwrap();
-
             crate::desktop::wr_translate2::fullhittest_new_webrender(
                 &*resolved_hit_tester,
                 document_id,
@@ -2612,6 +2620,18 @@ pub trait PlatformWindow {
                 &CursorPosition::InWindow(position),
                 hidpi_factor,
             )
+        } else if let Some(cpu_ht) = self.get_cpu_hit_tester() {
+            // CPU path — layout-based hit testing
+            let nodes = cpu_ht.hit_test(position);
+            let layout_window = self.get_layout_window().unwrap();
+            crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
+                &nodes,
+                focused_node,
+                &layout_window.layout_results,
+            )
+        } else {
+            // No hit tester at all — return empty
+            azul_core::hit_test::FullHitTest::empty(focused_node)
         };
 
         // Store hit test in hover manager

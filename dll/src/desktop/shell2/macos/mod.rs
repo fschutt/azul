@@ -703,8 +703,10 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty_rect: NSRect) {
             let bounds = unsafe { self.bounds() };
-            let width = bounds.size.width as usize;
-            let height = bounds.size.height as usize;
+            // Convert to backing pixels (2x on Retina)
+            let backing = unsafe { self.convertRectToBacking(bounds) };
+            let width = backing.size.width as usize;
+            let height = backing.size.height as usize;
 
             let ivars = self.ivars();
 
@@ -723,9 +725,16 @@ define_class!(
                 }
             }
 
-            // The framebuffer is updated by MacOSWindow::cpu_render_frame()
-            // which calls update_framebuffer() after each layout pass.
-            // drawRect just blits whatever is currently in the framebuffer.
+            // On first drawRect, trigger a full render to fill the framebuffer.
+            // Subsequent frames are rendered by tick_timers → render_and_present_in_draw_rect.
+            if let Some(window_ptr) = *ivars.window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
+                    if !macos_window.common.display_list_initialized {
+                        let _ = macos_window.render_and_present_in_draw_rect();
+                    }
+                }
+            }
 
             // Blit framebuffer to window
             unsafe {
@@ -976,8 +985,11 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    if macos_window.process_timers_and_threads() {
-                        let _: () = msg_send![self, setNeedsDisplay: true];
+                    let needs_redraw = macos_window.process_timers_and_threads();
+                    // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
+                    // then request drawRect to blit to screen.
+                    if needs_redraw || macos_window.common.frame_needs_regeneration {
+                        let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
             }
@@ -1274,8 +1286,16 @@ impl CPUView {
     /// The next `drawRect` will blit this data to the screen.
     pub fn update_framebuffer(&self, pixmap_data: &[u8], pixmap_w: usize, pixmap_h: usize) {
         let ivars = self.ivars();
-        let view_w = ivars.width.get();
-        let view_h = ivars.height.get();
+        let mut view_w = ivars.width.get();
+        let mut view_h = ivars.height.get();
+
+        // If drawRect hasn't run yet, use the pixmap dimensions
+        if view_w == 0 || view_h == 0 {
+            view_w = pixmap_w;
+            view_h = pixmap_h;
+            ivars.width.set(view_w);
+            ivars.height.set(view_h);
+        }
 
         let mut fb = ivars.framebuffer.borrow_mut();
 
@@ -2761,6 +2781,11 @@ impl MacOSWindow {
                 render_api: wr_render_api,
                 renderer: wr_renderer,
                 hit_tester: wr_hit_tester,
+                cpu_hit_tester: if backend == RenderBackend::CPU {
+                    Some(azul_layout::headless::CpuHitTester::new())
+                } else {
+                    None
+                },
                 document_id: wr_document_id,
                 id_namespace: wr_id_namespace,
                 gl_context_ptr,
@@ -3007,6 +3032,15 @@ impl MacOSWindow {
         // NOTE: Do NOT set frame_needs_regeneration here!
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
+
+        // Rebuild CPU hit tester from new layout results (CPU mode only)
+        if self.backend == RenderBackend::CPU {
+            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
+                if let Some(lw) = self.common.layout_window.as_ref() {
+                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                }
+            }
+        }
 
         // Update accessibility tree after layout
         #[cfg(feature = "a11y")]
@@ -4500,9 +4534,13 @@ impl MacOSWindow {
         let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
         let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
         (*delegate_ptr).set_window_ptr(window_ptr);
+        // Also set the CPUView's back pointer (if using CPU backend)
+        if let Some(ref cpu_view) = self.cpu_view {
+            *cpu_view.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        }
         log_trace!(
             LogCategory::Platform,
-            "[finalize_delegate_pointer] WindowDelegate back pointer set"
+            "[finalize_delegate_pointer] WindowDelegate + CPUView back pointers set"
         );
     }
 

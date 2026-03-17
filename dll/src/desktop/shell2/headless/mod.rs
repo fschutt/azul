@@ -315,6 +315,7 @@ impl HeadlessWindow {
                 app_data,
                 scrollbar_drag_state: None,
                 hit_tester: None,
+                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
                 last_hovered_node: None,
                 document_id: None,
                 id_namespace: None,

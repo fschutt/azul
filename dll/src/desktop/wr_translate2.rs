@@ -521,6 +521,49 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
 /// This is the main hit-testing function that uses WebRender's hit tester to determine
 /// which DOM nodes are under the cursor. It handles nested virtualized views and builds a complete
 /// hit test result with all hovered nodes.
+/// Convert CPU hit test results to FullHitTest format.
+///
+/// Maps `(DomId, NodeId)` pairs from `CpuHitTester::hit_test()` into
+/// the same `FullHitTest` structure that `fullhittest_new_webrender` produces,
+/// so the event dispatch code works identically for both backends.
+pub fn convert_cpu_hit_test_to_full(
+    hits: &[(DomId, NodeId)],
+    old_focus_node: Option<DomNodeId>,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> FullHitTest {
+    use azul_core::hit_test::{HitTest, HitTestItem};
+    use azul_core::dom::OptionDomNodeId;
+
+    let focused_node = match old_focus_node {
+        Some(f) => OptionDomNodeId::Some(f),
+        None => OptionDomNodeId::None,
+    };
+
+    let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
+
+    for (depth, (dom_id, node_id)) in hits.iter().enumerate() {
+        let hit_test = hovered_nodes.entry(*dom_id).or_insert_with(|| HitTest {
+            regular_hit_test_nodes: BTreeMap::new(),
+            scroll_hit_test_nodes: BTreeMap::new(),
+            scrollbar_hit_test_nodes: BTreeMap::new(),
+            cursor_hit_test_nodes: BTreeMap::new(),
+        });
+
+        hit_test.regular_hit_test_nodes.insert(*node_id, HitTestItem {
+            point_in_viewport: azul_core::geom::LogicalPosition::zero(),
+            point_relative_to_item: azul_core::geom::LogicalPosition::zero(),
+            is_focusable: false,
+            is_virtual_view_hit: None,
+            hit_depth: depth as u32,
+        });
+    }
+
+    FullHitTest {
+        hovered_nodes,
+        focused_node,
+    }
+}
+
 pub fn fullhittest_new_webrender(
     wr_hittester: &dyn WrApiHitTester,
     document_id: DocumentId,
