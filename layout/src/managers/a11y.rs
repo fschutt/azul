@@ -297,13 +297,20 @@ impl A11yManager {
 
         // Set bounds using absolute position (window-relative) scaled to physical pixels.
         // AccessKit requires coordinates in physical pixels relative to the window origin.
+        // Offset by padding + border to get the content box (where text actually is).
         if let (Some(pos), Some(size)) = (abs_pos, layout_node.used_size) {
+            let bp = layout_node.box_props.unpack();
+            let pad_left = bp.padding.left + bp.border.left;
+            let pad_top = bp.padding.top + bp.border.top;
+            let pad_right = bp.padding.right + bp.border.right;
+            let pad_bottom = bp.padding.bottom + bp.border.bottom;
+
             let s = hidpi_factor as f64;
             builder.set_bounds(Rect {
-                x0: pos.x as f64 * s,
-                y0: pos.y as f64 * s,
-                x1: (pos.x + size.width) as f64 * s,
-                y1: (pos.y + size.height) as f64 * s,
+                x0: (pos.x + pad_left) as f64 * s,
+                y0: (pos.y + pad_top) as f64 * s,
+                x1: (pos.x + size.width - pad_right) as f64 * s,
+                y1: (pos.y + size.height - pad_bottom) as f64 * s,
             });
         }
 
