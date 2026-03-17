@@ -5373,12 +5373,14 @@ impl MacOSWindow {
 
         // Generate tree update from current layout, with current focus
         let focused_node = layout_window.focus_manager.get_focused_node().copied();
+        let hidpi_factor = self.common.current_window_state.size.get_hidpi_factor().inner.get();
         let tree_update = azul_layout::managers::a11y::A11yManager::update_tree(
             layout_window.a11y_manager.root_id,
             &layout_window.layout_results,
             &self.common.current_window_state.title,
             self.common.current_window_state.size.dimensions,
             focused_node,
+            hidpi_factor,
         );
 
         // Submit to OS

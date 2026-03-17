@@ -65,6 +65,7 @@ impl A11yManager {
         window_title: &AzString,
         window_size: LogicalSize,
         focused_node: Option<azul_core::dom::DomNodeId>,
+        hidpi_factor: f32,
     ) -> TreeUpdate {
         let mut nodes = Vec::new();
         let mut root_children = Vec::new();
@@ -123,7 +124,7 @@ impl A11yManager {
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
                 let node = match layout_info {
                     Some((layout_node, _layout_idx, abs_pos)) => {
-                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref)
+                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor)
                     }
                     None => {
                         let role = if let Some(info) = a11y_info_ref {
@@ -228,6 +229,7 @@ impl A11yManager {
         layout_node: &LayoutNodeHot,
         abs_pos: Option<LogicalPosition>,
         a11y_info: Option<&AccessibilityInfo>,
+        hidpi_factor: f32,
     ) -> Node {
         // Set role based on NodeType or AccessibilityInfo
         let role = if let Some(info) = a11y_info {
@@ -293,14 +295,15 @@ impl A11yManager {
             builder.set_label(text.as_str());
         }
 
-        // Set bounds using absolute position (window-relative, as required by accesskit)
-        // and size from the layout node.
+        // Set bounds using absolute position (window-relative) scaled to physical pixels.
+        // AccessKit requires coordinates in physical pixels relative to the window origin.
         if let (Some(pos), Some(size)) = (abs_pos, layout_node.used_size) {
+            let s = hidpi_factor as f64;
             builder.set_bounds(Rect {
-                x0: pos.x as f64,
-                y0: pos.y as f64,
-                x1: (pos.x + size.width) as f64,
-                y1: (pos.y + size.height) as f64,
+                x0: pos.x as f64 * s,
+                y0: pos.y as f64 * s,
+                x1: (pos.x + size.width) as f64 * s,
+                y1: (pos.y + size.height) as f64 * s,
             });
         }
 

@@ -702,6 +702,7 @@ impl LayoutWindow {
                     &self.current_window_state.title,
                     self.current_window_state.size.dimensions,
                     self.focus_manager.get_focused_node().copied(),
+                    self.current_window_state.size.get_hidpi_factor().inner.get(),
                 )
             }));
 
