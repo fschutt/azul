@@ -308,7 +308,13 @@ pub fn regenerate_layout(
         (old_dims.width - new_dims.width).abs() > 0.5
             || (old_dims.height - new_dims.height).abs() > 0.5
     };
-    if !window_size_changed {
+
+    // Check if any scroll offsets changed since the last display list generation.
+    // In CPU-only mode the display list embeds scroll offsets (PushScrollFrame.scroll_offset),
+    // so it must be rebuilt when the user scrolls.
+    let scroll_changed = layout_window.scroll_manager.has_pending_scroll_changes();
+
+    if !window_size_changed && !scroll_changed {
     if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
         if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
             log_debug!(

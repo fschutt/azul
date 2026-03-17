@@ -163,7 +163,7 @@ impl CompositorState {
 
         while i < display_list.items.len() {
             match &display_list.items[i] {
-                DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+                DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id, .. } => {
                     let bounds = *clip_bounds.inner();
                     let pw = (bounds.size.width * dpi_factor).ceil() as u32;
                     let ph = (bounds.size.height * dpi_factor).ceil() as u32;
@@ -844,6 +844,7 @@ fn render_display_list_range(
     let mut transform_stack = vec![TransAffine::new()];
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
+    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
     for i in start..end {
         let item = &display_list.items[i];
@@ -857,6 +858,7 @@ fn render_display_list_range(
             &mut transform_stack,
             &mut clip_stack,
             &mut mask_stack,
+            &mut scroll_offset_stack,
         )?;
     }
 
@@ -1879,6 +1881,11 @@ fn render_display_list(
     let mut transform_stack = vec![TransAffine::new()]; // identity
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
+    // Accumulated scroll offset stack. Each PushScrollFrame pushes
+    // (parent_offset_x + scroll_x, parent_offset_y + scroll_y).
+    // Items inside a scroll frame have their bounds shifted by the
+    // accumulated offset before rendering.
+    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
     for item in &display_list.items {
         render_single_item(
@@ -1891,6 +1898,7 @@ fn render_display_list(
             &mut transform_stack,
             &mut clip_stack,
             &mut mask_stack,
+            &mut scroll_offset_stack,
         )?;
     }
 
@@ -1907,7 +1915,27 @@ fn render_single_item(
     transform_stack: &mut Vec<TransAffine>,
     clip_stack: &mut Vec<Option<AzRect>>,
     mask_stack: &mut Vec<MaskEntry>,
+    scroll_offset_stack: &mut Vec<(f32, f32)>,
 ) -> Result<(), String> {
+    // Current accumulated scroll offset — applied to all item bounds.
+    // Negative because scrolling down (positive offset) moves content up.
+    let (scroll_dx, scroll_dy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
+
+    // Helper: apply scroll offset to a LogicalRect.
+    // Items inside scroll frames have absolute window coordinates;
+    // the scroll offset shifts them so the visible portion aligns
+    // with the clip region.
+    let scroll_rect = |r: &LogicalRect| -> LogicalRect {
+        if scroll_dx == 0.0 && scroll_dy == 0.0 { return *r; }
+        LogicalRect {
+            origin: LogicalPosition {
+                x: r.origin.x - scroll_dx,
+                y: r.origin.y - scroll_dy,
+            },
+            size: r.size,
+        }
+    };
+
     match item {
             DisplayListItem::Rect {
                 bounds,
@@ -1917,7 +1945,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     border_radius,
                     clip,
@@ -1932,7 +1960,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     border_radius,
                     clip,
@@ -1943,7 +1971,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     &BorderRadius::default(),
                     clip,
@@ -1994,7 +2022,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_border(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     color,
                     width,
                     &simple_radius,
@@ -2010,7 +2038,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     &BorderRadius::default(),
                     clip,
@@ -2025,7 +2053,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     &BorderRadius::default(),
                     clip,
@@ -2040,7 +2068,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     &BorderRadius::default(),
                     clip,
@@ -2061,7 +2089,7 @@ fn render_single_item(
                     *font_size_px,
                     *color,
                     pixmap,
-                    clip_rect.inner(),
+                    &scroll_rect(clip_rect.inner()),
                     clip,
                     renderer_resources,
                     font_manager,
@@ -2082,7 +2110,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_image(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     image,
                     clip,
                     dpi_factor,
@@ -2098,7 +2126,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     *color,
                     &BorderRadius::default(),
                     clip,
@@ -2112,7 +2140,7 @@ fn render_single_item(
                 if info.track_color.a > 0 {
                     render_rect(
                         pixmap,
-                        info.track_bounds.inner(),
+                        &scroll_rect(info.track_bounds.inner()),
                         info.track_color,
                         &BorderRadius::default(),
                         clip,
@@ -2125,7 +2153,7 @@ fn render_single_item(
                     if info.button_color.a > 0 {
                         render_rect(
                             pixmap,
-                            btn_bounds.inner(),
+                            &scroll_rect(btn_bounds.inner()),
                             info.button_color,
                             &BorderRadius::default(),
                             clip,
@@ -2139,7 +2167,7 @@ fn render_single_item(
                     if info.button_color.a > 0 {
                         render_rect(
                             pixmap,
-                            btn_bounds.inner(),
+                            &scroll_rect(btn_bounds.inner()),
                             info.button_color,
                             &BorderRadius::default(),
                             clip,
@@ -2152,7 +2180,7 @@ fn render_single_item(
                 if info.thumb_color.a > 0 {
                     render_rect(
                         pixmap,
-                        info.thumb_bounds.inner(),
+                        &scroll_rect(info.thumb_bounds.inner()),
                         info.thumb_color,
                         &info.thumb_border_radius,
                         clip,
@@ -2175,16 +2203,22 @@ fn render_single_item(
             }
             DisplayListItem::PushScrollFrame {
                 clip_bounds,
-                content_size: _,
-                scroll_id: _,
+                scroll_offset,
+                ..
             } => {
-                // Scroll frame = clip + translation
-                // The display list builder already offsets child positions by scroll amount,
-                // so we only need the clip. But we push a transform identity marker
-                // so PopScrollFrame can restore the transform stack.
+                // Scroll frame = clip + translation.
+                // Child items have absolute window coordinates — the scroll
+                // offset is applied at render time by shifting all items
+                // inside the scroll frame.
                 let new_clip = logical_rect_to_az_rect(clip_bounds.inner(), dpi_factor);
                 clip_stack.push(new_clip);
                 transform_stack.push(transform_stack.last().cloned().unwrap_or_else(TransAffine::new));
+                // Accumulate scroll offset: parent offset + this frame's offset
+                let new_scroll = (
+                    scroll_dx + scroll_offset.0,
+                    scroll_dy + scroll_offset.1,
+                );
+                scroll_offset_stack.push(new_scroll);
             }
             DisplayListItem::PopScrollFrame => {
                 clip_stack.pop();
@@ -2193,6 +2227,9 @@ fn render_single_item(
                 }
                 if transform_stack.len() > 1 {
                     transform_stack.pop();
+                }
+                if scroll_offset_stack.len() > 1 {
+                    scroll_offset_stack.pop();
                 }
             }
             DisplayListItem::HitTestArea { bounds, tag } => {
@@ -2210,7 +2247,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     ColorU {
                         r: 200,
                         g: 200,
@@ -2233,7 +2270,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_linear_gradient(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     gradient,
                     border_radius,
                     clip,
@@ -2248,7 +2285,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_radial_gradient(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     gradient,
                     border_radius,
                     clip,
@@ -2263,7 +2300,7 @@ fn render_single_item(
                 let clip = *clip_stack.last().unwrap();
                 render_conic_gradient(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     gradient,
                     border_radius,
                     clip,
@@ -2279,7 +2316,7 @@ fn render_single_item(
             } => {
                 render_box_shadow(
                     pixmap,
-                    bounds.inner(),
+                    &scroll_rect(bounds.inner()),
                     shadow,
                     border_radius,
                     dpi_factor,
@@ -2288,7 +2325,7 @@ fn render_single_item(
 
             // --- Opacity layers ---
             DisplayListItem::PushOpacity { bounds, opacity } => {
-                let rect = logical_rect_to_az_rect(bounds.inner(), dpi_factor);
+                let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
                 if let Some(r) = rect {
                     let snap = snapshot_region(pixmap, r.x as i32, r.y as i32, r.width as u32, r.height as u32);
                     mask_stack.push(MaskEntry::Opacity {
@@ -2366,7 +2403,7 @@ fn render_single_item(
                 mask_image,
                 mask_rect,
             } => {
-                let mr = mask_rect.inner();
+                let mr = &scroll_rect(mask_rect.inner());
                 let px_x = (mr.origin.x * dpi_factor) as i32;
                 let px_y = (mr.origin.y * dpi_factor) as i32;
                 let px_w = (mr.size.width * dpi_factor).ceil() as u32;

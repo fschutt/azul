@@ -858,6 +858,7 @@ pub fn translate_displaylist_to_wr(
                 clip_bounds,
                 content_size,
                 scroll_id,
+                ..
             } => {
                 // Create a scroll frame with proper clipping and content size
                 // The frame_rect is in PARENT space (where the visible viewport is)

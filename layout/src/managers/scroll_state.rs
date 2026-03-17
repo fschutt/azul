@@ -302,6 +302,10 @@ pub struct ScrollManager {
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
+    /// Set when a scroll position changes; cleared after the display list
+    /// is regenerated.  Used by the CPU renderer path to detect when the
+    /// display list must be rebuilt even though the DOM hasn't changed.
+    scroll_dirty: bool,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -394,6 +398,17 @@ impl ScrollManager {
     /// Creates a new empty ScrollManager
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns `true` if any scroll position changed since the last
+    /// `clear_scroll_dirty()` call.
+    pub fn has_pending_scroll_changes(&self) -> bool {
+        self.scroll_dirty
+    }
+
+    /// Clear the dirty flag after the display list has been regenerated.
+    pub fn clear_scroll_dirty(&mut self) {
+        self.scroll_dirty = false;
     }
 
     // ========================================================================
@@ -542,7 +557,13 @@ impl ScrollManager {
             .states
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
-        state.current_offset = state.clamp(position);
+        let clamped = state.clamp(position);
+        if (clamped.x - state.current_offset.x).abs() > 0.01
+            || (clamped.y - state.current_offset.y).abs() > 0.01
+        {
+            self.scroll_dirty = true;
+        }
+        state.current_offset = clamped;
         state.animation = None;
         state.last_activity = now;
     }
@@ -562,6 +583,11 @@ impl ScrollManager {
             .states
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
+        if (position.x - state.current_offset.x).abs() > 0.01
+            || (position.y - state.current_offset.y).abs() > 0.01
+        {
+            self.scroll_dirty = true;
+        }
         state.current_offset = position;
         state.animation = None;
         state.last_activity = now;

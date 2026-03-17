@@ -4048,6 +4048,7 @@ fn build_clip_analysis(
                 clip_bounds,
                 content_size,
                 scroll_id,
+                ..
             } => {
                 scroll_depth += 1;
                 Some(ClipOperation {

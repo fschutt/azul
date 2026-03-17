@@ -1041,6 +1041,10 @@ impl LayoutWindow {
             },
         );
 
+        // Clear scroll dirty flag — the new display list has
+        // up-to-date scroll offsets embedded in PushScrollFrame items.
+        self.scroll_manager.clear_scroll_dirty();
+
         Ok(())
     }
 
