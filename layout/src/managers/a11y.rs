@@ -191,8 +191,15 @@ impl A11yManager {
             }
         }
 
-        // Determine focus - for now default to root
-        let focus = root_id;
+        // Set focus to the first focusable node (not GenericContainer or Window).
+        // VoiceOver navigates to the focused element first, so it must be a real
+        // content node like Label/Button, not a structural container.
+        let focus = nodes.iter()
+            .find(|(id, node)| {
+                *id != root_id && !matches!(node.role(), Role::GenericContainer | Role::Window)
+            })
+            .map(|(id, _)| *id)
+            .unwrap_or(root_id);
 
         // Create the tree update
         let tree_update = TreeUpdate {
@@ -250,9 +257,21 @@ impl A11yManager {
                     AccessibilityState::Collapsed => {
                         builder.set_expanded(false);
                     }
+                    AccessibilityState::Focusable => {
+                        builder.add_action(Action::Focus);
+                    }
+                    AccessibilityState::Selected => {
+                        builder.set_selected(true);
+                    }
+                    AccessibilityState::Busy => {
+                        builder.set_busy();
+                    }
+                    AccessibilityState::Offscreen => {
+                        builder.set_hidden();
+                    }
                     _ => {
-                        // Other states: Focused (handled by focus manager),
-                        // Selected, Focusable, etc.
+                        // Other states: Focused (handled by focus manager via TreeUpdate.focus),
+                        // Default, Linked, Traversed, Selectable, etc.
                     }
                 }
             }
@@ -274,6 +293,15 @@ impl A11yManager {
             });
         }
 
+        // Add supported actions based on the DOM node's own properties.
+        // VoiceOver uses these to determine what the user can do with the element.
+        if node_data.is_focusable() || node_data.is_contenteditable() {
+            builder.add_action(Action::Focus);
+        }
+        if node_data.has_activation_behavior() {
+            builder.add_action(Action::Click);
+        }
+
         builder
     }
 
@@ -284,10 +312,12 @@ impl A11yManager {
     const fn node_type_to_role(node_type: &NodeType) -> Role {
         match node_type {
             // Text nodes must use Label (NOT GenericContainer) so accesskit's
-            // common_filter includes them. GenericContainer is excluded by default.
+            // common_filter includes them. GenericContainer is excluded by default
+            // but its children get promoted to the parent — this is desirable for
+            // Body/Div which are structural containers, not semantic elements.
             NodeType::Text(_) => Role::Label,
-            NodeType::Body => Role::Group,
-            NodeType::Div => Role::Group,
+            NodeType::Body => Role::GenericContainer,
+            NodeType::Div => Role::GenericContainer,
             NodeType::Button => Role::Button,
             NodeType::Input => Role::TextInput,
             NodeType::TextArea => Role::MultilineTextInput,

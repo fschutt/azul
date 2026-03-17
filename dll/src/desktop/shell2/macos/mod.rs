@@ -1456,6 +1456,12 @@ define_class!(
 
                     // Phase 2: OnFocus callback - sync IME position after focus
                     macos_window.sync_ime_position_to_os();
+
+                    // Notify accessibility adapter that the view is focused
+                    #[cfg(feature = "a11y")]
+                    if let Some(adapter) = macos_window.accessibility_adapter.as_mut() {
+                        adapter.update_view_focus_state(true);
+                    }
                 }
             }
         }
@@ -1468,6 +1474,12 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.common.current_window_state.window_focused = false;
                     macos_window.dynamic_selector_context.window_focused = false;
+
+                    // Notify accessibility adapter that the view lost focus
+                    #[cfg(feature = "a11y")]
+                    if let Some(adapter) = macos_window.accessibility_adapter.as_mut() {
+                        adapter.update_view_focus_state(false);
+                    }
                 }
             }
         }
@@ -5308,7 +5320,27 @@ impl MacOSWindow {
         let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
         self.accessibility_adapter = Some(adapter);
 
-        // Update with initial tree
+        // Update with initial tree (stores it for lazy activation)
+        self.update_accessibility();
+
+        // Force the adapter from Inactive → Active by querying accessibilityChildren
+        // on our own view. Without this, the adapter stays Inactive until VoiceOver
+        // first queries the view, by which time VoiceOver has already focused the
+        // titlebar. Forcing activation ensures update_view_focus_state works.
+        unsafe {
+            let view = view_ptr as *const objc2_app_kit::NSView;
+            let _: Option<objc2::rc::Retained<objc2_foundation::NSArray>> =
+                objc2::msg_send_id![&*view, accessibilityChildren];
+        }
+
+        // Now that the adapter is Active, set focus state.
+        // VoiceOver starts navigation at the focused element.
+        if let Some(adapter) = self.accessibility_adapter.as_mut() {
+            adapter.update_view_focus_state(true);
+        }
+
+        // Send the tree update again — now the adapter is Active so it will
+        // raise events (including focus change notifications)
         self.update_accessibility();
 
         log_debug!(
