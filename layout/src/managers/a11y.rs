@@ -340,8 +340,12 @@ impl A11yManager {
             // but its children get promoted to the parent — this is desirable for
             // Body/Div which are structural containers, not semantic elements.
             NodeType::Text(_) => Role::Label,
-            NodeType::Body => Role::GenericContainer,
-            NodeType::Div => Role::GenericContainer,
+            // Body and Div use Group (not GenericContainer) so VoiceOver can
+            // navigate into them. GenericContainer is excluded by accesskit's filter,
+            // which flattens the tree but prevents VoiceOver from navigating between
+            // sibling text elements.
+            NodeType::Body => Role::Group,
+            NodeType::Div => Role::Group,
             NodeType::Button => Role::Button,
             NodeType::Input => Role::TextInput,
             NodeType::TextArea => Role::MultilineTextInput,
