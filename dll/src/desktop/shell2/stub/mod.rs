@@ -527,10 +527,13 @@ impl StubWindow {
             // ── Phase 2: Tick timers and threads ─────────────────
             // Use the shared PlatformWindow trait method to invoke
             // expired timer callbacks and poll background threads.
-            let needs_relayout = self.process_timers_and_threads();
+            let needs_redraw = self.process_timers_and_threads();
 
-            // If timer/thread callbacks requested a DOM refresh, re-layout
-            if needs_relayout {
+            // In the CPU-only path there is no GPU compositor that can
+            // handle scroll-offset-only or repaint-only updates.  Every
+            // visual change (including scroll) requires a full display
+            // list rebuild, so we regenerate layout on any redraw signal.
+            if needs_redraw {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
                         LogCategory::Layout,

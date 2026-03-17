@@ -805,17 +805,21 @@ impl CallbackInfo {
         unsafe { core::mem::take(&mut *self.changes) }
     }
 
-    /// Check if pending changes contain any `ModifyWindowState` entries.
+    /// Check if pending changes require relayout before the next step.
     ///
-    /// Used by the E2E test runner to detect when it needs to yield to the
-    /// event loop (to let the resize + relayout happen) before continuing
-    /// with subsequent steps like `take_screenshot`.
+    /// Returns true for `ModifyWindowState` (resize) and `ScrollTo` (scroll),
+    /// which both need the event loop to re-run layout so that subsequent
+    /// operations (like `take_screenshot`) see updated content.
+    ///
+    /// Used by the E2E test runner to detect when it needs to yield.
     #[cfg(feature = "std")]
-    pub fn has_pending_window_state_change(&self) -> bool {
-        // Peek at changes without consuming them
+    pub fn has_pending_relayout_change(&self) -> bool {
         unsafe {
             if let Ok(changes) = (*self.changes).lock() {
-                changes.iter().any(|c| matches!(c, CallbackChange::ModifyWindowState { .. }))
+                changes.iter().any(|c| matches!(c,
+                    CallbackChange::ModifyWindowState { .. } |
+                    CallbackChange::ScrollTo { .. }
+                ))
             } else {
                 false
             }

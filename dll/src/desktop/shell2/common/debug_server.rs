@@ -3806,7 +3806,7 @@ fn resume_e2e_continuation(
                         );
                         if step_needs_update {
                             needs_update = true;
-                            if callback_info.has_pending_window_state_change() {
+                            if callback_info.has_pending_relayout_change() {
                                 // Yield: save progress and return
                                 cont.current_step_results.push(E2eStepResult {
                                     step_index, op: op.to_string(), status: "pass".into(),
