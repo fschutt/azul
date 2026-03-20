@@ -1302,31 +1302,40 @@ fn layout_bfc<T: ParsedFontTrait>(
         // Apply clearance if needed
         // +spec:floats:148ee6 - clear:left pushes element below float; clearance added above top margin
         // CSS 2.2 § 9.5.2: Clearance inhibits margin collapsing.
-        // Include previous sibling's bottom margin in the baseline, matching
-        // float clearance handling (which correctly uses main_pen + last_margin_bottom).
+        //
+        // Per CSS 2.2 § 9.5.2, the clearance computation works as follows:
+        // 1. Compute the "hypothetical position" — where the border edge would be
+        //    with normal margin collapsing (as if clear:none).
+        // 2. If the hypothetical position is NOT past the relevant floats,
+        //    clearance is introduced and the border edge is placed at float bottom.
+        // 3. The final border edge = max(float_bottom, hypothetical_position).
+        //
+        // This means child_margin_top is already accounted for in the hypothetical
+        // position and must NOT be added again after clearance positions main_pen.
         let clearance_applied = if child_clear != LayoutClear::None {
-            let clearance_base = main_pen + last_margin_bottom;
-            let cleared_offset =
-                float_context.clearance_offset(child_clear, clearance_base, writing_mode);
+            let hypothetical = main_pen + collapse_margins(last_margin_bottom, child_margin_top);
+            let cleared_position =
+                float_context.clearance_offset(child_clear, hypothetical, writing_mode);
             debug_info!(
                 ctx,
-                "[layout_bfc] Child {} clearance check: cleared_offset={}, clearance_base={} (main_pen={} + last_margin_bottom={})",
+                "[layout_bfc] Child {} clearance check: cleared_position={}, hypothetical={} (main_pen={} + collapse({}, {}))",
                 child_index,
-                cleared_offset,
-                clearance_base,
+                cleared_position,
+                hypothetical,
                 main_pen,
-                last_margin_bottom
+                last_margin_bottom,
+                child_margin_top
             );
-            if cleared_offset > clearance_base {
+            if cleared_position > hypothetical {
                 debug_info!(
                     ctx,
                     "[layout_bfc] Applying clearance: child={}, clear={:?}, old_pen={}, new_pen={}",
                     child_index,
                     child_clear,
                     main_pen,
-                    cleared_offset
+                    cleared_position
                 );
-                main_pen = cleared_offset;
+                main_pen = cleared_position;
                 true // Signal that clearance was applied
             } else {
                 false
@@ -1347,11 +1356,10 @@ fn layout_bfc<T: ParsedFontTrait>(
             // Clearance prevents collapse (acts as invisible blocker)
             if clearance_applied {
                 // Clearance inhibits all margin collapsing for this element
-                // The clearance has already positioned main_pen past floats
-                //
-                // CSS 2.2 § 8.3.1: Parent's margin was already handled by parent's parent BFC
-                // We only add child's margin in our content-box coordinate space
-                main_pen += child_margin_top;
+                // The clearance has already positioned main_pen at the correct
+                // border-edge position (= max(float_bottom, hypothetical)).
+                // The hypothetical already includes child_margin_top via
+                // collapse_margins, so we must NOT add it again here.
                 debug_info!(
                     ctx,
                     "[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, \
@@ -1512,8 +1520,10 @@ fn layout_bfc<T: ParsedFontTrait>(
             }
 
             if clearance_applied {
-                // Clearance inhibits collapsing - add full margin
-                main_pen += child_margin_top;
+                // Clearance has already positioned main_pen at the correct
+                // border-edge = max(float_bottom, hypothetical). The hypothetical
+                // already includes collapse_margins(last_margin_bottom, child_margin_top),
+                // so we must NOT add child_margin_top again here.
                 debug_info!(
                     ctx,
                     "[layout_bfc] Child {} with CLEARANCE: no collapse with sibling, \
