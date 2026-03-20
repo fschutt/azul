@@ -805,6 +805,27 @@ impl CallbackInfo {
         unsafe { core::mem::take(&mut *self.changes) }
     }
 
+    /// Check if pending changes require relayout before the next step.
+    ///
+    /// Returns true for `ModifyWindowState` (resize) and `ScrollTo` (scroll),
+    /// which both need the event loop to re-run layout so that subsequent
+    /// operations (like `take_screenshot`) see updated content.
+    ///
+    /// Used by the E2E test runner to detect when it needs to yield.
+    #[cfg(feature = "std")]
+    pub fn has_pending_relayout_change(&self) -> bool {
+        unsafe {
+            if let Ok(changes) = (*self.changes).lock() {
+                changes.iter().any(|c| matches!(c,
+                    CallbackChange::ModifyWindowState { .. } |
+                    CallbackChange::ScrollTo { .. }
+                ))
+            } else {
+                false
+            }
+        }
+    }
+
     // Modern Api (using CallbackChange transactions)
 
     /// Add a timer to this window (applied after callback returns)
@@ -2615,7 +2636,7 @@ impl CallbackInfo {
     /// ```
     #[cfg(feature = "cpurender")]
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
-        use crate::cpurender::{render, RenderOptions};
+        use crate::cpurender::{render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap};
 
         let layout_window = self.get_layout_window();
         let renderer_resources = &layout_window.renderer_resources;
@@ -2626,27 +2647,33 @@ impl CallbackInfo {
             .get(&dom_id)
             .ok_or_else(|| AzString::from("DOM not found in layout results"))?;
 
-        // Get viewport dimensions
-        let viewport = &layout_result.viewport;
-        let width = viewport.size.width;
-        let height = viewport.size.height;
+        // Use the current window state dimensions
+        let ws = self.get_current_window_state();
+        let width = ws.size.dimensions.width;
+        let height = ws.size.dimensions.height;
 
         if width <= 0.0 || height <= 0.0 {
             return Err(AzString::from("Invalid viewport dimensions"));
         }
 
-        // Get the display list
         let display_list = &layout_result.display_list;
+        let dpi_factor = ws.size.get_hidpi_factor().inner.get();
 
-        // Get DPI factor from window state
-        let dpi_factor = self
-            .get_current_window_state()
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
+        // Build scroll offset map from the current ScrollManager state
+        let scroll_offsets = layout_window.scroll_manager
+            .build_scroll_offset_map(dom_id, &layout_result.scroll_ids);
 
-        // Render to pixmap
+        // Build CPU render state from GpuValueCache — provides current
+        // transform values (scrollbar thumb positions) and opacity values
+        // (scrollbar visibility fading) that the GPU path animates dynamically.
+        let gpu_cache = layout_window.gpu_state_manager
+            .get_cache(dom_id);
+        let render_state = CpuRenderState::from_gpu_cache(
+            gpu_cache,
+            dom_id,
+            &scroll_offsets,
+        );
+
         let opts = RenderOptions {
             width,
             height,
@@ -2654,8 +2681,14 @@ impl CallbackInfo {
         };
 
         let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
-        let pixmap =
-            render(display_list, renderer_resources, opts, &mut glyph_cache).map_err(|e| AzString::from(e))?;
+        let pixmap = render_with_font_manager_and_scroll(
+            display_list,
+            renderer_resources,
+            &layout_window.font_manager,
+            opts,
+            &mut glyph_cache,
+            &render_state,
+        ).map_err(|e| AzString::from(e))?;
 
         // Encode to PNG
         let png_data = pixmap

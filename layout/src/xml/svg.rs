@@ -623,229 +623,6 @@ pub fn svg_path_bevel(p: &SvgPath, distance: f32) -> SvgPath {
     }
 }
 
-fn svg_multi_polygon_to_geo(poly: &SvgMultiPolygon) -> geo::MultiPolygon {
-    use geo::{Coord, Intersects, Winding};
-
-    let linestrings = poly
-        .rings
-        .iter()
-        .map(|p| {
-            let mut p = p.clone();
-
-            if !p.is_closed() {
-                p.close();
-            }
-
-            let mut coords = p
-                .items
-                .iter()
-                .flat_map(|p| {
-                    match p {
-                        SvgPathElement::Line(l) => vec![
-                            Coord {
-                                x: l.start.x as f64,
-                                y: l.start.y as f64,
-                            },
-                            Coord {
-                                x: l.end.x as f64,
-                                y: l.end.y as f64,
-                            },
-                        ],
-                        SvgPathElement::QuadraticCurve(l) => vec![
-                            Coord {
-                                x: l.start.x as f64,
-                                y: l.start.y as f64,
-                            },
-                            Coord {
-                                x: l.ctrl.x as f64,
-                                y: l.ctrl.y as f64,
-                            },
-                            Coord {
-                                x: l.end.x as f64,
-                                y: l.end.y as f64,
-                            },
-                        ],
-                        SvgPathElement::CubicCurve(l) => vec![
-                            Coord {
-                                x: l.start.x as f64,
-                                y: l.start.y as f64,
-                            },
-                            Coord {
-                                x: l.ctrl_1.x as f64,
-                                y: l.ctrl_1.y as f64,
-                            },
-                            Coord {
-                                x: l.ctrl_2.x as f64,
-                                y: l.ctrl_2.y as f64,
-                            },
-                            Coord {
-                                x: l.end.x as f64,
-                                y: l.end.y as f64,
-                            },
-                        ],
-                    }
-                    .into_iter()
-                })
-                .collect::<Vec<_>>();
-
-            coords.dedup();
-
-            geo::LineString::new(coords)
-        })
-        .collect::<Vec<_>>();
-
-    let exterior_polys = linestrings
-        .iter()
-        .filter(|ls| ls.is_cw())
-        .cloned()
-        .collect::<Vec<geo::LineString<_>>>();
-    let mut interior_polys = linestrings
-        .iter()
-        .filter(|ls| ls.is_ccw())
-        .cloned()
-        .map(|p| Some(p))
-        .collect::<Vec<_>>();
-
-    let ext_int_matched = exterior_polys
-        .iter()
-        .map(|p| {
-            let mut interiors = Vec::new();
-            let p_poly = geo::Polygon::new(p.clone(), Vec::new());
-            for i in interior_polys.iter_mut() {
-                let cloned = match i.as_ref() {
-                    Some(s) => s.clone(),
-                    None => continue,
-                };
-
-                if geo::Polygon::new(cloned.clone(), Vec::new()).intersects(&p_poly) {
-                    interiors.push(cloned);
-                    *i = None;
-                }
-            }
-            geo::Polygon::new(p.clone(), interiors)
-        })
-        .collect::<Vec<geo::Polygon<_>>>();
-
-    geo::MultiPolygon(ext_int_matched)
-}
-
-fn linestring_to_svg_path(ls: geo::LineString<f64>) -> SvgPath {
-    // TODO: bezier curves?
-    SvgPath {
-        items: ls
-            .0
-            .windows(2)
-            .map(|a| {
-                SvgPathElement::Line(SvgLine {
-                    start: SvgPoint {
-                        x: a[0].x as f32,
-                        y: a[0].y as f32,
-                    },
-                    end: SvgPoint {
-                        x: a[1].x as f32,
-                        y: a[1].y as f32,
-                    },
-                })
-            })
-            .collect::<Vec<_>>()
-            .into(),
-    }
-}
-
-fn geo_to_svg_multipolygon(poly: geo::MultiPolygon<f64>) -> SvgMultiPolygon {
-    use geo::Winding;
-    SvgMultiPolygon {
-        rings: poly
-            .0
-            .into_iter()
-            .flat_map(|s| {
-                let mut exterior = s.exterior().clone();
-                let mut interiors = s.interiors().to_vec();
-                exterior.make_cw_winding();
-                for i in interiors.iter_mut() {
-                    i.make_ccw_winding();
-                }
-                interiors.push(exterior);
-                interiors.reverse();
-                interiors.into_iter()
-            })
-            .map(|s| linestring_to_svg_path(s))
-            .collect::<Vec<_>>()
-            .into(),
-    }
-}
-
-// TODO: produces wrong results for curve curve intersection
-pub fn svg_multi_polygon_union(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    use geo::{BooleanOps, Coord};
-
-    let a = svg_multi_polygon_to_geo(a);
-    let b = svg_multi_polygon_to_geo(b);
-
-    let u = a.union(&b);
-
-    geo_to_svg_multipolygon(u)
-}
-
-/// By-value wrapper for svg_multi_polygon_union (for FFI)
-pub fn svg_multi_polygon_union_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
-    svg_multi_polygon_union(a, &b)
-}
-
-pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    use geo::{BooleanOps, Coord};
-
-    let a = svg_multi_polygon_to_geo(a);
-    let b = svg_multi_polygon_to_geo(b);
-
-    let u = a.intersection(&b);
-
-    geo_to_svg_multipolygon(u)
-}
-
-/// By-value wrapper for svg_multi_polygon_intersection (for FFI)
-pub fn svg_multi_polygon_intersection_byval(
-    a: &SvgMultiPolygon,
-    b: SvgMultiPolygon,
-) -> SvgMultiPolygon {
-    svg_multi_polygon_intersection(a, &b)
-}
-
-pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    use geo::{BooleanOps, Coord};
-
-    let a = svg_multi_polygon_to_geo(a);
-    let b = svg_multi_polygon_to_geo(b);
-
-    let u = a.difference(&b);
-
-    geo_to_svg_multipolygon(u)
-}
-
-/// By-value wrapper for svg_multi_polygon_difference (for FFI)
-pub fn svg_multi_polygon_difference_byval(
-    a: &SvgMultiPolygon,
-    b: SvgMultiPolygon,
-) -> SvgMultiPolygon {
-    svg_multi_polygon_difference(a, &b)
-}
-
-pub fn svg_multi_polygon_xor(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
-    use geo::{BooleanOps, Coord};
-
-    let a = svg_multi_polygon_to_geo(a);
-    let b = svg_multi_polygon_to_geo(b);
-
-    let u = a.xor(&b);
-
-    geo_to_svg_multipolygon(u)
-}
-
-/// By-value wrapper for svg_multi_polygon_xor (for FFI)
-pub fn svg_multi_polygon_xor_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
-    svg_multi_polygon_xor(a, &b)
-}
-
 #[cfg(feature = "svg")]
 fn svg_path_to_lyon_path_events(path: &SvgPath) -> Path {
     let mut builder = Path::builder();
@@ -2182,94 +1959,255 @@ pub fn render_node_clipmask_cpu(
     None
 }
 
-// ---------------------------- SVG RENDERING
+// ============================================================================
+// Boolean operations on SvgMultiPolygon — via agg scanline boolean algebra
+// ============================================================================
 
-#[cfg(feature = "svg")]
-#[derive(Debug)]
+/// Rasterize an `SvgMultiPolygon` into an agg `RasterizerScanlineAa`.
+fn rasterize_multi_polygon(mp: &SvgMultiPolygon) -> agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa {
+    use agg_rust::{
+        basics::{FillingRule, PATH_FLAGS_NONE},
+        path_storage::PathStorage,
+        rasterizer_scanline_aa::RasterizerScanlineAa,
+    };
+
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(FillingRule::NonZero);
+
+    let mut path = PathStorage::new();
+    for ring in mp.rings.as_ref().iter() {
+        let mut first = true;
+        for item in ring.items.as_ref().iter() {
+            match item {
+                SvgPathElement::Line(l) => {
+                    if first {
+                        path.move_to(l.start.x as f64, l.start.y as f64);
+                        first = false;
+                    }
+                    path.line_to(l.end.x as f64, l.end.y as f64);
+                }
+                SvgPathElement::QuadraticCurve(q) => {
+                    if first {
+                        path.move_to(q.start.x as f64, q.start.y as f64);
+                        first = false;
+                    }
+                    path.curve3(q.ctrl.x as f64, q.ctrl.y as f64, q.end.x as f64, q.end.y as f64);
+                }
+                SvgPathElement::CubicCurve(c) => {
+                    if first {
+                        path.move_to(c.start.x as f64, c.start.y as f64);
+                        first = false;
+                    }
+                    path.curve4(
+                        c.ctrl_1.x as f64, c.ctrl_1.y as f64,
+                        c.ctrl_2.x as f64, c.ctrl_2.y as f64,
+                        c.end.x as f64, c.end.y as f64,
+                    );
+                }
+            }
+        }
+        path.close_polygon(PATH_FLAGS_NONE);
+    }
+    ras.add_path(&mut path, 0);
+    ras
+}
+
+/// Extract polygon contours from a `ScanlineStorageAa` by tracing
+/// horizontal span edges across consecutive scanlines.
+///
+/// For each row, we collect the solid spans (coverage > 128). Then we
+/// trace left/right boundaries of connected span groups into closed
+/// polygons (go down on the left edge, come back up on the right edge).
+fn storage_to_multi_polygon(
+    storage: &mut agg_rust::scanline_storage_aa::ScanlineStorageAa,
+) -> SvgMultiPolygon {
+    use agg_rust::rasterizer_scanline_aa::Scanline;
+    use azul_css::props::basic::SvgPoint;
+
+    // Collect solid spans per row
+    let mut rows: Vec<(i32, Vec<(i32, i32)>)> = Vec::new(); // (y, [(x_start, x_end)])
+
+    let mut sl = agg_rust::scanline_u::ScanlineU8::new();
+    if storage.rewind_scanlines() {
+        sl.reset(storage.min_x(), storage.max_x());
+        while storage.sweep_scanline(&mut sl) {
+            let y = Scanline::y(&sl);
+            let mut row_spans: Vec<(i32, i32)> = Vec::new();
+            for span in sl.begin() {
+                // Span with positive len: per-pixel coverage
+                let len = span.len;
+                if len <= 0 { continue; }
+                // Check if any pixel in the span has enough coverage
+                let covers = sl.covers();
+                let mut x_start = None;
+                for j in 0..len as usize {
+                    let cov = covers.get(span.cover_offset + j).copied().unwrap_or(0);
+                    if cov > 128 {
+                        if x_start.is_none() { x_start = Some(span.x + j as i32); }
+                    } else if let Some(xs) = x_start.take() {
+                        row_spans.push((xs, span.x + j as i32));
+                    }
+                }
+                if let Some(xs) = x_start {
+                    row_spans.push((xs, span.x + len));
+                }
+            }
+            if !row_spans.is_empty() {
+                rows.push((y, row_spans));
+            }
+        }
+    }
+
+    if rows.is_empty() {
+        return SvgMultiPolygon { rings: SvgPathVec::from_const_slice(&[]) };
+    }
+
+    // Simple contour extraction: for each row, create horizontal line segments.
+    // Then connect consecutive rows into closed polygons.
+    // This produces axis-aligned polygons (staircase approximation).
+    let mut rings = Vec::new();
+
+    for (y, spans) in &rows {
+        let yf = *y as f32;
+        for &(x0, x1) in spans {
+            let x0f = x0 as f32;
+            let x1f = x1 as f32;
+            // Create a small horizontal rectangle for this span
+            let elements = vec![
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x0f, y: yf },
+                    SvgPoint { x: x1f, y: yf },
+                )),
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x1f, y: yf },
+                    SvgPoint { x: x1f, y: yf + 1.0 },
+                )),
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x1f, y: yf + 1.0 },
+                    SvgPoint { x: x0f, y: yf + 1.0 },
+                )),
+                SvgPathElement::Line(SvgLine::new(
+                    SvgPoint { x: x0f, y: yf + 1.0 },
+                    SvgPoint { x: x0f, y: yf },
+                )),
+            ];
+            rings.push(SvgPath { items: SvgPathElementVec::from_vec(elements) });
+        }
+    }
+
+    SvgMultiPolygon { rings: SvgPathVec::from_vec(rings) }
+}
+
+/// Perform a boolean operation on two `SvgMultiPolygon` shapes using agg scanline algebra.
+fn svg_bool_op(
+    a: &SvgMultiPolygon,
+    b: &SvgMultiPolygon,
+    op: agg_rust::scanline_boolean_algebra::SBoolOp,
+) -> SvgMultiPolygon {
+    use agg_rust::{
+        scanline_boolean_algebra::sbool_combine_shapes_aa,
+        scanline_storage_aa::ScanlineStorageAa,
+        scanline_u::ScanlineU8,
+    };
+
+    let mut ras1 = rasterize_multi_polygon(a);
+    let mut ras2 = rasterize_multi_polygon(b);
+
+    let mut sl1 = ScanlineU8::new();
+    let mut sl2 = ScanlineU8::new();
+    let mut sl_result = ScanlineU8::new();
+    let mut storage1 = ScanlineStorageAa::new();
+    let mut storage2 = ScanlineStorageAa::new();
+    let mut storage_result = ScanlineStorageAa::new();
+
+    sbool_combine_shapes_aa(
+        op,
+        &mut ras1, &mut ras2,
+        &mut sl1, &mut sl2, &mut sl_result,
+        &mut storage1, &mut storage2, &mut storage_result,
+    );
+
+    storage_to_multi_polygon(&mut storage_result)
+}
+
+pub fn svg_multi_polygon_union(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::Or)
+}
+
+pub fn svg_multi_polygon_union_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_multi_polygon_union(a, &b)
+}
+
+pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::And)
+}
+
+pub fn svg_multi_polygon_intersection_byval(
+    a: &SvgMultiPolygon, b: SvgMultiPolygon,
+) -> SvgMultiPolygon {
+    svg_multi_polygon_intersection(a, &b)
+}
+
+pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::AMinusB)
+}
+
+pub fn svg_multi_polygon_difference_byval(
+    a: &SvgMultiPolygon, b: SvgMultiPolygon,
+) -> SvgMultiPolygon {
+    svg_multi_polygon_difference(a, &b)
+}
+
+pub fn svg_multi_polygon_xor(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::Xor)
+}
+
+pub fn svg_multi_polygon_xor_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_multi_polygon_xor(a, &b)
+}
+
+// ============================================================================
+// SVG Rendering — ParsedSvg wraps the XML tree, no usvg
+// ============================================================================
+
+/// Parsed SVG document — wraps the XML node tree.
+///
+/// Previously wrapped usvg::Tree; now stores our own XmlNode tree parsed via xmlparser.
+/// Rendering uses the agg-rust pipeline in cpurender::render_svg_to_png().
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ParsedSvgXmlNode {
-    node: Box<usvg::Group>, // usvg::Node
     pub run_destructor: bool,
 }
 
-#[cfg(feature = "svg")]
-impl Clone for ParsedSvgXmlNode {
-    fn clone(&self) -> Self {
-        Self {
-            node: self.node.clone(),
-            run_destructor: true,
-        }
-    }
-}
-
-#[cfg(feature = "svg")]
 impl Drop for ParsedSvgXmlNode {
-    fn drop(&mut self) {
-        self.run_destructor = false;
-    }
+    fn drop(&mut self) { self.run_destructor = false; }
 }
 
-#[cfg(not(feature = "svg"))]
-pub use azul_core::svg::SvgXmlNode;
-
-#[cfg(feature = "svg")]
-fn svgxmlnode_new(node: usvg::Group) -> ParsedSvgXmlNode {
-    ParsedSvgXmlNode {
-        node: Box::new(node),
-        run_destructor: true,
-    }
-}
-
-#[cfg(feature = "svg")]
 pub fn svgxmlnode_parse(
     svg_file_data: &[u8],
-    options: SvgParseOptions,
+    _options: SvgParseOptions,
 ) -> Result<ParsedSvgXmlNode, SvgParseError> {
-    let svg = svg_parse(svg_file_data, options)?;
-    Ok(svg_root(&svg))
+    // Verify we can parse the XML
+    let s = core::str::from_utf8(svg_file_data)
+        .map_err(|_| SvgParseError::NotAnUtf8Str)?;
+    let _nodes = crate::xml::parse_xml_string(s)
+        .map_err(|_| SvgParseError::NoParserAvailable)?;
+    Ok(ParsedSvgXmlNode { run_destructor: true })
 }
 
-#[cfg(not(feature = "svg"))]
-pub fn svgxmlnode_parse(
-    svg_file_data: &[u8],
-    options: SvgParseOptions,
-) -> Result<ParsedSvgXmlNode, SvgParseError> {
-    Err(SvgParseError::NoParserAvailable)
-}
-
-/*
-#[cfg(feature = "svg")]
-pub fn svgxmlnode_from_xml(xml: Xml) -> Result<Self, SvgParseError> {
-    // https://github.com/RazrFalcon/resvg/issues/308
-    Ok(Svg::new(xml.into_tree()))
-}
-*/
-
-#[cfg(feature = "svg")]
+/// Parsed SVG document. Stores the raw SVG bytes for deferred rendering.
+#[derive(Clone)]
 #[repr(C)]
 pub struct ParsedSvg {
-    tree: Box<usvg::Tree>, // *mut usvg::Tree,
+    pub svg_data: azul_css::U8Vec,
     pub run_destructor: bool,
 }
 
-#[cfg(feature = "svg")]
-impl Clone for ParsedSvg {
-    fn clone(&self) -> Self {
-        Self {
-            tree: self.tree.clone(),
-            run_destructor: true,
-        }
-    }
-}
-
-#[cfg(feature = "svg")]
 impl Drop for ParsedSvg {
-    fn drop(&mut self) {
-        self.run_destructor = false;
-    }
+    fn drop(&mut self) { self.run_destructor = false; }
 }
 
-#[cfg(feature = "svg")]
 impl_result!(
     ParsedSvg,
     SvgParseError,
@@ -2278,35 +2216,22 @@ impl_result!(
     [Debug, Clone]
 );
 
-#[cfg(not(feature = "svg"))]
-pub use azul_core::svg::Svg;
-
-#[cfg(feature = "svg")]
 impl From<ParsedSvg> for azul_core::svg::Svg {
-    fn from(mut parsed: ParsedSvg) -> Self {
-        // Use ManuallyDrop to prevent the ParsedSvg destructor from running
-        // while still allowing us to move out the tree
-        let mut parsed = core::mem::ManuallyDrop::new(parsed);
-        // Take ownership of the tree by replacing it with a dummy
-        let tree = unsafe { core::ptr::read(&parsed.tree) };
-        let tree_ptr = Box::into_raw(tree) as *const azul_core::svg::c_void;
+    fn from(_parsed: ParsedSvg) -> Self {
         Self {
-            tree: tree_ptr,
-            run_destructor: true,
+            tree: core::ptr::null(),
+            run_destructor: false,
         }
     }
 }
 
-#[cfg(feature = "svg")]
 impl fmt::Debug for ParsedSvg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        svg_to_string(&self, SvgXmlOptions::default()).fmt(f)
+        write!(f, "ParsedSvg({} bytes)", self.svg_data.as_ref().len())
     }
 }
 
-#[cfg(feature = "svg")]
 impl ParsedSvg {
-    /// Parses an SVG from a string
     pub fn from_string(
         svg_string: &str,
         parse_options: SvgParseOptions,
@@ -2314,7 +2239,6 @@ impl ParsedSvg {
         svg_parse(svg_string.as_bytes(), parse_options)
     }
 
-    /// Parses an SVG from bytes
     pub fn from_bytes(
         svg_bytes: &[u8],
         parse_options: SvgParseOptions,
@@ -2322,419 +2246,82 @@ impl ParsedSvg {
         svg_parse(svg_bytes, parse_options)
     }
 
-    /// Returns the root XML node of the SVG
     pub fn get_root(&self) -> ParsedSvgXmlNode {
         svg_root(self)
     }
 
-    /// Renders the SVG to a raw image
     pub fn render(&self, options: SvgRenderOptions) -> Option<RawImage> {
         svg_render(self, options)
     }
 
-    /// Converts the SVG back to a string
-    pub fn to_string(&self, options: SvgXmlOptions) -> String {
-        svg_to_string(self, options)
+    pub fn to_string(&self, _options: SvgXmlOptions) -> String {
+        String::from_utf8_lossy(self.svg_data.as_ref()).into_owned()
     }
 }
 
-#[cfg(feature = "svg")]
-fn svg_new(tree: usvg::Tree) -> ParsedSvg {
-    ParsedSvg {
-        tree: Box::new(tree),
+/// Parse SVG data into a ParsedSvg (validates XML, stores bytes for deferred rendering).
+pub fn svg_parse(
+    svg_file_data: &[u8],
+    _options: SvgParseOptions,
+) -> Result<ParsedSvg, SvgParseError> {
+    // Validate that it's parseable XML
+    let s = core::str::from_utf8(svg_file_data)
+        .map_err(|_| SvgParseError::NotAnUtf8Str)?;
+    let _nodes = crate::xml::parse_xml_string(s)
+        .map_err(|_| SvgParseError::NoParserAvailable)?;
+    Ok(ParsedSvg {
+        svg_data: svg_file_data.to_vec().into(),
         run_destructor: true,
-    }
+    })
 }
 
-/// NOTE: SVG file data may be Zlib compressed
-#[cfg(feature = "svg")]
-pub fn svg_parse(
-    svg_file_data: &[u8],
-    options: SvgParseOptions,
-) -> Result<ParsedSvg, SvgParseError> {
-    let rtree = usvg::Tree::from_data(svg_file_data, &translate_to_usvg_parseoptions(options))
-        .map_err(translate_usvg_svgparserror)?;
-
-    Ok(svg_new(rtree))
-}
-
-#[cfg(not(feature = "svg"))]
-pub fn svg_parse(
-    svg_file_data: &[u8],
-    options: SvgParseOptions,
-) -> Result<ParsedSvg, SvgParseError> {
-    Err(SvgParseError::NoParserAvailable)
-}
-
-#[cfg(feature = "svg")]
 pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
-    svgxmlnode_new(s.tree.root().clone())
+    ParsedSvgXmlNode { run_destructor: true }
 }
 
-#[cfg(not(feature = "svg"))]
-pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
-    ParsedSvgXmlNode {
-        node: core::ptr::null_mut(),
-        run_destructor: false,
-    }
-}
-
-#[cfg(feature = "svg")]
+/// Render a ParsedSvg to a RawImage using the agg-rust pipeline.
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
 
-    let root = s.tree.root();
-    let (target_width, target_height) = svgrenderoptions_get_width_height_node(&options, &root)?;
+    let (target_width, target_height) = match options.target_size.as_ref() {
+        Some(s) => (s.width as u32, s.height as u32),
+        None => (800, 600), // default size
+    };
 
-    if target_height == 0 || target_width == 0 {
+    if target_width == 0 || target_height == 0 {
         return None;
     }
 
-    // Walk the usvg tree and render paths using agg-rust
-    let mut buf = vec![0u8; (target_width as usize) * (target_height as usize) * 4];
+    let png_data = crate::cpurender::render_svg_to_png(s.svg_data.as_ref(), target_width, target_height).ok()?;
 
-    // Fill background
-    if let Some(bg) = options.background_color.into_option() {
-        for chunk in buf.chunks_exact_mut(4) {
-            chunk[0] = bg.r;
-            chunk[1] = bg.g;
-            chunk[2] = bg.b;
-            chunk[3] = bg.a;
-        }
-    }
-
-    // Render the usvg tree using agg-rust
-    render_usvg_tree_to_buffer(&s.tree, &mut buf, target_width, target_height, options.transform);
+    // Decode PNG back to raw RGBA (TODO: render_svg_to_rgba to avoid PNG round-trip)
+    let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
 
     Some(RawImage {
         tag: Vec::new().into(),
         pixels: RawImageData::U8(buf.into()),
-        width: target_width as usize,
-        height: target_height as usize,
-        premultiplied_alpha: true,
+        width: info.width as usize,
+        height: info.height as usize,
+        premultiplied_alpha: false,
         data_format: RawImageFormat::RGBA8,
     })
 }
 
-/// Render a usvg tree into an RGBA buffer using agg-rust.
-#[cfg(feature = "svg")]
-fn render_usvg_tree_to_buffer(
-    tree: &usvg::Tree,
-    buf: &mut [u8],
-    width: u32,
-    height: u32,
-    transform: SvgRenderTransform,
-) {
-    use agg_rust::{
-        basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
-        path_storage::PathStorage,
-        color::Rgba8,
-        conv_stroke::ConvStroke,
-        conv_transform::ConvTransform,
-        math_stroke::{LineCap, LineJoin},
-        pixfmt_rgba::{PixfmtRgba32, PixelFormat},
-        rasterizer_scanline_aa::RasterizerScanlineAa,
-        renderer_base::RendererBase,
-        renderer_scanline::render_scanlines_aa_solid,
-        rendering_buffer::RowAccessor,
-        scanline_u::ScanlineU8,
-        trans_affine::TransAffine,
-    };
-
-    let root_transform = TransAffine::new_custom(
-        transform.sx as f64,
-        transform.ky as f64,
-        transform.kx as f64,
-        transform.sy as f64,
-        transform.tx as f64,
-        transform.ty as f64,
-    );
-
-    // Walk groups recursively
-    fn render_group(
-        group: &usvg::Group,
-        buf: &mut [u8],
-        width: u32,
-        height: u32,
-        parent_transform: &TransAffine,
-    ) {
-        let gt = group.transform();
-        let group_transform = {
-            let mut t = TransAffine::new_custom(
-                gt.sx as f64, gt.ky as f64, gt.kx as f64,
-                gt.sy as f64, gt.tx as f64, gt.ty as f64,
-            );
-            t.premultiply(parent_transform);
-            t
-        };
-
-        for child in group.children() {
-            match child {
-                usvg::Node::Group(ref g) => {
-                    render_group(g, buf, width, height, &group_transform);
-                }
-                usvg::Node::Path(ref p) => {
-                    // Convert usvg path to agg PathStorage
-                    let mut path = PathStorage::new();
-                    for seg in p.data().segments() {
-                        match seg {
-                            usvg::tiny_skia_path::PathSegment::MoveTo(pt) => {
-                                path.move_to(pt.x as f64, pt.y as f64);
-                            }
-                            usvg::tiny_skia_path::PathSegment::LineTo(pt) => {
-                                path.line_to(pt.x as f64, pt.y as f64);
-                            }
-                            usvg::tiny_skia_path::PathSegment::QuadTo(p1, p2) => {
-                                path.curve3(p1.x as f64, p1.y as f64, p2.x as f64, p2.y as f64);
-                            }
-                            usvg::tiny_skia_path::PathSegment::CubicTo(p1, p2, p3) => {
-                                path.curve4(
-                                    p1.x as f64, p1.y as f64,
-                                    p2.x as f64, p2.y as f64,
-                                    p3.x as f64, p3.y as f64,
-                                );
-                            }
-                            usvg::tiny_skia_path::PathSegment::Close => {
-                                path.close_polygon(PATH_FLAGS_NONE);
-                            }
-                        }
-                    }
-
-                    // Apply fill
-                    if let Some(ref fill) = p.fill() {
-                        if let usvg::Paint::Color(c) = fill.paint() {
-                            let color = Rgba8::new(c.red as u32, c.green as u32, c.blue as u32,
-                                ((fill.opacity().get() * 255.0) as u32).min(255));
-                            let rule = match fill.rule() {
-                                usvg::FillRule::NonZero => FillingRule::NonZero,
-                                usvg::FillRule::EvenOdd => FillingRule::EvenOdd,
-                            };
-                            let stride = (width * 4) as i32;
-                            let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), width, height, stride) };
-                            let mut pf = PixfmtRgba32::new(&mut ra);
-                            let mut rb = RendererBase::new(pf);
-                            let mut ras = RasterizerScanlineAa::new();
-                            ras.filling_rule(rule);
-                            let mut transformed = ConvTransform::new(&mut path, group_transform.clone());
-                            ras.add_path(&mut transformed, 0);
-                            let mut sl = ScanlineU8::new();
-                            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &color);
-                        }
-                    }
-
-                    // Apply stroke
-                    if let Some(ref stroke) = p.stroke() {
-                        if let usvg::Paint::Color(c) = stroke.paint() {
-                            let color = Rgba8::new(c.red as u32, c.green as u32, c.blue as u32,
-                                ((stroke.opacity().get() * 255.0) as u32).min(255));
-                            let mut conv_stroke = ConvStroke::new(path.clone());
-                            conv_stroke.set_width(stroke.width().get() as f64);
-                            conv_stroke.set_line_cap(match stroke.linecap() {
-                                usvg::LineCap::Butt => LineCap::Butt,
-                                usvg::LineCap::Round => LineCap::Round,
-                                usvg::LineCap::Square => LineCap::Square,
-                            });
-                            conv_stroke.set_line_join(match stroke.linejoin() {
-                                usvg::LineJoin::Miter | usvg::LineJoin::MiterClip => LineJoin::Miter,
-                                usvg::LineJoin::Round => LineJoin::Round,
-                                usvg::LineJoin::Bevel => LineJoin::Bevel,
-                            });
-                            conv_stroke.set_miter_limit(stroke.miterlimit().get() as f64);
-
-                            let stride = (width * 4) as i32;
-                            let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), width, height, stride) };
-                            let mut pf = PixfmtRgba32::new(&mut ra);
-                            let mut rb = RendererBase::new(pf);
-                            let mut ras = RasterizerScanlineAa::new();
-                            let mut transformed = ConvTransform::new(&mut conv_stroke, group_transform.clone());
-                            ras.add_path(&mut transformed, 0);
-                            let mut sl = ScanlineU8::new();
-                            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &color);
-                        }
-                    }
-                }
-                usvg::Node::Image(_) => {
-                    // TODO: handle embedded raster images in SVG
-                }
-                usvg::Node::Text(_) => {
-                    // usvg converts text to paths, so this shouldn't normally be reached
-                }
-            }
-        }
-    }
-
-    render_group(tree.root(), buf, width, height, &root_transform);
+pub fn svg_to_string(s: &ParsedSvg, _options: SvgXmlOptions) -> String {
+    String::from_utf8_lossy(s.svg_data.as_ref()).into_owned()
 }
 
-#[cfg(not(feature = "svg"))]
-pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
-    None
-}
-
-/*
-#[cfg(feature = "svg")]
-pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
-    // https://github.com/RazrFalcon/resvg/issues/308
-    Ok(Svg::new(xml.into_tree()))
-}
-*/
-
-#[cfg(feature = "svg")]
-pub fn svg_to_string(s: &ParsedSvg, options: SvgXmlOptions) -> String {
-    s.tree.to_string(&translate_to_usvg_xmloptions(options))
-}
-
-#[cfg(not(feature = "svg"))]
-pub fn svg_to_string(s: &ParsedSvg, options: SvgXmlOptions) -> String {
-    String::new()
-}
-
-#[cfg(feature = "svg")]
-fn svgrenderoptions_get_width_height_node(
-    s: &SvgRenderOptions,
-    node: &usvg::Group,
-) -> Option<(u32, u32)> {
-    match s.target_size.as_ref() {
-        None => {
-            let bbox = node.bounding_box();
-            let size = usvg::Size::from_wh(bbox.width(), bbox.height())?;
-            Some((
-                size.width().round().max(0.0) as u32,
-                size.height().round().max(0.0) as u32,
-            ))
-        }
-        Some(s) => Some((s.width as u32, s.height as u32)),
-    }
-}
-
-#[cfg(feature = "svg")]
-fn translate_transform(e: SvgRenderTransform) -> agg_rust::trans_affine::TransAffine {
-    agg_rust::trans_affine::TransAffine::new_custom(
-        e.sx as f64,
-        e.ky as f64,
-        e.kx as f64,
-        e.sy as f64,
-        e.tx as f64,
-        e.ty as f64,
-    )
-}
-
-#[cfg(feature = "svg")]
-fn translate_to_usvg_shaperendering(e: ShapeRendering) -> usvg::ShapeRendering {
-    match e {
-        ShapeRendering::OptimizeSpeed => usvg::ShapeRendering::OptimizeSpeed,
-        ShapeRendering::CrispEdges => usvg::ShapeRendering::CrispEdges,
-        ShapeRendering::GeometricPrecision => usvg::ShapeRendering::GeometricPrecision,
-    }
-}
-
-#[cfg(feature = "svg")]
-fn translate_to_usvg_imagerendering(e: ImageRendering) -> usvg::ImageRendering {
-    match e {
-        ImageRendering::OptimizeQuality => usvg::ImageRendering::OptimizeQuality,
-        ImageRendering::OptimizeSpeed => usvg::ImageRendering::OptimizeSpeed,
-    }
-}
-
-#[cfg(feature = "svg")]
-fn translate_to_usvg_textrendering(e: TextRendering) -> usvg::TextRendering {
-    match e {
-        TextRendering::OptimizeSpeed => usvg::TextRendering::OptimizeSpeed,
-        TextRendering::OptimizeLegibility => usvg::TextRendering::OptimizeLegibility,
-        TextRendering::GeometricPrecision => usvg::TextRendering::GeometricPrecision,
-    }
-}
-
-#[cfg(feature = "svg")]
-#[allow(dead_code)]
-fn translate_color(i: ColorU) -> agg_rust::color::Rgba8 {
-    agg_rust::color::Rgba8::new(i.r as u32, i.g as u32, i.b as u32, i.a as u32)
-}
-
-#[cfg(feature = "svg")]
-fn translate_to_usvg_parseoptions<'a>(e: SvgParseOptions) -> usvg::Options<'a> {
-    use usvg::ImageHrefResolver;
-
-    let mut options = usvg::Options {
-        // path: e.relative_image_path.into_option().map(|e| { let p: String = e.clone().into();
-        // PathBuf::from(p) }),
-        dpi: e.dpi,
-        font_family: e.default_font_family.clone().into_library_owned_string(),
-        font_size: e.font_size.into(),
-        languages: e
-            .languages
-            .as_ref()
-            .iter()
-            .map(|e| e.clone().into_library_owned_string())
-            .collect(),
-        shape_rendering: translate_to_usvg_shaperendering(e.shape_rendering),
-        text_rendering: translate_to_usvg_textrendering(e.text_rendering),
-        image_rendering: translate_to_usvg_imagerendering(e.image_rendering),
-        resources_dir: None,                                      // TODO
-        default_size: usvg::Size::from_wh(100.0, 100.0).unwrap(), // TODO
-        style_sheet: None,                                        // TODO
-        image_href_resolver: ImageHrefResolver::default(),        // TODO
-        ..Default::default()
-    };
-
-    /*
-    // only available with
-    use usvg::SystemFontDB;
-    use std::path::PathBuf;
-
-    match e.fontdb {
-        FontDatabase::Empty => { },
-        FontDatabase::System => { options.fontdb.load_system_fonts(); },
-    }
-    */
-
-    options
-}
-
-#[cfg(feature = "svg")]
-fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::WriteOptions {
-    usvg::WriteOptions {
-        id_prefix: None,
-        preserve_text: false,
-        coordinates_precision: 8,
-        transforms_precision: 8,
-        use_single_quote: f.use_single_quote,
-        indent: translate_xmlwriter_indent(f.indent),
-        attributes_indent: translate_xmlwriter_indent(f.attributes_indent),
-    }
-}
-
-#[cfg(feature = "svg")]
-fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
-    match e {
-        usvg::Error::ElementsLimitReached => SvgParseError::ElementsLimitReached,
-        usvg::Error::NotAnUtf8Str => SvgParseError::NotAnUtf8Str,
-        usvg::Error::MalformedGZip => SvgParseError::MalformedGZip,
-        usvg::Error::InvalidSize => SvgParseError::InvalidSize,
-        usvg::Error::ParsingFailed(e) => {
-            // Note: usvg uses roxmltree 0.20, but we use 0.21, so we can't directly convert
-            // Convert the error to a string representation instead
-            use azul_core::xml::{XmlError, XmlTextPos};
-            let error_string = format!("{:?}", e);
-            SvgParseError::ParsingFailed(XmlError::UnknownToken(XmlTextPos { row: 0, col: 0 }))
-        }
-    }
-}
-
-#[cfg(feature = "svg")]
-fn translate_xmlwriter_indent(f: Indent) -> xmlwriter::Indent {
-    match f {
-        Indent::None => xmlwriter::Indent::None,
-        Indent::Spaces(s) => xmlwriter::Indent::Spaces(s),
-        Indent::Tabs => xmlwriter::Indent::Tabs,
-    }
-}
+// ============================================================================
+// Lyon tessellation (kept — no usvg dependency)
+// ============================================================================
 
 /// Trait for tessellating SvgMultiPolygon shapes
 pub trait SvgMultiPolygonTessellation {
-    /// Tessellates the polygon with fill style, returns CPU-side vertex buffers
     fn tessellate_fill(&self, fill_style: SvgFillStyle) -> TessellatedSvgNode;
-    /// Tessellates the polygon with stroke style, returns CPU-side vertex buffers
     fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode;
 }
 

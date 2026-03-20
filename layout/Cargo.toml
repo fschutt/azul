@@ -31,11 +31,8 @@ serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
-usvg                    = { version = "0.45.0",   default-features = false, optional = true }
 agg-rust                = { path = "/Users/fschutt/Development/agg-rust", default-features = false, optional = true }
 png                     = { version = "0.17", default-features = false, optional = true }
-geo-booleanop           = { version = "0.3.2", default-features = false, optional = true }
-geo                     = { version = "0.31.0", default-features = false, optional = true }
 roxmltree               = { version = "0.21.1",   default-features = false, optional = true }
 xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }
 xmlparser               = { version = "0.13.6",   default-features = false, optional = true }
@@ -172,15 +169,12 @@ pnm = ["image_decoding", "image/pnm"]
 # XML parsing support (for SVG and font configs)
 xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
 
-# SVG rendering support (lyon, usvg can convert text to outlines)
+# SVG rendering support (lyon for tessellation, agg-rust for CPU render)
 svg = [
     "dep:lyon",
     "dep:agg-rust",
     "dep:png",
-    "dep:usvg",
     "xml",
-    "dep:geo-booleanop",
-    "dep:geo",
     "dep:gl-context-loader"
 ]
 
@@ -244,3 +238,15 @@ path = "tests/test_hint_debug.rs"
 [[test]]
 name = "test_hint_vs_freetype"
 path = "tests/test_hint_vs_freetype.rs"
+
+[[test]]
+name = "svg_path_parser"
+path = "tests/svg_path_parser.rs"
+
+[[test]]
+name = "svg_render"
+path = "tests/svg_render.rs"
+
+[[test]]
+name = "svg_xml_dom"
+path = "tests/svg_xml_dom.rs"

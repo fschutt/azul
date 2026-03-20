@@ -712,6 +712,146 @@ pub enum NodeTypeTag {
     Map,
     Area,
     Svg,
+    /// SVG `<path>` element.
+    SvgPath,
+    /// SVG `<circle>` element.
+    SvgCircle,
+    /// SVG `<rect>` element.
+    SvgRect,
+    /// SVG `<ellipse>` element.
+    SvgEllipse,
+    /// SVG `<line>` element.
+    SvgLine,
+    /// SVG `<polygon>` element.
+    SvgPolygon,
+    /// SVG `<polyline>` element.
+    SvgPolyline,
+    /// SVG `<g>` group element.
+    SvgG,
+
+    // SVG container elements
+    /// SVG `<defs>` element.
+    SvgDefs,
+    /// SVG `<symbol>` element.
+    SvgSymbol,
+    /// SVG `<use>` element.
+    SvgUse,
+    /// SVG `<switch>` element.
+    SvgSwitch,
+
+    // SVG text elements
+    /// SVG `<text>` element.
+    SvgText,
+    /// SVG `<tspan>` element.
+    SvgTspan,
+    /// SVG `<textPath>` element.
+    SvgTextPath,
+
+    // SVG paint server elements
+    /// SVG `<linearGradient>` element.
+    SvgLinearGradient,
+    /// SVG `<radialGradient>` element.
+    SvgRadialGradient,
+    /// SVG `<stop>` element.
+    SvgStop,
+    /// SVG `<pattern>` element.
+    SvgPattern,
+
+    // SVG clipping/masking elements
+    /// SVG `<clipPath>` element.
+    SvgClipPathElement,
+    /// SVG `<mask>` element.
+    SvgMask,
+
+    // SVG filter elements
+    /// SVG `<filter>` element.
+    SvgFilter,
+    /// SVG `<feBlend>` element.
+    SvgFeBlend,
+    /// SVG `<feColorMatrix>` element.
+    SvgFeColorMatrix,
+    /// SVG `<feComponentTransfer>` element.
+    SvgFeComponentTransfer,
+    /// SVG `<feComposite>` element.
+    SvgFeComposite,
+    /// SVG `<feConvolveMatrix>` element.
+    SvgFeConvolveMatrix,
+    /// SVG `<feDiffuseLighting>` element.
+    SvgFeDiffuseLighting,
+    /// SVG `<feDisplacementMap>` element.
+    SvgFeDisplacementMap,
+    /// SVG `<feDistantLight>` element.
+    SvgFeDistantLight,
+    /// SVG `<feDropShadow>` element.
+    SvgFeDropShadow,
+    /// SVG `<feFlood>` element.
+    SvgFeFlood,
+    /// SVG `<feFuncR>` element.
+    SvgFeFuncR,
+    /// SVG `<feFuncG>` element.
+    SvgFeFuncG,
+    /// SVG `<feFuncB>` element.
+    SvgFeFuncB,
+    /// SVG `<feFuncA>` element.
+    SvgFeFuncA,
+    /// SVG `<feGaussianBlur>` element.
+    SvgFeGaussianBlur,
+    /// SVG `<feImage>` element.
+    SvgFeImage,
+    /// SVG `<feMerge>` element.
+    SvgFeMerge,
+    /// SVG `<feMergeNode>` element.
+    SvgFeMergeNode,
+    /// SVG `<feMorphology>` element.
+    SvgFeMorphology,
+    /// SVG `<feOffset>` element.
+    SvgFeOffset,
+    /// SVG `<fePointLight>` element.
+    SvgFePointLight,
+    /// SVG `<feSpecularLighting>` element.
+    SvgFeSpecularLighting,
+    /// SVG `<feSpotLight>` element.
+    SvgFeSpotLight,
+    /// SVG `<feTile>` element.
+    SvgFeTile,
+    /// SVG `<feTurbulence>` element.
+    SvgFeTurbulence,
+
+    // SVG marker/image elements
+    /// SVG `<marker>` element.
+    SvgMarker,
+    /// SVG `<image>` element.
+    SvgImage,
+    /// SVG `<foreignObject>` element.
+    SvgForeignObject,
+
+    // SVG descriptive elements
+    /// SVG `<title>` element.
+    SvgTitle,
+    /// SVG `<desc>` element.
+    SvgDesc,
+    /// SVG `<metadata>` element.
+    SvgMetadata,
+    /// SVG `<a>` element.
+    SvgA,
+    /// SVG `<view>` element.
+    SvgView,
+    /// SVG `<style>` element.
+    SvgStyle,
+    /// SVG `<script>` element.
+    SvgScript,
+
+    // SVG animation elements
+    /// SVG `<animate>` element.
+    SvgAnimate,
+    /// SVG `<animateMotion>` element.
+    SvgAnimateMotion,
+    /// SVG `<animateTransform>` element.
+    SvgAnimateTransform,
+    /// SVG `<set>` element.
+    SvgSet,
+    /// SVG `<mpath>` element.
+    SvgMpath,
 
     // Metadata
     Title,
@@ -897,6 +1037,79 @@ impl NodeTypeTag {
             "area" => Ok(NodeTypeTag::Area),
             "svg" => Ok(NodeTypeTag::Svg),
 
+            // SVG shape elements
+            "path" => Ok(NodeTypeTag::SvgPath),
+            "circle" => Ok(NodeTypeTag::SvgCircle),
+            "rect" => Ok(NodeTypeTag::SvgRect),
+            "ellipse" => Ok(NodeTypeTag::SvgEllipse),
+            "line" => Ok(NodeTypeTag::SvgLine),
+            "polygon" => Ok(NodeTypeTag::SvgPolygon),
+            "polyline" => Ok(NodeTypeTag::SvgPolyline),
+            "g" => Ok(NodeTypeTag::SvgG),
+
+            // SVG container elements
+            "defs" => Ok(NodeTypeTag::SvgDefs),
+            "symbol" => Ok(NodeTypeTag::SvgSymbol),
+            "use" => Ok(NodeTypeTag::SvgUse),
+            "switch" => Ok(NodeTypeTag::SvgSwitch),
+
+            // SVG text elements
+            "tspan" => Ok(NodeTypeTag::SvgTspan),
+            "textpath" => Ok(NodeTypeTag::SvgTextPath),
+
+            // SVG paint server elements
+            "lineargradient" => Ok(NodeTypeTag::SvgLinearGradient),
+            "radialgradient" => Ok(NodeTypeTag::SvgRadialGradient),
+            "stop" => Ok(NodeTypeTag::SvgStop),
+            "pattern" => Ok(NodeTypeTag::SvgPattern),
+
+            // SVG clipping/masking elements
+            "clippath" => Ok(NodeTypeTag::SvgClipPathElement),
+            "mask" => Ok(NodeTypeTag::SvgMask),
+
+            // SVG filter elements
+            "filter" => Ok(NodeTypeTag::SvgFilter),
+            "feblend" => Ok(NodeTypeTag::SvgFeBlend),
+            "fecolormatrix" => Ok(NodeTypeTag::SvgFeColorMatrix),
+            "fecomponenttransfer" => Ok(NodeTypeTag::SvgFeComponentTransfer),
+            "fecomposite" => Ok(NodeTypeTag::SvgFeComposite),
+            "feconvolvematrix" => Ok(NodeTypeTag::SvgFeConvolveMatrix),
+            "fediffuselighting" => Ok(NodeTypeTag::SvgFeDiffuseLighting),
+            "fedisplacementmap" => Ok(NodeTypeTag::SvgFeDisplacementMap),
+            "fedistantlight" => Ok(NodeTypeTag::SvgFeDistantLight),
+            "fedropshadow" => Ok(NodeTypeTag::SvgFeDropShadow),
+            "feflood" => Ok(NodeTypeTag::SvgFeFlood),
+            "fefuncr" => Ok(NodeTypeTag::SvgFeFuncR),
+            "fefuncg" => Ok(NodeTypeTag::SvgFeFuncG),
+            "fefuncb" => Ok(NodeTypeTag::SvgFeFuncB),
+            "fefunca" => Ok(NodeTypeTag::SvgFeFuncA),
+            "fegaussianblur" => Ok(NodeTypeTag::SvgFeGaussianBlur),
+            "feimage" => Ok(NodeTypeTag::SvgFeImage),
+            "femerge" => Ok(NodeTypeTag::SvgFeMerge),
+            "femergenode" => Ok(NodeTypeTag::SvgFeMergeNode),
+            "femorphology" => Ok(NodeTypeTag::SvgFeMorphology),
+            "feoffset" => Ok(NodeTypeTag::SvgFeOffset),
+            "fepointlight" => Ok(NodeTypeTag::SvgFePointLight),
+            "fespecularlighting" => Ok(NodeTypeTag::SvgFeSpecularLighting),
+            "fespotlight" => Ok(NodeTypeTag::SvgFeSpotLight),
+            "fetile" => Ok(NodeTypeTag::SvgFeTile),
+            "feturbulence" => Ok(NodeTypeTag::SvgFeTurbulence),
+
+            // SVG marker/image elements
+            "foreignobject" => Ok(NodeTypeTag::SvgForeignObject),
+
+            // SVG descriptive elements
+            "desc" => Ok(NodeTypeTag::SvgDesc),
+            "metadata" => Ok(NodeTypeTag::SvgMetadata),
+            "view" => Ok(NodeTypeTag::SvgView),
+
+            // SVG animation elements
+            "animate" => Ok(NodeTypeTag::SvgAnimate),
+            "animatemotion" => Ok(NodeTypeTag::SvgAnimateMotion),
+            "animatetransform" => Ok(NodeTypeTag::SvgAnimateTransform),
+            "set" => Ok(NodeTypeTag::SvgSet),
+            "mpath" => Ok(NodeTypeTag::SvgMpath),
+
             // Metadata
             "title" => Ok(NodeTypeTag::Title),
             "meta" => Ok(NodeTypeTag::Meta),
@@ -1046,6 +1259,84 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Map => write!(f, "map"),
             NodeTypeTag::Area => write!(f, "area"),
             NodeTypeTag::Svg => write!(f, "svg"),
+            NodeTypeTag::SvgPath => write!(f, "path"),
+            NodeTypeTag::SvgCircle => write!(f, "circle"),
+            NodeTypeTag::SvgRect => write!(f, "rect"),
+            NodeTypeTag::SvgEllipse => write!(f, "ellipse"),
+            NodeTypeTag::SvgLine => write!(f, "line"),
+            NodeTypeTag::SvgPolygon => write!(f, "polygon"),
+            NodeTypeTag::SvgPolyline => write!(f, "polyline"),
+            NodeTypeTag::SvgG => write!(f, "g"),
+
+            // SVG container elements
+            NodeTypeTag::SvgDefs => write!(f, "defs"),
+            NodeTypeTag::SvgSymbol => write!(f, "symbol"),
+            NodeTypeTag::SvgUse => write!(f, "use"),
+            NodeTypeTag::SvgSwitch => write!(f, "switch"),
+
+            // SVG text elements
+            NodeTypeTag::SvgText => write!(f, "text"),
+            NodeTypeTag::SvgTspan => write!(f, "tspan"),
+            NodeTypeTag::SvgTextPath => write!(f, "textpath"),
+
+            // SVG paint server elements
+            NodeTypeTag::SvgLinearGradient => write!(f, "lineargradient"),
+            NodeTypeTag::SvgRadialGradient => write!(f, "radialgradient"),
+            NodeTypeTag::SvgStop => write!(f, "stop"),
+            NodeTypeTag::SvgPattern => write!(f, "pattern"),
+
+            // SVG clipping/masking elements
+            NodeTypeTag::SvgClipPathElement => write!(f, "clippath"),
+            NodeTypeTag::SvgMask => write!(f, "mask"),
+
+            // SVG filter elements
+            NodeTypeTag::SvgFilter => write!(f, "filter"),
+            NodeTypeTag::SvgFeBlend => write!(f, "feblend"),
+            NodeTypeTag::SvgFeColorMatrix => write!(f, "fecolormatrix"),
+            NodeTypeTag::SvgFeComponentTransfer => write!(f, "fecomponenttransfer"),
+            NodeTypeTag::SvgFeComposite => write!(f, "fecomposite"),
+            NodeTypeTag::SvgFeConvolveMatrix => write!(f, "feconvolvematrix"),
+            NodeTypeTag::SvgFeDiffuseLighting => write!(f, "fediffuselighting"),
+            NodeTypeTag::SvgFeDisplacementMap => write!(f, "fedisplacementmap"),
+            NodeTypeTag::SvgFeDistantLight => write!(f, "fedistantlight"),
+            NodeTypeTag::SvgFeDropShadow => write!(f, "fedropshadow"),
+            NodeTypeTag::SvgFeFlood => write!(f, "feflood"),
+            NodeTypeTag::SvgFeFuncR => write!(f, "fefuncr"),
+            NodeTypeTag::SvgFeFuncG => write!(f, "fefuncg"),
+            NodeTypeTag::SvgFeFuncB => write!(f, "fefuncb"),
+            NodeTypeTag::SvgFeFuncA => write!(f, "fefunca"),
+            NodeTypeTag::SvgFeGaussianBlur => write!(f, "fegaussianblur"),
+            NodeTypeTag::SvgFeImage => write!(f, "feimage"),
+            NodeTypeTag::SvgFeMerge => write!(f, "femerge"),
+            NodeTypeTag::SvgFeMergeNode => write!(f, "femergenode"),
+            NodeTypeTag::SvgFeMorphology => write!(f, "femorphology"),
+            NodeTypeTag::SvgFeOffset => write!(f, "feoffset"),
+            NodeTypeTag::SvgFePointLight => write!(f, "fepointlight"),
+            NodeTypeTag::SvgFeSpecularLighting => write!(f, "fespecularlighting"),
+            NodeTypeTag::SvgFeSpotLight => write!(f, "fespotlight"),
+            NodeTypeTag::SvgFeTile => write!(f, "fetile"),
+            NodeTypeTag::SvgFeTurbulence => write!(f, "feturbulence"),
+
+            // SVG marker/image elements
+            NodeTypeTag::SvgMarker => write!(f, "marker"),
+            NodeTypeTag::SvgImage => write!(f, "image"),
+            NodeTypeTag::SvgForeignObject => write!(f, "foreignobject"),
+
+            // SVG descriptive elements
+            NodeTypeTag::SvgTitle => write!(f, "title"),
+            NodeTypeTag::SvgDesc => write!(f, "desc"),
+            NodeTypeTag::SvgMetadata => write!(f, "metadata"),
+            NodeTypeTag::SvgA => write!(f, "a"),
+            NodeTypeTag::SvgView => write!(f, "view"),
+            NodeTypeTag::SvgStyle => write!(f, "style"),
+            NodeTypeTag::SvgScript => write!(f, "script"),
+
+            // SVG animation elements
+            NodeTypeTag::SvgAnimate => write!(f, "animate"),
+            NodeTypeTag::SvgAnimateMotion => write!(f, "animatemotion"),
+            NodeTypeTag::SvgAnimateTransform => write!(f, "animatetransform"),
+            NodeTypeTag::SvgSet => write!(f, "set"),
+            NodeTypeTag::SvgMpath => write!(f, "mpath"),
 
             // Metadata
             NodeTypeTag::Title => write!(f, "title"),
@@ -1518,6 +1809,84 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Map => "NodeTypeTag::Map",
         NodeTypeTag::Area => "NodeTypeTag::Area",
         NodeTypeTag::Svg => "NodeTypeTag::Svg",
+        NodeTypeTag::SvgPath => "NodeTypeTag::SvgPath",
+        NodeTypeTag::SvgCircle => "NodeTypeTag::SvgCircle",
+        NodeTypeTag::SvgRect => "NodeTypeTag::SvgRect",
+        NodeTypeTag::SvgEllipse => "NodeTypeTag::SvgEllipse",
+        NodeTypeTag::SvgLine => "NodeTypeTag::SvgLine",
+        NodeTypeTag::SvgPolygon => "NodeTypeTag::SvgPolygon",
+        NodeTypeTag::SvgPolyline => "NodeTypeTag::SvgPolyline",
+        NodeTypeTag::SvgG => "NodeTypeTag::SvgG",
+
+        // SVG container elements
+        NodeTypeTag::SvgDefs => "NodeTypeTag::SvgDefs",
+        NodeTypeTag::SvgSymbol => "NodeTypeTag::SvgSymbol",
+        NodeTypeTag::SvgUse => "NodeTypeTag::SvgUse",
+        NodeTypeTag::SvgSwitch => "NodeTypeTag::SvgSwitch",
+
+        // SVG text elements
+        NodeTypeTag::SvgText => "NodeTypeTag::SvgText",
+        NodeTypeTag::SvgTspan => "NodeTypeTag::SvgTspan",
+        NodeTypeTag::SvgTextPath => "NodeTypeTag::SvgTextPath",
+
+        // SVG paint server elements
+        NodeTypeTag::SvgLinearGradient => "NodeTypeTag::SvgLinearGradient",
+        NodeTypeTag::SvgRadialGradient => "NodeTypeTag::SvgRadialGradient",
+        NodeTypeTag::SvgStop => "NodeTypeTag::SvgStop",
+        NodeTypeTag::SvgPattern => "NodeTypeTag::SvgPattern",
+
+        // SVG clipping/masking elements
+        NodeTypeTag::SvgClipPathElement => "NodeTypeTag::SvgClipPathElement",
+        NodeTypeTag::SvgMask => "NodeTypeTag::SvgMask",
+
+        // SVG filter elements
+        NodeTypeTag::SvgFilter => "NodeTypeTag::SvgFilter",
+        NodeTypeTag::SvgFeBlend => "NodeTypeTag::SvgFeBlend",
+        NodeTypeTag::SvgFeColorMatrix => "NodeTypeTag::SvgFeColorMatrix",
+        NodeTypeTag::SvgFeComponentTransfer => "NodeTypeTag::SvgFeComponentTransfer",
+        NodeTypeTag::SvgFeComposite => "NodeTypeTag::SvgFeComposite",
+        NodeTypeTag::SvgFeConvolveMatrix => "NodeTypeTag::SvgFeConvolveMatrix",
+        NodeTypeTag::SvgFeDiffuseLighting => "NodeTypeTag::SvgFeDiffuseLighting",
+        NodeTypeTag::SvgFeDisplacementMap => "NodeTypeTag::SvgFeDisplacementMap",
+        NodeTypeTag::SvgFeDistantLight => "NodeTypeTag::SvgFeDistantLight",
+        NodeTypeTag::SvgFeDropShadow => "NodeTypeTag::SvgFeDropShadow",
+        NodeTypeTag::SvgFeFlood => "NodeTypeTag::SvgFeFlood",
+        NodeTypeTag::SvgFeFuncR => "NodeTypeTag::SvgFeFuncR",
+        NodeTypeTag::SvgFeFuncG => "NodeTypeTag::SvgFeFuncG",
+        NodeTypeTag::SvgFeFuncB => "NodeTypeTag::SvgFeFuncB",
+        NodeTypeTag::SvgFeFuncA => "NodeTypeTag::SvgFeFuncA",
+        NodeTypeTag::SvgFeGaussianBlur => "NodeTypeTag::SvgFeGaussianBlur",
+        NodeTypeTag::SvgFeImage => "NodeTypeTag::SvgFeImage",
+        NodeTypeTag::SvgFeMerge => "NodeTypeTag::SvgFeMerge",
+        NodeTypeTag::SvgFeMergeNode => "NodeTypeTag::SvgFeMergeNode",
+        NodeTypeTag::SvgFeMorphology => "NodeTypeTag::SvgFeMorphology",
+        NodeTypeTag::SvgFeOffset => "NodeTypeTag::SvgFeOffset",
+        NodeTypeTag::SvgFePointLight => "NodeTypeTag::SvgFePointLight",
+        NodeTypeTag::SvgFeSpecularLighting => "NodeTypeTag::SvgFeSpecularLighting",
+        NodeTypeTag::SvgFeSpotLight => "NodeTypeTag::SvgFeSpotLight",
+        NodeTypeTag::SvgFeTile => "NodeTypeTag::SvgFeTile",
+        NodeTypeTag::SvgFeTurbulence => "NodeTypeTag::SvgFeTurbulence",
+
+        // SVG marker/image elements
+        NodeTypeTag::SvgMarker => "NodeTypeTag::SvgMarker",
+        NodeTypeTag::SvgImage => "NodeTypeTag::SvgImage",
+        NodeTypeTag::SvgForeignObject => "NodeTypeTag::SvgForeignObject",
+
+        // SVG descriptive elements
+        NodeTypeTag::SvgTitle => "NodeTypeTag::SvgTitle",
+        NodeTypeTag::SvgDesc => "NodeTypeTag::SvgDesc",
+        NodeTypeTag::SvgMetadata => "NodeTypeTag::SvgMetadata",
+        NodeTypeTag::SvgA => "NodeTypeTag::SvgA",
+        NodeTypeTag::SvgView => "NodeTypeTag::SvgView",
+        NodeTypeTag::SvgStyle => "NodeTypeTag::SvgStyle",
+        NodeTypeTag::SvgScript => "NodeTypeTag::SvgScript",
+
+        // SVG animation elements
+        NodeTypeTag::SvgAnimate => "NodeTypeTag::SvgAnimate",
+        NodeTypeTag::SvgAnimateMotion => "NodeTypeTag::SvgAnimateMotion",
+        NodeTypeTag::SvgAnimateTransform => "NodeTypeTag::SvgAnimateTransform",
+        NodeTypeTag::SvgSet => "NodeTypeTag::SvgSet",
+        NodeTypeTag::SvgMpath => "NodeTypeTag::SvgMpath",
 
         // Metadata
         NodeTypeTag::Title => "NodeTypeTag::Title",

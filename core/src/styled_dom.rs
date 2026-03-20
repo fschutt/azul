@@ -1449,8 +1449,8 @@ impl StyledDom {
                         .collect();
                 }
 
-                // If the node has a clip mask, it needs to be uploaded
-                if let Some(clip_mask) = node_data.get_clip_mask() {
+                // If the node has a raster clip mask, it needs to be uploaded
+                if let Some(clip_mask) = node_data.get_image_clip_mask() {
                     v.clip_mask = Some(clip_mask.image.clone());
                 }
 

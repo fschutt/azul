@@ -69,6 +69,8 @@ pub mod style;
 pub mod styled_dom;
 /// SVG module
 pub mod svg;
+/// SVG path `d=""` attribute parser
+pub mod svg_path_parser;
 /// Async (task, thread, timer) helper functions
 pub mod task;
 /// CSS transform computation

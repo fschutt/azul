@@ -363,6 +363,9 @@ pub struct LayoutCache {
     /// External to LayoutTree — indexed by node index for O(1) lookup.
     /// Persists across frames; resized after reconciliation.
     pub cache_map: LayoutCacheMap,
+    /// Snapshot of calculated_positions from the previous frame, used by the
+    /// compositor to compute damage rects (old bounds vs new bounds).
+    pub previous_positions: super::PositionVec,
 }
 
 /// The result of a reconciliation pass.

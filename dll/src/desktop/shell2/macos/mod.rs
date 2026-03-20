@@ -703,31 +703,39 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty_rect: NSRect) {
             let bounds = unsafe { self.bounds() };
-            let width = bounds.size.width as usize;
-            let height = bounds.size.height as usize;
+            // Convert to backing pixels (2x on Retina)
+            let backing = unsafe { self.convertRectToBacking(bounds) };
+            let width = backing.size.width as usize;
+            let height = backing.size.height as usize;
 
             let ivars = self.ivars();
 
-            // Resize framebuffer if needed
+            // Resize framebuffer if view bounds changed
             let current_width = ivars.width.get();
             let current_height = ivars.height.get();
 
             if current_width != width || current_height != height {
                 ivars.width.set(width);
                 ivars.height.set(height);
-                ivars.framebuffer.borrow_mut().resize(width * height * 4, 0);
+                let mut fb = ivars.framebuffer.borrow_mut();
+                fb.resize(width * height * 4, 255);
+                // Fill with white (opaque) so the window isn't transparent
+                for chunk in fb.chunks_exact_mut(4) {
+                    chunk[0] = 255; chunk[1] = 255; chunk[2] = 255; chunk[3] = 255;
+                }
             }
 
-            // Render blue gradient to framebuffer
-            {
-                let mut framebuffer = ivars.framebuffer.borrow_mut();
-                for y in 0..height {
-                    for x in 0..width {
-                        let idx = (y * width + x) * 4;
-                        framebuffer[idx] = (x * 128 / width.max(1)) as u8; // R
-                        framebuffer[idx + 1] = (y * 128 / height.max(1)) as u8; // G
-                        framebuffer[idx + 2] = 255; // B - Blue
-                        framebuffer[idx + 3] = 255; // A
+            // CPU render on every drawRect that needs it (first frame, after
+            // keyboard/mouse input, after timer callbacks).  In GPU mode drawRect
+            // is only called from GLView which calls render_and_present itself.
+            if let Some(window_ptr) = *ivars.window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
+                    if !macos_window.common.display_list_initialized
+                        || macos_window.common.frame_needs_regeneration
+                        || macos_window.common.display_list_dirty
+                    {
+                        let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
             }
@@ -981,8 +989,11 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    if macos_window.process_timers_and_threads() {
-                        let _: () = msg_send![self, setNeedsDisplay: true];
+                    let needs_redraw = macos_window.process_timers_and_threads();
+                    // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
+                    // then request drawRect to blit to screen.
+                    if needs_redraw || macos_window.common.frame_needs_regeneration {
+                        let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
             }
@@ -1271,6 +1282,58 @@ impl CPUView {
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
         *self.ivars().window_ptr.borrow()
+    }
+
+    /// Copy an RGBA pixmap into the CPUView's framebuffer and request redraw.
+    ///
+    /// Called by `MacOSWindow` after each layout pass in CPU mode.
+    /// The next `drawRect` will blit this data to the screen.
+    pub fn update_framebuffer(&self, pixmap_data: &[u8], pixmap_w: usize, pixmap_h: usize) {
+        let ivars = self.ivars();
+        let mut view_w = ivars.width.get();
+        let mut view_h = ivars.height.get();
+
+        // If drawRect hasn't run yet, use the pixmap dimensions
+        if view_w == 0 || view_h == 0 {
+            view_w = pixmap_w;
+            view_h = pixmap_h;
+            ivars.width.set(view_w);
+            ivars.height.set(view_h);
+        }
+
+        let mut fb = ivars.framebuffer.borrow_mut();
+
+        if view_w == 0 || view_h == 0 {
+            return;
+        }
+
+        fb.resize(view_w * view_h * 4, 255);
+
+        if pixmap_w == view_w && pixmap_h == view_h {
+            let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
+            fb[..len].copy_from_slice(&pixmap_data[..len]);
+        } else if pixmap_w > 0 && pixmap_h > 0 {
+            // Nearest-neighbor scale for DPI mismatch
+            let sx = pixmap_w as f32 / view_w as f32;
+            let sy = pixmap_h as f32 / view_h as f32;
+            for y in 0..view_h {
+                for x in 0..view_w {
+                    let src_x = ((x as f32 * sx) as usize).min(pixmap_w - 1);
+                    let src_y = ((y as f32 * sy) as usize).min(pixmap_h - 1);
+                    let si = (src_y * pixmap_w + src_x) * 4;
+                    let di = (y * view_w + x) * 4;
+                    if si + 3 < pixmap_data.len() && di + 3 < fb.len() {
+                        fb[di] = pixmap_data[si];
+                        fb[di + 1] = pixmap_data[si + 1];
+                        fb[di + 2] = pixmap_data[si + 2];
+                        fb[di + 3] = pixmap_data[si + 3];
+                    }
+                }
+            }
+        }
+
+        drop(fb);
+        unsafe { self.setNeedsDisplay(true); }
     }
 }
 
@@ -1761,8 +1824,20 @@ impl event::PlatformWindow for MacOSWindow {
                     repeats: true
                 ]
             }
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            // CPU mode: schedule timer on CPUView instead of GLView
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**cpu_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
         } else {
-            return; // No view, can't create timer
+            return; // No view at all
         };
 
         self.timers.insert(timer_id, timer_obj);
@@ -1897,28 +1972,18 @@ impl event::PlatformWindow for MacOSWindow {
 }
 
 impl MacOSWindow {
-    /// Determine which rendering backend to use
+    /// Determine which rendering backend to use.
+    ///
+    /// Delegates to `AzBackend::resolve()` for env-var / config priority,
+    /// then maps `Auto` → try OpenGL, fall back on blacklist/failure.
     fn determine_backend(options: &WindowCreateOptions) -> RenderBackend {
-        // 1. Check environment variable override
-        if let Ok(val) = std::env::var("AZUL_RENDERER") {
-            match val.to_lowercase().as_str() {
-                "cpu" => return RenderBackend::CPU,
-                "opengl" | "gl" => return RenderBackend::OpenGL,
-                _ => {}
-            }
+        use crate::desktop::shell2::AzBackend;
+        let hw_accel = options.renderer.as_option().map(|r| r.hw_accel);
+        match AzBackend::resolve(hw_accel) {
+            AzBackend::Gpu => RenderBackend::OpenGL,
+            AzBackend::Cpu | AzBackend::Headless => RenderBackend::CPU,
+            AzBackend::Auto => RenderBackend::OpenGL, // caller handles fallback
         }
-
-        // 2. Check options.renderer - if it's Some, check hw_accel field
-        if let Some(renderer) = options.renderer.as_option() {
-            match renderer.hw_accel {
-                HwAcceleration::Disabled => return RenderBackend::CPU,
-                HwAcceleration::Enabled => return RenderBackend::OpenGL,
-                HwAcceleration::DontCare => {} // Continue to default
-            }
-        }
-
-        // 3. Default: Try OpenGL
-        RenderBackend::OpenGL
     }
 
     /// Create OpenGL view with context and functions
@@ -2497,96 +2562,94 @@ impl MacOSWindow {
             }
         }
 
-        // Initialize WebRender renderer
-        let renderer_type = match backend {
-            RenderBackend::OpenGL => RendererType::Hardware,
-            RenderBackend::CPU => RendererType::Software,
-        };
-
-        log_debug!(
-            LogCategory::Rendering,
-            "[Window Init] Renderer type: {:?}",
-            renderer_type
-        );
-
-        let gl_funcs = if let Some(ref f) = gl_functions {
-            log_trace!(
-                LogCategory::Rendering,
-                "[Window Init] Using GL functions from context"
-            );
-            f.functions.clone()
-        } else {
-            log_trace!(
-                LogCategory::Rendering,
-                "[Window Init] Loading GL functions for CPU fallback"
-            );
-            // Fallback for CPU backend - initialize GL functions or fail gracefully
-            match gl::GlFunctions::initialize() {
-                Ok(f) => f.functions.clone(),
-                Err(e) => {
-                    return Err(WindowError::PlatformError(format!(
-                        "Failed to initialize GL functions: {}",
-                        e
-                    )));
-                }
-            }
-        };
-
-        log_debug!(
-            LogCategory::Rendering,
-            "[Window Init] Creating WebRender instance"
-        );
-
-
-
-        // Create synchronization primitives for frame readiness
+        // Initialize rendering backend.
+        //
+        // GPU path: create WebRender renderer, render API, hit tester, GL context.
+        // CPU path: skip all WebRender/GL, use HeadlessWindow's CpuBackend internally.
         let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let (
+            wr_renderer,
+            wr_render_api,
+            wr_document_id,
+            wr_id_namespace,
+            wr_hit_tester,
+            gl_context_ptr,
+            renderer_type,
+        ) = if backend == RenderBackend::OpenGL {
+            let gl_funcs = match &gl_functions {
+                Some(f) => f.functions.clone(),
+                None => {
+                    return Err(WindowError::PlatformError(
+                        "OpenGL backend requires GL functions".into(),
+                    ));
+                }
+            };
 
-        let notifier = Notifier {
-            new_frame_ready: new_frame_ready.clone(),
+            log_debug!(
+                LogCategory::Rendering,
+                "[Window Init] Creating WebRender instance (GPU)"
+            );
+
+            let notifier = Notifier {
+                new_frame_ready: new_frame_ready.clone(),
+            };
+
+            let (mut renderer, sender) = webrender::create_webrender_instance(
+                gl_funcs.clone(),
+                Box::new(notifier),
+                default_renderer_options(&options, create_program_cache(&gl_funcs)),
+                None,
+            )
+            .map_err(|e| {
+                WindowError::PlatformError(format!("WebRender initialization failed: {:?}", e))
+            })?;
+
+            renderer.set_external_image_handler(Box::new(WrCompositor::default()));
+
+            let mut render_api = sender.create_api();
+            let physical_size = azul_core::geom::PhysicalSize {
+                width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
+                height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
+            };
+            let framebuffer_size = webrender::api::units::DeviceIntSize::new(
+                physical_size.width as i32,
+                physical_size.height as i32,
+            );
+
+            let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
+            let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+            let hit_tester = render_api
+                .request_hit_tester(wr_translate_document_id(document_id))
+                .resolve();
+            let gl_ctx_ptr: OptionGlContextPtr = gl_context
+                .as_ref()
+                .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()))
+                .into();
+
+            (
+                Some(renderer),
+                Some(render_api),
+                Some(document_id),
+                Some(id_namespace),
+                Some(AsyncHitTester::Resolved(hit_tester)),
+                gl_ctx_ptr,
+                RendererType::Hardware,
+            )
+        } else {
+            log_info!(
+                LogCategory::Rendering,
+                "[Window Init] CPU backend — skipping WebRender/GL initialization"
+            );
+            (
+                None,
+                None,
+                None,
+                None,
+                None,
+                OptionGlContextPtr::None,
+                RendererType::Software,
+            )
         };
-
-        let (mut renderer, sender) = webrender::create_webrender_instance(
-            gl_funcs.clone(),
-            Box::new(notifier),
-            default_renderer_options(&options, create_program_cache(&gl_funcs)),
-            None, // shaders cache
-        )
-        .map_err(|e| {
-            WindowError::PlatformError(format!("WebRender initialization failed: {:?}", e))
-        })?;
-
-
-
-        renderer.set_external_image_handler(Box::new(WrCompositor::default()));
-
-        let mut render_api = sender.create_api();
-
-        // Get physical size for framebuffer (using actual HiDPI factor from screen)
-        let physical_size = azul_core::geom::PhysicalSize {
-            width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
-            height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
-        };
-
-        let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-            physical_size.width as i32,
-            physical_size.height as i32,
-        );
-
-        // Create WebRender document (one per window)
-        let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
-        let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-
-        // Request hit tester for this document
-        let hit_tester = render_api
-            .request_hit_tester(wr_translate_document_id(document_id))
-            .resolve();
-
-        // Create GlContextPtr for LayoutWindow
-        let gl_context_ptr: OptionGlContextPtr = gl_context
-            .as_ref()
-            .map(|_| GlContextPtr::new(renderer_type, gl_funcs.clone()))
-            .into();
 
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * 96.0) as u32; // Convert scale factor to DPI
@@ -2627,9 +2690,13 @@ impl MacOSWindow {
             WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
         })?;
 
-        // Set document_id and id_namespace for this window
-        layout_window.document_id = document_id;
-        layout_window.id_namespace = id_namespace;
+        // Set document_id and id_namespace for this window (if GPU path)
+        if let Some(did) = wr_document_id {
+            layout_window.document_id = did;
+        }
+        if let Some(ns) = wr_id_namespace {
+            layout_window.id_namespace = ns;
+        }
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
 
@@ -2641,7 +2708,7 @@ impl MacOSWindow {
         log_debug!(
             LogCategory::Layout,
             "[Window Init] LayoutWindow configured with document_id: {:?}",
-            document_id
+            wr_document_id
         );
 
         // NOTE: Keep OpenGL context current - WebRender needs it for rendering
@@ -2742,11 +2809,16 @@ impl MacOSWindow {
                 layout_window: Some(layout_window),
                 image_cache,
                 renderer_resources,
-                render_api: Some(render_api),
-                renderer: Some(renderer),
-                hit_tester: Some(AsyncHitTester::Resolved(hit_tester)),
-                document_id: Some(document_id),
-                id_namespace: Some(id_namespace),
+                render_api: wr_render_api,
+                renderer: wr_renderer,
+                hit_tester: wr_hit_tester,
+                cpu_hit_tester: if backend == RenderBackend::CPU {
+                    Some(azul_layout::headless::CpuHitTester::new())
+                } else {
+                    None
+                },
+                document_id: wr_document_id,
+                id_namespace: wr_id_namespace,
                 gl_context_ptr,
                 app_data: app_data_arc,
                 fc_cache,
@@ -2992,6 +3064,15 @@ impl MacOSWindow {
         // NOTE: Do NOT set frame_needs_regeneration here!
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
+
+        // Rebuild CPU hit tester from new layout results (CPU mode only)
+        if self.backend == RenderBackend::CPU {
+            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
+                if let Some(lw) = self.common.layout_window.as_ref() {
+                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                }
+            }
+        }
 
         // Mark accessibility tree for update after layout
         #[cfg(feature = "a11y")]
@@ -4498,9 +4579,13 @@ impl MacOSWindow {
         let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
         let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
         (*delegate_ptr).set_window_ptr(window_ptr);
+        // Also set the CPUView's back pointer (if using CPU backend)
+        if let Some(ref cpu_view) = self.cpu_view {
+            *cpu_view.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        }
         log_trace!(
             LogCategory::Platform,
-            "[finalize_delegate_pointer] WindowDelegate back pointer set"
+            "[finalize_delegate_pointer] WindowDelegate + CPUView back pointers set"
         );
     }
 
@@ -4609,6 +4694,12 @@ impl MacOSWindow {
         // NOTE: Timer callbacks are invoked in the NSTimer tick_timers callback,
         // NOT here. See tick_timers in GLView/CPUView.
 
+        // Force layout on first frame — layout_results is empty until the first
+        // regenerate_layout() call. Both GPU and CPU paths need this.
+        if !self.common.display_list_initialized {
+            self.common.frame_needs_regeneration = true;
+        }
+
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
         let display_list_needs_rebuild = if self.common.frame_needs_regeneration {
@@ -4715,6 +4806,64 @@ impl MacOSWindow {
         // If VirtualView updates produced new child DOMs, we need a full display list
         // rebuild (not just scroll offsets). Override the lightweight path.
         let display_list_needs_rebuild = display_list_needs_rebuild || has_virtual_view_updates;
+
+        // ─── CPU backend: render via cpurender and blit to CPUView ───
+        #[cfg(feature = "cpurender")]
+        if self.backend == RenderBackend::CPU {
+            use azul_core::dom::DomId;
+            use azul_layout::cpurender::{
+                render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap,
+            };
+
+            let dom_id = DomId { inner: 0 };
+            if let Some(result) = layout_window.layout_results.get(&dom_id) {
+                let ws = &layout_window.current_window_state;
+                let width = ws.size.dimensions.width;
+                let height = ws.size.dimensions.height;
+                let dpi = ws.size.dpi as f32 / 96.0;
+
+                if width > 0.0 && height > 0.0 {
+                    let scroll_offsets = layout_window.scroll_manager
+                        .build_scroll_offset_map(dom_id, &result.scroll_ids);
+                    let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
+                    let render_state = CpuRenderState::from_gpu_cache(
+                        gpu_cache, dom_id, &scroll_offsets,
+                    );
+                    let opts = RenderOptions { width, height, dpi_factor: dpi };
+                    let mut glyph_cache = azul_layout::glyph_cache::GlyphCache::new();
+
+                    match render_with_font_manager_and_scroll(
+                        &result.display_list,
+                        &layout_window.renderer_resources,
+                        &layout_window.font_manager,
+                        opts,
+                        &mut glyph_cache,
+                        &render_state,
+                    ) {
+                        Ok(pixmap) => {
+                            if let Some(ref cpu_view) = self.cpu_view {
+                                cpu_view.update_framebuffer(
+                                    pixmap.data(),
+                                    pixmap.width() as usize,
+                                    pixmap.height() as usize,
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log_error!(
+                                LogCategory::Rendering,
+                                "[CPU] render failed: {}", e
+                            );
+                        }
+                    }
+                }
+            }
+
+            self.common.display_list_initialized = true;
+            return Ok(());
+        }
+
+        // ─── GPU backend: WebRender transaction ───
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
         if display_list_needs_rebuild {

@@ -2270,6 +2270,40 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 #[cfg(feature = "std")]
 static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
 
+/// Continuation state for E2E tests that need to yield to the event loop
+/// (e.g., after a resize step that requires relayout before the next step).
+#[cfg(feature = "std")]
+static E2E_CONTINUATION: Mutex<Option<E2eContinuation>> = Mutex::new(None);
+
+/// Saved state for resuming E2E test execution across timer ticks.
+#[cfg(feature = "std")]
+struct E2eContinuation {
+    /// Response channel from the original request
+    response_tx: mpsc::Sender<DebugResponseData>,
+    /// Window ID from the original request
+    window_id: Option<String>,
+    /// All tests
+    tests: Vec<E2eTest>,
+    /// Named snapshots
+    snapshots: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Current test index
+    test_idx: usize,
+    /// Current step index within the current test
+    step_idx: usize,
+    /// Accumulated results for completed tests
+    completed_results: Vec<E2eTestResult>,
+    /// Accumulated step results for the current test
+    current_step_results: Vec<E2eStepResult>,
+    /// Whether the current test has failed
+    current_test_failed: bool,
+    /// Start time of the current test
+    test_start: std::time::Instant,
+    /// Component map reference
+    component_map: Arc<Mutex<azul_core::xml::ComponentMap>>,
+    /// App data clone
+    app_data: azul_core::refany::RefAny,
+}
+
 // ==================== Debug Server Handle ====================
 
 /// Handle to the debug server for clean shutdown
@@ -3116,6 +3150,7 @@ impl AssertionResult {
 /// | `assert_css`         | `selector`, `property`, `expected`           |
 /// | `assert_app_state`   | `path`, `expected`                           |
 /// | `assert_scroll`      | `selector`, `x?`, `y?`, `tolerance?`         |
+/// | `assert_screenshot`  | `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -3138,6 +3173,7 @@ pub fn evaluate_assertion(
         "assert_css" => eval_assert_css(params, callback_info),
         "assert_app_state" => eval_assert_app_state(params, app_data),
         "assert_scroll" => eval_assert_scroll(params, callback_info),
+        "assert_screenshot" => eval_assert_screenshot(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -3581,6 +3617,285 @@ fn eval_assert_scroll(
     ))
 }
 
+/// `assert_screenshot`: compare current CPU-rendered frame against a reference PNG.
+///
+/// Parameters:
+/// - `reference` (required): path to reference PNG file
+/// - `threshold` (optional, default 2): per-channel tolerance (0=exact, 2=anti-alias)
+/// - `max_diff_ratio` (optional, default 0.0): max fraction of pixels allowed to differ
+/// - `save_actual` (optional): path to save the actual screenshot for debugging
+#[cfg(feature = "std")]
+fn eval_assert_screenshot(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    #[cfg(not(feature = "cpurender"))]
+    {
+        return AssertionResult::fail("assert_screenshot: cpurender feature not enabled");
+    }
+
+    #[cfg(feature = "cpurender")]
+    {
+        let reference_path = match params.get("reference").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s,
+            _ => return AssertionResult::fail("assert_screenshot: missing 'reference' path"),
+        };
+        let threshold = params.get("threshold").and_then(|v| v.as_u64()).unwrap_or(2) as u8;
+        let max_diff_ratio = params.get("max_diff_ratio").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let save_actual = params.get("save_actual").and_then(|v| v.as_str());
+
+        // Take a screenshot of the current frame
+        let dom_id = azul_core::dom::DomId { inner: 0 };
+        let png_bytes = match callback_info.take_screenshot(dom_id) {
+            Ok(bytes) => bytes,
+            Err(e) => return AssertionResult::fail(
+                format!("assert_screenshot: screenshot failed: {}", e.as_str())
+            ),
+        };
+
+        // Decode the rendered screenshot
+        let rendered = match azul_layout::cpurender::AzulPixmap::decode_png(&png_bytes) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(
+                format!("assert_screenshot: decode rendered PNG failed: {}", e)
+            ),
+        };
+
+        // Save the actual screenshot if requested
+        if let Some(actual_path) = save_actual {
+            let _ = std::fs::write(actual_path, &png_bytes);
+        }
+
+        // Load and compare against reference
+        let ref_bytes = match std::fs::read(reference_path) {
+            Ok(b) => b,
+            Err(e) => {
+                // If reference doesn't exist, save the actual as baseline
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    if let Err(we) = std::fs::write(reference_path, &png_bytes) {
+                        return AssertionResult::fail(
+                            format!("assert_screenshot: reference not found and could not save baseline: {}", we)
+                        );
+                    }
+                    return AssertionResult::pass(format!(
+                        "assert_screenshot: baseline saved to {} ({}x{})",
+                        reference_path, rendered.width(), rendered.height()
+                    ));
+                }
+                return AssertionResult::fail(
+                    format!("assert_screenshot: cannot read reference {}: {}", reference_path, e)
+                );
+            }
+        };
+
+        let reference = match azul_layout::cpurender::AzulPixmap::decode_png(&ref_bytes) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(
+                format!("assert_screenshot: decode reference PNG failed: {}", e)
+            ),
+        };
+
+        let result = azul_layout::cpurender::pixel_diff(&reference, &rendered, threshold);
+
+        if !result.dimensions_match {
+            return AssertionResult::fail_with(
+                format!("assert_screenshot: dimension mismatch"),
+                format!("{}x{}", result.ref_width, result.ref_height),
+                format!("{}x{}", result.test_width, result.test_height),
+            );
+        }
+
+        let ratio = result.diff_ratio();
+        if ratio > max_diff_ratio {
+            return AssertionResult::fail_with(
+                format!(
+                    "assert_screenshot: {}/{} pixels differ (max_delta={})",
+                    result.diff_count, result.total_pixels, result.max_delta
+                ),
+                format!("diff_ratio <= {:.4}", max_diff_ratio),
+                format!("diff_ratio = {:.4}", ratio),
+            );
+        }
+
+        AssertionResult::pass(format!(
+            "assert_screenshot: match ({}x{}, {}/{} pixels differ, threshold={})",
+            rendered.width(), rendered.height(),
+            result.diff_count, result.total_pixels, threshold
+        ))
+    }
+}
+
+// ==================== E2E Continuation ====================
+
+/// Resume an E2E test run that was paused for relayout.
+///
+/// Re-enters the step loop from where the previous tick left off.
+/// Sends the final merged results through `cont.response_tx` when done,
+/// or saves a new continuation for the next tick if another yield is needed.
+#[cfg(feature = "std")]
+fn resume_e2e_continuation(
+    mut cont: E2eContinuation,
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+) -> bool {
+    let mut needs_update = false;
+    let mut app_data = cont.app_data.clone();
+
+    // Continue from cont.test_idx / cont.step_idx
+    let total_tests = cont.tests.len();
+    while cont.test_idx < total_tests {
+        let test = &cont.tests[cont.test_idx];
+        let continue_on_failure = test.config.continue_on_failure;
+
+        // Start new test if step_idx == 0
+        if cont.step_idx == 0 {
+            cont.current_step_results.clear();
+            cont.current_test_failed = false;
+            cont.test_start = std::time::Instant::now();
+        }
+
+        while cont.step_idx < test.steps.len() {
+            let step = &test.steps[cont.step_idx];
+            let step_index = cont.step_idx;
+            let step_start = std::time::Instant::now();
+            let op = step.op.as_str();
+
+            // Assertion steps
+            if op.starts_with("assert_") {
+                let result = evaluate_assertion(op, &step.params, callback_info, &app_data);
+                if result.passed {
+                    cont.current_step_results.push(E2eStepResult {
+                        step_index, op: op.to_string(), status: "pass".into(),
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        logs: vec![result.message], screenshot: None, error: None, response: None,
+                    });
+                } else {
+                    cont.current_test_failed = true;
+                    let error_msg = if let (Some(ref exp), Some(ref act)) = (&result.expected, &result.actual) {
+                        format!("{}: expected {}, got {}", result.message, exp, act)
+                    } else { result.message.clone() };
+                    cont.current_step_results.push(E2eStepResult {
+                        step_index, op: op.to_string(), status: "fail".into(),
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        logs: vec![], screenshot: None, error: Some(error_msg), response: None,
+                    });
+                }
+            } else {
+                // Regular debug command
+                let mut cmd = serde_json::Map::new();
+                cmd.insert("op".to_string(), serde_json::Value::String(op.to_string()));
+                if let serde_json::Value::Object(map) = &step.params {
+                    for (k, v) in map {
+                        if k != "op" && k != "screenshot" {
+                            cmd.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+                let cmd_json = serde_json::Value::Object(cmd);
+                match serde_json::from_value::<DebugEvent>(cmd_json) {
+                    Ok(debug_event) => {
+                        let (step_tx, step_rx) = mpsc::channel();
+                        let step_request = DebugRequest {
+                            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                            event: debug_event,
+                            window_id: cont.window_id.clone(),
+                            wait_for_render: false,
+                            response_tx: step_tx,
+                        };
+                        let step_needs_update = process_debug_event(
+                            &step_request, callback_info, &mut app_data, &cont.component_map,
+                        );
+                        if step_needs_update {
+                            needs_update = true;
+                            if callback_info.has_pending_relayout_change() {
+                                // Yield: save progress and return
+                                cont.current_step_results.push(E2eStepResult {
+                                    step_index, op: op.to_string(), status: "pass".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![format!("Executed: {} (yield for relayout)", op)],
+                                    screenshot: None, error: None, response: None,
+                                });
+                                cont.step_idx = step_index + 1;
+                                cont.app_data = app_data;
+                                *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+                                return true;
+                            }
+                        }
+                        // Record result
+                        match step_rx.try_recv() {
+                            Ok(DebugResponseData::Ok { data, .. }) => {
+                                cont.current_step_results.push(E2eStepResult {
+                                    step_index, op: op.to_string(), status: "pass".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![format!("Executed: {}", op)], screenshot: None,
+                                    error: None, response: data.as_ref().and_then(|d| serde_json::to_value(d).ok()),
+                                });
+                            }
+                            Ok(DebugResponseData::Err(msg)) => {
+                                cont.current_test_failed = true;
+                                cont.current_step_results.push(E2eStepResult {
+                                    step_index, op: op.to_string(), status: "fail".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![], screenshot: None, error: Some(msg), response: None,
+                                });
+                            }
+                            Err(_) => {
+                                cont.current_step_results.push(E2eStepResult {
+                                    step_index, op: op.to_string(), status: "pass".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![format!("Executed (no response): {}", op)],
+                                    screenshot: None, error: None, response: None,
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        cont.current_test_failed = true;
+                        cont.current_step_results.push(E2eStepResult {
+                            step_index, op: op.to_string(), status: "fail".into(),
+                            duration_ms: step_start.elapsed().as_millis() as u64,
+                            logs: vec![], screenshot: None,
+                            error: Some(format!("Unknown op '{}': {}", op, e)), response: None,
+                        });
+                    }
+                }
+            }
+
+            cont.step_idx += 1;
+
+            if cont.current_test_failed && !continue_on_failure {
+                break;
+            }
+        }
+
+        // Finalize current test
+        let steps_passed = cont.current_step_results.iter().filter(|s| s.status == "pass").count();
+        let steps_failed = cont.current_step_results.iter().filter(|s| s.status == "fail").count();
+        cont.completed_results.push(E2eTestResult {
+            name: test.name.clone(),
+            status: if cont.current_test_failed { "fail" } else { "pass" }.into(),
+            duration_ms: cont.test_start.elapsed().as_millis() as u64,
+            step_count: test.steps.len(),
+            steps_passed,
+            steps_failed,
+            steps: std::mem::take(&mut cont.current_step_results),
+            final_screenshot: None,
+        });
+
+        cont.test_idx += 1;
+        cont.step_idx = 0;
+    }
+
+    // All tests done — send results
+    let _ = cont.response_tx.send(DebugResponseData::Ok {
+        window_state: None,
+        data: Some(ResponseData::E2eResults(E2eResultsResponse {
+            results: cont.completed_results,
+        })),
+    });
+
+    needs_update
+}
+
 // ==================== Timer Callback ====================
 
 /// Timer callback that processes debug requests.
@@ -3615,8 +3930,26 @@ pub extern "C" fn debug_timer_callback(
     let my_window_id = dtd.window_id.clone();
     drop(dtd);
 
-    // Drain all available requests from the SPMC channel
+    // Check for E2E continuation from a previous tick (resume after relayout)
     let mut needs_update = false;
+    let pending_continuation = E2E_CONTINUATION.lock().unwrap().take();
+    if let Some(continuation) = pending_continuation {
+        log(
+            LogLevel::Debug,
+            LogCategory::DebugServer,
+            format!("[E2E] Resuming continuation: test {}, step {}", continuation.test_idx, continuation.step_idx),
+            None,
+        );
+        // MutexGuard is dropped here — resume_e2e_continuation may re-lock
+        // E2E_CONTINUATION to save a new continuation if another yield is needed.
+        let result = resume_e2e_continuation(
+            continuation,
+            &mut timer_info.callback_info,
+        );
+        needs_update = needs_update || result;
+    }
+
+    // Drain all available requests from the SPMC channel
     let mut processed_count = 0;
 
     while let Ok(request) = request_rx.try_recv() {
@@ -3715,6 +4048,7 @@ fn build_clip_analysis(
                 clip_bounds,
                 content_size,
                 scroll_id,
+                ..
             } => {
                 scroll_depth += 1;
                 Some(ClipOperation {
@@ -8371,10 +8705,6 @@ fn process_debug_event(
         }
 
         DebugEvent::RunE2eTests { ref tests, ref snapshots } => {
-            let mut all_results = Vec::new();
-            let empty_snapshots = std::collections::HashMap::new();
-            let snap_map = snapshots.as_ref().unwrap_or(&empty_snapshots);
-
             log(
                 LogLevel::Info,
                 LogCategory::DebugServer,
@@ -8382,380 +8712,26 @@ fn process_debug_event(
                 None,
             );
 
-            for test in tests {
-                let test_start = std::time::Instant::now();
-                let mut step_results = Vec::new();
-                let mut test_failed = false;
-                let continue_on_failure = test.config.continue_on_failure;
-                let delay_ms = test.config.delay_between_steps_ms;
-
-                log(
-                    LogLevel::Info,
-                    LogCategory::DebugServer,
-                    format!("[E2E] === Test '{}' ({} steps, continue_on_failure={}) ===", test.name, test.steps.len(), continue_on_failure),
-                    None,
-                );
-
-                // Apply E2eSetup.app_state before any steps (if provided)
-                if let Some(ref setup) = test.setup {
-                    if let Some(ref initial_state) = setup.app_state {
-                        log(
-                            LogLevel::Debug,
-                            LogCategory::DebugServer,
-                            format!("[E2E] Applying setup.app_state for test '{}'", test.name),
-                            None,
-                        );
-                        let set_state_event = DebugEvent::SetAppState {
-                            state: initial_state.clone(),
-                        };
-                        let (setup_tx, _setup_rx) = mpsc::channel();
-                        let setup_request = DebugRequest {
-                            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
-                            event: set_state_event,
-                            window_id: request.window_id.clone(),
-                            wait_for_render: false,
-                            response_tx: setup_tx,
-                        };
-                        let setup_update = process_debug_event(
-                            &setup_request,
-                            callback_info,
-                            app_data,
-                            component_map,
-                        );
-                        if setup_update { needs_update = true; }
-                    }
-                }
-
-                for (step_index, step) in test.steps.iter().enumerate() {
-
-                    // Delay between steps (for visual inspection)
-                    if step_index > 0 && delay_ms > 0 {
-                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                    }
-
-                    let step_start = std::time::Instant::now();
-                    let op = step.op.as_str();
-
-                    log(
-                        LogLevel::Debug,
-                        LogCategory::DebugServer,
-                        format!("[E2E]   step[{}]: op='{}', params={}", step_index, op, step.params),
-                        None,
-                    );
-
-                    // Check if this is an assertion step
-                    if op.starts_with("assert_") {
-                        let result = evaluate_assertion(op, &step.params, callback_info, app_data);
-                        if result.passed {
-                            step_results.push(E2eStepResult {
-                                step_index,
-                                op: op.to_string(),
-                                status: "pass".into(),
-                                duration_ms: step_start.elapsed().as_millis() as u64,
-                                logs: vec![result.message],
-                                screenshot: None,
-                                error: None,
-                                response: None,
-                            });
-                        } else {
-                            test_failed = true;
-                            let error_msg = if let (Some(ref exp), Some(ref act)) = (&result.expected, &result.actual) {
-                                format!("{}: expected {}, got {}", result.message, exp, act)
-                            } else {
-                                result.message.clone()
-                            };
-                            step_results.push(E2eStepResult {
-                                step_index,
-                                op: op.to_string(),
-                                status: "fail".into(),
-                                duration_ms: step_start.elapsed().as_millis() as u64,
-                                logs: vec![],
-                                screenshot: None,
-                                error: Some(error_msg),
-                                response: None,
-                            });
-                        }
-                    } else if op == "restore_snapshot" {
-                        // Look up snapshot alias from the snapshots map
-                        let alias = step.params.get("alias")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        if let Some(state_json) = snap_map.get(alias) {
-                            // Execute set_app_state with the snapshot data
-                            let set_event = DebugEvent::SetAppState {
-                                state: state_json.clone(),
-                            };
-                            let (snap_tx, snap_rx) = mpsc::channel();
-                            let snap_req = DebugRequest {
-                                request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
-                                event: set_event,
-                                window_id: request.window_id.clone(),
-                                wait_for_render: false,
-                                response_tx: snap_tx,
-                            };
-                            let snap_update = process_debug_event(
-                                &snap_req,
-                                callback_info,
-                                app_data,
-                                component_map,
-                            );
-                            if snap_update { needs_update = true; }
-                            match snap_rx.try_recv() {
-                                Ok(DebugResponseData::Ok { .. }) => {
-                                    step_results.push(E2eStepResult {
-                                        step_index,
-                                        op: op.to_string(),
-                                        status: "pass".into(),
-                                        duration_ms: step_start.elapsed().as_millis() as u64,
-                                        logs: vec![format!("Restored snapshot '{}'", alias)],
-                                        screenshot: None,
-                                        error: None,
-                                        response: None,
-                                    });
-                                }
-                                Ok(DebugResponseData::Err(msg)) => {
-                                    test_failed = true;
-                                    step_results.push(E2eStepResult {
-                                        step_index,
-                                        op: op.to_string(),
-                                        status: "fail".into(),
-                                        duration_ms: step_start.elapsed().as_millis() as u64,
-                                        logs: vec![],
-                                        screenshot: None,
-                                        error: Some(format!("restore_snapshot '{}' failed: {}", alias, msg)),
-                                        response: None,
-                                    });
-                                }
-                                Err(_) => {
-                                    step_results.push(E2eStepResult {
-                                        step_index,
-                                        op: op.to_string(),
-                                        status: "pass".into(),
-                                        duration_ms: step_start.elapsed().as_millis() as u64,
-                                        logs: vec![format!("Restored snapshot '{}' (no response)", alias)],
-                                        screenshot: None,
-                                        error: None,
-                                        response: None,
-                                    });
-                                }
-                            }
-                        } else {
-                            test_failed = true;
-                            step_results.push(E2eStepResult {
-                                step_index,
-                                op: op.to_string(),
-                                status: "fail".into(),
-                                duration_ms: step_start.elapsed().as_millis() as u64,
-                                logs: vec![],
-                                screenshot: None,
-                                error: Some(format!("Snapshot '{}' not found in snapshots map", alias)),
-                                response: None,
-                            });
-                        }
-                    } else {
-                        // Regular debug command — try to parse as DebugEvent and execute
-                        // Build a JSON object with "op" + flattened params
-                        let mut cmd = serde_json::Map::new();
-                        cmd.insert("op".to_string(), serde_json::Value::String(op.to_string()));
-                        if let serde_json::Value::Object(map) = &step.params {
-                            for (k, v) in map {
-                                if k != "op" && k != "screenshot" {
-                                    cmd.insert(k.clone(), v.clone());
-                                }
-                            }
-                        }
-
-                        let cmd_json = serde_json::Value::Object(cmd);
-                        match serde_json::from_value::<DebugEvent>(cmd_json.clone()) {
-                            Ok(debug_event) => {
-                                // Create a temporary request to execute this step
-                                let (step_tx, step_rx) = mpsc::channel();
-                                let step_request = DebugRequest {
-                                    request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
-                                    event: debug_event,
-                                    window_id: request.window_id.clone(),
-                                    wait_for_render: false,
-                                    response_tx: step_tx,
-                                };
-
-                                // Execute the step by recursively calling process_debug_event
-                                let step_needs_update = process_debug_event(
-                                    &step_request,
-                                    callback_info,
-                                    app_data,
-                                    component_map,
-                                );
-                                if step_needs_update {
-                                    needs_update = true;
-                                }
-
-                                // Collect the result
-                                match step_rx.try_recv() {
-                                    Ok(DebugResponseData::Ok { data, .. }) => {
-                                        let response_json = data.as_ref().and_then(|d| {
-                                            serde_json::to_value(d).ok()
-                                        });
-
-                                        // Check for semantic failures in the response:
-                                        // Some commands return status "ok" but contain
-                                        // success: false, found: false, or passed: false
-                                        // inside data.value — these should fail the step.
-                                        let semantic_failure = response_json.as_ref().and_then(|rj| {
-                                            rj.get("value")
-                                        }).and_then(|val| {
-                                            if val.get("success") == Some(&serde_json::Value::Bool(false)) {
-                                                Some(val.get("message")
-                                                    .or_else(|| val.get("error").and_then(|e| e.get("message")))
-                                                    .and_then(|m| m.as_str())
-                                                    .unwrap_or("success: false")
-                                                    .to_string())
-                                            } else if val.get("found") == Some(&serde_json::Value::Bool(false)) {
-                                                Some(val.get("message")
-                                                    .and_then(|m| m.as_str())
-                                                    .unwrap_or("found: false")
-                                                    .to_string())
-                                            } else if val.get("passed") == Some(&serde_json::Value::Bool(false)) {
-                                                Some(val.get("message")
-                                                    .and_then(|m| m.as_str())
-                                                    .unwrap_or("passed: false")
-                                                    .to_string())
-                                            } else {
-                                                None
-                                            }
-                                        });
-
-                                        if let Some(error_msg) = semantic_failure {
-                                            test_failed = true;
-                                            step_results.push(E2eStepResult {
-                                                step_index,
-                                                op: op.to_string(),
-                                                status: "fail".into(),
-                                                duration_ms: step_start.elapsed().as_millis() as u64,
-                                                logs: vec![],
-                                                screenshot: None,
-                                                error: Some(error_msg),
-                                                response: response_json,
-                                            });
-                                        } else {
-                                            step_results.push(E2eStepResult {
-                                                step_index,
-                                                op: op.to_string(),
-                                                status: "pass".into(),
-                                                duration_ms: step_start.elapsed().as_millis() as u64,
-                                                logs: vec![format!("Executed: {}", op)],
-                                                screenshot: None,
-                                                error: None,
-                                                response: response_json,
-                                            });
-                                        }
-                                    }
-                                    Ok(DebugResponseData::Err(msg)) => {
-                                        test_failed = true;
-                                        step_results.push(E2eStepResult {
-                                            step_index,
-                                            op: op.to_string(),
-                                            status: "fail".into(),
-                                            duration_ms: step_start.elapsed().as_millis() as u64,
-                                            logs: vec![],
-                                            screenshot: None,
-                                            error: Some(msg),
-                                            response: None,
-                                        });
-                                    }
-                                    Err(_) => {
-                                        // No response received — step executed but didn't send response
-                                        step_results.push(E2eStepResult {
-                                            step_index,
-                                            op: op.to_string(),
-                                            status: "pass".into(),
-                                            duration_ms: step_start.elapsed().as_millis() as u64,
-                                            logs: vec![format!("Executed (no response): {}", op)],
-                                            screenshot: None,
-                                            error: None,
-                                            response: None,
-                                        });
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                test_failed = true;
-                                step_results.push(E2eStepResult {
-                                    step_index,
-                                    op: op.to_string(),
-                                    status: "fail".into(),
-                                    duration_ms: step_start.elapsed().as_millis() as u64,
-                                    logs: vec![],
-                                    screenshot: None,
-                                    error: Some(format!("Unknown op '{}': {}", op, e)),
-                                    response: None,
-                                });
-                            }
-                        }
-                    }
-
-                    // Log step result
-                    if let Some(last) = step_results.last() {
-                        log(
-                            LogLevel::Debug,
-                            LogCategory::DebugServer,
-                            format!("[E2E]   step[{}] => {} ({} ms){}",
-                                step_index,
-                                last.status,
-                                last.duration_ms,
-                                last.error.as_ref().map(|e| format!(": {}", e)).unwrap_or_default(),
-                            ),
-                            None,
-                        );
-                    }
-
-                    // Stop executing further steps if a step failed (unless continue_on_failure)
-                    if test_failed && !continue_on_failure {
-                        log(
-                            LogLevel::Debug,
-                            LogCategory::DebugServer,
-                            format!("[E2E]   stopping test '{}' early (continue_on_failure=false)", test.name),
-                            None,
-                        );
-                        break;
-                    }
-                }
-
-                let steps_passed = step_results.iter().filter(|s| s.status == "pass").count();
-                let steps_failed = step_results.iter().filter(|s| s.status == "fail").count();
-                let duration = test_start.elapsed().as_millis();
-
-                log(
-                    LogLevel::Info,
-                    LogCategory::DebugServer,
-                    format!("[E2E] === Test '{}' {} ({} ms, {}/{} passed) ===",
-                        test.name,
-                        if test_failed { "FAILED" } else { "PASSED" },
-                        duration,
-                        steps_passed,
-                        test.steps.len(),
-                    ),
-                    None,
-                );
-
-                all_results.push(E2eTestResult {
-                    name: test.name.clone(),
-                    status: if test_failed { "fail" } else { "pass" }.into(),
-                    duration_ms: duration as u64,
-                    step_count: test.steps.len(),
-                    steps_passed,
-                    steps_failed,
-                    steps: step_results,
-                    final_screenshot: None, // TODO: CpuRender screenshot
-                });
-            }
-
-            send_ok(
-                request,
-                None,
-                Some(ResponseData::E2eResults(E2eResultsResponse {
-                    results: all_results,
-                })),
-            );
+            // Delegate to resume_e2e_continuation with initial state.
+            // This handles both straight-through execution and yield/resume
+            // when a step (like resize) needs a relayout between steps.
+            let cont = E2eContinuation {
+                response_tx: request.response_tx.clone(),
+                window_id: request.window_id.clone(),
+                tests: tests.clone(),
+                snapshots: snapshots.clone(),
+                test_idx: 0,
+                step_idx: 0,
+                completed_results: Vec::new(),
+                current_step_results: Vec::new(),
+                current_test_failed: false,
+                test_start: std::time::Instant::now(),
+                component_map: component_map.clone(),
+                app_data: app_data.clone(),
+            };
+            let result = resume_e2e_continuation(cont, callback_info);
+            if result { needs_update = true; }
+            // Don't send_ok — resume_e2e_continuation sends the response directly
         }
 
         // === DOM Mutation ===

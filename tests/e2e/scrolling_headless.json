@@ -1,0 +1,106 @@
+[
+  {
+    "name": "scrolling_initial_600x500",
+    "description": "Verify initial headless render at 600x500 matches reference",
+    "steps": [
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/01_initial_600x500.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_resize_800x600",
+    "description": "Resize to 800x600 and verify layout adapts",
+    "steps": [
+      { "op": "resize", "width": 800, "height": 600 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/02_resized_800x600.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_resize_400x300",
+    "description": "Resize to 400x300 compact layout",
+    "steps": [
+      { "op": "resize", "width": 400, "height": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/03_resized_400x300.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_resize_back_600x500",
+    "description": "Resize back to original",
+    "steps": [
+      { "op": "resize", "width": 600, "height": 500 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/04_back_600x500.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_resize_1024x768",
+    "description": "Resize to 1024x768 large view",
+    "steps": [
+      { "op": "resize", "width": 1024, "height": 768 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/05_resize_1024x768.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_scroll_down_200",
+    "description": "Scroll down 200px and verify content moves",
+    "steps": [
+      { "op": "resize", "width": 600, "height": 500 },
+      { "op": "scroll_node_by", "node_id": 3, "delta_x": 0, "delta_y": 200 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/06_scrolled_down_200.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_scroll_down_500",
+    "description": "Scroll down further to 500px total",
+    "steps": [
+      { "op": "scroll_node_by", "node_id": 3, "delta_x": 0, "delta_y": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/07_scrolled_down_500.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  },
+  {
+    "name": "scrolling_scroll_back_up",
+    "description": "Scroll back up to 100px",
+    "steps": [
+      { "op": "scroll_node_by", "node_id": 3, "delta_x": 0, "delta_y": -400 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/scrolling_headless/08_scrolled_back_100.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02
+      }
+    ]
+  }
+]

@@ -41,12 +41,10 @@ use crate::{log_debug, log_error, log_info, log_trace};
 use super::macos::MacOSWindow;
 use super::WindowError;
 
-/// Check if headless mode is requested via environment variable.
-fn is_headless() -> bool {
-    matches!(
-        std::env::var("AZUL_HEADLESS").as_deref(),
-        Ok("1") | Ok("true") | Ok("yes")
-    )
+/// Resolve the rendering backend from env vars and config.
+fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
+    let hw_accel = options.renderer.as_option().map(|r| r.hw_accel);
+    super::AzBackend::resolve(hw_accel)
 }
 
 /// Check if E2E test runner mode is requested via environment variable.
@@ -175,13 +173,13 @@ fn setup_e2e_runner(test_file: &str) {
         .expect("failed to spawn e2e-result-printer thread");
 }
 
-/// Create a `StubWindow` and run its blocking event loop.
+/// Create a `HeadlessWindow` and run its blocking event loop.
 ///
-/// Called from each platform's `run()` when `AZUL_HEADLESS` is set.
+/// Called when `AZ_BACKEND=headless` (or legacy `AZUL_HEADLESS=1`).
 /// The loop blocks on a condvar (zero CPU when idle) and behaves
 /// identically to a real platform window — layout, callbacks, timers
 /// all work — but without a GPU context or native window handle.
-fn run_stub(
+fn run_headless(
     app_data: RefAny,
     mut config: AppConfig,
     fc_cache: Arc<FcFontCache>,
@@ -192,7 +190,7 @@ fn run_stub(
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
     use azul_core::icon::SharedIconProvider;
-    use super::stub::StubWindow;
+    use super::headless::HeadlessWindow;
 
     log_info!(
         LogCategory::EventLoop,
@@ -204,7 +202,7 @@ fn run_stub(
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let mut window = StubWindow::new(root_window, app_data_arc, config, shared_icon_provider, fc_cache, font_registry)?;
+    let mut window = HeadlessWindow::new(root_window, app_data_arc, config, shared_icon_provider, fc_cache, font_registry)?;
 
     // Register debug timer if debug/E2E is active
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
@@ -271,9 +269,12 @@ pub fn run(
         setup_e2e_runner(test_file);
     }
 
-    // Check for headless mode BEFORE any platform-specific initialization
-    if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+    // Resolve rendering backend from AZ_BACKEND env / config
+    let backend = resolve_backend(&root_window);
+
+    // Headless mode — no native window, CPU rendering only
+    if backend == super::AzBackend::Headless {
+        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -615,8 +616,8 @@ pub fn run(
     if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
-    if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+    if resolve_backend(&root_window) == super::AzBackend::Headless {
+        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     unsafe {
         INITIAL_OPTIONS = Some((app_data, config, fc_cache, font_registry, root_window));
@@ -654,8 +655,8 @@ pub fn run(
     if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
-    if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+    if resolve_backend(&root_window) == super::AzBackend::Headless {
+        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     use std::cell::RefCell;
@@ -939,8 +940,8 @@ pub fn run(
     if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
-    if is_headless() {
-        return run_stub(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+    if resolve_backend(&root_window) == super::AzBackend::Headless {
+        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 

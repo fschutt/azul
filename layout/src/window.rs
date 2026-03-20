@@ -437,6 +437,7 @@ impl LayoutWindow {
                 counters: HashMap::new(),
                 float_cache: HashMap::new(),
                 cache_map: Default::default(),
+                previous_positions: Vec::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -504,6 +505,7 @@ impl LayoutWindow {
                 counters: HashMap::new(),
                 float_cache: HashMap::new(),
                 cache_map: Default::default(),
+                previous_positions: Vec::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::from_arc_shared(fc_cache, parsed_fonts)?,
@@ -578,6 +580,7 @@ impl LayoutWindow {
                 counters: HashMap::new(),
                 float_cache: HashMap::new(),
                 cache_map: Default::default(),
+                previous_positions: Vec::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -1049,6 +1052,10 @@ impl LayoutWindow {
             },
         );
 
+        // Clear scroll dirty flag — the new display list has
+        // up-to-date scroll offsets embedded in PushScrollFrame items.
+        self.scroll_manager.clear_scroll_dirty();
+
         Ok(())
     }
 
@@ -1126,6 +1133,7 @@ impl LayoutWindow {
             counters: HashMap::new(),
             float_cache: HashMap::new(),
             cache_map: Default::default(),
+            previous_positions: Vec::new(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();

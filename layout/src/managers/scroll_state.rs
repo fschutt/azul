@@ -302,6 +302,10 @@ pub struct ScrollManager {
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
+    /// Set when a scroll position changes; cleared after the display list
+    /// is regenerated.  Used by the CPU renderer path to detect when the
+    /// display list must be rebuilt even though the DOM hasn't changed.
+    scroll_dirty: bool,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -394,6 +398,43 @@ impl ScrollManager {
     /// Creates a new empty ScrollManager
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns `true` if any scroll position changed since the last
+    /// `clear_scroll_dirty()` call.
+    pub fn has_pending_scroll_changes(&self) -> bool {
+        self.scroll_dirty
+    }
+
+    /// Clear the dirty flag after the display list has been regenerated.
+    pub fn clear_scroll_dirty(&mut self) {
+        self.scroll_dirty = false;
+    }
+
+    /// Build a map from scroll_id (LocalScrollId) to current scroll offset.
+    ///
+    /// Used by the CPU renderer to look up scroll positions at render time
+    /// without embedding them in the display list.
+    ///
+    /// `scroll_ids` maps layout-tree node index → scroll_id. We need to
+    /// convert our (DomId, NodeId) keys to scroll_ids.
+    pub fn build_scroll_offset_map(
+        &self,
+        dom_id: DomId,
+        scroll_ids: &std::collections::HashMap<usize, u64>,
+    ) -> std::collections::HashMap<u64, (f32, f32)> {
+        let mut map = std::collections::HashMap::new();
+        for ((d, node_id), state) in &self.states {
+            if *d != dom_id { continue; }
+            // Find the scroll_id for this node_id by searching scroll_ids
+            // (scroll_ids maps layout_index → scroll_id, and node_id.index() == layout_index
+            // for the root DOM)
+            let node_idx = node_id.index();
+            if let Some(&scroll_id) = scroll_ids.get(&node_idx) {
+                map.insert(scroll_id, (state.current_offset.x, state.current_offset.y));
+            }
+        }
+        map
     }
 
     // ========================================================================
@@ -542,7 +583,13 @@ impl ScrollManager {
             .states
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
-        state.current_offset = state.clamp(position);
+        let clamped = state.clamp(position);
+        if (clamped.x - state.current_offset.x).abs() > 0.01
+            || (clamped.y - state.current_offset.y).abs() > 0.01
+        {
+            self.scroll_dirty = true;
+        }
+        state.current_offset = clamped;
         state.animation = None;
         state.last_activity = now;
     }
@@ -562,6 +609,11 @@ impl ScrollManager {
             .states
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
+        if (position.x - state.current_offset.x).abs() > 0.01
+            || (position.y - state.current_offset.y).abs() > 0.01
+        {
+            self.scroll_dirty = true;
+        }
         state.current_offset = position;
         state.animation = None;
         state.last_activity = now;

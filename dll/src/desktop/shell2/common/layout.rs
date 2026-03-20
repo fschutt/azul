@@ -308,6 +308,7 @@ pub fn regenerate_layout(
         (old_dims.width - new_dims.width).abs() > 0.5
             || (old_dims.height - new_dims.height).abs() > 0.5
     };
+
     if !window_size_changed {
     if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
         if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
@@ -394,6 +395,12 @@ pub fn regenerate_layout(
             debug_messages,
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
+
+    // CRITICAL: Update layout_window's cached window state so the next
+    // regenerate_layout correctly detects size changes.  Without this,
+    // resizing back to the original dimensions would be a no-op because
+    // the stale layout_window.current_window_state still held the old size.
+    layout_window.current_window_state = current_window_state.clone();
 
     log_debug!(
         LogCategory::Layout,

@@ -1,4 +1,4 @@
-//! Stub/headless backend for testing and CPU-only rendering.
+//! Headless backend for testing and CPU-only rendering (`AZ_BACKEND=headless`).
 //!
 //! This backend implements the full `PlatformWindow` trait without
 //! GPU / OpenGL. It behaves like a real platform window — DOM is laid out,
@@ -20,7 +20,7 @@
 //!
 //! ## Headless Event Loop
 //!
-//! `StubWindow::run()` blocks in an infinite loop just like every other
+//! `HeadlessWindow::run()` blocks in an infinite loop just like every other
 //! platform's `run()`. Instead of busy-waiting or `thread::sleep`, it
 //! blocks on a **`Condvar`** that is signalled when:
 //!
@@ -40,10 +40,10 @@
 //! ## Architecture
 //!
 //! ```text
-//! StubWindow
+//! HeadlessWindow
 //! ├── common: CommonWindowState        (shared with all platforms)
 //! ├── cpu_backend: CpuBackend          (replaces WebRender)
-//! ├── event_queue: VecDeque<StubEvent> (programmatic event injection)
+//! ├── event_queue: VecDeque<HeadlessEvent> (programmatic event injection)
 //! └── pending_window_creates: Vec      (popup/dialog queue)
 //! ```
 
@@ -78,10 +78,10 @@ use crate::desktop::shell2::common::{
 };
 use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
-/// Events that can be injected into a StubWindow for testing or
+/// Events that can be injected into a HeadlessWindow for testing or
 /// via the debug server.
 #[derive(Debug, Clone)]
-pub enum StubEvent {
+pub enum HeadlessEvent {
     /// Simulate window close
     Close,
     /// Simulate mouse move to position
@@ -121,9 +121,9 @@ pub enum StubEvent {
 /// | `AsyncHitTester`       | `CpuHitTester` (layout-based)               |
 /// | `swapBuffers`          | no-op (or write PNG for screenshots)        |
 ///
-/// The backend is intentionally less efficient than WebRender; the target
-/// are small CPU-rendered windows (Linux menu bars, tooltip popups) and
-/// headless E2E testing.
+/// The backend holds a retained-mode `CompositorState` for efficient
+/// incremental re-rendering.  On resize, only the root layer pixbuf is
+/// reallocated; scroll and damage use pixel-shift / partial re-render.
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: azul_layout::headless::CpuHitTester,
@@ -131,6 +131,12 @@ pub struct CpuBackend {
     /// `None` when rendering is disabled (layout-only mode).
     #[cfg(feature = "cpurender")]
     pub last_frame: Option<azul_layout::cpurender::AzulPixmap>,
+    /// Retained compositor state with per-layer pixbufs.
+    #[cfg(feature = "cpurender")]
+    pub compositor: Option<azul_layout::cpurender::CompositorState>,
+    /// Glyph cache — persists across frames for text rendering.
+    #[cfg(feature = "cpurender")]
+    pub glyph_cache: azul_layout::glyph_cache::GlyphCache,
 }
 
 impl CpuBackend {
@@ -139,12 +145,88 @@ impl CpuBackend {
             hit_tester: azul_layout::headless::CpuHitTester::new(),
             #[cfg(feature = "cpurender")]
             last_frame: None,
+            #[cfg(feature = "cpurender")]
+            compositor: None,
+            #[cfg(feature = "cpurender")]
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
         }
+    }
+
+    /// Render the current display list into `last_frame`.
+    ///
+    /// Called after each layout pass.  Uses the retained `CompositorState`
+    /// for efficient incremental rendering when only damage rects changed.
+    #[cfg(feature = "cpurender")]
+    pub fn render_frame(
+        &mut self,
+        layout_window: &azul_layout::window::LayoutWindow,
+        renderer_resources: &azul_core::resources::RendererResources,
+        width: f32,
+        height: f32,
+        dpi_factor: f32,
+    ) {
+        use azul_core::dom::DomId;
+
+        // Get the display list from layout results
+        let dom_id = DomId { inner: 0 };
+        let display_list = match layout_window.layout_results.get(&dom_id) {
+            Some(result) => &result.display_list,
+            None => return,
+        };
+
+        let pixel_w = (width * dpi_factor).ceil() as u32;
+        let pixel_h = (height * dpi_factor).ceil() as u32;
+        if pixel_w == 0 || pixel_h == 0 {
+            return;
+        }
+
+        // Allocate or resize compositor
+        let compositor = self.compositor.get_or_insert_with(|| {
+            azul_layout::cpurender::CompositorState::new(pixel_w, pixel_h)
+        });
+
+        // Check if we need to resize the root layer
+        let root = compositor.layers.get(&compositor.root_layer);
+        let needs_resize = match root {
+            Some(layer) => {
+                layer.pixbuf.width() != pixel_w || layer.pixbuf.height() != pixel_h
+            }
+            None => true,
+        };
+
+        if needs_resize {
+            // Recreate compositor for new size
+            *compositor = azul_layout::cpurender::CompositorState::new(pixel_w, pixel_h);
+        }
+
+        // Allocate layers from display list
+        compositor.allocate_layers_from_display_list(display_list, dpi_factor);
+
+        // Render into layers
+        if let Err(e) = compositor.render_layers(
+            display_list,
+            dpi_factor,
+            renderer_resources,
+            Some(&layout_window.font_manager),
+            &mut self.glyph_cache,
+        ) {
+            eprintln!("[CpuBackend] render_layers error: {}", e);
+        }
+
+        // Composite layers into final output
+        let mut output = match azul_layout::cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+            Some(p) => p,
+            None => return,
+        };
+        output.fill(255, 255, 255, 255);
+        compositor.composite_frame(&mut output, dpi_factor);
+
+        self.last_frame = Some(output);
     }
 }
 
 // ---------------------------------------------------------------------------
-// StubWindow
+// HeadlessWindow
 // ---------------------------------------------------------------------------
 
 /// Shared wake-up state for the condvar-based event loop.
@@ -162,7 +244,7 @@ struct WakeState {
 /// Behaves identically to platform windows for layout, callbacks, and state
 /// management.  Instead of a GPU context it holds a [`CpuBackend`] for
 /// hit-testing and optional CPU rendering.
-pub struct StubWindow {
+pub struct HeadlessWindow {
     /// Common window state (layout, resources, etc.) — shared with all platforms.
     pub common: CommonWindowState,
     /// CPU rendering backend (replaces WebRender).
@@ -170,7 +252,7 @@ pub struct StubWindow {
     /// Whether the window is "open".
     is_open: bool,
     /// Event queue for programmatic event injection.
-    event_queue: VecDeque<StubEvent>,
+    event_queue: VecDeque<HeadlessEvent>,
     /// Timer storage (timer_id -> Timer).
     stub_timers: BTreeMap<usize, azul_layout::timer::Timer>,
     /// Thread poll timer running flag.
@@ -193,7 +275,7 @@ pub struct StubWindow {
 /// by the X11 backend.
 const TIMER_POLL_MS: u64 = 16;
 
-impl StubWindow {
+impl HeadlessWindow {
     /// Create a new headless window with the given options.
     ///
     /// This constructor mirrors the real platform window constructors:
@@ -229,10 +311,11 @@ impl StubWindow {
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: OptionGlContextPtr::None,
-                system_style: Arc::new(azul_css::system::SystemStyle::default()),
+                system_style: Arc::new(azul_css::system::SystemStyle::detect()),
                 app_data,
                 scrollbar_drag_state: None,
                 hit_tester: None,
+                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
                 last_hovered_node: None,
                 document_id: None,
                 id_namespace: None,
@@ -260,7 +343,7 @@ impl StubWindow {
     // === Lifecycle ===
 
     /// Poll the next event from the queue.
-    pub fn poll_event(&mut self) -> Option<StubEvent> {
+    pub fn poll_event(&mut self) -> Option<HeadlessEvent> {
         self.event_queue.pop_front()
     }
 
@@ -278,7 +361,7 @@ impl StubWindow {
 
     /// Regenerate layout and rebuild CPU hit-tester.
     ///
-    /// This is the StubWindow equivalent of `MacOSWindow::regenerate_layout()` /
+    /// This is the HeadlessWindow equivalent of `MacOSWindow::regenerate_layout()` /
     /// `WinWindow::regenerate_layout()` etc. It calls the shared
     /// `common::layout::regenerate_layout()` (which no longer requires WebRender
     /// types) and then rebuilds the `CpuHitTester` from the new layout results.
@@ -327,6 +410,24 @@ impl StubWindow {
             self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
         }
 
+        // CPU-render the frame (retained compositor handles efficient resize)
+        #[cfg(feature = "cpurender")]
+        {
+            let ws = &self.common.current_window_state;
+            let width = ws.size.dimensions.width;
+            let height = ws.size.dimensions.height;
+            let dpi = ws.size.dpi as f32 / 96.0;
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.render_frame(
+                    lw,
+                    &self.common.renderer_resources,
+                    width,
+                    height,
+                    dpi,
+                );
+            }
+        }
+
         // Mark that frame needs regeneration
         self.common.frame_needs_regeneration = true;
 
@@ -338,13 +439,13 @@ impl StubWindow {
     /// Inject an event into the queue for the next poll cycle.
     ///
     /// Wakes the blocking event loop if it is sleeping on the condvar.
-    pub fn inject_event(&mut self, event: StubEvent) {
+    pub fn inject_event(&mut self, event: HeadlessEvent) {
         self.event_queue.push_back(event);
         self.wake();
     }
 
     /// Inject multiple events at once.
-    pub fn inject_events(&mut self, events: impl IntoIterator<Item = StubEvent>) {
+    pub fn inject_events(&mut self, events: impl IntoIterator<Item = HeadlessEvent>) {
         self.event_queue.extend(events);
         self.wake();
     }
@@ -371,7 +472,7 @@ impl StubWindow {
 
     /// Run the headless event loop — **blocks** until the window closes.
     ///
-    /// This is the StubWindow equivalent of `NSApplication.run()` / the
+    /// This is the HeadlessWindow equivalent of `NSApplication.run()` / the
     /// Win32 `GetMessage` loop / the X11 `XNextEvent` loop.
     ///
     /// The loop uses a `Condvar` for zero-CPU blocking:
@@ -390,32 +491,32 @@ impl StubWindow {
 
         log_info!(
             LogCategory::EventLoop,
-            "[Stub] Entering condvar-based blocking event loop (debug={})",
+            "[Headless] Entering condvar-based blocking event loop (debug={})",
             debug_enabled,
         );
 
         // -- Perform initial layout (same as every platform) --
         log_debug!(
             LogCategory::Layout,
-            "[Stub] Performing initial layout"
+            "[Headless] Performing initial layout"
         );
         if let Err(e) = self.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
-                "[Stub] WARNING: Initial layout failed: {}",
+                "[Headless] WARNING: Initial layout failed: {}",
                 e
             );
         }
 
-        // -- child windows (sub-StubWindows for menus, dialogs) --
-        let mut children: Vec<StubWindow> = Vec::new();
+        // -- child windows (sub-HeadlessWindows for menus, dialogs) --
+        let mut children: Vec<HeadlessWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
 
         while self.is_open() {
             // ── Phase 1: Process injected events ─────────────────
             while let Some(event) = self.poll_event() {
                 match event {
-                    StubEvent::Close => {
+                    HeadlessEvent::Close => {
                         self.close();
                     }
                     // TODO: wire mouse/keyboard events into
@@ -428,27 +529,30 @@ impl StubWindow {
             // ── Phase 2: Tick timers and threads ─────────────────
             // Use the shared PlatformWindow trait method to invoke
             // expired timer callbacks and poll background threads.
-            let needs_relayout = self.process_timers_and_threads();
+            let needs_redraw = self.process_timers_and_threads();
 
-            // If timer/thread callbacks requested a DOM refresh, re-layout
-            if needs_relayout {
+            // In the CPU-only path there is no GPU compositor that can
+            // handle scroll-offset-only or repaint-only updates.  Every
+            // visual change (including scroll) requires a full display
+            // list rebuild, so we regenerate layout on any redraw signal.
+            if needs_redraw {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
                         LogCategory::Layout,
-                        "[Stub] Layout regeneration failed: {}",
+                        "[Headless] Layout regeneration failed: {}",
                         e
                     );
                 }
             }
 
-            // ── Phase 3: Spawn sub-StubWindows for pending creates ─
+            // ── Phase 3: Spawn sub-HeadlessWindows for pending creates ─
             while let Some(pending_create) = self.pending_window_creates.pop() {
                 log_debug!(
                     LogCategory::Window,
-                    "[Stub] Spawning sub-StubWindow (type: {:?})",
+                    "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
                     pending_create.window_state.flags.window_type
                 );
-                match StubWindow::new(
+                match HeadlessWindow::new(
                     pending_create,
                     self.common.app_data.clone(),
                     self.config.clone(),
@@ -460,7 +564,7 @@ impl StubWindow {
                     Err(e) => {
                         log_error!(
                             LogCategory::Window,
-                            "[Stub] Failed to create sub-StubWindow: {:?}",
+                            "[Headless] Failed to create sub-HeadlessWindow: {:?}",
                             e
                         );
                     }
@@ -471,7 +575,7 @@ impl StubWindow {
             children.retain_mut(|child| {
                 while let Some(ev) = child.poll_event() {
                     match ev {
-                        StubEvent::Close => { child.close(); }
+                        HeadlessEvent::Close => { child.close(); }
                         _ => {}
                     }
                 }
@@ -489,7 +593,7 @@ impl StubWindow {
             if !has_wake_sources && !warned_no_wake_sources {
                 warned_no_wake_sources = true;
                 eprintln!(
-                    "[azul] StubWindow: no timers, threads, or debug server active. \
+                    "[azul] HeadlessWindow: no timers, threads, or debug server active. \
                      The event loop will block indefinitely on a condvar \
                      (same as a desktop window nobody interacts with). \
                      Set AZUL_DEBUG=1 to enable the debug server, or \
@@ -519,7 +623,7 @@ impl StubWindow {
 
         log_info!(
             LogCategory::EventLoop,
-            "[Stub] Event loop finished (elapsed: {:.1}s)",
+            "[Headless] Event loop finished (elapsed: {:.1}s)",
             start.elapsed().as_secs_f64()
         );
 
@@ -538,7 +642,7 @@ impl StubWindow {
 
 // === PlatformWindow Trait Implementation ===
 
-impl PlatformWindow for StubWindow {
+impl PlatformWindow for HeadlessWindow {
     // 28 getter/setter methods generated by macro — identical to all other platforms
     impl_platform_window_getters!(common);
 
@@ -632,7 +736,7 @@ impl PlatformWindow for StubWindow {
         _menu: &azul_core::menu::Menu,
         _position: LogicalPosition,
     ) {
-        // TODO: could create a sub-StubWindow with the menu content
+        // TODO: could create a sub-HeadlessWindow with the menu content
     }
 
     fn show_tooltip_from_callback(
@@ -660,12 +764,12 @@ impl PlatformWindow for StubWindow {
 mod tests {
     use super::*;
 
-    fn make_stub() -> StubWindow {
+    fn make_stub() -> HeadlessWindow {
         use azul_core::icon::{IconProviderHandle, SharedIconProvider};
         let fc_cache = Arc::new(FcFontCache::default());
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
         let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
-        StubWindow::new(
+        HeadlessWindow::new(
             WindowCreateOptions::default(),
             app_data,
             AppConfig::default(),
@@ -694,11 +798,11 @@ mod tests {
 
         assert!(window.poll_event().is_none());
 
-        window.inject_event(StubEvent::MouseMove { x: 100.0, y: 200.0 });
-        window.inject_event(StubEvent::Close);
+        window.inject_event(HeadlessEvent::MouseMove { x: 100.0, y: 200.0 });
+        window.inject_event(HeadlessEvent::Close);
 
-        assert!(matches!(window.poll_event(), Some(StubEvent::MouseMove { .. })));
-        assert!(matches!(window.poll_event(), Some(StubEvent::Close)));
+        assert!(matches!(window.poll_event(), Some(HeadlessEvent::MouseMove { .. })));
+        assert!(matches!(window.poll_event(), Some(HeadlessEvent::Close)));
         assert!(window.poll_event().is_none());
     }
 
