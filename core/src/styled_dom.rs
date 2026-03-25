@@ -827,22 +827,13 @@ impl StyledDom {
     // This is for memory optimization, so that the DOM does not need to be cloned.
     //
     // The CSS will be left in-place, but will be re-ordered
-    pub fn create(dom: &mut Dom, mut css: Css) -> Self {
+    pub fn create(dom: &mut Dom, css: Css) -> Self {
         use core::mem;
 
-        use crate::dom::EventFilter;
-
-        let t0 = std::time::Instant::now();
-
         let mut swap_dom = Dom::create_body();
-
         mem::swap(dom, &mut swap_dom);
 
         let compact_dom: CompactDom = swap_dom.into();
-        let non_leaf_nodes = compact_dom
-            .node_hierarchy
-            .as_ref()
-            .get_parents_sorted_by_depth();
         let node_hierarchy: NodeHierarchyItemVec = compact_dom
             .node_hierarchy
             .as_ref()
@@ -852,6 +843,76 @@ impl StyledDom {
             .collect::<Vec<NodeHierarchyItem>>()
             .into();
 
+        Self::create_from_compact_dom(compact_dom, css, node_hierarchy)
+    }
+
+    /// Creates a StyledDom from a `FastDom` (arena-based DOM).
+    ///
+    /// This skips the `convert_dom_into_compact_dom` tree→arena conversion
+    /// entirely since `FastDom` already has flat `NodeHierarchyItemVec` and
+    /// `NodeDataVec`. CSS is collected from `CssWithNodeIdVec`.
+    pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
+        use azul_css::css::Css;
+
+        // 1. Merge CSS from CssWithNodeIdVec into a single Css
+        //    (TODO: respect node_id scoping for sub-tree cascading)
+        let mut combined_stylesheets = Vec::new();
+        for css_with_id in fast_dom.css.into_library_owned_vec() {
+            for stylesheet in css_with_id.css.stylesheets.into_library_owned_vec() {
+                combined_stylesheets.push(stylesheet);
+            }
+        }
+        let combined_css = if combined_stylesheets.is_empty() {
+            Css::empty()
+        } else {
+            Css::new(combined_stylesheets)
+        };
+
+        // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>)
+        //    for cascade tree computation
+        let node_hierarchy_items = fast_dom.node_hierarchy;
+        let nodes: Vec<crate::id::Node> = node_hierarchy_items.as_ref()
+            .iter()
+            .map(|item| crate::id::Node {
+                parent: NodeId::from_usize(item.parent),
+                previous_sibling: NodeId::from_usize(item.previous_sibling),
+                next_sibling: NodeId::from_usize(item.next_sibling),
+                last_child: NodeId::from_usize(item.last_child),
+            })
+            .collect();
+        let node_hierarchy_internal = crate::id::NodeHierarchy { internal: nodes };
+
+        // 3. Build CompactDom from the flat arenas (no conversion needed)
+        let node_data_vec = fast_dom.node_data.into_library_owned_vec();
+        let compact_dom = CompactDom {
+            node_hierarchy: node_hierarchy_internal,
+            node_data: crate::id::NodeDataContainer { internal: node_data_vec },
+            root: NodeId::ZERO,
+        };
+
+        // 4. Delegate to create() which handles cascade, UA CSS, etc.
+        //    We need a mutable Dom to pass to create(), but we already have CompactDom.
+        //    Instead, inline the cascade logic from create() with our CompactDom.
+        Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items)
+    }
+
+    /// Internal: creates StyledDom from a CompactDom + CSS + pre-built hierarchy items.
+    /// Shared by both the Slow path (create → convert_dom_into_compact_dom → this)
+    /// and the Fast path (create_from_fast_dom → this).
+    fn create_from_compact_dom(
+        compact_dom: CompactDom,
+        mut css: Css,
+        node_hierarchy: NodeHierarchyItemVec,
+    ) -> Self {
+        use crate::dom::EventFilter;
+
+        let t0 = std::time::Instant::now();
+
+        let non_leaf_nodes = compact_dom
+            .node_hierarchy
+            .as_ref()
+            .get_parents_sorted_by_depth();
+
         let mut styled_nodes = vec![
             StyledNode {
                 styled_node_state: StyledNodeState::new()
@@ -859,17 +920,13 @@ impl StyledDom {
             compact_dom.len()
         ];
 
-        // fill out the css property cache: compute the inline properties first so that
-        // we can early-return in case the css is empty
-
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
 
-        let html_tree =
-            construct_html_cascade_tree(
-                &compact_dom.node_hierarchy.as_ref(),
-                &non_leaf_nodes[..],
-                &compact_dom.node_data.as_ref(),
-            );
+        let html_tree = construct_html_cascade_tree(
+            &compact_dom.node_hierarchy.as_ref(),
+            &non_leaf_nodes[..],
+            &compact_dom.node_data.as_ref(),
+        );
 
         let non_leaf_nodes = non_leaf_nodes
             .iter()
@@ -881,7 +938,6 @@ impl StyledDom {
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
-        // apply all the styles from the CSS
         let t_restyle = std::time::Instant::now();
         let tag_ids = css_property_cache.restyle(
             &mut css,
@@ -892,18 +948,11 @@ impl StyledDom {
         );
         let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
-        // Apply UA CSS properties to all nodes (lowest priority in cascade)
-        // This MUST be done before compute_inherited_values() so that UA CSS
-        // properties can be inherited by child nodes (especially text nodes)
         let t_ua = std::time::Instant::now();
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
-        // Sort cascaded_props after apply_ua_css() added UA entries
         css_property_cache.sort_cascaded_props();
         let ua_ms = t_ua.elapsed().as_secs_f64() * 1000.0;
 
-        // Compute inherited values for all nodes (resolves em, %, etc.)
-        // This must be called after restyle() and apply_ua_css() to ensure
-        // CSS properties are available for inheritance
         let t_inherit = std::time::Instant::now();
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
@@ -911,8 +960,6 @@ impl StyledDom {
         );
         let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
 
-        // Build compact layout cache (tier1/2/2b for layout-hot properties)
-        // Non-compact properties use the slow cascade path via get_property_slow()
         let t_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
@@ -928,8 +975,6 @@ impl StyledDom {
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, compact_ms, total_ms);
 
-        // Pre-filter all EventFilter::Window and EventFilter::Not nodes
-        // since we need them in the CallbacksOfHitTest::new function
         let nodes_with_window_callbacks = compact_dom
             .node_data
             .as_ref()
@@ -937,14 +982,8 @@ impl StyledDom {
             .iter()
             .enumerate()
             .filter_map(|(node_id, c)| {
-                let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
-                    EventFilter::Window(_) => true,
-                    _ => false,
-                });
-                if node_has_none_callbacks {
-                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                        node_id,
-                    ))))
+                if c.get_callbacks().iter().any(|cb| matches!(cb.event, EventFilter::Window(_))) {
+                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
                 } else {
                     None
                 }
@@ -958,21 +997,14 @@ impl StyledDom {
             .iter()
             .enumerate()
             .filter_map(|(node_id, c)| {
-                let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
-                    EventFilter::Not(_) => true,
-                    _ => false,
-                });
-                if node_has_none_callbacks {
-                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                        node_id,
-                    ))))
+                if c.get_callbacks().iter().any(|cb| matches!(cb.event, EventFilter::Not(_))) {
+                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
 
-        // collect nodes with either dataset or callback properties
         let nodes_with_datasets = compact_dom
             .node_data
             .as_ref()
@@ -981,9 +1013,7 @@ impl StyledDom {
             .enumerate()
             .filter_map(|(node_id, c)| {
                 if !c.get_callbacks().is_empty() || c.get_dataset().is_some() {
-                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                        node_id,
-                    ))))
+                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
                 } else {
                     None
                 }
@@ -1002,15 +1032,11 @@ impl StyledDom {
             nodes_with_datasets: nodes_with_datasets.into(),
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
-            dom_id: DomId::ROOT_ID, // Will be assigned by layout engine for virtualized views
+            dom_id: DomId::ROOT_ID,
         };
 
-        // Generate anonymous table elements if needed (CSS 2.2 Section 17.2.1)
-        // This must happen after CSS cascade but before layout
-        // Anonymous nodes are marked with is_anonymous=true and are skipped by CallbackInfo
         #[cfg(feature = "table_layout")]
         if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
-            // Warning: Failed to generate anonymous table elements
         }
 
         styled_dom
