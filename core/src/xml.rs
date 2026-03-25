@@ -4807,6 +4807,271 @@ fn xml_node_to_dom_fast<'a>(
     Ok(dom)
 }
 
+/// Builder for arena-based DOM construction (FastDom).
+/// Builds two parallel Vecs (hierarchy + node_data) in a single DFS pass.
+pub struct CompactDomBuilder {
+    hierarchy: Vec<crate::styled_dom::NodeHierarchyItem>,
+    node_data: Vec<crate::dom::NodeData>,
+    css: Vec<crate::dom::CssWithNodeId>,
+    /// Stack of (node_index, previous_child_index) for open elements
+    stack: Vec<(usize, Option<usize>)>,
+}
+
+impl CompactDomBuilder {
+    pub fn new() -> Self {
+        Self {
+            hierarchy: Vec::new(),
+            node_data: Vec::new(),
+            css: Vec::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            hierarchy: Vec::with_capacity(cap),
+            node_data: Vec::with_capacity(cap),
+            css: Vec::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    /// Open a new element node. Must be paired with `close_node()`.
+    pub fn open_node(&mut self, node_data: crate::dom::NodeData) {
+        use crate::id::NodeId;
+        use crate::styled_dom::NodeHierarchyItem;
+
+        let idx = self.hierarchy.len();
+
+        // Determine parent from stack
+        let parent_raw = if let Some(&(parent_idx, _)) = self.stack.last() {
+            NodeId::into_raw(&Some(NodeId::new(parent_idx)))
+        } else {
+            0 // No parent (root)
+        };
+
+        // Determine previous sibling from parent's last child tracking
+        let prev_sibling_raw = if let Some(&(_, prev_child)) = self.stack.last() {
+            prev_child.map(|pi| NodeId::into_raw(&Some(NodeId::new(pi)))).unwrap_or(0)
+        } else {
+            0
+        };
+
+        // If there's a previous sibling, set its next_sibling to us
+        if let Some(&(_, Some(prev_idx))) = self.stack.last() {
+            self.hierarchy[prev_idx].next_sibling = NodeId::into_raw(&Some(NodeId::new(idx)));
+        }
+
+        // Update parent's "last seen child" to us
+        if let Some(parent) = self.stack.last_mut() {
+            parent.1 = Some(idx);
+        }
+
+        // Push the hierarchy item (last_child will be set in close_node)
+        self.hierarchy.push(NodeHierarchyItem {
+            parent: parent_raw,
+            previous_sibling: prev_sibling_raw,
+            next_sibling: 0, // Will be set by next sibling's open_node
+            last_child: 0,   // Will be set in close_node
+        });
+        self.node_data.push(node_data);
+
+        // Push onto stack: this node is now the "open" element, no children yet
+        self.stack.push((idx, None));
+    }
+
+    /// Close the current element. Sets the `last_child` pointer.
+    pub fn close_node(&mut self) {
+        use crate::id::NodeId;
+
+        if let Some((idx, last_child_idx)) = self.stack.pop() {
+            // Set last_child on this node's hierarchy item
+            self.hierarchy[idx].last_child = last_child_idx
+                .map(|lc| NodeId::into_raw(&Some(NodeId::new(lc))))
+                .unwrap_or(0);
+        }
+    }
+
+    /// Add a leaf node (text, br, hr, etc.) that has no children.
+    pub fn add_leaf(&mut self, node_data: crate::dom::NodeData) {
+        self.open_node(node_data);
+        self.close_node();
+    }
+
+    /// Add a CSS stylesheet scoped to a node ID.
+    pub fn add_css(&mut self, node_id: usize, css: azul_css::css::Css) {
+        self.css.push(crate::dom::CssWithNodeId { node_id, css });
+    }
+
+    /// Finish building and produce a FastDom.
+    pub fn finish(self) -> crate::dom::FastDom {
+        crate::dom::FastDom {
+            node_hierarchy: self.hierarchy.into(),
+            node_data: self.node_data.into(),
+            css: self.css.into(),
+        }
+    }
+}
+
+/// Convert an XML node tree into a FastDom (arena-based) in a single DFS pass.
+/// This is the fast path equivalent of `xml_node_to_dom_fast`.
+fn xml_node_to_fast_dom<'a>(
+    xml_node: &'a XmlNode,
+    component_map: &'a ComponentMap,
+    inside_svg: bool,
+    builder: &mut CompactDomBuilder,
+) -> Result<(), RenderDomError> {
+    use crate::dom::{Dom, NodeType, NodeData, IdOrClass, TabIndex};
+
+    let component_name = normalize_casing(&xml_node.node_type);
+    let node_type = tag_to_node_type(&component_name);
+    let mut node_data = NodeData::create_node(node_type);
+
+    // Set id and class attributes
+    let mut ids_and_classes = Vec::new();
+    if let Some(id_str) = xml_node.attributes.get_key("id") {
+        for id in id_str.split_whitespace() {
+            ids_and_classes.push(IdOrClass::Id(id.into()));
+        }
+    }
+    if let Some(class_str) = xml_node.attributes.get_key("class") {
+        for class in class_str.split_whitespace() {
+            ids_and_classes.push(IdOrClass::Class(class.into()));
+        }
+    }
+    if !ids_and_classes.is_empty() {
+        node_data.set_ids_and_classes(ids_and_classes.into());
+    }
+
+    // Handle focusable attribute
+    if let Some(focusable) = xml_node.attributes.get_key("focusable").and_then(|f| parse_bool(f.as_str())) {
+        match focusable {
+            true => node_data.set_tab_index(TabIndex::Auto),
+            false => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
+        }
+    }
+
+    // Handle tabindex attribute
+    if let Some(tab_index) = xml_node.attributes.get_key("tabindex").and_then(|val| val.parse::<isize>().ok()) {
+        match tab_index {
+            0 => node_data.set_tab_index(TabIndex::Auto),
+            i if i > 0 => node_data.set_tab_index(TabIndex::OverrideInParent(i as u32)),
+            _ => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
+        }
+    }
+
+    // Handle inline style attribute
+    if let Some(style) = xml_node.attributes.get_key("style") {
+        let css_key_map = azul_css::props::property::get_css_key_map();
+        let mut attributes = Vec::new();
+        for s in style.as_str().split(";") {
+            let mut s = s.split(":");
+            let key = match s.next() { Some(s) => s, None => continue };
+            let value = match s.next() { Some(s) => s, None => continue };
+            azul_css::parser2::parse_css_declaration(
+                key.trim(), value.trim(),
+                azul_css::parser2::ErrorLocationRange::default(),
+                &css_key_map, &mut Vec::new(), &mut attributes,
+            );
+        }
+        let props = attributes.into_iter().filter_map(|s| {
+            use azul_css::dynamic_selector::CssPropertyWithConditions;
+            match s {
+                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
+                _ => None,
+            }
+        }).collect::<Vec<_>>();
+        if !props.is_empty() {
+            node_data.set_css_props(props.into());
+        }
+    }
+
+    // Handle SVG shape elements
+    let tag = component_name.as_str();
+    let child_inside_svg = inside_svg || tag == "svg";
+    let is_svg_shape = inside_svg && matches!(tag, "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline");
+
+    if is_svg_shape {
+        // Reuse the SVG shape parsing from the slow path
+        let clip = match tag {
+            "path" => xml_node.attributes.get_key("d").and_then(|d| crate::svg_path_parser::parse_svg_path_d(d.as_str()).ok()),
+            _ => None, // TODO: circle, rect, ellipse, etc.
+        };
+        if let Some(mp) = clip {
+            node_data.set_svg_data(crate::dom::SvgNodeData::Path(mp));
+        }
+    }
+
+    // Open this node in the builder
+    builder.open_node(node_data);
+
+    // Recursively convert children
+    for child in xml_node.children.as_ref().iter() {
+        match child {
+            XmlNodeChild::Element(child_node) => {
+                xml_node_to_fast_dom(child_node, component_map, child_inside_svg, builder)?;
+            }
+            XmlNodeChild::Text(text) => {
+                builder.add_leaf(NodeData::create_text(AzString::from(text.as_str())));
+            }
+        }
+    }
+
+    // Close this node
+    builder.close_node();
+
+    Ok(())
+}
+
+/// Render a DOM from an XML body node using the fast arena-based path.
+/// Builds a FastDom directly (no tree intermediary), then creates StyledDom.
+pub fn render_dom_from_body_node_fast<'a>(
+    body_node: &'a XmlNode,
+    mut global_css: Option<Css>,
+    component_map: &'a ComponentMap,
+    max_width: Option<f32>,
+) -> Result<StyledDom, RenderDomError> {
+    use crate::dom::{NodeData, NodeType};
+
+    let mut builder = CompactDomBuilder::new();
+
+    // Build the HTML > Body wrapper + body content in one pass
+    // Open <html>
+    builder.open_node(NodeData::create_node(NodeType::Html));
+    // Open <body> (the body_node content goes inside)
+    xml_node_to_fast_dom(body_node, component_map, false, &mut builder)?;
+    // Close <html>
+    builder.close_node();
+
+    // Collect CSS
+    let mut combined_stylesheets = Vec::new();
+    if let Some(max_width) = max_width {
+        let max_width_css = Css::from_string(
+            format!("html {{ max-width: {max_width}px; }}").into(),
+        );
+        for s in max_width_css.stylesheets.as_ref().iter() {
+            combined_stylesheets.push(s.clone());
+        }
+    }
+    if let Some(css) = global_css.take() {
+        for s in css.stylesheets.as_ref().iter() {
+            combined_stylesheets.push(s.clone());
+        }
+    }
+    let combined_css = Css::new(combined_stylesheets);
+
+    // Add CSS to the FastDom
+    let mut fast_dom = builder.finish();
+    fast_dom.css = vec![crate::dom::CssWithNodeId {
+        node_id: 0, // Global scope (root)
+        css: combined_css,
+    }].into();
+
+    // Create StyledDom via the fast path (no tree→arena conversion)
+    let styled = StyledDom::create_from_fast_dom(fast_dom);
+    Ok(styled)
+}
+
 /// Map component name to NodeType
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
