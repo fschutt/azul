@@ -3162,6 +3162,9 @@ impl DomNodeId {
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read
 /// anything back from it. It's designed for ease of construction.
+///
+/// This is the "slow" tree-based DOM. For bulk construction (XML parsing),
+/// use `FastDom` which builds flat arenas directly and skips the tree→arena conversion.
 #[repr(C)]
 #[derive(PartialEq, Clone, PartialOrd)]
 pub struct Dom {
@@ -3176,6 +3179,44 @@ pub struct Dom {
     // Tracks the number of sub-children of the current children, so that
     // the `Dom` can be converted into a `CompactDom`.
     pub estimated_total_children: usize,
+}
+
+/// CSS stylesheet associated with a specific node ID in the flat arena.
+/// In the tree DOM, each node carries its own `css` field. In the flat arena,
+/// we record which node a stylesheet scopes to (e.g. for `<style>` tags
+/// in different parts of the document).
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct CssWithNodeId {
+    /// 1-based encoded NodeId (0 = root / global scope).
+    pub node_id: usize,
+    /// The CSS stylesheet.
+    pub css: azul_css::css::Css,
+}
+
+impl_vec!(CssWithNodeId, CssWithNodeIdVec, CssWithNodeIdVecDestructor, CssWithNodeIdVecDestructorType, CssWithNodeIdVecSlice, OptionCssWithNodeId);
+impl_option!(CssWithNodeId, OptionCssWithNodeId, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_vec_clone!(CssWithNodeId, CssWithNodeIdVec, CssWithNodeIdVecDestructor);
+impl_vec_mut!(CssWithNodeId, CssWithNodeIdVec);
+impl_vec_debug!(CssWithNodeId, CssWithNodeIdVec);
+impl_vec_partialord!(CssWithNodeId, CssWithNodeIdVec);
+impl_vec_partialeq!(CssWithNodeId, CssWithNodeIdVec);
+
+/// Arena-based DOM for bulk construction (e.g. XML/XHTML parsing).
+/// The hierarchy and node data are stored in two parallel flat vectors,
+/// skipping the tree→arena conversion step entirely.
+///
+/// Use `FastDom::into_dom()` to convert to a tree-based `Dom` if needed.
+/// `StyledDom::create_from_fast_dom()` consumes this directly without conversion.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct FastDom {
+    /// Flat arena of parent/child/sibling relationships.
+    pub node_hierarchy: crate::styled_dom::NodeHierarchyItemVec,
+    /// Flat arena of node data, parallel to `node_hierarchy`.
+    pub node_data: NodeDataVec,
+    /// CSS stylesheets with the node ID they scope to.
+    pub css: CssWithNodeIdVec,
 }
 
 // Manual Eq/Hash/Ord impls that skip the transient `css` field,
