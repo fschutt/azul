@@ -1617,11 +1617,7 @@ pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
         .selectors
         .iter()
         .filter(|x| {
-            if let CssPathSelector::Class(_) = x {
-                true
-            } else {
-                false
-            }
+            matches!(x, CssPathSelector::Class(_) | CssPathSelector::PseudoSelector(_))
         })
         .count();
     let div_count = path

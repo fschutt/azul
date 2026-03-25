@@ -456,7 +456,7 @@ impl<T> FlatVecVec<T> {
         let mut offsets = Vec::with_capacity(node_count);
 
         for inner in self.build.iter_mut() {
-            inner.sort_unstable_by(|a, b| key_fn(a).cmp(&key_fn(b)));
+            inner.sort_by(|a, b| key_fn(a).cmp(&key_fn(b)));
 
             // Deduplicate: after sorting, consecutive items with the same key
             // form groups. Among each group, the last element wins (latest
