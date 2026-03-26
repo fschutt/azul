@@ -2,7 +2,7 @@
 //! Pass 3: Final positioning of layout nodes
 // +spec:positioning:79d47e - Implements relative, absolute, and fixed positioning schemes
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use azul_core::{
     dom::{NodeId, NodeType},
@@ -24,7 +24,7 @@ use azul_css::{
 use crate::{
     font_traits::{FontLoaderTrait, ParsedFontTrait},
     solver3::{
-        fc::{layout_formatting_context, LayoutConstraints, TextAlign},
+        fc::{layout_formatting_context, FloatingContext, LayoutConstraints, TextAlign},
         getters::{
             get_aspect_ratio_property, get_direction_property, get_display_property, get_writing_mode, get_position, MultiValue,
             get_css_top, get_css_bottom, get_css_left, get_css_right,
@@ -143,8 +143,10 @@ fn resolve_position_offsets(
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
+    float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<()> {
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
@@ -591,7 +593,24 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 }
             }
 
-            calculated_positions.insert(node_index, final_pos);
+            super::pos_set(calculated_positions, node_index, final_pos);
+
+            // Layout the absolute element's children (e.g. text nodes).
+            // The BFC skips out-of-flow elements, so their subtrees were never
+            // laid out. We must do it now that the element is sized and positioned.
+            let mut reflow_needed = false;
+            crate::solver3::cache::calculate_layout_for_subtree(
+                ctx,
+                tree,
+                text_cache,
+                node_index,
+                final_pos,
+                containing_block_rect.size,
+                calculated_positions,
+                &mut reflow_needed,
+                float_cache,
+                crate::solver3::cache::ComputeMode::PerformLayout,
+            )?;
         }
     }
     Ok(())

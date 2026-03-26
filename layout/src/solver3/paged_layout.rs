@@ -606,8 +606,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     crate::solver3::positioning::position_out_of_flow_elements(
         &mut ctx,
         &mut new_tree,
+        text_cache,
         &mut calculated_positions,
         viewport,
+        &mut cache.float_cache,
     )?;
     let position_ms = t_position.elapsed().as_secs_f64() * 1000.0;
 

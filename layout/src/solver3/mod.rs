@@ -726,8 +726,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     positioning::position_out_of_flow_elements(
         &mut ctx,
         &mut new_tree,
+        text_cache,
         &mut calculated_positions,
         viewport,
+        &mut cache.float_cache,
     )?;
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
