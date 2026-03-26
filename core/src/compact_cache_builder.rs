@@ -417,6 +417,242 @@ impl CssPropertyCache {
 
         result
     }
+
+    /// Build compact cache with inheritance in a single pass.
+    ///
+    /// Replaces the separate `compute_inherited_values()` + `build_compact_cache()` calls.
+    /// For each node (in DOM index order, which is pre-order = parents before children):
+    ///   1. Copy parent's compact values for INHERITABLE properties
+    ///   2. Apply this node's CSS properties on top (from css_props + inline + UA)
+    ///   3. Write directly to compact arrays
+    ///
+    /// This eliminates 50K Vec clones from compute_inherited_values and
+    /// avoids re-reading properties from 5 separate data structures.
+    pub fn build_compact_cache_with_inheritance(
+        &self,
+        node_data: &[NodeData],
+        node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        prev_font_hashes: &[u64],
+    ) -> CompactLayoutCache {
+        let node_count = self.node_count;
+        let default_state = StyledNodeState::default();
+        let mut result = CompactLayoutCache::with_capacity(node_count);
+
+        for i in 0..node_count {
+            let node_id = NodeId::new(i);
+            let nd = &node_data[i];
+
+            // Step 1: Inherit from parent's COMPACT values (not computed_values)
+            // Parent index is always < i in pre-order arena, so already computed.
+            //
+            // For tier1: copy the entire u64 — inheritable fields survive because
+            // the getter calls below only override fields that are explicitly set.
+            // Non-inheritable fields get reset to defaults by the getter defaults.
+            //
+            // For tier2/cold/text: copy only inheritable fields.
+            let parent_id = node_hierarchy[i].parent_id();
+            if let Some(pid) = parent_id {
+                let pi = pid.index();
+
+                // Copy entire tier1 (inheritable enum fields like font-weight,
+                // text-align, visibility, etc. will survive if not overridden)
+                result.tier1_enums[i] = result.tier1_enums[pi];
+
+                // Inheritable tier2: font_size
+                result.tier2_dims[i].font_size = result.tier2_dims[pi].font_size;
+
+                // Inheritable tier2_cold: border_spacing, tab_size
+                result.tier2_cold[i].border_spacing_h = result.tier2_cold[pi].border_spacing_h;
+                result.tier2_cold[i].border_spacing_v = result.tier2_cold[pi].border_spacing_v;
+                result.tier2_cold[i].tab_size = result.tier2_cold[pi].tab_size;
+
+                // Inheritable tier2b: all text properties
+                result.tier2b_text[i] = result.tier2b_text[pi];
+            }
+
+            // Step 2: Apply this node's own CSS properties on top
+            // (same as build_compact_cache but with inherited baseline)
+
+            // Tier 1 enum properties — use SHIFT + MASK to set individual fields
+            macro_rules! tier1_enum {
+                ($getter:ident, $shift:ident, $mask:ident, $encoder:ident) => {
+                    if let Some(val) = self.$getter(nd, &node_id, &default_state) {
+                        if let Some(exact) = val.get_property() {
+                            let encoded = $encoder(*exact) as u64;
+                            let shifted_mask = $mask << $shift;
+                            result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask)
+                                | ((encoded & $mask) << $shift);
+                        }
+                    }
+                };
+            }
+
+            tier1_enum!(get_display, DISPLAY_SHIFT, DISPLAY_MASK, layout_display_to_u8);
+            tier1_enum!(get_position, POSITION_SHIFT, POSITION_MASK, layout_position_to_u8);
+            tier1_enum!(get_float, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8);
+            tier1_enum!(get_overflow_x, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
+            tier1_enum!(get_overflow_y, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
+            tier1_enum!(get_box_sizing, BOX_SIZING_SHIFT, BOX_SIZING_MASK, layout_box_sizing_to_u8);
+            tier1_enum!(get_flex_direction, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK, layout_flex_direction_to_u8);
+            tier1_enum!(get_flex_wrap, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8);
+            tier1_enum!(get_justify_content, JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK, layout_justify_content_to_u8);
+            tier1_enum!(get_align_items, ALIGN_ITEMS_SHIFT, ALIGN_MASK, layout_align_items_to_u8);
+            tier1_enum!(get_align_content, ALIGN_CONTENT_SHIFT, ALIGN_MASK, layout_align_content_to_u8);
+            tier1_enum!(get_writing_mode, WRITING_MODE_SHIFT, WRITING_MODE_MASK, layout_writing_mode_to_u8);
+            tier1_enum!(get_clear, CLEAR_SHIFT, CLEAR_MASK, layout_clear_to_u8);
+            tier1_enum!(get_font_weight, FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK, style_font_weight_to_u8);
+            tier1_enum!(get_font_style, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8);
+            tier1_enum!(get_text_align, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8);
+            tier1_enum!(get_visibility, VISIBILITY_SHIFT, VISIBILITY_MASK, style_visibility_to_u8);
+            tier1_enum!(get_white_space, WHITE_SPACE_SHIFT, WHITE_SPACE_MASK, style_white_space_to_u8);
+            tier1_enum!(get_direction, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8);
+            tier1_enum!(get_vertical_align, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK, style_vertical_align_to_u8);
+            tier1_enum!(get_border_collapse, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK, border_collapse_to_u8);
+
+            // Set populated bit
+            if result.tier1_enums[i] != 0 {
+                result.tier1_enums[i] |= TIER1_POPULATED_BIT;
+            }
+
+            // Tier 2 dimension properties
+            macro_rules! tier2_pixel {($getter:ident, $field:ident, $encoder:ident) => {
+                if let Some(val) = self.$getter(nd, &node_id, &default_state) {
+                    result.tier2_dims[i].$field = $encoder(val);
+                }
+            };}
+
+            tier2_pixel!(get_width, width, encode_layout_width);
+            tier2_pixel!(get_height, height, encode_layout_height);
+            tier2_pixel!(get_min_width, min_width, encode_pixel_prop);
+            tier2_pixel!(get_max_width, max_width, encode_pixel_prop);
+            tier2_pixel!(get_min_height, min_height, encode_pixel_prop);
+            tier2_pixel!(get_max_height, max_height, encode_pixel_prop);
+            tier2_pixel!(get_flex_basis, flex_basis, encode_flex_basis);
+            tier2_pixel!(get_font_size, font_size, encode_pixel_prop);
+            tier2_pixel!(get_padding_top, padding_top, encode_css_pixel_as_i16);
+            tier2_pixel!(get_padding_right, padding_right, encode_css_pixel_as_i16);
+            tier2_pixel!(get_padding_bottom, padding_bottom, encode_css_pixel_as_i16);
+            tier2_pixel!(get_padding_left, padding_left, encode_css_pixel_as_i16);
+            tier2_pixel!(get_margin_top, margin_top, encode_margin_i16);
+            tier2_pixel!(get_margin_right, margin_right, encode_margin_i16);
+            tier2_pixel!(get_margin_bottom, margin_bottom, encode_margin_i16);
+            tier2_pixel!(get_margin_left, margin_left, encode_margin_i16);
+            tier2_pixel!(get_border_top_width, border_top_width, encode_css_pixel_as_i16);
+            tier2_pixel!(get_border_right_width, border_right_width, encode_css_pixel_as_i16);
+            tier2_pixel!(get_border_bottom_width, border_bottom_width, encode_css_pixel_as_i16);
+            tier2_pixel!(get_border_left_width, border_left_width, encode_css_pixel_as_i16);
+            tier2_pixel!(get_top, top, encode_css_pixel_as_i16);
+            tier2_pixel!(get_right, right, encode_css_pixel_as_i16);
+            tier2_pixel!(get_bottom, bottom, encode_css_pixel_as_i16);
+            tier2_pixel!(get_left, left, encode_css_pixel_as_i16);
+
+            if let Some(val) = self.get_flex_grow(nd, &node_id, &default_state) {
+                if let Some(exact) = val.get_property() {
+                    result.tier2_dims[i].flex_grow = encode_flex_u16(exact.inner.get());
+                }
+            }
+            if let Some(val) = self.get_flex_shrink(nd, &node_id, &default_state) {
+                if let Some(exact) = val.get_property() {
+                    result.tier2_dims[i].flex_shrink = encode_flex_u16(exact.inner.get());
+                }
+            }
+
+            // Tier 2 cold
+            if let Some(val) = self.get_z_index(nd, &node_id, &default_state) {
+                if let Some(exact) = val.get_property() {
+                    match exact {
+                        LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
+                        LayoutZIndex::Integer(z) => {
+                            result.tier2_cold[i].z_index = if *z >= I16_SENTINEL_THRESHOLD as i32 { I16_SENTINEL } else { *z as i16 };
+                        }
+                    }
+                }
+            }
+
+            {
+                let bts = self.get_border_top_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
+                let brs = self.get_border_right_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
+                let bbs = self.get_border_bottom_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
+                let bls = self.get_border_left_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
+                result.tier2_cold[i].border_styles_packed = encode_border_styles_packed(bts, brs, bbs, bls);
+            }
+
+            macro_rules! tier2_cold_color {($getter:ident, $field:ident) => {
+                if let Some(val) = self.$getter(nd, &node_id, &default_state) {
+                    if let Some(color) = val.get_property() {
+                        result.tier2_cold[i].$field = encode_color_u32(&color.inner);
+                    }
+                }
+            };}
+
+            tier2_cold_color!(get_border_top_color, border_top_color);
+            tier2_cold_color!(get_border_right_color, border_right_color);
+            tier2_cold_color!(get_border_bottom_color, border_bottom_color);
+            tier2_cold_color!(get_border_left_color, border_left_color);
+
+            if let Some(val) = self.get_border_spacing(nd, &node_id, &default_state) {
+                if let Some(spacing) = val.get_property() {
+                    if spacing.horizontal.metric == SizeMetric::Px {
+                        result.tier2_cold[i].border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
+                    }
+                    if spacing.vertical.metric == SizeMetric::Px {
+                        result.tier2_cold[i].border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
+                    }
+                }
+            }
+
+            if let Some(val) = self.get_tab_size(nd, &node_id, &default_state) {
+                result.tier2_cold[i].tab_size = encode_css_pixel_as_i16(val);
+            }
+
+            // Tier 2b text
+            if let Some(val) = self.get_text_color(nd, &node_id, &default_state) {
+                if let Some(color) = val.get_property() {
+                    let c = &color.inner;
+                    result.tier2b_text[i].text_color = ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
+                }
+            }
+
+            if let Some(val) = self.get_font_family(nd, &node_id, &default_state) {
+                if let Some(families) = val.get_property() {
+                    let mut hasher = DefaultHasher::new();
+                    families.hash(&mut hasher);
+                    let h = hasher.finish();
+                    result.tier2b_text[i].font_family_hash = if h == 0 { 1 } else { h };
+                }
+            }
+
+            if let Some(val) = self.get_line_height(nd, &node_id, &default_state) {
+                if let Some(lh) = val.get_property() {
+                    let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
+                    result.tier2b_text[i].line_height = pct_x10.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                }
+            }
+
+            if let Some(val) = self.get_letter_spacing(nd, &node_id, &default_state) {
+                result.tier2b_text[i].letter_spacing = encode_css_pixel_as_i16(val);
+            }
+            if let Some(val) = self.get_word_spacing(nd, &node_id, &default_state) {
+                result.tier2b_text[i].word_spacing = encode_css_pixel_as_i16(val);
+            }
+            if let Some(val) = self.get_text_indent(nd, &node_id, &default_state) {
+                result.tier2b_text[i].text_indent = encode_css_pixel_as_i16(val);
+            }
+        }
+
+        // Font dirty tracking
+        result.font_dirty_nodes.clear();
+        for i in 0..node_count {
+            let new_hash = result.tier2b_text[i].font_family_hash;
+            let old_hash = prev_font_hashes.get(i).copied().unwrap_or(0);
+            if new_hash != old_hash {
+                result.font_dirty_nodes.push(i);
+            }
+        }
+        result.prev_font_hashes = result.tier2b_text.iter().map(|t| t.font_family_hash).collect();
+
+        result
+    }
 }
 
 // =============================================================================

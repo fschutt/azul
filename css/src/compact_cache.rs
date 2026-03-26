@@ -98,55 +98,55 @@ pub const U32_SENTINEL_THRESHOLD: u32 = 0xFFFFFFF9;
 //   [63:53]  (spare / sentinel flags)
 
 // Bit offsets within u64
-const DISPLAY_SHIFT: u32 = 0;
-const POSITION_SHIFT: u32 = 5;
-const FLOAT_SHIFT: u32 = 8;
-const OVERFLOW_X_SHIFT: u32 = 10;
-const OVERFLOW_Y_SHIFT: u32 = 13;
-const BOX_SIZING_SHIFT: u32 = 16;
-const FLEX_DIRECTION_SHIFT: u32 = 17;
-const FLEX_WRAP_SHIFT: u32 = 19;
-const JUSTIFY_CONTENT_SHIFT: u32 = 21;
-const ALIGN_ITEMS_SHIFT: u32 = 24;
-const ALIGN_CONTENT_SHIFT: u32 = 27;
-const WRITING_MODE_SHIFT: u32 = 30;
-const CLEAR_SHIFT: u32 = 32;
-const FONT_WEIGHT_SHIFT: u32 = 34;
-const FONT_STYLE_SHIFT: u32 = 38;
-const TEXT_ALIGN_SHIFT: u32 = 40;
-const VISIBILITY_SHIFT: u32 = 43;
-const WHITE_SPACE_SHIFT: u32 = 45;
-const DIRECTION_SHIFT: u32 = 48;
-const VERTICAL_ALIGN_SHIFT: u32 = 49;
-const BORDER_COLLAPSE_SHIFT: u32 = 52;
+pub const DISPLAY_SHIFT: u32 = 0;
+pub const POSITION_SHIFT: u32 = 5;
+pub const FLOAT_SHIFT: u32 = 8;
+pub const OVERFLOW_X_SHIFT: u32 = 10;
+pub const OVERFLOW_Y_SHIFT: u32 = 13;
+pub const BOX_SIZING_SHIFT: u32 = 16;
+pub const FLEX_DIRECTION_SHIFT: u32 = 17;
+pub const FLEX_WRAP_SHIFT: u32 = 19;
+pub const JUSTIFY_CONTENT_SHIFT: u32 = 21;
+pub const ALIGN_ITEMS_SHIFT: u32 = 24;
+pub const ALIGN_CONTENT_SHIFT: u32 = 27;
+pub const WRITING_MODE_SHIFT: u32 = 30;
+pub const CLEAR_SHIFT: u32 = 32;
+pub const FONT_WEIGHT_SHIFT: u32 = 34;
+pub const FONT_STYLE_SHIFT: u32 = 38;
+pub const TEXT_ALIGN_SHIFT: u32 = 40;
+pub const VISIBILITY_SHIFT: u32 = 43;
+pub const WHITE_SPACE_SHIFT: u32 = 45;
+pub const DIRECTION_SHIFT: u32 = 48;
+pub const VERTICAL_ALIGN_SHIFT: u32 = 49;
+pub const BORDER_COLLAPSE_SHIFT: u32 = 52;
 
 // Bit masks
-const DISPLAY_MASK: u64 = 0x1F;     // 5 bits
-const POSITION_MASK: u64 = 0x07;    // 3 bits
-const FLOAT_MASK: u64 = 0x03;       // 2 bits
-const OVERFLOW_MASK: u64 = 0x07;    // 3 bits
-const BOX_SIZING_MASK: u64 = 0x01;  // 1 bit
-const FLEX_DIR_MASK: u64 = 0x03;    // 2 bits
-const FLEX_WRAP_MASK: u64 = 0x03;   // 2 bits
-const JUSTIFY_MASK: u64 = 0x07;     // 3 bits
-const ALIGN_MASK: u64 = 0x07;       // 3 bits
-const WRITING_MODE_MASK: u64 = 0x03;// 2 bits
-const CLEAR_MASK: u64 = 0x03;       // 2 bits
-const FONT_WEIGHT_MASK: u64 = 0x0F; // 4 bits
-const FONT_STYLE_MASK: u64 = 0x03;  // 2 bits
-const TEXT_ALIGN_MASK: u64 = 0x07;  // 3 bits
-const VISIBILITY_MASK: u64 = 0x03;  // 2 bits
-const WHITE_SPACE_MASK: u64 = 0x07; // 3 bits
-const DIRECTION_MASK: u64 = 0x01;   // 1 bit
-const VERTICAL_ALIGN_MASK: u64 = 0x07; // 3 bits
-const BORDER_COLLAPSE_MASK: u64 = 0x01; // 1 bit
+pub const DISPLAY_MASK: u64 = 0x1F;     // 5 bits
+pub const POSITION_MASK: u64 = 0x07;    // 3 bits
+pub const FLOAT_MASK: u64 = 0x03;       // 2 bits
+pub const OVERFLOW_MASK: u64 = 0x07;    // 3 bits
+pub const BOX_SIZING_MASK: u64 = 0x01;  // 1 bit
+pub const FLEX_DIR_MASK: u64 = 0x03;    // 2 bits
+pub const FLEX_WRAP_MASK: u64 = 0x03;   // 2 bits
+pub const JUSTIFY_MASK: u64 = 0x07;     // 3 bits
+pub const ALIGN_MASK: u64 = 0x07;       // 3 bits
+pub const WRITING_MODE_MASK: u64 = 0x03;// 2 bits
+pub const CLEAR_MASK: u64 = 0x03;       // 2 bits
+pub const FONT_WEIGHT_MASK: u64 = 0x0F; // 4 bits
+pub const FONT_STYLE_MASK: u64 = 0x03;  // 2 bits
+pub const TEXT_ALIGN_MASK: u64 = 0x07;  // 3 bits
+pub const VISIBILITY_MASK: u64 = 0x03;  // 2 bits
+pub const WHITE_SPACE_MASK: u64 = 0x07; // 3 bits
+pub const DIRECTION_MASK: u64 = 0x01;   // 1 bit
+pub const VERTICAL_ALIGN_MASK: u64 = 0x07; // 3 bits
+pub const BORDER_COLLAPSE_MASK: u64 = 0x01; // 1 bit
 
 /// Special value stored in the spare bits [63:51] to indicate this node has
 /// NO tier-1 data (i.e., all defaults). 0 is a valid all-defaults encoding,
 /// so we use bit 63 as a "tier1 populated" flag. If bit 63 is 0 and all other
 /// bits are 0, it means "all defaults" (Display::Block, Position::Static, etc.).
 /// We set bit 63 = 1 to mark that the node HAS been populated.
-const TIER1_POPULATED_BIT: u64 = 1 << 63;
+pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 // =============================================================================
 // Safe from_u8 conversion functions (no transmute!)

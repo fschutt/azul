@@ -953,29 +953,26 @@ impl StyledDom {
         css_property_cache.sort_cascaded_props();
         let ua_ms = t_ua.elapsed().as_secs_f64() * 1000.0;
 
-        let t_inherit = std::time::Instant::now();
-        css_property_cache.compute_inherited_values(
-            node_hierarchy.as_container().internal,
-            compact_dom.node_data.as_ref().internal,
-        );
-        let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
-
-        let t_compact = std::time::Instant::now();
+        // Merged inherit + compact pass: builds compact cache while inheriting
+        // from parent's compact values in a single DOM-order traversal.
+        // Replaces separate compute_inherited_values() + build_compact_cache().
+        let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
-        let compact = css_property_cache.build_compact_cache(
+        let compact = css_property_cache.build_compact_cache_with_inheritance(
             compact_dom.node_data.as_ref().internal,
+            node_hierarchy.as_container().internal,
             &prev_font_hashes,
         );
         css_property_cache.compact_cache = Some(compact);
-        let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
+        let inherit_compact_ms = t_inherit_compact.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         #[cfg(feature = "std")]
-        eprintln!("[cascade] {} nodes: restyle={:.1}ms ua={:.1}ms inherit={:.1}ms compact={:.1}ms total={:.1}ms",
-            compact_dom.len(), restyle_ms, ua_ms, inherit_ms, compact_ms, total_ms);
+        eprintln!("[cascade] {} nodes: restyle={:.1}ms ua={:.1}ms inherit+compact={:.1}ms total={:.1}ms",
+            compact_dom.len(), restyle_ms, ua_ms, inherit_compact_ms, total_ms);
 
         let nodes_with_window_callbacks = compact_dom
             .node_data
