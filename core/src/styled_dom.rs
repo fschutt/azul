@@ -908,6 +908,7 @@ impl StyledDom {
 
         let t0 = std::time::Instant::now();
 
+        let t_prep = std::time::Instant::now();
         let non_leaf_nodes = compact_dom
             .node_hierarchy
             .as_ref()
@@ -937,6 +938,7 @@ impl StyledDom {
             .collect::<Vec<_>>();
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
+        let prep_ms = t_prep.elapsed().as_secs_f64() * 1000.0;
 
         let t_restyle = std::time::Instant::now();
         let tag_ids = css_property_cache.restyle(
@@ -970,8 +972,8 @@ impl StyledDom {
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         #[cfg(feature = "std")]
-        eprintln!("[cascade] {} nodes: restyle={:.1}ms inherit+compact+ua={:.1}ms total={:.1}ms",
-            compact_dom.len(), restyle_ms, inherit_compact_ms, total_ms);
+        eprintln!("[cascade] {} nodes: prep={:.1}ms restyle={:.1}ms compact={:.1}ms total={:.1}ms",
+            compact_dom.len(), prep_ms, restyle_ms, inherit_compact_ms, total_ms);
 
         let nodes_with_window_callbacks = compact_dom
             .node_data

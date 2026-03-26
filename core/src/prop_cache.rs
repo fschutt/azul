@@ -730,63 +730,43 @@ impl CssPropertyCache {
                 .collect::<Vec<CssProperty>>()
             }};}
 
-            let css_normal_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                .transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(None, node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
+            // Pre-check which pseudo-states have any matching rules at all.
+            // This avoids iterating 50K nodes for pseudo-states with zero rules
+            // (common: most stylesheets have no :hover/:focus/:active rules).
+            let has_normal = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, None));
+            let has_hover = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Hover)));
+            let has_active = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Active)));
+            let has_focus = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Focus)));
+            let has_dragging = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
+            let has_drag_over = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(DragOver)));
 
-            let css_hover_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                .transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(Some(Hover), node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
-
-            let css_active_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                .transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(Some(Active), node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
-
-            let css_focus_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                .transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(Some(Focus), node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
-
-            let css_dragging_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                .transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(Some(Dragging), node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
-
-            let css_drag_over_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                .transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(Some(DragOver), node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
-
-            // Assign specific CSS rules to css_props (global rules already applied above)
-            macro_rules! assign_css_rules_stateful {
-                ($rules:expr, $state:expr) => {{
-                    for (n, props) in $rules.internal.into_iter() {
-                        for prop in props.into_iter() {
-                            self.css_props.push_to(n.index(), StatefulCssProperty {
-                                state: $state,
-                                prop_type: prop.get_type(),
-                                property: prop,
+            macro_rules! collect_and_assign {
+                ($pseudo:expr, $state:expr, $has_any:expr) => {
+                    if $has_any {
+                        let rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
+                            .transform_nodeid_multithreaded_optional(|node_id| {
+                                let r = filter_rules!($pseudo, node_id);
+                                if r.is_empty() { None } else { Some((node_id, r)) }
                             });
+                        for (n, props) in rules.internal.into_iter() {
+                            for prop in props.into_iter() {
+                                self.css_props.push_to(n.index(), StatefulCssProperty {
+                                    state: $state,
+                                    prop_type: prop.get_type(),
+                                    property: prop,
+                                });
+                            }
                         }
                     }
-                }};
+                };
             }
 
-            assign_css_rules_stateful!(css_normal_rules, PseudoStateType::Normal);
-            assign_css_rules_stateful!(css_hover_rules, PseudoStateType::Hover);
-            assign_css_rules_stateful!(css_active_rules, PseudoStateType::Active);
-            assign_css_rules_stateful!(css_focus_rules, PseudoStateType::Focus);
-            assign_css_rules_stateful!(css_dragging_rules, PseudoStateType::Dragging);
-            assign_css_rules_stateful!(css_drag_over_rules, PseudoStateType::DragOver);
+            collect_and_assign!(None, PseudoStateType::Normal, has_normal);
+            collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
+            collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
+            collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
+            collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
+            collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
 
             } // end if !specific_rules.is_empty()
         }

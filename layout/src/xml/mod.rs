@@ -131,8 +131,11 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 
 /// Parse XML directly into FastDom + extracted CSS, ready for StyledDom.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
+    let t0 = std::time::Instant::now();
     let (mut fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
+    let parse_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
+    let t1 = std::time::Instant::now();
     // Attach CSS to the FastDom
     if !css.is_empty() {
         let combined_css = Css::new(css.into_iter()
@@ -143,8 +146,18 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
             css: combined_css,
         }].into();
     }
+    let css_attach_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
-    Ok(StyledDom::create_from_fast_dom(fast_dom))
+    let t2 = std::time::Instant::now();
+    let styled = StyledDom::create_from_fast_dom(fast_dom);
+    let cascade_ms = t2.elapsed().as_secs_f64() * 1000.0;
+
+    let node_count = styled.node_hierarchy.as_ref().len();
+    #[cfg(feature = "std")]
+    eprintln!("[parse_xml_to_styled_dom] {} nodes: parse={:.1}ms css_attach={:.1}ms cascade={:.1}ms total={:.1}ms",
+        node_count, parse_ms, css_attach_ms, cascade_ms, t0.elapsed().as_secs_f64() * 1000.0);
+
+    Ok(styled)
 }
 
 /// Internal: parse XML into FastDom + collected CSS stylesheets.

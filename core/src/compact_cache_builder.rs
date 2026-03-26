@@ -600,173 +600,46 @@ impl CssPropertyCache {
                 }
             }
 
-            // Step 3: Apply this node's own CSS properties on top (author CSS + inline)
-            // (same as build_compact_cache but with inherited + UA baseline)
+            // Step 3: Apply this node's CSS properties directly to compact values.
+            // Instead of 56+ getter calls (each doing get_property_slow with 6 data
+            // structure searches), scan css_props + inline CSS once per node.
 
-            // Tier 1 enum properties — use SHIFT + MASK to set individual fields
-            macro_rules! tier1_enum {
-                ($getter:ident, $shift:ident, $mask:ident, $encoder:ident) => {
-                    if let Some(val) = self.$getter(nd, &node_id, &default_state) {
-                        if let Some(exact) = val.get_property() {
-                            let encoded = $encoder(*exact) as u64;
-                            let shifted_mask = $mask << $shift;
-                            result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask)
-                                | ((encoded & $mask) << $shift);
-                        }
-                    }
-                };
+            // Scan css_props (stylesheet rules, sorted by (state, prop_type))
+            // Typically 5-15 entries per node. Only Normal state matters for layout.
+            for prop in self.css_props.get_slice(i) {
+                if prop.state != azul_css::dynamic_selector::PseudoStateType::Normal { continue; }
+                apply_css_property_to_compact(
+                    &prop.property,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                );
             }
 
-            tier1_enum!(get_display, DISPLAY_SHIFT, DISPLAY_MASK, layout_display_to_u8);
-            tier1_enum!(get_position, POSITION_SHIFT, POSITION_MASK, layout_position_to_u8);
-            tier1_enum!(get_float, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8);
-            tier1_enum!(get_overflow_x, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
-            tier1_enum!(get_overflow_y, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
-            tier1_enum!(get_box_sizing, BOX_SIZING_SHIFT, BOX_SIZING_MASK, layout_box_sizing_to_u8);
-            tier1_enum!(get_flex_direction, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK, layout_flex_direction_to_u8);
-            tier1_enum!(get_flex_wrap, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8);
-            tier1_enum!(get_justify_content, JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK, layout_justify_content_to_u8);
-            tier1_enum!(get_align_items, ALIGN_ITEMS_SHIFT, ALIGN_MASK, layout_align_items_to_u8);
-            tier1_enum!(get_align_content, ALIGN_CONTENT_SHIFT, ALIGN_MASK, layout_align_content_to_u8);
-            tier1_enum!(get_writing_mode, WRITING_MODE_SHIFT, WRITING_MODE_MASK, layout_writing_mode_to_u8);
-            tier1_enum!(get_clear, CLEAR_SHIFT, CLEAR_MASK, layout_clear_to_u8);
-            tier1_enum!(get_font_weight, FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK, style_font_weight_to_u8);
-            tier1_enum!(get_font_style, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8);
-            tier1_enum!(get_text_align, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8);
-            tier1_enum!(get_visibility, VISIBILITY_SHIFT, VISIBILITY_MASK, style_visibility_to_u8);
-            tier1_enum!(get_white_space, WHITE_SPACE_SHIFT, WHITE_SPACE_MASK, style_white_space_to_u8);
-            tier1_enum!(get_direction, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8);
-            tier1_enum!(get_vertical_align, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK, style_vertical_align_to_u8);
-            tier1_enum!(get_border_collapse, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK, border_collapse_to_u8);
+            // Scan inline CSS (node_data.css_props, typically 0-3 entries)
+            // Inline CSS has highest specificity — applied last to override stylesheet.
+            for inline in nd.css_props.as_ref().iter() {
+                // Only apply Normal state (no pseudo-selectors like :hover)
+                let is_normal = inline.apply_if.as_slice().is_empty()
+                    || inline.apply_if.as_slice().iter().all(|c|
+                        matches!(c, azul_css::dynamic_selector::DynamicSelector::PseudoState(
+                            azul_css::dynamic_selector::PseudoStateType::Normal
+                        ))
+                    );
+                if !is_normal { continue; }
+                apply_css_property_to_compact(
+                    &inline.property,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                );
+            }
 
             // Set populated bit
             if result.tier1_enums[i] != 0 {
                 result.tier1_enums[i] |= TIER1_POPULATED_BIT;
-            }
-
-            // Tier 2 dimension properties
-            macro_rules! tier2_pixel {($getter:ident, $field:ident, $encoder:ident) => {
-                if let Some(val) = self.$getter(nd, &node_id, &default_state) {
-                    result.tier2_dims[i].$field = $encoder(val);
-                }
-            };}
-
-            tier2_pixel!(get_width, width, encode_layout_width);
-            tier2_pixel!(get_height, height, encode_layout_height);
-            tier2_pixel!(get_min_width, min_width, encode_pixel_prop);
-            tier2_pixel!(get_max_width, max_width, encode_pixel_prop);
-            tier2_pixel!(get_min_height, min_height, encode_pixel_prop);
-            tier2_pixel!(get_max_height, max_height, encode_pixel_prop);
-            tier2_pixel!(get_flex_basis, flex_basis, encode_flex_basis);
-            tier2_pixel!(get_font_size, font_size, encode_pixel_prop);
-            tier2_pixel!(get_padding_top, padding_top, encode_css_pixel_as_i16);
-            tier2_pixel!(get_padding_right, padding_right, encode_css_pixel_as_i16);
-            tier2_pixel!(get_padding_bottom, padding_bottom, encode_css_pixel_as_i16);
-            tier2_pixel!(get_padding_left, padding_left, encode_css_pixel_as_i16);
-            tier2_pixel!(get_margin_top, margin_top, encode_margin_i16);
-            tier2_pixel!(get_margin_right, margin_right, encode_margin_i16);
-            tier2_pixel!(get_margin_bottom, margin_bottom, encode_margin_i16);
-            tier2_pixel!(get_margin_left, margin_left, encode_margin_i16);
-            tier2_pixel!(get_border_top_width, border_top_width, encode_css_pixel_as_i16);
-            tier2_pixel!(get_border_right_width, border_right_width, encode_css_pixel_as_i16);
-            tier2_pixel!(get_border_bottom_width, border_bottom_width, encode_css_pixel_as_i16);
-            tier2_pixel!(get_border_left_width, border_left_width, encode_css_pixel_as_i16);
-            tier2_pixel!(get_top, top, encode_css_pixel_as_i16);
-            tier2_pixel!(get_right, right, encode_css_pixel_as_i16);
-            tier2_pixel!(get_bottom, bottom, encode_css_pixel_as_i16);
-            tier2_pixel!(get_left, left, encode_css_pixel_as_i16);
-
-            if let Some(val) = self.get_flex_grow(nd, &node_id, &default_state) {
-                if let Some(exact) = val.get_property() {
-                    result.tier2_dims[i].flex_grow = encode_flex_u16(exact.inner.get());
-                }
-            }
-            if let Some(val) = self.get_flex_shrink(nd, &node_id, &default_state) {
-                if let Some(exact) = val.get_property() {
-                    result.tier2_dims[i].flex_shrink = encode_flex_u16(exact.inner.get());
-                }
-            }
-
-            // Tier 2 cold
-            if let Some(val) = self.get_z_index(nd, &node_id, &default_state) {
-                if let Some(exact) = val.get_property() {
-                    match exact {
-                        LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
-                        LayoutZIndex::Integer(z) => {
-                            result.tier2_cold[i].z_index = if *z >= I16_SENTINEL_THRESHOLD as i32 { I16_SENTINEL } else { *z as i16 };
-                        }
-                    }
-                }
-            }
-
-            {
-                let bts = self.get_border_top_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
-                let brs = self.get_border_right_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
-                let bbs = self.get_border_bottom_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
-                let bls = self.get_border_left_style(nd, &node_id, &default_state).and_then(|v| v.get_property().copied()).map(|v| v.inner).unwrap_or_default();
-                result.tier2_cold[i].border_styles_packed = encode_border_styles_packed(bts, brs, bbs, bls);
-            }
-
-            macro_rules! tier2_cold_color {($getter:ident, $field:ident) => {
-                if let Some(val) = self.$getter(nd, &node_id, &default_state) {
-                    if let Some(color) = val.get_property() {
-                        result.tier2_cold[i].$field = encode_color_u32(&color.inner);
-                    }
-                }
-            };}
-
-            tier2_cold_color!(get_border_top_color, border_top_color);
-            tier2_cold_color!(get_border_right_color, border_right_color);
-            tier2_cold_color!(get_border_bottom_color, border_bottom_color);
-            tier2_cold_color!(get_border_left_color, border_left_color);
-
-            if let Some(val) = self.get_border_spacing(nd, &node_id, &default_state) {
-                if let Some(spacing) = val.get_property() {
-                    if spacing.horizontal.metric == SizeMetric::Px {
-                        result.tier2_cold[i].border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
-                    }
-                    if spacing.vertical.metric == SizeMetric::Px {
-                        result.tier2_cold[i].border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
-                    }
-                }
-            }
-
-            if let Some(val) = self.get_tab_size(nd, &node_id, &default_state) {
-                result.tier2_cold[i].tab_size = encode_css_pixel_as_i16(val);
-            }
-
-            // Tier 2b text
-            if let Some(val) = self.get_text_color(nd, &node_id, &default_state) {
-                if let Some(color) = val.get_property() {
-                    let c = &color.inner;
-                    result.tier2b_text[i].text_color = ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
-                }
-            }
-
-            if let Some(val) = self.get_font_family(nd, &node_id, &default_state) {
-                if let Some(families) = val.get_property() {
-                    let mut hasher = DefaultHasher::new();
-                    families.hash(&mut hasher);
-                    let h = hasher.finish();
-                    result.tier2b_text[i].font_family_hash = if h == 0 { 1 } else { h };
-                }
-            }
-
-            if let Some(val) = self.get_line_height(nd, &node_id, &default_state) {
-                if let Some(lh) = val.get_property() {
-                    let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                    result.tier2b_text[i].line_height = pct_x10.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
-                }
-            }
-
-            if let Some(val) = self.get_letter_spacing(nd, &node_id, &default_state) {
-                result.tier2b_text[i].letter_spacing = encode_css_pixel_as_i16(val);
-            }
-            if let Some(val) = self.get_word_spacing(nd, &node_id, &default_state) {
-                result.tier2b_text[i].word_spacing = encode_css_pixel_as_i16(val);
-            }
-            if let Some(val) = self.get_text_indent(nd, &node_id, &default_state) {
-                result.tier2b_text[i].text_indent = encode_css_pixel_as_i16(val);
             }
         }
 
@@ -782,6 +655,180 @@ impl CssPropertyCache {
         result.prev_font_hashes = result.tier2b_text.iter().map(|t| t.font_family_hash).collect();
 
         result
+    }
+}
+
+// =============================================================================
+// Direct CssProperty → compact field writer
+// =============================================================================
+
+/// Apply a single CssProperty directly to the compact representation.
+/// Called once per property per node — replaces the old 56+ getter approach.
+#[inline]
+fn apply_css_property_to_compact(
+    prop: &CssProperty,
+    tier1: &mut u64,
+    dims: &mut CompactNodeProps,
+    cold: &mut CompactNodePropsCold,
+    text: &mut CompactTextProps,
+) {
+    macro_rules! set_tier1 {
+        ($v:expr, $shift:expr, $mask:expr, $encoder:ident) => {
+            if let Some(exact) = $v.get_property() {
+                let encoded = $encoder(*exact) as u64;
+                let shifted_mask = $mask << $shift;
+                *tier1 = (*tier1 & !shifted_mask) | ((encoded & $mask) << $shift);
+            }
+        };
+    }
+
+    match prop {
+        // Tier 1 enums
+        CssProperty::Display(v) => set_tier1!(v, DISPLAY_SHIFT, DISPLAY_MASK, layout_display_to_u8),
+        CssProperty::Position(v) => set_tier1!(v, POSITION_SHIFT, POSITION_MASK, layout_position_to_u8),
+        CssProperty::Float(v) => set_tier1!(v, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8),
+        CssProperty::OverflowX(v) => set_tier1!(v, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8),
+        CssProperty::OverflowY(v) => set_tier1!(v, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8),
+        CssProperty::BoxSizing(v) => set_tier1!(v, BOX_SIZING_SHIFT, BOX_SIZING_MASK, layout_box_sizing_to_u8),
+        CssProperty::FlexDirection(v) => set_tier1!(v, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK, layout_flex_direction_to_u8),
+        CssProperty::FlexWrap(v) => set_tier1!(v, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8),
+        CssProperty::JustifyContent(v) => set_tier1!(v, JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK, layout_justify_content_to_u8),
+        CssProperty::AlignItems(v) => set_tier1!(v, ALIGN_ITEMS_SHIFT, ALIGN_MASK, layout_align_items_to_u8),
+        CssProperty::AlignContent(v) => set_tier1!(v, ALIGN_CONTENT_SHIFT, ALIGN_MASK, layout_align_content_to_u8),
+        CssProperty::WritingMode(v) => set_tier1!(v, WRITING_MODE_SHIFT, WRITING_MODE_MASK, layout_writing_mode_to_u8),
+        CssProperty::Clear(v) => set_tier1!(v, CLEAR_SHIFT, CLEAR_MASK, layout_clear_to_u8),
+        CssProperty::FontWeight(v) => set_tier1!(v, FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK, style_font_weight_to_u8),
+        CssProperty::FontStyle(v) => set_tier1!(v, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8),
+        CssProperty::TextAlign(v) => set_tier1!(v, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8),
+        CssProperty::Visibility(v) => set_tier1!(v, VISIBILITY_SHIFT, VISIBILITY_MASK, style_visibility_to_u8),
+        CssProperty::WhiteSpace(v) => set_tier1!(v, WHITE_SPACE_SHIFT, WHITE_SPACE_MASK, style_white_space_to_u8),
+        CssProperty::Direction(v) => set_tier1!(v, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8),
+        CssProperty::VerticalAlign(v) => set_tier1!(v, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK, style_vertical_align_to_u8),
+        CssProperty::BorderCollapse(v) => set_tier1!(v, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK, border_collapse_to_u8),
+
+        // Tier 2 dimensions
+        CssProperty::Width(v) => { dims.width = encode_layout_width(v); }
+        CssProperty::Height(v) => { dims.height = encode_layout_height(v); }
+        CssProperty::MinWidth(v) => { dims.min_width = encode_pixel_prop(v); }
+        CssProperty::MaxWidth(v) => { dims.max_width = encode_pixel_prop(v); }
+        CssProperty::MinHeight(v) => { dims.min_height = encode_pixel_prop(v); }
+        CssProperty::MaxHeight(v) => { dims.max_height = encode_pixel_prop(v); }
+        CssProperty::FlexBasis(v) => { dims.flex_basis = encode_flex_basis(v); }
+        CssProperty::FontSize(v) => { dims.font_size = encode_pixel_prop(v); }
+        CssProperty::PaddingTop(v) => { dims.padding_top = encode_css_pixel_as_i16(v); }
+        CssProperty::PaddingRight(v) => { dims.padding_right = encode_css_pixel_as_i16(v); }
+        CssProperty::PaddingBottom(v) => { dims.padding_bottom = encode_css_pixel_as_i16(v); }
+        CssProperty::PaddingLeft(v) => { dims.padding_left = encode_css_pixel_as_i16(v); }
+        CssProperty::MarginTop(v) => { dims.margin_top = encode_margin_i16(v); }
+        CssProperty::MarginRight(v) => { dims.margin_right = encode_margin_i16(v); }
+        CssProperty::MarginBottom(v) => { dims.margin_bottom = encode_margin_i16(v); }
+        CssProperty::MarginLeft(v) => { dims.margin_left = encode_margin_i16(v); }
+        CssProperty::BorderTopWidth(v) => { dims.border_top_width = encode_css_pixel_as_i16(v); }
+        CssProperty::BorderRightWidth(v) => { dims.border_right_width = encode_css_pixel_as_i16(v); }
+        CssProperty::BorderBottomWidth(v) => { dims.border_bottom_width = encode_css_pixel_as_i16(v); }
+        CssProperty::BorderLeftWidth(v) => { dims.border_left_width = encode_css_pixel_as_i16(v); }
+        CssProperty::Top(v) => { dims.top = encode_css_pixel_as_i16(v); }
+        CssProperty::Right(v) => { dims.right = encode_css_pixel_as_i16(v); }
+        CssProperty::Bottom(v) => { dims.bottom = encode_css_pixel_as_i16(v); }
+        CssProperty::Left(v) => { dims.left = encode_css_pixel_as_i16(v); }
+        CssProperty::FlexGrow(v) => {
+            if let Some(exact) = v.get_property() {
+                dims.flex_grow = encode_flex_u16(exact.inner.get());
+            }
+        }
+        CssProperty::FlexShrink(v) => {
+            if let Some(exact) = v.get_property() {
+                dims.flex_shrink = encode_flex_u16(exact.inner.get());
+            }
+        }
+
+        // Tier 2 cold
+        CssProperty::ZIndex(v) => {
+            if let Some(exact) = v.get_property() {
+                match exact {
+                    LayoutZIndex::Auto => cold.z_index = I16_AUTO,
+                    LayoutZIndex::Integer(z) => {
+                        cold.z_index = if *z >= I16_SENTINEL_THRESHOLD as i32 { I16_SENTINEL } else { *z as i16 };
+                    }
+                }
+            }
+        }
+        CssProperty::BorderTopStyle(v) => {
+            if let Some(exact) = v.get_property() {
+                let bs = border_style_to_u8(exact.inner) as u16;
+                cold.border_styles_packed = (cold.border_styles_packed & !0x000F) | bs;
+            }
+        }
+        CssProperty::BorderRightStyle(v) => {
+            if let Some(exact) = v.get_property() {
+                let bs = border_style_to_u8(exact.inner) as u16;
+                cold.border_styles_packed = (cold.border_styles_packed & !0x00F0) | (bs << 4);
+            }
+        }
+        CssProperty::BorderBottomStyle(v) => {
+            if let Some(exact) = v.get_property() {
+                let bs = border_style_to_u8(exact.inner) as u16;
+                cold.border_styles_packed = (cold.border_styles_packed & !0x0F00) | (bs << 8);
+            }
+        }
+        CssProperty::BorderLeftStyle(v) => {
+            if let Some(exact) = v.get_property() {
+                let bs = border_style_to_u8(exact.inner) as u16;
+                cold.border_styles_packed = (cold.border_styles_packed & !0xF000) | (bs << 12);
+            }
+        }
+        CssProperty::BorderTopColor(v) => {
+            if let Some(c) = v.get_property() { cold.border_top_color = encode_color_u32(&c.inner); }
+        }
+        CssProperty::BorderRightColor(v) => {
+            if let Some(c) = v.get_property() { cold.border_right_color = encode_color_u32(&c.inner); }
+        }
+        CssProperty::BorderBottomColor(v) => {
+            if let Some(c) = v.get_property() { cold.border_bottom_color = encode_color_u32(&c.inner); }
+        }
+        CssProperty::BorderLeftColor(v) => {
+            if let Some(c) = v.get_property() { cold.border_left_color = encode_color_u32(&c.inner); }
+        }
+        CssProperty::BorderSpacing(v) => {
+            if let Some(spacing) = v.get_property() {
+                if spacing.horizontal.metric == SizeMetric::Px {
+                    cold.border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
+                }
+                if spacing.vertical.metric == SizeMetric::Px {
+                    cold.border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
+                }
+            }
+        }
+        CssProperty::TabSize(v) => { cold.tab_size = encode_css_pixel_as_i16(v); }
+
+        // Tier 2b text
+        CssProperty::TextColor(v) => {
+            if let Some(color) = v.get_property() {
+                let c = &color.inner;
+                text.text_color = ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
+            }
+        }
+        CssProperty::FontFamily(v) => {
+            if let Some(families) = v.get_property() {
+                let mut hasher = DefaultHasher::new();
+                families.hash(&mut hasher);
+                let h = hasher.finish();
+                text.font_family_hash = if h == 0 { 1 } else { h };
+            }
+        }
+        CssProperty::LineHeight(v) => {
+            if let Some(lh) = v.get_property() {
+                let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
+                text.line_height = pct_x10.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+            }
+        }
+        CssProperty::LetterSpacing(v) => { text.letter_spacing = encode_css_pixel_as_i16(v); }
+        CssProperty::WordSpacing(v) => { text.word_spacing = encode_css_pixel_as_i16(v); }
+        CssProperty::TextIndent(v) => { text.text_indent = encode_css_pixel_as_i16(v); }
+
+        // Non-compact properties (background, transform, box-shadow, etc.)
+        // — handled by get_property_slow fallback at paint time
+        _ => {}
     }
 }
 
