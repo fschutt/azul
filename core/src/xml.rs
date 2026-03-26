@@ -4287,6 +4287,32 @@ pub fn str_to_dom<'a>(
         .map_err(|e| e.into())
 }
 
+/// Fast path: parse XML to StyledDom via arena-based FastDom (no tree intermediary).
+/// Skips the Dom tree construction and convert_dom_into_compact_dom step entirely.
+pub fn str_to_dom_fast<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+    max_width: Option<f32>,
+) -> Result<StyledDom, DomXmlParseError> {
+    let html_node = get_html_node(root_nodes)?;
+    let body_node = get_body_node(html_node.children.as_ref())?;
+
+    let mut global_style = None;
+
+    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
+            let text = style_node.get_text_content();
+            if !text.is_empty() {
+                let parsed_css = Css::from_string(text.into());
+                global_style = Some(parsed_css);
+            }
+        }
+    }
+
+    render_dom_from_body_node_fast(&body_node, global_style, component_map, max_width)
+        .map_err(|e| e.into())
+}
+
 /// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not applied).
 ///
 /// Unlike `str_to_dom` which returns a fully styled `StyledDom`, this function

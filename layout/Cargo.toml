@@ -250,3 +250,7 @@ path = "tests/svg_render.rs"
 [[test]]
 name = "svg_xml_dom"
 path = "tests/svg_xml_dom.rs"
+
+[[bench]]
+name = "fast_dom_bench"
+harness = false

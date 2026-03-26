@@ -132,6 +132,40 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     DomXml { parsed_dom }
 }
 
+/// Fast path: parse XML string to DomXml using arena-based FastDom.
+/// Skips the tree construction and convert_dom_into_compact_dom step.
+pub fn domxml_from_str_fast(xml: &str, component_map: &ComponentMap) -> DomXml {
+    let error_css = Css::empty();
+
+    let parsed = match parse_xml_string(&xml) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            return DomXml {
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
+            };
+        }
+    };
+
+    let parsed_dom = match str_to_dom_fast(parsed.as_ref(), component_map, None) {
+        Ok(o) => o,
+        Err(e) => {
+            return DomXml {
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
+            };
+        }
+    };
+
+    DomXml { parsed_dom }
+}
+
 /// Loads, parses and builds a DOM from an XML file
 ///
 /// **Warning**: The file is reloaded from disk on every function call - do not
