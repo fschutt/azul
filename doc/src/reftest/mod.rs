@@ -32,6 +32,7 @@ use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
 pub mod autodebug;
+pub mod pipeline;
 pub mod debug;
 pub mod regression;
 
@@ -111,140 +112,39 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
     let _ = std::fs::create_dir_all(output_dir.join("reftest_img"));
 
-    // Build font cache ONCE before processing any tests (shared across all).
-    println!("Building shared font cache...");
-    let t_font = std::time::Instant::now();
+    // Build shared font cache + launch persistent Chrome (via pipeline)
+    println!("Initializing reftest pipeline...");
+    let t_init = Instant::now();
     let fc_cache = azul_layout::font::loading::build_font_cache();
-    println!("  Font cache ready in {:.1}ms ({} fonts)",
-        t_font.elapsed().as_secs_f64() * 1000.0,
-        fc_cache.len());
+    println!("  Font cache: {:.1}ms ({} fonts)", t_init.elapsed().as_secs_f64() * 1000.0, fc_cache.len());
+    let mut pipeline = pipeline::ReftestPipeline::new(fc_cache, &chrome_path);
 
-    // Launch persistent Chrome via CDP (reused for all tests)
-    println!("Launching Chrome via CDP...");
-    let mut chrome_cdp = crate::reftest::autodebug::cdp::ChromeCdp::launch(&chrome_path).ok();
-    if chrome_cdp.is_some() {
-        println!("  Chrome CDP connected (persistent instance)");
-    } else {
-        println!("  Chrome CDP failed, falling back to per-test process");
-    }
-
-    // Process tests
-    test_files.iter().for_each(|test_file| {
+    // Process tests via unified pipeline
+    for test_file in &test_files {
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
-        println!("Processing test: {}", test_name);
+        println!("Processing: {}", test_name);
 
-        let chrome_img = output_dir
-            .join("reftest_img")
-            .join(format!("{}_chrome.webp", test_name));
-        let chrome_layout_json = output_dir
-            .join("reftest_img")
-            .join(format!("{}_chrome_layout.json", test_name));
-        let azul_img = output_dir
-            .join("reftest_img")
-            .join(format!("{}_azul.webp", test_name));
+        let chrome_img = output_dir.join("reftest_img").join(format!("{}_chrome.webp", test_name));
+        let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
+        let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
 
-        // Generate Chrome reference and layout data if they don't exist
-        let mut chrome_layout_data = String::new();
-        let mut chrome_timing = None;
-        if !chrome_img.exists() {
-            println!("  Generating Chrome reference for {}", test_name);
-            let chrome_ok = if let Some(ref mut cdp) = chrome_cdp {
-                // Fast path: reuse persistent CDP connection
-                match cdp.screenshot_and_layout(
-                    test_file, &chrome_img, Some(&chrome_layout_json), WIDTH, HEIGHT,
-                ) {
-                    Ok(()) => {
-                        // Collect performance timing from Chrome
-                        chrome_timing = cdp.get_performance_metrics().ok();
-                        if let Ok(data) = fs::read_to_string(&chrome_layout_json) {
-                            chrome_layout_data = data;
-                        }
-                        true
-                    }
-                    Err(e) => {
-                        eprintln!("  CDP screenshot failed: {}, falling back to process", e);
-                        false
-                    }
-                }
-            } else {
-                false
-            };
+        let dpi_factor = 1.0; // Default; will be overridden if Chrome image exists with different DPI
 
-            if !chrome_ok {
-                // Fallback: spawn Chrome process per test
-                match generate_chrome_screenshot_with_debug(
-                    &chrome_path, test_file, &chrome_img, &chrome_layout_json, WIDTH, HEIGHT,
-                ) {
-                    Ok(layout_data) => { chrome_layout_data = layout_data; }
-                    Err(e) => {
-                        println!("  Failed to generate Chrome screenshot: {}", e);
-                        return;
-                    }
-                }
-            }
-            if let Some(ref t) = chrome_timing {
-                println!("  Chrome: {}", t);
-            }
-        } else {
-            println!("  Using cached Chrome reference for {}", test_name);
-            if let Ok(data) = fs::read_to_string(&chrome_layout_json) {
-                chrome_layout_data = data;
-            }
-        }
-
-        let (chrome_w, chrome_h) = match image::open(&chrome_img) {
-            Ok(img) => img.dimensions(),
-            Err(e) => {
-                println!("  Failed to open Chrome image: {}", e);
-                return;
-            }
-        };
-
-        let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
-
-        // Generate Azul rendering using shared font cache
-        let t_azul = Instant::now();
-        let mut debug_data = None;
-        match generate_azul_rendering_sized_cached(
-            test_file, &azul_img, WIDTH, HEIGHT, dpi_factor, &fc_cache,
-        ) {
-            Ok(mut data) => {
-                let azul_total_ms = t_azul.elapsed().as_secs_f64() * 1000.0;
-                println!("  Azul: xml={}ms layout={}ms render={}ms total={:.1}ms",
-                    data.xml_formatting_time_ms, data.layout_time_ms, data.render_time_ms, azul_total_ms);
-                data.chrome_layout = chrome_layout_data.clone();
-                debug_data = Some(data);
-            }
-            Err(e) => {
-                println!("  Failed to generate Azul rendering: {}", e);
-                return;
-            }
-        }
-
-        // Compare images and generate diff
-        match compare_images(&chrome_img, &azul_img) {
-            Ok(diff_count) => {
-                let passed = diff_count <= PASS_THRESHOLD_PIXELS; // 0.5% tolerance
-                println!(
-                    "  Comparison complete: {} differing pixels, test {}",
-                    diff_count,
-                    if passed { "PASSED" } else { "FAILED" }
-                );
-
-                // Store enhanced result with debug data
+        match pipeline.run_test(test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT, dpi_factor) {
+            Ok(result) => {
                 let mut enhanced_results_vec = enhanced_results.lock().unwrap();
                 enhanced_results_vec.push(EnhancedTestResult::from_debug_data(
-                    test_name.to_string(),
-                    diff_count,
-                    passed,
-                    debug_data.unwrap_or_default(),
+                    result.test_name,
+                    result.diff_pixels,
+                    result.passed,
+                    result.debug_data,
                 ));
             }
             Err(e) => {
-                println!("  Failed to compare images: {}", e);
+                println!("  ERROR: {}", e);
             }
         }
-    });
+    }
 
     // Get enhanced results
     let final_enhanced_results = enhanced_results.lock().unwrap();
@@ -933,8 +833,10 @@ fn generate_azul_rendering_sized_internal(
     // Read XML content
     let xml_content = fs::read_to_string(test_file)?;
 
-    // Initialize debug data collector
+    // Initialize debug data collector (layout debug disabled for speed;
+    // enabled via solve_layout_with_debug_internal only when collect_layout_debug=true)
     let mut debug_collector = DebugDataCollector::new(xml_content.clone());
+    debug_collector.collect_layout_debug = false;
 
     // Parse XML to DomXml
     let (dom_xml, metadata, xml) =
@@ -1805,6 +1707,9 @@ impl DebugData {
 /// Debug data collector for the reftest runner
 pub struct DebugDataCollector {
     pub data: DebugData,
+    /// If true, collect layout debug messages (adds ~80ms overhead).
+    /// Set to false for timing-only passes.
+    pub collect_layout_debug: bool,
 }
 
 impl DebugDataCollector {
@@ -1812,6 +1717,7 @@ impl DebugDataCollector {
     pub fn new(source: String) -> Self {
         Self {
             data: DebugData::new(source),
+            collect_layout_debug: true,
         }
     }
 
@@ -1914,8 +1820,14 @@ fn solve_layout_with_debug_internal(
     };
     let mut layout_window = azul_layout::LayoutWindow::new(fc_cache)?;
 
-    // Prepare debug messages
-    let mut debug_messages = Some(Vec::new());
+    // Debug messages: when enabled, layout engine pushes formatted strings
+    // at every step (~80ms overhead for string formatting).
+    // Disabled by default for accurate timing; enable via debug_collector flag.
+    let mut debug_messages: Option<Vec<_>> = if debug_collector.collect_layout_debug {
+        Some(Vec::new())
+    } else {
+        None
+    };
 
     // Start timer
     let start = std::time::Instant::now();
