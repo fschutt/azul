@@ -225,6 +225,9 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
     let mut collected_css: Vec<Css> = Vec::new();
     let mut inside_style_tag = false;
     let mut style_text = String::new();
+    // Track <head> depth: skip DOM nodes inside <head> (still collect <style> CSS).
+    // This ensures the FastDom contains only <html><body>... as the layout engine expects.
+    let mut head_depth: usize = 0;
 
     // Temporary storage for current element's attributes
     let mut current_tag: String = String::new();
@@ -323,10 +326,12 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 // Flush any pending open element
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
-                    if is_void {
-                        builder.close_node();
-                    } else {
+                    if current_tag == "head" { head_depth += 1; }
+                    if head_depth == 0 {
+                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        if is_void { builder.close_node(); }
+                    }
+                    if !is_void {
                         tag_stack.push(core::mem::take(&mut current_tag));
                     }
                 }
@@ -340,13 +345,14 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 current_attrs.push((local.to_string(), decode_xml_entities(value.as_str()).into_owned()));
             }
             ElementEnd { end: Open, .. } => {
-                // End of opening tag attributes — finalize the element
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
-                    if is_void {
-                        builder.close_node();
-                    } else {
+                    if current_tag == "head" { head_depth += 1; }
+                    if head_depth == 0 {
+                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        if is_void { builder.close_node(); }
+                    }
+                    if !is_void {
                         tag_stack.push(current_tag.clone());
                     }
                     pending_open = false;
@@ -355,18 +361,24 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             ElementEnd { end: Empty, .. } => {
                 // Self-closing element: open + immediately close
                 if pending_open {
-                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
-                    builder.close_node();
+                    if current_tag == "head" { head_depth += 1; }
+                    if head_depth == 0 {
+                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        builder.close_node();
+                    }
+                    if current_tag == "head" && head_depth > 0 { head_depth -= 1; }
                     pending_open = false;
                 }
             }
             ElementEnd { end: Close(_, close_value), .. } => {
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
-                    if is_void {
-                        builder.close_node();
-                    } else {
+                    if current_tag == "head" { head_depth += 1; }
+                    if head_depth == 0 {
+                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        if is_void { builder.close_node(); }
+                    }
+                    if !is_void {
                         tag_stack.push(current_tag.clone());
                     }
                     pending_open = false;
@@ -387,31 +399,35 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     inside_style_tag = false;
                 }
 
-                // Pop until we find matching tag (tag_stack already lowercase)
+                // Pop until we find matching tag
                 while let Some(top) = tag_stack.last() {
-                    if top == close_str {
-                        tag_stack.pop();
-                        builder.close_node();
-                        break;
-                    } else {
-                        // Auto-close mismatched
-                        tag_stack.pop();
-                        builder.close_node();
+                    let is_match = top == close_str;
+                    let was_head = top == "head";
+                    if is_match || !is_match {
+                        // Pop this tag
+                        let popped = tag_stack.pop().unwrap();
+                        if popped == "head" && head_depth > 0 { head_depth -= 1; }
+                        if head_depth == 0 && !was_head {
+                            builder.close_node();
+                        }
+                        if is_match { break; }
+                        // Auto-close mismatched (continue loop)
                     }
                 }
             }
             Text { text } => {
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    // Track if we're entering a <style> tag
                     if current_tag == "style" {
                         inside_style_tag = true;
                         style_text.clear();
                     }
-                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
-                    if is_void {
-                        builder.close_node();
-                    } else {
+                    if current_tag == "head" { head_depth += 1; }
+                    if head_depth == 0 {
+                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        if is_void { builder.close_node(); }
+                    }
+                    if !is_void {
                         tag_stack.push(current_tag.clone());
                     }
                     pending_open = false;
@@ -420,9 +436,8 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 let text_str = text.as_str();
                 if !text_str.is_empty() {
                     if inside_style_tag {
-                        // Collect <style> content as CSS, don't add as DOM text
                         style_text.push_str(text_str);
-                    } else {
+                    } else if head_depth == 0 {
                         let decoded = decode_xml_entities(text_str);
                         builder.add_leaf(NodeData::create_text(azul_css::AzString::from(&*decoded)));
                     }
