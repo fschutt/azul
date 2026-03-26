@@ -657,9 +657,69 @@ impl CssPropertyCache {
         if !css_is_empty {
             css.sort_by_specificity();
 
+            // Separate CSS rules into "global only" (just `*`) vs "has specific selector".
+            // Global-only rules apply to ALL nodes — push directly into css_props
+            // without per-node selector matching (avoids m×n for these rules).
+            // Specific rules still go through matches_html_element per-node.
+            use azul_css::css::{CssPathSelector, CssRuleBlock};
+
+            let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
+            let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
+
+            for rule in css.rules() {
+                let selectors = rule.path.selectors.as_ref();
+                let is_global_only = selectors.len() == 1
+                    && matches!(selectors.first(), Some(CssPathSelector::Global));
+                if is_global_only {
+                    global_only_rules.push(rule);
+                } else {
+                    specific_rules.push(rule);
+                }
+            }
+
+            // Phase 1: Apply global-only rules to ALL nodes directly
+            // (no per-node selector matching — just clone the declarations once per pseudo-state
+            // and push into css_props for every node)
+            macro_rules! apply_global_rules {($pseudo:expr, $state:expr) => {{
+                let global_props: Vec<StatefulCssProperty> = global_only_rules.iter()
+                    .filter(|rb| crate::style::rule_ends_with(&rb.path, $pseudo))
+                    .flat_map(|rb| rb.declarations.iter().filter_map(|d| match d {
+                        CssDeclaration::Static(s) => Some(StatefulCssProperty {
+                            state: $state,
+                            prop_type: s.get_type(),
+                            property: s.clone(),
+                        }),
+                        CssDeclaration::Dynamic(_) => None,
+                    }))
+                    .collect();
+
+                if !global_props.is_empty() {
+                    for node_idx in 0..node_data.len() {
+                        if !node_data[NodeId::new(node_idx)].is_anonymous() {
+                            for sp in &global_props {
+                                self.css_props.push_to(node_idx, sp.clone());
+                            }
+                        }
+                    }
+                }
+            }};}
+
+            // Clear all css_props before assigning
+            for entry in self.css_props.build_iter_mut() { entry.clear(); }
+
+            use azul_css::dynamic_selector::PseudoStateType;
+            apply_global_rules!(None, PseudoStateType::Normal);
+            apply_global_rules!(Some(Hover), PseudoStateType::Hover);
+            apply_global_rules!(Some(Active), PseudoStateType::Active);
+            apply_global_rules!(Some(Focus), PseudoStateType::Focus);
+            apply_global_rules!(Some(Dragging), PseudoStateType::Dragging);
+            apply_global_rules!(Some(DragOver), PseudoStateType::DragOver);
+
+            // Phase 2: Match specific rules per-node (only non-global rules)
+            if !specific_rules.is_empty() {
+
             macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
-                css
-                .rules() // can not be parallelized due to specificity order matching
+                specific_rules.iter()
                 .filter(|rule_block| crate::style::rule_ends_with(&rule_block.path, $expected_pseudo_selector))
                 .filter(|rule_block| crate::style::matches_html_element(
                     &rule_block.path,
@@ -669,14 +729,13 @@ impl CssPropertyCache {
                     &html_tree,
                     $expected_pseudo_selector
                 ))
-                // rule matched, now copy all the styles of this rule
                 .flat_map(|matched_rule| {
                     matched_rule.declarations
                     .iter()
                     .filter_map(move |declaration| {
                         match declaration {
                             CssDeclaration::Static(s) => Some(s),
-                            CssDeclaration::Dynamic(_d) => None, // TODO: No variable support yet!
+                            CssDeclaration::Dynamic(_d) => None,
                         }
                     })
                 })
@@ -684,77 +743,43 @@ impl CssPropertyCache {
                 .collect::<Vec<CssProperty>>()
             }};}
 
-            // NOTE: This is wrong, but fast
-            //
-            // Get all nodes that end with `:hover`, `:focus` or `:active`
-            // and copy the respective styles to the `hover_css_constraints`, etc. respectively
-            //
-            // NOTE: This won't work correctly for paths with `.blah:hover > #thing`
-            // but that can be fixed later
-
-            // go through each HTML node (in parallel) and see which CSS rules match
             let css_normal_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
                 .transform_nodeid_multithreaded_optional(|node_id| {
                     let r = filter_rules!(None, node_id);
-                    if r.is_empty() {
-                        None
-                    } else {
-                        Some((node_id, r))
-                    }
+                    if r.is_empty() { None } else { Some((node_id, r)) }
                 });
 
             let css_hover_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
                 .transform_nodeid_multithreaded_optional(|node_id| {
                     let r = filter_rules!(Some(Hover), node_id);
-                    if r.is_empty() {
-                        None
-                    } else {
-                        Some((node_id, r))
-                    }
+                    if r.is_empty() { None } else { Some((node_id, r)) }
                 });
 
             let css_active_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
                 .transform_nodeid_multithreaded_optional(|node_id| {
                     let r = filter_rules!(Some(Active), node_id);
-                    if r.is_empty() {
-                        None
-                    } else {
-                        Some((node_id, r))
-                    }
+                    if r.is_empty() { None } else { Some((node_id, r)) }
                 });
 
             let css_focus_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
                 .transform_nodeid_multithreaded_optional(|node_id| {
                     let r = filter_rules!(Some(Focus), node_id);
-                    if r.is_empty() {
-                        None
-                    } else {
-                        Some((node_id, r))
-                    }
+                    if r.is_empty() { None } else { Some((node_id, r)) }
                 });
 
             let css_dragging_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
                 .transform_nodeid_multithreaded_optional(|node_id| {
                     let r = filter_rules!(Some(Dragging), node_id);
-                    if r.is_empty() {
-                        None
-                    } else {
-                        Some((node_id, r))
-                    }
+                    if r.is_empty() { None } else { Some((node_id, r)) }
                 });
 
             let css_drag_over_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
                 .transform_nodeid_multithreaded_optional(|node_id| {
                     let r = filter_rules!(Some(DragOver), node_id);
-                    if r.is_empty() {
-                        None
-                    } else {
-                        Some((node_id, r))
-                    }
+                    if r.is_empty() { None } else { Some((node_id, r)) }
                 });
 
-            // Assign CSS rules to unified Vec-based storage (indexed by NodeId)
-            // Each rule gets tagged with its pseudo-state
+            // Assign specific CSS rules to css_props (global rules already applied above)
             macro_rules! assign_css_rules_stateful {
                 ($rules:expr, $state:expr) => {{
                     for (n, props) in $rules.internal.into_iter() {
@@ -769,16 +794,14 @@ impl CssPropertyCache {
                 }};
             }
 
-            // Clear all css_props before re-assigning
-            for entry in self.css_props.build_iter_mut() { entry.clear(); }
-
-            use azul_css::dynamic_selector::PseudoStateType;
             assign_css_rules_stateful!(css_normal_rules, PseudoStateType::Normal);
             assign_css_rules_stateful!(css_hover_rules, PseudoStateType::Hover);
             assign_css_rules_stateful!(css_active_rules, PseudoStateType::Active);
             assign_css_rules_stateful!(css_focus_rules, PseudoStateType::Focus);
             assign_css_rules_stateful!(css_dragging_rules, PseudoStateType::Dragging);
             assign_css_rules_stateful!(css_drag_over_rules, PseudoStateType::DragOver);
+
+            } // end if !specific_rules.is_empty()
         }
 
         // Inheritance: Inherit all values of the parent to the children, but

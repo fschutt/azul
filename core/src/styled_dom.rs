@@ -973,7 +973,9 @@ impl StyledDom {
         let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, compact_ms, total_ms);
+        #[cfg(feature = "std")]
+        eprintln!("[cascade] {} nodes: restyle={:.1}ms ua={:.1}ms inherit={:.1}ms compact={:.1}ms total={:.1}ms",
+            compact_dom.len(), restyle_ms, ua_ms, inherit_ms, compact_ms, total_ms);
 
         let nodes_with_window_callbacks = compact_dom
             .node_data
