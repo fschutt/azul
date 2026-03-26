@@ -11,8 +11,47 @@ use std::time::Instant;
 use super::autodebug::cdp::{ChromeCdp, ChromePerformanceTiming};
 use super::{
     compare_images, generate_chrome_screenshot_with_debug,
-    DebugData, PASS_THRESHOLD_PIXELS,
+    DebugData, TestMetadata, PASS_THRESHOLD_PIXELS,
 };
+
+/// Extract test metadata (title, author, etc.) from raw XML string
+/// without building a DOM tree — just scans for <title> and <meta> tags.
+fn extract_metadata_from_string(xml: &str) -> TestMetadata {
+    let mut m = TestMetadata::default();
+
+    // Extract <title>...</title>
+    if let Some(start) = xml.find("<title>").or_else(|| xml.find("<title ")) {
+        let after = &xml[start..];
+        if let Some(close_start) = after.find('>') {
+            let content_start = start + close_start + 1;
+            if let Some(end) = xml[content_start..].find("</title>") {
+                m.title = xml[content_start..content_start + end].trim().to_string();
+            }
+        }
+    }
+
+    // Extract <meta name="assert" content="...">
+    for tag in ["assert", "flags"] {
+        let needle = format!("name=\"{}\"", tag);
+        if let Some(pos) = xml.find(&needle) {
+            // Find content="..." in the same tag
+            let region = &xml[pos.saturating_sub(100)..xml.len().min(pos + 200)];
+            if let Some(c_start) = region.find("content=\"") {
+                let after = &region[c_start + 9..];
+                if let Some(c_end) = after.find('"') {
+                    let val = after[..c_end].to_string();
+                    match tag {
+                        "assert" => m.assert_content = val,
+                        "flags" => m.flags = val,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    m
+}
 
 /// Per-test timing breakdown for Azul rendering.
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -201,8 +240,10 @@ impl ReftestPipeline {
         if let Some(ref ct) = chrome_timing {
             println!("  Chrome: {}", ct);
         }
-        println!("  Azul:   parse={:.0}ms layout={:.0}ms render={:.0}ms total={:.1}ms",
-            azul_timing.xml_ms, azul_timing.layout_ms, azul_timing.render_ms, azul_timing.total_ms);
+        println!("  Azul:   parse={:.1}ms layout={:.1}ms render={:.1}ms save={:.1}ms total={:.1}ms",
+            azul_timing.xml_ms, azul_timing.layout_ms, azul_timing.render_ms,
+            azul_timing.total_ms - azul_timing.xml_ms - azul_timing.layout_ms - azul_timing.render_ms,
+            azul_timing.total_ms);
         println!("  Diff:   {} pixels ({})",
             diff_pixels, if passed { "PASS" } else { "FAIL" });
 
@@ -232,11 +273,11 @@ impl ReftestPipeline {
         use azul_layout::callbacks::ExternalSystemCallbacks;
         use azul_layout::window_state::FullWindowState;
 
-        // Parse XHTML
+        // Parse XHTML → StyledDom via fast path (tokenizer → FastDom → cascade)
         let t_parse = Instant::now();
         let xml_content = std::fs::read_to_string(test_file)
             .map_err(|e| format!("read: {}", e))?;
-        let (dom_xml, metadata, xml_nodes) = super::EnhancedXmlParser::parse_test_file(test_file)
+        let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
             .map_err(|e| format!("parse: {}", e))?;
         let parse_ms = t_parse.elapsed().as_secs_f64() * 1000.0;
 
@@ -254,7 +295,7 @@ impl ReftestPipeline {
         // Use shared layout_window (fonts already loaded from first test)
         let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
         self.layout_window.layout_and_generate_display_list(
-            dom_xml.parsed_dom.clone(),
+            styled_dom,
             &fake_window_state,
             &mut renderer_resources,
             &external,
@@ -285,7 +326,8 @@ impl ReftestPipeline {
         ).map_err(|e| format!("render: {}", e))?;
         let render_ms = t_render.elapsed().as_secs_f64() * 1000.0;
 
-        // Save image
+        // Save image (WebP encoding + disk write — not counted in layout/render timing)
+        let t_save = Instant::now();
         let pixmap_data = pixmap.data();
         let img = image::RgbaImage::from_raw(
             (width as f32 * dpi_factor) as u32,
@@ -303,8 +345,14 @@ impl ReftestPipeline {
             img.height(),
             image::ExtendedColorType::Rgba8,
         ).map_err(|e| format!("encode: {}", e))?;
+        let save_ms = t_save.elapsed().as_secs_f64() * 1000.0;
 
+        let metadata = extract_metadata_from_string(&xml_content);
         let mut debug_data = DebugData::new(xml_content);
+        debug_data.title = metadata.title;
+        debug_data.assert_content = metadata.assert_content;
+        debug_data.flags = metadata.flags;
+        debug_data.author = metadata.author;
         debug_data.xml_formatting_time_ms = parse_ms as u64;
         debug_data.layout_time_ms = layout_ms as u64;
         debug_data.render_time_ms = render_ms as u64;
