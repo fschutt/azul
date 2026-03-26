@@ -918,7 +918,7 @@ impl CssPropertyCache {
                     if let Some(cc) = compact_cache.as_ref() {
                         let t1 = cc.tier1_enums[node_idx];
                         let display_val = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
-                        if display_val == 0 { break; } // 0 = LayoutDisplay::None
+                        if display_val == 4 { break; } // 4 = LayoutDisplay::None (new encoding)
                     }
 
                     if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
@@ -967,8 +967,8 @@ impl CssPropertyCache {
                         let t1 = cc.tier1_enums[node_idx];
                         let ox = ((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8;
                         let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
-                        // 3 = Scroll, 4 = Auto in layout_overflow_to_u8
-                        if ox == 3 || ox == 4 || oy == 3 || oy == 4 {
+                        // 2 = Scroll, 3 = Auto in layout_overflow_to_u8 (new encoding)
+                        if ox == 2 || ox == 3 || oy == 2 || oy == 3 {
                             need_tag = true; break;
                         }
                     }

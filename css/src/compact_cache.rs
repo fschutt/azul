@@ -154,13 +154,15 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Convert raw bits back to LayoutDisplay. Returns default on invalid input.
 #[inline(always)]
+/// Decode display from u8. **0 = Block** (most common HTML default).
+/// Value 31 (0x1F) = sentinel: look up in slow path for uncommon values.
 pub fn layout_display_from_u8(v: u8) -> LayoutDisplay {
     match v {
-        0 => LayoutDisplay::None,
-        1 => LayoutDisplay::Block,
-        2 => LayoutDisplay::Inline,
-        3 => LayoutDisplay::InlineBlock,
-        4 => LayoutDisplay::Flex,
+        0 => LayoutDisplay::Block,        // default when bits are 0
+        1 => LayoutDisplay::Inline,
+        2 => LayoutDisplay::InlineBlock,
+        3 => LayoutDisplay::Flex,
+        4 => LayoutDisplay::None,
         5 => LayoutDisplay::InlineFlex,
         6 => LayoutDisplay::Table,
         7 => LayoutDisplay::InlineTable,
@@ -179,19 +181,20 @@ pub fn layout_display_from_u8(v: u8) -> LayoutDisplay {
         20 => LayoutDisplay::Grid,
         21 => LayoutDisplay::InlineGrid,
         22 => LayoutDisplay::Contents,
-        _ => LayoutDisplay::Block, // safe fallback
+        _ => LayoutDisplay::Block, // fallback + sentinel (31)
     }
 }
 
 /// Convert LayoutDisplay to its discriminant value (matching #[repr(C)] order).
 #[inline(always)]
+/// Encode display to u8. **0 = Block** (most common HTML default).
 pub fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
     match v {
-        LayoutDisplay::None => 0,
-        LayoutDisplay::Block => 1,
-        LayoutDisplay::Inline => 2,
-        LayoutDisplay::InlineBlock => 3,
-        LayoutDisplay::Flex => 4,
+        LayoutDisplay::Block => 0,         // 0 = default when bits unset
+        LayoutDisplay::Inline => 1,
+        LayoutDisplay::InlineBlock => 2,
+        LayoutDisplay::Flex => 3,
+        LayoutDisplay::None => 4,
         LayoutDisplay::InlineFlex => 5,
         LayoutDisplay::Table => 6,
         LayoutDisplay::InlineTable => 7,
@@ -237,43 +240,47 @@ pub fn layout_position_to_u8(v: LayoutPosition) -> u8 {
 }
 
 #[inline(always)]
+/// Decode float from u8. **0 = None** (CSS initial value).
 pub fn layout_float_from_u8(v: u8) -> LayoutFloat {
     match v {
-        0 => LayoutFloat::Left,
-        1 => LayoutFloat::Right,
-        2 => LayoutFloat::None,
+        0 => LayoutFloat::None,            // default when bits unset
+        1 => LayoutFloat::Left,
+        2 => LayoutFloat::Right,
         _ => LayoutFloat::None,
     }
 }
 
+/// Encode float to u8. **0 = None** (CSS initial value).
 #[inline(always)]
 pub fn layout_float_to_u8(v: LayoutFloat) -> u8 {
     match v {
-        LayoutFloat::Left => 0,
-        LayoutFloat::Right => 1,
-        LayoutFloat::None => 2,
+        LayoutFloat::None => 0,
+        LayoutFloat::Left => 1,
+        LayoutFloat::Right => 2,
     }
 }
 
 #[inline(always)]
+/// Decode overflow from u8. **0 = Visible** (CSS initial value).
 pub fn layout_overflow_from_u8(v: u8) -> LayoutOverflow {
     match v {
-        0 => LayoutOverflow::Scroll,
-        1 => LayoutOverflow::Auto,
-        2 => LayoutOverflow::Hidden,
-        3 => LayoutOverflow::Visible,
+        0 => LayoutOverflow::Visible,      // default when bits unset
+        1 => LayoutOverflow::Hidden,
+        2 => LayoutOverflow::Scroll,
+        3 => LayoutOverflow::Auto,
         4 => LayoutOverflow::Clip,
         _ => LayoutOverflow::Visible,
     }
 }
 
 #[inline(always)]
+/// Encode overflow to u8. **0 = Visible** (CSS initial value).
 pub fn layout_overflow_to_u8(v: LayoutOverflow) -> u8 {
     match v {
-        LayoutOverflow::Scroll => 0,
-        LayoutOverflow::Auto => 1,
-        LayoutOverflow::Hidden => 2,
-        LayoutOverflow::Visible => 3,
+        LayoutOverflow::Visible => 0,      // 0 = default when bits unset
+        LayoutOverflow::Hidden => 1,
+        LayoutOverflow::Scroll => 2,
+        LayoutOverflow::Auto => 3,
         LayoutOverflow::Clip => 4,
     }
 }

@@ -48,10 +48,10 @@ fn test_h1_display_block_from_ua() {
     );
     let s = styled(dom, "");
     // node 0 = Html, 1 = Body, 2 = H1, 3 = text
-    assert_eq!(get_display(&s, 0), 1, "Html should be display:block (1)");
-    assert_eq!(get_display(&s, 1), 1, "Body should be display:block (1)");
-    assert_eq!(get_display(&s, 2), 1, "H1 should be display:block (1)");
-    assert_eq!(get_display(&s, 3), 2, "Text should be display:inline (2)");
+    assert_eq!(get_display(&s, 0), 0, "Html should be display:block (0)");
+    assert_eq!(get_display(&s, 1), 0, "Body should be display:block (0)");
+    assert_eq!(get_display(&s, 2), 0, "H1 should be display:block (0)");
+    assert_eq!(get_display(&s, 3), 1, "Text should be display:inline (1)");
 }
 
 #[test]
@@ -63,8 +63,8 @@ fn test_div_block_span_inline_from_ua() {
     );
     let s = styled(dom, "");
     // 0=Html, 1=Body, 2=Div, 3=text, 4=Span, 5=text
-    assert_eq!(get_display(&s, 2), 1, "Div should be display:block (1)");
-    assert_eq!(get_display(&s, 4), 2, "Span should be display:inline (2)");
+    assert_eq!(get_display(&s, 2), 0, "Div should be display:block (0)");
+    assert_eq!(get_display(&s, 4), 1, "Span should be display:inline (1)");
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn test_author_css_display_flex_overrides_ua_block() {
     );
     let s = styled(dom, "div { display: flex; }");
     // Div should now be flex (4) instead of block (1)
-    assert_eq!(get_display(&s, 2), 4, "Div should be display:flex (4) from author CSS");
+    assert_eq!(get_display(&s, 2), 3, "Div should be display:flex (3) from author CSS");
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn test_global_star_doesnt_override_ua_display() {
         )
     );
     let s = styled(dom, "* { margin: 0; padding: 0; }");
-    assert_eq!(get_display(&s, 2), 1, "H1 should still be display:block after * reset");
+    assert_eq!(get_display(&s, 2), 0, "H1 should still be display:block after * reset");
 }
 
 // ===================================================================
@@ -165,9 +165,9 @@ fn test_display_does_not_inherit() {
         )
     );
     let s = styled(dom, "");
-    assert_eq!(get_display(&s, 1), 1, "Body should be block");
+    assert_eq!(get_display(&s, 1), 0, "Body should be block");
     // Span gets display:inline from UA, NOT inherited block from body
-    assert_eq!(get_display(&s, 2), 2, "Span should be display:inline (2), not inherited block");
+    assert_eq!(get_display(&s, 2), 1, "Span should be display:inline (1), not inherited block");
 }
 
 // ===================================================================
