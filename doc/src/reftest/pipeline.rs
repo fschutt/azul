@@ -53,13 +53,14 @@ fn extract_metadata_from_string(xml: &str) -> TestMetadata {
     m
 }
 
-/// Per-test timing breakdown for Azul rendering.
+/// Per-test timing breakdown for Azul rendering (microseconds).
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct AzulTiming {
-    pub xml_ms: f64,
-    pub layout_ms: f64,
-    pub render_ms: f64,
-    pub total_ms: f64,
+    pub parse_us: f64,
+    pub layout_us: f64,
+    pub render_us: f64,
+    pub save_us: f64,
+    pub total_us: f64,
 }
 
 /// Result of running a single reftest.
@@ -217,19 +218,13 @@ impl ReftestPipeline {
         let _ = self.render_azul(test_file, azul_img, width, height, true)?;
 
         // 2b. Timing pass — accurate measurement, no debug overhead
-        let t_azul = Instant::now();
-        let (debug_data, _) = self.render_azul(test_file, azul_img, width, height, false)?;
-        let azul_total_ms = t_azul.elapsed().as_secs_f64() * 1000.0;
+        let (debug_data, azul_timing_from_render) = self.render_azul(test_file, azul_img, width, height, false)?;
 
         let mut debug_data = debug_data;
         debug_data.chrome_layout = chrome_layout_data.clone();
 
-        let azul_timing = AzulTiming {
-            xml_ms: debug_data.xml_formatting_time_ms as f64,
-            layout_ms: debug_data.layout_time_ms as f64,
-            render_ms: debug_data.render_time_ms as f64,
-            total_ms: azul_total_ms,
-        };
+        // Use the timing from the render pass (microsecond precision)
+        let azul_timing = azul_timing_from_render;
 
         // 3. Pixel comparison
         let diff_pixels = compare_images(chrome_img, azul_img)
@@ -240,10 +235,9 @@ impl ReftestPipeline {
         if let Some(ref ct) = chrome_timing {
             println!("  Chrome: {}", ct);
         }
-        println!("  Azul:   parse={:.1}ms layout={:.1}ms render={:.1}ms save={:.1}ms total={:.1}ms",
-            azul_timing.xml_ms, azul_timing.layout_ms, azul_timing.render_ms,
-            azul_timing.total_ms - azul_timing.xml_ms - azul_timing.layout_ms - azul_timing.render_ms,
-            azul_timing.total_ms);
+        println!("  Azul:   parse={:.0}us layout={:.0}us render={:.0}us save={:.0}us total={:.0}us ({:.2}ms)",
+            azul_timing.parse_us, azul_timing.layout_us, azul_timing.render_us,
+            azul_timing.save_us, azul_timing.total_us, azul_timing.total_us / 1000.0);
         println!("  Diff:   {} pixels ({})",
             diff_pixels, if passed { "PASS" } else { "FAIL" });
 
@@ -279,7 +273,7 @@ impl ReftestPipeline {
             .map_err(|e| format!("read: {}", e))?;
         let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
             .map_err(|e| format!("parse: {}", e))?;
-        let parse_ms = t_parse.elapsed().as_secs_f64() * 1000.0;
+        let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
 
         // Layout
         let t_layout = Instant::now();
@@ -307,7 +301,7 @@ impl ReftestPipeline {
             .remove(&DomId::ROOT_ID)
             .ok_or("No layout result")?
             .display_list;
-        let layout_ms = t_layout.elapsed().as_secs_f64() * 1000.0;
+        let layout_us = t_layout.elapsed().as_secs_f64() * 1_000_000.0;
 
         // CPU render
         let t_render = Instant::now();
@@ -324,7 +318,7 @@ impl ReftestPipeline {
             },
             &mut glyph_cache,
         ).map_err(|e| format!("render: {}", e))?;
-        let render_ms = t_render.elapsed().as_secs_f64() * 1000.0;
+        let render_us = t_render.elapsed().as_secs_f64() * 1_000_000.0;
 
         // Save image (WebP encoding + disk write — not counted in layout/render timing)
         let t_save = Instant::now();
@@ -345,7 +339,8 @@ impl ReftestPipeline {
             img.height(),
             image::ExtendedColorType::Rgba8,
         ).map_err(|e| format!("encode: {}", e))?;
-        let save_ms = t_save.elapsed().as_secs_f64() * 1000.0;
+        let save_us = t_save.elapsed().as_secs_f64() * 1_000_000.0;
+        let total_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
 
         let metadata = extract_metadata_from_string(&xml_content);
         let mut debug_data = DebugData::new(xml_content);
@@ -353,15 +348,16 @@ impl ReftestPipeline {
         debug_data.assert_content = metadata.assert_content;
         debug_data.flags = metadata.flags;
         debug_data.author = metadata.author;
-        debug_data.xml_formatting_time_ms = parse_ms as u64;
-        debug_data.layout_time_ms = layout_ms as u64;
-        debug_data.render_time_ms = render_ms as u64;
+        debug_data.xml_formatting_time_ms = (parse_us / 1000.0) as u64;
+        debug_data.layout_time_ms = (layout_us / 1000.0) as u64;
+        debug_data.render_time_ms = (render_us / 1000.0) as u64;
 
         let timing = AzulTiming {
-            xml_ms: parse_ms,
-            layout_ms,
-            render_ms,
-            total_ms: t_parse.elapsed().as_secs_f64() * 1000.0,
+            parse_us,
+            layout_us,
+            render_us,
+            save_us,
+            total_us,
         };
 
         Ok((debug_data, timing))

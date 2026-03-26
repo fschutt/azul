@@ -2033,8 +2033,7 @@ impl EnhancedTestResult {
 
     /// Set Azul timing from pipeline measurement.
     pub fn set_azul_timing(&mut self, timing: &pipeline::AzulTiming) {
-        self.azul_total_ms = timing.total_ms;
-        // xml/layout/render already set from DebugData
+        self.azul_total_ms = timing.total_us / 1000.0; // store as ms for JSON compat
     }
 }
 
