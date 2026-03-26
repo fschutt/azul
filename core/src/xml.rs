@@ -4267,24 +4267,8 @@ pub fn str_to_dom<'a>(
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, DomXmlParseError> {
-    let html_node = get_html_node(root_nodes)?;
-    let body_node = get_body_node(html_node.children.as_ref())?;
-
-    let mut global_style = None;
-
-    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        // parse the <style></style> tag contents, if present
-        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
-            let text = style_node.get_text_content();
-            if !text.is_empty() {
-                let parsed_css = Css::from_string(text.into());
-                global_style = Some(parsed_css);
-            }
-        }
-    }
-
-    render_dom_from_body_node(&body_node, global_style, component_map, max_width)
-        .map_err(|e| e.into())
+    // Delegate to the fast path (Dom::Fast / CompactDom arena).
+    str_to_dom_fast(root_nodes, component_map, max_width)
 }
 
 /// Fast path: parse XML to StyledDom via arena-based FastDom (no tree intermediary).

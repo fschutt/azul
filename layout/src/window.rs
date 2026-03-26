@@ -756,8 +756,8 @@ impl LayoutWindow {
         {
             use crate::{
                 solver3::getters::{
-                    collect_and_resolve_font_chains, collect_font_ids_from_chains,
-                    compute_fonts_to_load, load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
+                    collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
+                    compute_fonts_to_load, load_fonts_from_disk,
                 },
                 text3::default::PathLoader,
             };
@@ -793,12 +793,11 @@ impl LayoutWindow {
                     ));
                 }
 
-                // Step 0: Register embedded FontRefs (e.g. Material Icons)
-                // These fonts bypass fontconfig and are used directly
-                register_embedded_fonts_from_styled_dom(&styled_dom, &self.font_manager, &platform);
-
-                // Step 1: Resolve font chains (cached by FontChainKey)
-                let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache, &platform);
+                // Step 0+1: Collect font stacks, register embedded FontRefs,
+                // and resolve chains in a single pass over the DOM nodes.
+                let chains = collect_and_resolve_font_chains_with_registration(
+                    &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
+                );
                 if let Some(msgs) = debug_messages.as_mut() {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[FontLoading] Resolved {} font chains",

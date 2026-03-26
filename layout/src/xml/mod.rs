@@ -11,7 +11,16 @@ pub mod svg;
 /// Decodes XML/HTML entities in a string.
 /// Handles standard XML entities: &lt; &gt; &amp; &apos; &quot;
 /// and numeric character references: &#60; &#x3C;
-fn decode_xml_entities(s: &str) -> String {
+/// Returns Cow::Borrowed when no entities are found (zero-alloc fast path).
+fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
+    // Fast path: if no ampersand, no entities to decode
+    if !s.contains('&') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    decode_xml_entities_slow(s)
+}
+
+fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     
@@ -89,7 +98,7 @@ fn decode_xml_entities(s: &str) -> String {
         }
     }
     
-    result
+    std::borrow::Cow::Owned(result)
 }
 
 pub use azul_core::xml::*;
@@ -101,35 +110,8 @@ use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
-    let error_css = Css::empty();
-
-    let parsed = match parse_xml_string(&xml) {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            return DomXml {
-                parsed_dom: {
-                    let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
-                    StyledDom::create(&mut dom, error_css.clone())
-                },
-            };
-        }
-    };
-
-    let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
-        Ok(o) => o,
-        Err(e) => {
-            return DomXml {
-                parsed_dom: {
-                    let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
-                    StyledDom::create(&mut dom, error_css.clone())
-                },
-            };
-        }
-    };
-
-    DomXml { parsed_dom }
+    // Use the fast path (Dom::Fast / CompactDom) by default.
+    domxml_from_str_fast(xml, component_map)
 }
 
 /// Fastest path: parse XML string directly into FastDom without intermediate XmlNode tree.
@@ -212,10 +194,13 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
         "param", "source", "track", "wbr",
     ];
 
+    // Pre-compute the CSS key map once (used for style= attribute parsing)
+    let css_key_map = azul_css::props::property::get_css_key_map();
+
     // Finalize the pending open element: create NodeData from tag + attrs, push to builder
-    let finalize_open = |builder: &mut CompactDomBuilder, tag: &str, attrs: &[(String, String)]| {
-        let tag_lower = tag.to_ascii_lowercase();
-        let node_type = azul_core::xml::tag_to_node_type(&tag_lower);
+    // tag is already lowercase
+    let finalize_open = |builder: &mut CompactDomBuilder, tag: &str, attrs: &[(String, String)], css_key_map: &azul_css::props::property::CssKeyMap| {
+        let node_type = azul_core::xml::tag_to_node_type(tag);
         let mut nd = NodeData::create_node(node_type);
 
         // Apply attributes
@@ -247,7 +232,6 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                 }
                 "style" => {
-                    let css_key_map = azul_css::props::property::get_css_key_map();
                     let mut css_attrs = Vec::new();
                     for s in value.split(";") {
                         let mut s = s.split(":");
@@ -295,28 +279,28 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             ElementStart { local, .. } => {
                 // Flush any pending open element
                 if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
-                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
                     if is_void {
                         builder.close_node();
                     } else {
-                        tag_stack.push(current_tag.clone());
+                        tag_stack.push(core::mem::take(&mut current_tag));
                     }
                 }
 
-                current_tag = local.to_string();
+                current_tag = local.as_str().to_ascii_lowercase();
                 current_attrs.clear();
                 pending_open = true;
-                last_was_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                last_was_void = VOID_ELEMENTS.contains(&current_tag.as_str());
             }
             Attribute { local, value, .. } => {
-                current_attrs.push((local.to_string(), decode_xml_entities(value.as_str())));
+                current_attrs.push((local.to_string(), decode_xml_entities(value.as_str()).into_owned()));
             }
             ElementEnd { end: Open, .. } => {
                 // End of opening tag attributes — finalize the element
                 if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
-                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
                     if is_void {
                         builder.close_node();
                     } else {
@@ -328,15 +312,15 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             ElementEnd { end: Empty, .. } => {
                 // Self-closing element: open + immediately close
                 if pending_open {
-                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
                     builder.close_node();
                     pending_open = false;
                 }
             }
             ElementEnd { end: Close(_, close_value), .. } => {
                 if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
-                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
                     if is_void {
                         builder.close_node();
                     } else {
@@ -345,24 +329,24 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     pending_open = false;
                 }
 
-                let close_str = close_value.as_str();
+                let close_lower = close_value.as_str().to_ascii_lowercase();
+                let close_str = close_lower.as_str();
                 if VOID_ELEMENTS.contains(&close_str) {
                     continue;
                 }
 
                 // If closing a <style> tag, parse collected CSS
-                if close_str.to_ascii_lowercase() == "style" && inside_style_tag {
+                if close_str == "style" && inside_style_tag {
                     if !style_text.is_empty() {
-                        let parsed_css = Css::from_string(style_text.clone().into());
+                        let parsed_css = Css::from_string(core::mem::take(&mut style_text).into());
                         collected_css.push(parsed_css);
                     }
                     inside_style_tag = false;
-                    style_text.clear();
                 }
 
-                // Pop until we find matching tag
+                // Pop until we find matching tag (tag_stack already lowercase)
                 while let Some(top) = tag_stack.last() {
-                    if top.to_ascii_lowercase() == close_str.to_ascii_lowercase() {
+                    if top == close_str {
                         tag_stack.pop();
                         builder.close_node();
                         break;
@@ -375,13 +359,13 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             }
             Text { text } => {
                 if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
                     // Track if we're entering a <style> tag
-                    if current_tag.to_ascii_lowercase() == "style" {
+                    if current_tag == "style" {
                         inside_style_tag = true;
                         style_text.clear();
                     }
-                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
                     if is_void {
                         builder.close_node();
                     } else {
@@ -397,7 +381,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         style_text.push_str(text_str);
                     } else {
                         let decoded = decode_xml_entities(text_str);
-                        builder.add_leaf(NodeData::create_text(azul_css::AzString::from(decoded.as_str())));
+                        builder.add_leaf(NodeData::create_text(azul_css::AzString::from(&*decoded)));
                     }
                 }
             }
@@ -407,7 +391,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     // Close any remaining open elements
     if pending_open {
-        finalize_open(&mut builder, &current_tag, &current_attrs);
+        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
     }
     while tag_stack.pop().is_some() {
         builder.close_node();
@@ -705,7 +689,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                     // Decode XML entities in attribute values as well
                     last.attributes.push(azul_core::window::AzStringPair {
                         key: local.to_string().into(),
-                        value: decode_xml_entities(value.as_str()).into(),
+                        value: azul_css::AzString::from(&*decode_xml_entities(value.as_str())),
                     });
                 }
             }
@@ -734,7 +718,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                         // Add text as a child node
                         current_parent
                             .children
-                            .push(XmlNodeChild::Text(decoded_text.into()));
+                            .push(XmlNodeChild::Text(azul_css::AzString::from(&*decoded_text)));
                     }
                 }
             }

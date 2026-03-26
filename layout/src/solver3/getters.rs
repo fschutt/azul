@@ -3089,94 +3089,90 @@ pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
+    use azul_css::compact_cache::{FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK, FONT_STYLE_SHIFT, FONT_STYLE_MASK};
+
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
-    let mut seen_hashes = std::collections::HashSet::new();
     let mut font_refs: HashMap<usize, azul_css::props::basic::font::FontRef> = HashMap::new();
 
-    let node_data_container = styled_dom.node_data.as_container();
-    let styled_nodes_container = styled_dom.styled_nodes.as_container();
+    let node_data = styled_dom.node_data.as_container();
     let cache = &styled_dom.css_property_cache.ptr;
+    let compact = match cache.compact_cache.as_ref() {
+        Some(c) => c,
+        None => return CollectedFontStacks { font_stacks, hash_to_index, font_refs },
+    };
 
-    // Iterate over all nodes
-    for (node_idx, node_data) in node_data_container.internal.iter().enumerate() {
-        // Only process text nodes (they are the ones that need fonts)
-        if !matches!(node_data.node_type, NodeType::Text(_)) {
+    // Phase 1: Scan compact cache arrays (just u64 reads) to find unique
+    // (font_family_hash, weight, style) tuples. Record one representative
+    // node index per unique tuple for the expensive CSS lookup in Phase 2.
+    // Key: (font_family_hash, weight_encoded, style_encoded) → representative node index
+    let mut unique_font_keys: HashMap<(u64, u8, u8), usize> = HashMap::new();
+    let node_count = node_data.internal.len();
+
+    for i in 0..node_count {
+        // Only text nodes need fonts
+        if !matches!(node_data.internal[i].node_type, NodeType::Text(_)) {
             continue;
         }
+        let fh = compact.tier2b_text[i].font_family_hash;
+        let t1 = compact.tier1_enums[i];
+        let weight_bits = ((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8;
+        let style_bits = ((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8;
+        let key = (fh, weight_bits, style_bits);
+        unique_font_keys.entry(key).or_insert(i);
+    }
 
-        let dom_id = match NodeId::from_usize(node_idx) {
+    // Phase 2: For each unique tuple, do ONE expensive CSS lookup on the
+    // representative node to get the actual font-family names.
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+
+    for (&(_fh, _wb, _sb), &repr_idx) in &unique_font_keys {
+        let nd = &node_data.internal[repr_idx];
+        let dom_id = match NodeId::from_usize(repr_idx) {
             Some(id) => id,
             None => continue,
         };
+        let node_state = &styled_nodes[dom_id].styled_node_state;
 
-        let node_state = &styled_nodes_container[dom_id].styled_node_state;
-
-        // Get font families from CSS
         let font_families = cache
-            .get_font_family(node_data, &dom_id, node_state)
+            .get_font_family(nd, &dom_id, node_state)
             .and_then(|v| v.get_property().cloned())
             .unwrap_or_else(|| {
                 StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
             });
 
-        // Check if the first font family is a FontRef (direct embedded font)
-        // If so, we don't need to go through fontconfig - just collect the FontRef
+        // Check for embedded FontRef
         if let Some(first_family) = font_families.get(0) {
             if let StyleFontFamily::Ref(font_ref) = first_family {
                 let ptr = font_ref.parsed as usize;
-                if !font_refs.contains_key(&ptr) {
-                    font_refs.insert(ptr, font_ref.clone());
-                }
-                // Skip the normal font stack processing for FontRef
+                font_refs.entry(ptr).or_insert_with(|| font_ref.clone());
                 continue;
             }
         }
 
-        // Get font weight and style
         let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
             MultiValue::Exact(v) => v,
             _ => StyleFontWeight::Normal,
         };
-
         let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
             MultiValue::Exact(v) => v,
             _ => StyleFontStyle::Normal,
         };
 
-        // Convert to fontconfig types
-        let mut fc_weight = super::fc::convert_font_weight(font_weight);
-        let mut fc_style = super::fc::convert_font_style(font_style);
+        let fc_weight = super::fc::convert_font_weight(font_weight);
+        let fc_style = super::fc::convert_font_style(font_style);
 
-        // Build font stack (only for non-Ref font families)
         let mut font_stack = Vec::with_capacity(font_families.len() + 3);
 
         for i in 0..font_families.len() {
             let family = font_families.get(i).unwrap();
-            // Skip FontRef entries in the stack - they're handled separately
             if matches!(family, StyleFontFamily::Ref(_)) {
                 continue;
             }
-            
-            // Handle SystemFontType specially - resolve to actual font names
-            // and apply the font weight/style from the system font type
             if let StyleFontFamily::SystemType(system_type) = family {
-                // Get platform-specific font names using the provided platform
                 let font_names = system_type.get_fallback_chain(platform);
-                
-                // Override weight/style based on system font type
-                let system_weight = if system_type.is_bold() {
-                    FcWeight::Bold
-                } else {
-                    fc_weight
-                };
-                let system_style = if system_type.is_italic() {
-                    FontStyle::Italic
-                } else {
-                    fc_style
-                };
-                
-                // Add each font name from the fallback chain
+                let system_weight = if system_type.is_bold() { FcWeight::Bold } else { fc_weight };
+                let system_style = if system_type.is_italic() { FontStyle::Italic } else { fc_style };
                 for font_name in font_names {
                     font_stack.push(FontSelector {
                         family: font_name.to_string(),
@@ -3196,12 +3192,8 @@ pub fn collect_font_stacks_from_styled_dom(
         }
 
         // Add generic fallbacks
-        let generic_fallbacks = ["sans-serif", "serif", "monospace"];
-        for fallback in &generic_fallbacks {
-            if !font_stack
-                .iter()
-                .any(|f| f.family.to_lowercase() == fallback.to_lowercase())
-            {
+        for fallback in &["sans-serif", "serif", "monospace"] {
+            if !font_stack.iter().any(|f| f.family.eq_ignore_ascii_case(fallback)) {
                 font_stack.push(FontSelector {
                     family: fallback.to_string(),
                     weight: FcWeight::Normal,
@@ -3211,12 +3203,10 @@ pub fn collect_font_stacks_from_styled_dom(
             }
         }
 
-        // Skip empty font stacks (can happen if all families were FontRefs)
         if font_stack.is_empty() {
             continue;
         }
 
-        // Compute hash for deduplication
         let key = FontChainKey::from_selectors(&font_stack);
         let hash = {
             use std::hash::{Hash, Hasher};
@@ -3225,9 +3215,7 @@ pub fn collect_font_stacks_from_styled_dom(
             hasher.finish()
         };
 
-        // Only add if not seen before
-        if !seen_hashes.contains(&hash) {
-            seen_hashes.insert(hash);
+        if !hash_to_index.contains_key(&hash) {
             let idx = font_stacks.len();
             font_stacks.push(font_stack);
             hash_to_index.insert(hash, idx);
@@ -3341,6 +3329,38 @@ pub fn resolve_font_chains(
 ///
 /// # Returns
 /// A `ResolvedFontChains` containing all resolved font chains
+/// Collect font stacks, register embedded fonts, and resolve font chains
+/// in a single pass over the DOM nodes. Replaces the old two-pass approach
+/// where `register_embedded_fonts_from_styled_dom` + `collect_and_resolve_font_chains`
+/// each independently scanned all nodes.
+pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    fc_cache: &FcFontCache,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
+) -> ResolvedFontChains {
+    let t0 = std::time::Instant::now();
+    let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
+    let collect_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+    // Register embedded FontRefs (from the same scan, no second pass)
+    for (_ptr, font_ref) in &collected.font_refs {
+        font_manager.register_embedded_font(font_ref);
+    }
+
+    let t1 = std::time::Instant::now();
+    let resolved = resolve_font_chains(&collected, fc_cache);
+    let resolve_ms = t1.elapsed().as_secs_f64() * 1000.0;
+
+    #[cfg(feature = "std")]
+    eprintln!("[font-chains] collect={:.1}ms ({} unique stacks from {} nodes) resolve={:.1}ms ({} chains)",
+        collect_ms, collected.font_stacks.len(), styled_dom.node_data.as_ref().len(),
+        resolve_ms, resolved.chains.len());
+
+    resolved
+}
+
+/// Legacy wrapper: collect + resolve without registration.
 pub fn collect_and_resolve_font_chains(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
@@ -3350,10 +3370,7 @@ pub fn collect_and_resolve_font_chains(
     resolve_font_chains(&collected, fc_cache)
 }
 
-/// Register all embedded FontRefs from the styled DOM in the FontManager
-/// 
-/// This must be called BEFORE layout so that the fonts are available
-/// for WebRender resource registration after layout.
+/// Legacy wrapper: register only. Prefer `collect_and_resolve_font_chains_with_registration`.
 pub fn register_embedded_fonts_from_styled_dom<T: crate::font_traits::ParsedFontTrait>(
     styled_dom: &StyledDom,
     font_manager: &crate::text3::cache::FontManager<T>,

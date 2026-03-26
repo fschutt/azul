@@ -3195,15 +3195,15 @@ pub fn render_component_preview(
     // --- Font resolution ---
     {
         use crate::solver3::getters::{
-            collect_and_resolve_font_chains, collect_font_ids_from_chains,
-            compute_fonts_to_load, load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
+            collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
+            compute_fonts_to_load, load_fonts_from_disk,
         };
 
         let platform = azul_css::system::Platform::current();
 
-        register_embedded_fonts_from_styled_dom(&styled_dom, &preview_font_manager, &platform);
-
-        let chains = collect_and_resolve_font_chains(&styled_dom, &preview_font_manager.fc_cache, &platform);
+        let chains = collect_and_resolve_font_chains_with_registration(
+            &styled_dom, &preview_font_manager.fc_cache, &preview_font_manager, &platform,
+        );
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = preview_font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);

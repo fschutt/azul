@@ -1,159 +1,227 @@
-/// Benchmark comparing Slow (tree-based) vs Fast (arena-based) DOM construction
-/// from XHTML parsing.
+/// Benchmark: Full rendering pipeline for 50K-node XHTML document.
+///
+/// Measures per-frame cost with warm font cache (matching real-world usage).
+/// Font loading is excluded — in a real app, FcFontRegistry loads fonts in
+/// background threads during app init.
 ///
 /// Run with: cargo bench -p azul-layout --bench fast_dom_bench
 
 use std::time::Instant;
 
 fn main() {
-    // Use chapter-8.xht as the benchmark file (24k+ lines)
+    // Use chapter-8.xht as the benchmark file (24k+ lines, ~50K DOM nodes)
     let bench_file = std::path::Path::new("../doc/xhtml1/chapter-8.xht");
     let xml_content = match std::fs::read_to_string(bench_file) {
         Ok(c) => c,
         Err(e) => {
-            // Try from workspace root
             let alt = std::path::Path::new("doc/xhtml1/chapter-8.xht");
             match std::fs::read_to_string(alt) {
                 Ok(c) => c,
                 Err(_) => {
                     eprintln!("Cannot find benchmark file: {}", e);
-                    eprintln!("Run from workspace root or layout/ directory");
                     return;
                 }
             }
         }
     };
 
-    println!("Benchmark file: chapter-8.xht ({} bytes, {} lines)",
-        xml_content.len(),
-        xml_content.lines().count());
+    println!("Benchmark: chapter-8.xht ({} bytes, {} lines)\n",
+        xml_content.len(), xml_content.lines().count());
 
-    // === Stage breakdown ===
-    println!("\n=== Stage breakdown ===");
-    {
-        // XML tokenize + parse (shared, one-time cost)
-        let t0 = Instant::now();
-        let parsed = azul_layout::xml::parse_xml_string(&xml_content).unwrap();
-        let xml_parse_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        println!("  XML parse:       {:.2}ms ({} top-level nodes)", xml_parse_ms, parsed.len());
-
-        // get_html_node + get_body_node + CSS extraction
-        let t1 = Instant::now();
-        let html_node = azul_core::xml::get_html_node(parsed.as_ref()).unwrap();
-        let body_node = azul_core::xml::get_body_node(html_node.children.as_ref()).unwrap();
-        let mut global_css = None;
-        if let Some(head_node) = azul_core::xml::find_node_by_type(html_node.children.as_ref(), "head") {
-            if let Some(style_node) = azul_core::xml::find_node_by_type(head_node.children.as_ref(), "style") {
-                let text = style_node.get_text_content();
-                if !text.is_empty() {
-                    global_css = Some(azul_css::css::Css::from_string(text.into()));
-                }
-            }
-        }
-        let prep_ms = t1.elapsed().as_secs_f64() * 1000.0;
-        println!("  CSS extraction:  {:.2}ms", prep_ms);
-
-        // Fast path: CompactDomBuilder
-        let t2 = Instant::now();
-        let _fast_dom = azul_core::xml::render_dom_from_body_node_fast(
-            &body_node, global_css.clone(), &azul_core::xml::ComponentMap::with_builtin(), None,
-        ).unwrap();
-        let fast_build_ms = t2.elapsed().as_secs_f64() * 1000.0;
-        println!("  FastDom build:   {:.2}ms (CompactDomBuilder → StyledDom)", fast_build_ms);
-
-        // Slow path: tree Dom → CompactDom
-        let t3 = Instant::now();
-        let _slow_dom = azul_core::xml::render_dom_from_body_node(
-            &body_node, global_css, &azul_core::xml::ComponentMap::with_builtin(), None,
-        ).unwrap();
-        let slow_build_ms = t3.elapsed().as_secs_f64() * 1000.0;
-        println!("  SlowDom build:   {:.2}ms (tree Dom → CompactDom → StyledDom)", slow_build_ms);
-
-        // Direct path: XML tokens → FastDom (no XmlNode tree, no Dom tree)
-        let t4 = Instant::now();
-        let fast_dom_direct = azul_layout::xml::parse_xml_to_fast_dom(&xml_content).unwrap();
-        let direct_parse_ms = t4.elapsed().as_secs_f64() * 1000.0;
-        println!("  Direct parse:    {:.2}ms (XML tokens → FastDom, {} nodes)",
-            direct_parse_ms, fast_dom_direct.node_data.as_ref().len());
-
-        // Direct + StyledDom (single function, includes CSS extraction)
-        let t5 = Instant::now();
-        let _styled = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
-        let direct_styled_ms = t5.elapsed().as_secs_f64() * 1000.0;
-        println!("  Direct+styled:   {:.2}ms (XML → StyledDom, single function)", direct_styled_ms);
-    }
-
-    let component_map = azul_core::xml::ComponentMap::with_builtin();
-
-    // Parse XML once (shared between both paths)
-    let parsed = match azul_layout::xml::parse_xml_string(&xml_content) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("XML parse error: {}", e);
-            return;
-        }
+    // =========================================================================
+    // PRE-LOAD: Font cache (excluded from benchmark, same as real app startup)
+    // =========================================================================
+    use std::collections::{BTreeMap, HashMap};
+    use azul_core::{
+        dom::DomId,
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{IdNamespace, RendererResources, ImageCache},
+    };
+    use azul_layout::{
+        solver3::{self, cache::LayoutCache},
+        cpurender::{self, RenderOptions},
+        glyph_cache::GlyphCache,
+        FontManager, TextLayoutCache,
     };
 
-    println!("Parsed XML: {} top-level nodes", parsed.len());
+    println!("--- Font pre-load (excluded from per-frame timing) ---");
+
+    let t0 = Instant::now();
+    let registry = azul_layout::FcFontRegistry::new();
+    let had_cache = registry.load_from_disk_cache();
+    let disk_cache_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("  disk cache load:   {:.2}ms (had_cache={})", disk_cache_ms, had_cache.is_some());
+
+    let t1 = Instant::now();
+    registry.spawn_scout_and_builders();
+    let spawn_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    println!("  spawn threads:     {:.2}ms", spawn_ms);
+
+    let t2 = Instant::now();
+    let os = rust_fontconfig::OperatingSystem::current();
+    let common_stacks = rust_fontconfig::config::tokenize_common_families(os);
+    registry.request_fonts(&common_stacks);
+    let request_ms = t2.elapsed().as_secs_f64() * 1000.0;
+    println!("  request_fonts:     {:.2}ms (blocks until common fonts parsed)", request_ms);
+
+    let t3 = Instant::now();
+    let fc_cache = std::sync::Arc::new(registry.into_fc_font_cache());
+    let snapshot_ms = t3.elapsed().as_secs_f64() * 1000.0;
+    println!("  snapshot cache:    {:.2}ms ({} font entries)", snapshot_ms, fc_cache.len());
+
+    // Warm up: parse once to discover + load required fonts
+    let mut font_manager = FontManager::from_arc(fc_cache.clone()).expect("font manager");
+    {
+        let warmup_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
+        use azul_layout::solver3::getters::*;
+        let platform = azul_css::system::Platform::current();
+
+        let t4 = Instant::now();
+        let chains = collect_and_resolve_font_chains_with_registration(
+            &warmup_dom, &font_manager.fc_cache, &font_manager, &platform,
+        );
+        let chain_ms = t4.elapsed().as_secs_f64() * 1000.0;
+
+        let t6 = Instant::now();
+        let required_fonts = collect_font_ids_from_chains(&chains);
+        let already_loaded = font_manager.get_loaded_font_ids();
+        let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+        let need_count = fonts_to_load.len();
+        if !fonts_to_load.is_empty() {
+            use azul_layout::text3::default::PathLoader;
+            let loader = PathLoader::new();
+            let load_result = load_fonts_from_disk(
+                &fonts_to_load,
+                &font_manager.fc_cache,
+                |bytes, index| loader.load_font(bytes, index),
+            );
+            font_manager.insert_fonts(load_result.loaded);
+        }
+        let load_ms = t6.elapsed().as_secs_f64() * 1000.0;
+
+        font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
+        println!("  collect+resolve:   {:.2}ms (single pass)", chain_ms);
+        println!("  load from disk:    {:.2}ms ({} fonts needed, {} total loaded)",
+            load_ms, need_count, font_manager.get_loaded_font_ids().len());
+    }
+    let total_prefont_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("  TOTAL pre-load:    {:.2}ms\n", total_prefont_ms);
+
+    // =========================================================================
+    // PER-FRAME BENCHMARK (warm fonts)
+    // =========================================================================
+    let viewport_w = 1024.0_f32;
+    let viewport_h = 768.0_f32;
+    let dpi = 1.0_f32;
 
     const ITERATIONS: usize = 5;
+    println!("--- Per-frame pipeline ({} iterations, warm fonts) ---", ITERATIONS);
 
-    // === Benchmark SLOW path ===
-    println!("\n=== SLOW path (tree Dom → CompactDom → StyledDom) ===");
-    let mut slow_times = Vec::new();
-    for i in 0..ITERATIONS {
-        let t0 = Instant::now();
-        let result = azul_core::xml::str_to_dom(parsed.as_ref(), &component_map, None);
-        let elapsed = t0.elapsed();
-        match result {
-            Ok(styled_dom) => {
-                let node_count = styled_dom.node_hierarchy.as_ref().len();
-                slow_times.push(elapsed);
-                println!("  [{}/{}] {} nodes in {:.2}ms",
-                    i + 1, ITERATIONS, node_count,
-                    elapsed.as_secs_f64() * 1000.0);
-            }
-            Err(e) => {
-                eprintln!("  SLOW path error: {}", e);
-                return;
-            }
+    let mut pipeline_times = Vec::new();
+    let mut stage_times = Vec::new(); // (parse+cascade, font_chains, layout+dl, render)
+
+    for iter in 0..ITERATIONS {
+        let t_pipeline = Instant::now();
+
+        // Stage 1: XML → StyledDom (tokenize + build FastDom + cascade)
+        let t_s1 = Instant::now();
+        let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
+        let node_count = styled_dom.node_hierarchy.as_ref().len();
+        let s1_ms = t_s1.elapsed().as_secs_f64() * 1000.0;
+
+        // Stage 1.5: Font chain resolution (warm — no disk I/O, single pass)
+        let t_s1b = Instant::now();
+        {
+            use azul_layout::solver3::getters::*;
+            let platform = azul_css::system::Platform::current();
+            let chains = collect_and_resolve_font_chains_with_registration(
+                &styled_dom, &font_manager.fc_cache, &font_manager, &platform,
+            );
+            font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
         }
+        let s1b_ms = t_s1b.elapsed().as_secs_f64() * 1000.0;
+
+        // Stage 2: Layout + display list
+        let t_s2 = Instant::now();
+        let viewport = LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize { width: viewport_w, height: viewport_h },
+        };
+        let mut layout_cache = LayoutCache {
+            tree: None,
+            calculated_positions: Vec::new(),
+            viewport: None,
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+            counters: HashMap::new(),
+            float_cache: HashMap::new(),
+            cache_map: Default::default(),
+            previous_positions: Vec::new(),
+        };
+        let mut text_cache = TextLayoutCache::new();
+        let renderer_resources = RendererResources::default();
+        let get_system_time_fn = azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        };
+
+        let display_list = solver3::layout_document(
+            &mut layout_cache,
+            &mut text_cache,
+            styled_dom,
+            viewport,
+            &font_manager,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut None,
+            None,
+            &renderer_resources,
+            IdNamespace(0xFFFF),
+            DomId::ROOT_ID,
+            false,
+            None,
+            &ImageCache::default(),
+            None,
+            get_system_time_fn,
+        ).expect("layout failed");
+        let dl_items = display_list.items.len();
+        let s2_ms = t_s2.elapsed().as_secs_f64() * 1000.0;
+
+        // Stage 3: CPU render
+        let t_s3 = Instant::now();
+        let mut glyph_cache = GlyphCache::new();
+        let _pixmap = cpurender::render_with_font_manager(
+            &display_list,
+            &renderer_resources,
+            &font_manager,
+            RenderOptions { width: viewport_w, height: viewport_h, dpi_factor: dpi },
+            &mut glyph_cache,
+        ).expect("render failed");
+        let s3_ms = t_s3.elapsed().as_secs_f64() * 1000.0;
+
+        let total_ms = t_pipeline.elapsed().as_secs_f64() * 1000.0;
+        pipeline_times.push(total_ms);
+        stage_times.push((s1_ms, s1b_ms, s2_ms, s3_ms));
+
+        println!("  [{}/{}] {:.1}ms total | parse+cascade={:.1}ms fonts={:.1}ms layout={:.1}ms ({} DL) render={:.1}ms",
+            iter + 1, ITERATIONS, total_ms, s1_ms, s1b_ms, s2_ms, dl_items, s3_ms);
     }
 
-    // === Benchmark FAST path ===
-    println!("\n=== FAST path (FastDom → StyledDom, no tree intermediary) ===");
-    let mut fast_times = Vec::new();
-    for i in 0..ITERATIONS {
-        let t0 = Instant::now();
-        let result = azul_core::xml::str_to_dom_fast(parsed.as_ref(), &component_map, None);
-        let elapsed = t0.elapsed();
-        match result {
-            Ok(styled_dom) => {
-                let node_count = styled_dom.node_hierarchy.as_ref().len();
-                fast_times.push(elapsed);
-                println!("  [{}/{}] {} nodes in {:.2}ms",
-                    i + 1, ITERATIONS, node_count,
-                    elapsed.as_secs_f64() * 1000.0);
-            }
-            Err(e) => {
-                eprintln!("  FAST path error: {}", e);
-                return;
-            }
-        }
-    }
+    // =========================================================================
+    // SUMMARY
+    // =========================================================================
+    println!("\n--- Summary ({} nodes, {}x{}) ---", 50043, viewport_w as u32, viewport_h as u32);
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let s1_avg = avg(&stage_times.iter().map(|s| s.0).collect::<Vec<_>>());
+    let s1b_avg = avg(&stage_times.iter().map(|s| s.1).collect::<Vec<_>>());
+    let s2_avg = avg(&stage_times.iter().map(|s| s.2).collect::<Vec<_>>());
+    let s3_avg = avg(&stage_times.iter().map(|s| s.3).collect::<Vec<_>>());
+    let total_avg = avg(&pipeline_times);
 
-    // === Summary ===
-    if !slow_times.is_empty() && !fast_times.is_empty() {
-        let slow_avg = slow_times.iter().map(|t| t.as_secs_f64()).sum::<f64>() / slow_times.len() as f64;
-        let fast_avg = fast_times.iter().map(|t| t.as_secs_f64()).sum::<f64>() / fast_times.len() as f64;
-        let speedup = slow_avg / fast_avg;
-
-        println!("\n=== RESULTS ===");
-        println!("  SLOW avg: {:.2}ms", slow_avg * 1000.0);
-        println!("  FAST avg: {:.2}ms", fast_avg * 1000.0);
-        println!("  Speedup:  {:.2}x", speedup);
-        println!("  Saved:    {:.2}ms per parse ({:.1}%)",
-            (slow_avg - fast_avg) * 1000.0,
-            (1.0 - fast_avg / slow_avg) * 100.0);
-    }
+    println!("  parse + cascade:   {:.1}ms", s1_avg);
+    println!("  font chains:       {:.1}ms", s1b_avg);
+    println!("  layout + DL:       {:.1}ms", s2_avg);
+    println!("  CPU render:        {:.1}ms", s3_avg);
+    println!("  ────────────────────────");
+    println!("  TOTAL per-frame:   {:.1}ms", total_avg);
 }

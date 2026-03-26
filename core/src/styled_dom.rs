@@ -948,14 +948,13 @@ impl StyledDom {
         );
         let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
-        let t_ua = std::time::Instant::now();
-        css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
-        css_property_cache.sort_cascaded_props();
-        let ua_ms = t_ua.elapsed().as_secs_f64() * 1000.0;
+        // UA CSS defaults are now applied inline in build_compact_cache_with_inheritance
+        // (Step 2), so no separate apply_ua_css() + sort_cascaded_props() needed.
 
         // Merged inherit + compact pass: builds compact cache while inheriting
         // from parent's compact values in a single DOM-order traversal.
-        // Replaces separate compute_inherited_values() + build_compact_cache().
+        // Also applies UA CSS defaults per node type (lowest cascade priority).
+        // Replaces separate apply_ua_css() + compute_inherited_values() + build_compact_cache().
         let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
@@ -971,8 +970,8 @@ impl StyledDom {
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         #[cfg(feature = "std")]
-        eprintln!("[cascade] {} nodes: restyle={:.1}ms ua={:.1}ms inherit+compact={:.1}ms total={:.1}ms",
-            compact_dom.len(), restyle_ms, ua_ms, inherit_compact_ms, total_ms);
+        eprintln!("[cascade] {} nodes: restyle={:.1}ms inherit+compact+ua={:.1}ms total={:.1}ms",
+            compact_dom.len(), restyle_ms, inherit_compact_ms, total_ms);
 
         let nodes_with_window_callbacks = compact_dom
             .node_data

@@ -109,7 +109,7 @@ core-text = { version = "20.1", optional = true }
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons"]
 
 # Standard library support
 std = ["azul-core/std"]
@@ -147,6 +147,11 @@ font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std", "rust-fontconfig/p
 
 # Multithreading for font cache building (faster on desktop, not available on WASM)
 font_loading_multithreaded = ["font_loading", "rust-fontconfig/multithreading"]
+
+# Async font registry: background scout + builder threads discover and parse fonts
+# while the app initializes. At layout time, request_fonts() blocks only until the
+# needed families are ready. Not available on WASM.
+font_async_registry = ["font_loading", "rust-fontconfig/async-registry", "rust-fontconfig/cache"]
 
 # Font introspection (adds allsorts via rust-fontconfig/parsing)
 font_parsing = ["font_loading", "rust-fontconfig/parsing"]

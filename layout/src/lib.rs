@@ -201,6 +201,8 @@ pub use solver3::paged_layout::layout_document_paged;
 pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
 #[cfg(feature = "text_layout")]
 pub use text3::cache::{FontManager, LayoutCache as TextLayoutCache};
+#[cfg(feature = "font_async_registry")]
+pub use rust_fontconfig::registry::FcFontRegistry;
 #[cfg(feature = "text_layout")]
 pub use window::{CursorBlinkTimerAction, LayoutWindow, ScrollbarDragState};
 #[cfg(feature = "text_layout")]

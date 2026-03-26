@@ -151,17 +151,16 @@ where
     // Font Resolution And Loading
     {
         use crate::solver3::getters::{
-            collect_and_resolve_font_chains, collect_font_ids_from_chains, compute_fonts_to_load,
-            load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
+            collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
+            compute_fonts_to_load, load_fonts_from_disk,
         };
 
         // TODO: Accept platform as parameter instead of using ::current()
         let platform = azul_css::system::Platform::current();
 
-        // Register embedded FontRefs (e.g. Material Icons) before resolving chains
-        register_embedded_fonts_from_styled_dom(new_dom, font_manager, &platform);
-
-        let chains = collect_and_resolve_font_chains(new_dom, &font_manager.fc_cache, &platform);
+        let chains = collect_and_resolve_font_chains_with_registration(
+            new_dom, &font_manager.fc_cache, font_manager, &platform,
+        );
 
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = font_manager.get_loaded_font_ids();

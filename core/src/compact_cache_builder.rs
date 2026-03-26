@@ -9,6 +9,7 @@ use crate::prop_cache::CssPropertyCache;
 use crate::styled_dom::StyledNodeState;
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
+use azul_css::props::property::CssProperty;
 use azul_css::props::basic::length::SizeMetric;
 use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
 use azul_css::props::layout::flex::LayoutFlexBasis;
@@ -551,8 +552,56 @@ impl CssPropertyCache {
                 result.tier2b_text[i] = result.tier2b_text[pi];
             }
 
-            // Step 2: Apply this node's own CSS properties on top
-            // (same as build_compact_cache but with inherited baseline)
+            // Step 2: Apply UA CSS defaults for this node type directly to compact values.
+            // UA defaults have lowest cascade priority — overridden by author CSS below.
+            // This replaces the separate apply_ua_css() pass + cascaded_props + sort.
+            {
+                use azul_css::props::property::CssPropertyType as PT;
+                let ua_property_types = [
+                    PT::Display, PT::Width, PT::Height, PT::FontSize, PT::FontWeight,
+                    PT::MarginTop, PT::MarginBottom, PT::MarginLeft, PT::MarginRight,
+                    PT::PaddingTop, PT::PaddingBottom, PT::PaddingLeft, PT::PaddingRight,
+                    PT::TextAlign, PT::VerticalAlign, PT::TextDecoration, PT::Cursor,
+                    PT::ListStyleType, PT::BorderTopStyle, PT::BorderTopWidth, PT::BorderTopColor,
+                ];
+                for pt in &ua_property_types {
+                    if let Some(ua_prop) = crate::ua_css::get_ua_property(&nd.node_type, *pt) {
+                        // Apply directly to compact — same logic as the global CSS pre-encode
+                        match ua_prop {
+                            CssProperty::Display(v) => if let Some(exact) = v.get_property() {
+                                let encoded = layout_display_to_u8(*exact) as u64;
+                                let shifted_mask = DISPLAY_MASK << DISPLAY_SHIFT;
+                                result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask) | ((encoded & DISPLAY_MASK) << DISPLAY_SHIFT);
+                            },
+                            CssProperty::FontSize(v) => { result.tier2_dims[i].font_size = encode_pixel_prop(v); }
+                            CssProperty::FontWeight(v) => if let Some(exact) = v.get_property() {
+                                let encoded = style_font_weight_to_u8(*exact) as u64;
+                                let shifted_mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
+                                result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask) | ((encoded & FONT_WEIGHT_MASK) << FONT_WEIGHT_SHIFT);
+                            },
+                            CssProperty::MarginTop(v) => { result.tier2_dims[i].margin_top = encode_margin_i16(v); }
+                            CssProperty::MarginBottom(v) => { result.tier2_dims[i].margin_bottom = encode_margin_i16(v); }
+                            CssProperty::MarginLeft(v) => { result.tier2_dims[i].margin_left = encode_margin_i16(v); }
+                            CssProperty::MarginRight(v) => { result.tier2_dims[i].margin_right = encode_margin_i16(v); }
+                            CssProperty::PaddingTop(v) => { result.tier2_dims[i].padding_top = encode_css_pixel_as_i16(v); }
+                            CssProperty::PaddingBottom(v) => { result.tier2_dims[i].padding_bottom = encode_css_pixel_as_i16(v); }
+                            CssProperty::PaddingLeft(v) => { result.tier2_dims[i].padding_left = encode_css_pixel_as_i16(v); }
+                            CssProperty::PaddingRight(v) => { result.tier2_dims[i].padding_right = encode_css_pixel_as_i16(v); }
+                            CssProperty::Width(v) => { result.tier2_dims[i].width = encode_layout_width(v); }
+                            CssProperty::Height(v) => { result.tier2_dims[i].height = encode_layout_height(v); }
+                            CssProperty::TextAlign(v) => if let Some(exact) = v.get_property() {
+                                let encoded = style_text_align_to_u8(*exact) as u64;
+                                let shifted_mask = TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT;
+                                result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask) | ((encoded & TEXT_ALIGN_MASK) << TEXT_ALIGN_SHIFT);
+                            },
+                            _ => {} // Other UA properties handled by get_property_slow fallback
+                        }
+                    }
+                }
+            }
+
+            // Step 3: Apply this node's own CSS properties on top (author CSS + inline)
+            // (same as build_compact_cache but with inherited + UA baseline)
 
             // Tier 1 enum properties — use SHIFT + MASK to set individual fields
             macro_rules! tier1_enum {
