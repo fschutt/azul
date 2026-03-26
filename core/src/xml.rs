@@ -4271,8 +4271,10 @@ pub fn str_to_dom<'a>(
     str_to_dom_fast(root_nodes, component_map, max_width)
 }
 
-/// Fast path: parse XML to StyledDom via arena-based FastDom (no tree intermediary).
-/// Skips the Dom tree construction and convert_dom_into_compact_dom step entirely.
+/// Parse XML to StyledDom via arena-based FastDom (no tree intermediary).
+///
+/// **Note**: `str_to_dom()` now delegates to this function, so you can use
+/// either one. This function is kept for backward compatibility.
 pub fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5083,6 +5085,11 @@ pub fn render_dom_from_body_node_fast<'a>(
 }
 
 /// Map component name to NodeType
+///
+/// **Deprecated**: Use `render_dom_from_body_node_fast` or `str_to_dom` (which now
+/// uses the fast arena-based path by default). This function builds an intermediate
+/// tree `Dom` before converting to `CompactDom`, which is slower.
+#[deprecated(note = "Use render_dom_from_body_node_fast() or str_to_dom() instead")]
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,

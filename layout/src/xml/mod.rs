@@ -110,8 +110,35 @@ use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
-    // Use the fast path (Dom::Fast / CompactDom) by default.
-    domxml_from_str_fast(xml, component_map)
+    let error_css = Css::empty();
+
+    let parsed = match parse_xml_string(&xml) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            return DomXml {
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
+            };
+        }
+    };
+
+    let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
+        Ok(o) => o,
+        Err(e) => {
+            return DomXml {
+                parsed_dom: {
+                    let mut dom = Dom::create_body()
+                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
+                    StyledDom::create(&mut dom, error_css.clone())
+                },
+            };
+        }
+    };
+
+    DomXml { parsed_dom }
 }
 
 /// Fastest path: parse XML string directly into FastDom without intermediate XmlNode tree.
@@ -418,6 +445,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
 /// Fast path: parse XML string to DomXml using arena-based FastDom.
 /// Skips the tree construction and convert_dom_into_compact_dom step.
+#[deprecated(note = "Use domxml_from_str() which now uses the fast path by default")]
 pub fn domxml_from_str_fast(xml: &str, component_map: &ComponentMap) -> DomXml {
     let error_css = Css::empty();
 
