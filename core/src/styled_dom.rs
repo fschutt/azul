@@ -941,7 +941,8 @@ impl StyledDom {
         let prep_ms = t_prep.elapsed().as_secs_f64() * 1000.0;
 
         let t_restyle = std::time::Instant::now();
-        let tag_ids = css_property_cache.restyle(
+        // Phase 1: Match CSS selectors → populate css_props (no tag IDs yet)
+        let _restyle_tag_ids = css_property_cache.restyle(
             &mut css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
@@ -950,13 +951,7 @@ impl StyledDom {
         );
         let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
-        // UA CSS defaults are now applied inline in build_compact_cache_with_inheritance
-        // (Step 2), so no separate apply_ua_css() + sort_cascaded_props() needed.
-
-        // Merged inherit + compact pass: builds compact cache while inheriting
-        // from parent's compact values in a single DOM-order traversal.
-        // Also applies UA CSS defaults per node type (lowest cascade priority).
-        // Replaces separate apply_ua_css() + compute_inherited_values() + build_compact_cache().
+        // Phase 2: Build compact cache (inherit + compact + UA in single pass)
         let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
@@ -970,10 +965,18 @@ impl StyledDom {
         css_property_cache.compact_cache = Some(compact);
         let inherit_compact_ms = t_inherit_compact.elapsed().as_secs_f64() * 1000.0;
 
+        // Phase 3: Generate tag IDs using compact cache for fast display/overflow reads
+        let t_tags = std::time::Instant::now();
+        let tag_ids = css_property_cache.generate_tag_ids(
+            &compact_dom.node_data.as_ref(),
+            &node_hierarchy,
+        );
+        let tags_ms = t_tags.elapsed().as_secs_f64() * 1000.0;
+
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         #[cfg(feature = "std")]
-        eprintln!("[cascade] {} nodes: prep={:.1}ms restyle={:.1}ms compact={:.1}ms total={:.1}ms",
-            compact_dom.len(), prep_ms, restyle_ms, inherit_compact_ms, total_ms);
+        eprintln!("[cascade] {} nodes: prep={:.1}ms restyle={:.1}ms compact={:.1}ms tags={:.1}ms total={:.1}ms",
+            compact_dom.len(), prep_ms, restyle_ms, inherit_compact_ms, tags_ms, total_ms);
 
         // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).
         // For XHTML-parsed DOMs with no callbacks, this early-exits immediately.

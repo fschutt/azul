@@ -644,6 +644,9 @@ impl CssPropertyCache {
 impl CssPropertyCache {
     /// Restyles the CSS property cache with a new CSS file
     #[must_use]
+    /// Match CSS selectors to nodes and populate css_props.
+    /// Returns tag IDs for hit-testing. If compact_cache is available,
+    /// uses it for fast display/overflow checks; otherwise falls back to slow path.
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -858,37 +861,39 @@ impl CssPropertyCache {
             }
         }
 
-        let t_sort = std::time::Instant::now();
         // Sort css_props by (state, prop_type) for binary search lookups,
         // then flatten into contiguous memory for cache-friendly reads.
-        // NOTE: Only sort+flatten css_props here. cascaded_props will be sorted
-        // after apply_ua_css() since apply_ua_css() adds more entries.
         self.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
-        let sort_ms = t_sort.elapsed().as_secs_f64() * 1000.0;
 
-        let t_tags = std::time::Instant::now();
-        // When restyling, the tag / node ID mappings may change, regenerate them
-        // See if the node should have a hit-testing tag ID
-        let default_node_state = StyledNodeState::default();
+        self.generate_tag_ids(node_data, node_hierarchy)
+    }
 
-        // In order to hit-test `:hover` and `:active` selectors,
-        // we need to insert "tag IDs" for all rectangles
-        // that have a non-normal path ending, for example if we have
-        // `#thing:hover`, then all nodes selected by `#thing`
-        // need to get a TagId, otherwise, they can't be hit-tested.
+    /// Generate hit-test tag IDs for nodes that need event handling.
+    /// Uses compact cache (if available) for fast display/overflow reads.
+    /// Can be called separately after build_compact_cache_with_inheritance.
+    pub fn generate_tag_ids(
+        &self,
+        node_data: &NodeDataContainerRef<NodeData>,
+        node_hierarchy: &NodeHierarchyItemVec,
+    ) -> Vec<TagIdToNodeIdMapping> {
 
-        // NOTE: restyling a DOM may change the :hover nodes, which is
-        // why the tag IDs have to be re-generated on every .restyle() call!
-        
-        // Keep a reference to the node data container for use in the closure
+        // Tag ID generation: determine which nodes need hit-test tags for
+        // hover/click/scroll events. Uses compact cache for display/overflow
+        // checks instead of get_property_slow (which searches 6 data structures).
+        use azul_css::compact_cache::{
+            DISPLAY_SHIFT, DISPLAY_MASK,
+            OVERFLOW_X_SHIFT, OVERFLOW_Y_SHIFT, OVERFLOW_MASK,
+        };
+
+        let compact_cache = self.compact_cache.as_ref();
         let node_data_container = &node_data.internal;
 
         let tag_ids = node_data
             .internal
             .iter()
             .enumerate()
-            .filter_map(|(node_id, node_data)| {
-                let node_id = NodeId::new(node_id);
+            .filter_map(|(node_idx, node_data)| {
+                let node_id = NodeId::new(node_idx);
 
                 let should_auto_insert_tabindex = node_data
                     .get_callbacks()
@@ -906,247 +911,89 @@ impl CssPropertyCache {
                     }
                 };
 
-                let mut node_should_have_tag = false;
+                let mut need_tag = false;
 
-                // workaround for "goto end" - early break if
-                // one of the conditions is true
                 loop {
-                    // check for display: none
-                    let display = self
-                        .get_display(&node_data, &node_id, &default_node_state)
-                        .and_then(|p| p.get_property_or_default())
-                        .unwrap_or_default();
-
-                    if display == LayoutDisplay::None {
-                        node_should_have_tag = false;
-                        break;
+                    // display:none check — read directly from compact tier1 (fast u64 read)
+                    if let Some(cc) = compact_cache.as_ref() {
+                        let t1 = cc.tier1_enums[node_idx];
+                        let display_val = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
+                        if display_val == 0 { break; } // 0 = LayoutDisplay::None
                     }
 
-                    if node_data.has_context_menu() {
-                        node_should_have_tag = true;
-                        break;
+                    if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
+                        need_tag = true; break;
                     }
+                    if tab_index.is_some() { need_tag = true; break; }
 
-                    if tab_index.is_some() {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for context menu
-                    if node_data.get_context_menu().is_some() {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for :hover
-                    let node_has_hover_props = {
+                    // Pseudo-state property checks (hover/active/focus/dragging/drag-over)
+                    {
                         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                        node_data.css_props.as_ref().iter().any(|p| {
-                            p.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
-                            })
-                        })
-                    } || Self::has_state_props(
-                            self.css_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Hover,
-                        )
-                        || Self::has_state_props(
-                            self.cascaded_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Hover,
-                        );
-
-                    if node_has_hover_props {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for :active
-                    let node_has_active_props = {
-                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                        node_data.css_props.as_ref().iter().any(|p| {
-                            p.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
-                            })
-                        })
-                    } || Self::has_state_props(
-                            self.css_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Active,
-                        )
-                        || Self::has_state_props(
-                            self.cascaded_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Active,
-                        );
-
-                    if node_has_active_props {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for :focus
-                    let node_has_focus_props = {
-                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                        node_data.css_props.as_ref().iter().any(|p| {
-                            p.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
-                            })
-                        })
-                    } || Self::has_state_props(
-                            self.css_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Focus,
-                        )
-                        || Self::has_state_props(
-                            self.cascaded_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Focus,
-                        );
-
-                    if node_has_focus_props {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for :dragging
-                    let node_has_dragging_props = {
-                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                        node_data.css_props.as_ref().iter().any(|p| {
-                            p.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Dragging))
-                            })
-                        })
-                    } || Self::has_state_props(
-                            self.css_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Dragging,
-                        )
-                        || Self::has_state_props(
-                            self.cascaded_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::Dragging,
-                        );
-
-                    if node_has_dragging_props {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for :drag-over
-                    let node_has_drag_over_props = {
-                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                        node_data.css_props.as_ref().iter().any(|p| {
-                            p.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::DragOver))
-                            })
-                        })
-                    } || Self::has_state_props(
-                            self.css_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::DragOver,
-                        )
-                        || Self::has_state_props(
-                            self.cascaded_props.get_slice(node_id.index()),
-                            azul_css::dynamic_selector::PseudoStateType::DragOver,
-                        );
-
-                    if node_has_drag_over_props {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check whether any Hover(), Active() or Focus() callbacks are present
-                    let node_only_window_callbacks = node_data.get_callbacks().is_empty()
-                        || node_data
-                            .get_callbacks()
-                            .iter()
-                            .all(|cb| cb.event.is_window_callback());
-
-                    if !node_only_window_callbacks {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for non-default cursor: property - needed for hit-testing cursor
-                    let node_has_non_default_cursor = self
-                        .get_cursor(&node_data, &node_id, &default_node_state)
-                        .is_some();
-
-                    if node_has_non_default_cursor {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // check for overflow: scroll or overflow: auto - needed for scroll hit-testing
-                    // Nodes with these overflow values need hit-test tags so that
-                    // scroll wheel events can be correctly assigned to scrollable containers
-                    let node_has_overflow_scroll = {
-                        use azul_css::props::layout::LayoutOverflow;
-                        let overflow_x = self
-                            .get_overflow_x(&node_data, &node_id, &default_node_state)
-                            .and_then(|p| p.get_property_or_default());
-                        let overflow_y = self
-                            .get_overflow_y(&node_data, &node_id, &default_node_state)
-                            .and_then(|p| p.get_property_or_default());
-
-                        let x_scrollable = matches!(
-                            overflow_x,
-                            Some(LayoutOverflow::Scroll | LayoutOverflow::Auto)
-                        );
-                        let y_scrollable = matches!(
-                            overflow_y,
-                            Some(LayoutOverflow::Scroll | LayoutOverflow::Auto)
-                        );
-                        x_scrollable || y_scrollable
-                    };
-
-                    if node_has_overflow_scroll {
-                        node_should_have_tag = true;
-                        break;
-                    }
-
-                    // Check for selectable text - nodes that contain text children and
-                    // user-select != none need hit-test tags for text selection support.
-                    // The cursor resolution algorithm in CursorTypeHitTest ensures that
-                    // explicit cursor properties (e.g., cursor:pointer on button) take
-                    // precedence over the implicit I-beam from text children.
-                    let node_has_selectable_text = {
-                        use azul_css::props::style::StyleUserSelect;
-                        use crate::dom::NodeType;
-                        
-                        // Check if this node has immediate text children
-                        let has_text_children = {
-                            let hier = node_hierarchy.as_container()[node_id];
-                            let mut has_text = false;
-                            if let Some(first_child) = hier.first_child_id(node_id) {
-                                let mut child_id = Some(first_child);
-                                while let Some(cid) = child_id {
-                                    let child_data = &node_data_container[cid.index()];
-                                    if matches!(child_data.get_node_type(), NodeType::Text(_)) {
-                                        has_text = true;
-                                        break;
-                                    }
-                                    child_id = node_hierarchy.as_container()[cid].next_sibling_id();
-                                }
-                            }
-                            has_text
+                        let has_pseudo = |state: PseudoStateType| -> bool {
+                            node_data.css_props.as_ref().iter().any(|p| {
+                                p.apply_if.as_slice().iter().any(|c|
+                                    matches!(c, DynamicSelector::PseudoState(s) if *s == state)
+                                )
+                            }) || Self::has_state_props(self.css_props.get_slice(node_idx), state)
                         };
-                        
-                        if has_text_children {
-                            // Check user-select property on this container (default is selectable)
-                            let user_select = self
-                                .get_user_select(&node_data, &node_id, &default_node_state)
-                                .and_then(|p| p.get_property().cloned())
-                                .unwrap_or(StyleUserSelect::Auto);
-                            
-                            !matches!(user_select, StyleUserSelect::None)
-                        } else {
-                            false
-                        }
-                    };
 
-                    if node_has_selectable_text {
-                        node_should_have_tag = true;
-                        break;
+                        if has_pseudo(PseudoStateType::Hover)
+                            || has_pseudo(PseudoStateType::Active)
+                            || has_pseudo(PseudoStateType::Focus)
+                            || has_pseudo(PseudoStateType::Dragging)
+                            || has_pseudo(PseudoStateType::DragOver)
+                        {
+                            need_tag = true; break;
+                        }
+                    }
+
+                    // Non-window callbacks
+                    let has_non_window_cb = !node_data.get_callbacks().is_empty()
+                        && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
+                    if has_non_window_cb { need_tag = true; break; }
+
+                    // Cursor check — read from css_props (no get_property_slow)
+                    if self.css_props.get_slice(node_idx).iter().any(|p|
+                        p.state == azul_css::dynamic_selector::PseudoStateType::Normal
+                        && p.prop_type == azul_css::props::property::CssPropertyType::Cursor
+                    ) || node_data.css_props.as_ref().iter().any(|p|
+                        p.property.get_type() == azul_css::props::property::CssPropertyType::Cursor
+                    ) {
+                        need_tag = true; break;
+                    }
+
+                    // Overflow scroll check — read from compact tier1
+                    if let Some(cc) = compact_cache.as_ref() {
+                        let t1 = cc.tier1_enums[node_idx];
+                        let ox = ((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8;
+                        let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
+                        // 3 = Scroll, 4 = Auto in layout_overflow_to_u8
+                        if ox == 3 || ox == 4 || oy == 3 || oy == 4 {
+                            need_tag = true; break;
+                        }
+                    }
+
+                    // Selectable text check
+                    {
+                        use crate::dom::NodeType;
+                        let hier = node_hierarchy.as_container()[node_id];
+                        let mut has_text = false;
+                        if let Some(first_child) = hier.first_child_id(node_id) {
+                            let mut child_id = Some(first_child);
+                            while let Some(cid) = child_id {
+                                if matches!(node_data_container[cid.index()].get_node_type(), NodeType::Text(_)) {
+                                    has_text = true; break;
+                                }
+                                child_id = node_hierarchy.as_container()[cid].next_sibling_id();
+                            }
+                        }
+                        if has_text { need_tag = true; break; }
                     }
 
                     break;
                 }
 
-                if !node_should_have_tag {
+                if !need_tag {
                     None
                 } else {
                     Some(TagIdToNodeIdMapping {
@@ -1157,10 +1004,6 @@ impl CssPropertyCache {
                 }
             })
             .collect::<Vec<_>>();
-
-        let tags_ms = t_tags.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(feature = "std")]
-        eprintln!("[restyle] sort={:.1}ms tags={:.1}ms", sort_ms, tags_ms);
 
         tag_ids
     }
