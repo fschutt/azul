@@ -324,10 +324,11 @@ pub fn layout_flex_direction_to_u8(v: LayoutFlexDirection) -> u8 {
 }
 
 #[inline(always)]
+/// 0 = NoWrap (CSS initial value for flex-wrap)
 pub fn layout_flex_wrap_from_u8(v: u8) -> LayoutFlexWrap {
     match v {
-        0 => LayoutFlexWrap::Wrap,
-        1 => LayoutFlexWrap::NoWrap,
+        0 => LayoutFlexWrap::NoWrap,       // CSS initial
+        1 => LayoutFlexWrap::Wrap,
         2 => LayoutFlexWrap::WrapReverse,
         _ => LayoutFlexWrap::NoWrap,
     }
@@ -336,8 +337,8 @@ pub fn layout_flex_wrap_from_u8(v: u8) -> LayoutFlexWrap {
 #[inline(always)]
 pub fn layout_flex_wrap_to_u8(v: LayoutFlexWrap) -> u8 {
     match v {
-        LayoutFlexWrap::Wrap => 0,
-        LayoutFlexWrap::NoWrap => 1,
+        LayoutFlexWrap::NoWrap => 0,
+        LayoutFlexWrap::Wrap => 1,
         LayoutFlexWrap::WrapReverse => 2,
     }
 }
@@ -460,36 +461,38 @@ pub fn layout_clear_to_u8(v: LayoutClear) -> u8 {
 }
 
 #[inline(always)]
+/// 0 = Normal/400 (CSS initial value for font-weight)
 pub fn style_font_weight_from_u8(v: u8) -> StyleFontWeight {
     match v {
-        0 => StyleFontWeight::Lighter,
+        0 => StyleFontWeight::Normal,     // CSS initial (400)
         1 => StyleFontWeight::W100,
         2 => StyleFontWeight::W200,
         3 => StyleFontWeight::W300,
-        4 => StyleFontWeight::Normal,
-        5 => StyleFontWeight::W500,
-        6 => StyleFontWeight::W600,
-        7 => StyleFontWeight::Bold,
-        8 => StyleFontWeight::W800,
-        9 => StyleFontWeight::W900,
+        4 => StyleFontWeight::W500,
+        5 => StyleFontWeight::W600,
+        6 => StyleFontWeight::Bold,       // 700
+        7 => StyleFontWeight::W800,
+        8 => StyleFontWeight::W900,
+        9 => StyleFontWeight::Lighter,
         10 => StyleFontWeight::Bolder,
         _ => StyleFontWeight::Normal,
     }
 }
 
 #[inline(always)]
+/// 0 = Normal/400 (CSS initial value for font-weight)
 pub fn style_font_weight_to_u8(v: StyleFontWeight) -> u8 {
     match v {
-        StyleFontWeight::Lighter => 0,
+        StyleFontWeight::Normal => 0,     // CSS initial (400)
         StyleFontWeight::W100 => 1,
         StyleFontWeight::W200 => 2,
         StyleFontWeight::W300 => 3,
-        StyleFontWeight::Normal => 4,
-        StyleFontWeight::W500 => 5,
-        StyleFontWeight::W600 => 6,
-        StyleFontWeight::Bold => 7,
-        StyleFontWeight::W800 => 8,
-        StyleFontWeight::W900 => 9,
+        StyleFontWeight::W500 => 4,
+        StyleFontWeight::W600 => 5,
+        StyleFontWeight::Bold => 6,       // 700
+        StyleFontWeight::W800 => 7,
+        StyleFontWeight::W900 => 8,
+        StyleFontWeight::Lighter => 9,
         StyleFontWeight::Bolder => 10,
     }
 }

@@ -75,9 +75,9 @@ fn test_h1_bold_from_ua() {
         )
     );
     let s = styled(dom, "");
-    // font_weight bold = style_font_weight_to_u8(Bold) = 7
+    // font_weight bold = style_font_weight_to_u8(Bold) = 6
     let h1_fw = get_font_weight(&s, 2);
-    assert_eq!(h1_fw, 7, "H1 should have font-weight:bold (7) from UA, got {}", h1_fw);
+    assert_eq!(h1_fw, 6, "H1 should have font-weight:bold (6) from UA, got {}", h1_fw);
 }
 
 #[test]
@@ -152,8 +152,8 @@ fn test_font_weight_inherits_from_parent() {
     // 0=Html, 1=Body (bold), 2=Div, 3=text
     let body_fw = get_font_weight(&s, 1);
     let div_fw = get_font_weight(&s, 2);
-    assert_eq!(body_fw, 7, "Body should have font-weight:bold (7)");
-    assert_eq!(div_fw, 7, "Div should inherit font-weight:bold (7) from body, got {}", div_fw);
+    assert_eq!(body_fw, 6, "Body should have font-weight:bold (6)");
+    assert_eq!(div_fw, 6, "Div should inherit font-weight:bold (6) from body, got {}", div_fw);
 }
 
 #[test]
