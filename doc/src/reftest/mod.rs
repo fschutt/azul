@@ -289,92 +289,41 @@ pub const PASS_THRESHOLD_PIXELS: usize = (1920 * 1080) / 200;
 
 /// Run a single reftest and generate HTML report
 pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow::Result<()> {
-    let RunRefTestsConfig {
-        test_dir,
-        output_dir,
-        output_filename,
-    } = config;
+    let RunRefTestsConfig { test_dir, output_dir, output_filename } = config;
 
-    // Create output directory
     fs::create_dir_all(&output_dir)?;
     let _ = fs::create_dir_all(output_dir.join("reftest_img"));
 
-    // Find the test file
     let test_file = find_test_file_by_name(test_name, &test_dir)?;
-    println!("Found test file: {}", test_file.display());
-
-    // Get Chrome info
     let chrome_path = get_chrome_path();
     let chrome_version = get_chrome_version(&chrome_path);
-    let is_chrome_installed = !chrome_version.contains("Unknown");
     let current_time = chrono::Local::now().format("%Y-%m-%d").to_string();
     let git_hash = get_git_hash();
 
-    if !is_chrome_installed {
+    if chrome_version.contains("Unknown") {
         return Err(anyhow::anyhow!("Chrome not found"));
     }
 
-    // Generate screenshots
-    let chrome_img = output_dir
-        .join("reftest_img")
-        .join(format!("{}_chrome.webp", test_name));
-    let chrome_layout_json = output_dir
-        .join("reftest_img")
-        .join(format!("{}_chrome_layout.json", test_name));
-    let azul_img = output_dir
-        .join("reftest_img")
-        .join(format!("{}_azul.webp", test_name));
+    // Use unified pipeline
+    let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
+        .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
 
-    // Generate Chrome reference
-    println!("Generating Chrome reference...");
-    let chrome_layout_data = generate_chrome_screenshot_with_debug(
-        &chrome_path,
-        &test_file,
-        &chrome_img,
-        &chrome_layout_json,
-        WIDTH,
-        HEIGHT,
-    )?;
+    let chrome_img = output_dir.join("reftest_img").join(format!("{}_chrome.webp", test_name));
+    let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
+    let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
 
-    let (chrome_w, chrome_h) = image::open(&chrome_img)?.dimensions();
-    let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
+    let result = pipe.run_test(&test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    // Generate Azul rendering
-    println!("Generating Azul rendering...");
-    let mut debug_data = generate_azul_rendering(&test_file, &azul_img, dpi_factor)?;
-    debug_data.chrome_layout = chrome_layout_data;
-
-    // Compare images
-    let diff_count = compare_images(&chrome_img, &azul_img)?;
-    let percentage = (diff_count as f64 / (1920.0 * 1080.0)) * 100.0;
-    let passed = diff_count <= PASS_THRESHOLD_PIXELS;
-
-    println!(
-        "Comparison: {} pixels different ({:.3}%), test {}",
-        diff_count,
-        percentage,
-        if passed {
-            "PASSED [ OK ]"
-        } else {
-            "FAILED [ ERROR ]"
-        }
+    let mut etr = EnhancedTestResult::from_debug_data(
+        result.test_name, result.diff_pixels, result.passed, result.debug_data,
     );
+    etr.set_azul_timing(&result.azul_timing);
+    if let Some(ref ct) = result.chrome_timing { etr.set_chrome_timing(ct); }
 
-    // Read XHTML source
-    let xhtml_source = fs::read_to_string(&test_file).ok();
-
-    // Create result
-    let result =
-        EnhancedTestResult::from_debug_data(test_name.to_string(), diff_count, passed, debug_data);
-
-    // Generate HTML report
     generate_enhanced_html_report(
-        &output_dir.join(output_filename),
-        &vec![result],
-        &chrome_version,
-        &current_time,
-        &git_hash,
-        is_chrome_installed,
+        &output_dir.join(output_filename), &vec![etr],
+        &chrome_version, &current_time, &git_hash, true,
     )?;
 
     Ok(())
@@ -407,89 +356,37 @@ pub fn run_single_reftest_headless(
     test_dir: &Path,
     output_dir: &Path,
 ) -> anyhow::Result<()> {
-    // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir)?;
 
     let test_file = test_dir.join(format!("{}.xht", test_name));
     if !test_file.exists() {
-        return Err(anyhow::anyhow!(
-            "Test file not found: {}",
-            test_file.display()
-        ));
+        let html_file = test_dir.join(format!("{}.html", test_name));
+        if !html_file.exists() {
+            return Err(anyhow::anyhow!("Test file not found: {}", test_file.display()));
+        }
+        // Use .html file
+        return run_single_reftest_headless(test_name, test_dir, output_dir);
     }
 
-    println!("Processing test: {}", test_name);
-
-    // Get Chrome path and check if installed
     let chrome_path = get_chrome_path();
     if get_chrome_version(&chrome_path).contains("Unknown") {
-        return Err(anyhow::anyhow!(
-            "Google Chrome not found. Please install it or set the CHROME env var."
-        ));
+        return Err(anyhow::anyhow!("Chrome not found. Set CHROME env var."));
     }
 
-    let chrome_img_path = output_dir.join(format!("{}_chrome.webp", test_name));
-    let azul_img_path = output_dir.join(format!("{}_azul.webp", test_name));
-    let chrome_layout_json_path = output_dir.join(format!("{}_chrome_layout.json", test_name));
+    // Use unified pipeline (shared font cache + persistent CDP)
+    let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
+        .map_err(|e| anyhow::anyhow!("Pipeline init: {}", e))?;
 
-    // 1. Generate Chrome screenshot and layout data
-    println!("  Generating Chrome reference and layout data...");
-    let chrome_layout_data = generate_chrome_screenshot_with_debug(
-        &chrome_path,
-        &test_file,
-        &chrome_img_path,
-        &chrome_layout_json_path,
-        WIDTH,
-        HEIGHT,
-    )?;
-    println!(
-        "  - Chrome screenshot saved to {}",
-        chrome_img_path.display()
-    );
-    println!(
-        "  - Chrome layout data saved to {}",
-        chrome_layout_json_path.display()
-    );
+    let chrome_img = output_dir.join(format!("{}_chrome.webp", test_name));
+    let azul_img = output_dir.join(format!("{}_azul.webp", test_name));
+    let chrome_layout_json = output_dir.join(format!("{}_chrome_layout.json", test_name));
 
-    let (chrome_w, chrome_h) = image::open(&chrome_img_path)?.dimensions();
-    let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
+    let result = pipe.run_test(&test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    // 2. Generate Azul rendering and collect debug data
-    println!("  Generating Azul rendering...");
-    let mut debug_data = generate_azul_rendering(&test_file, &azul_img_path, dpi_factor)?;
-    debug_data.chrome_layout = chrome_layout_data;
-    println!("  - Azul rendering saved to {}", azul_img_path.display());
-
-    // 3. Compare images
-    println!("  Comparing images...");
-    match compare_images(&chrome_img_path, &azul_img_path) {
-        Ok(diff_count) => {
-            let passed = diff_count <= PASS_THRESHOLD_PIXELS;
-            println!("\n--- COMPARISON RESULT ---");
-            println!("Test Name: {}", test_name);
-            println!("Result: {}", if passed { "PASSED" } else { "FAILED" });
-            println!("Differing Pixels: {}", diff_count);
-            println!("-------------------------\n");
-        }
-        Err(e) => {
-            eprintln!("\n--- COMPARISON FAILED ---");
-            eprintln!("Error during image comparison: {}", e);
-            println!("-------------------------\n");
-        }
-    }
-
-    // 4. Print all collected debug data to stdout (including Chrome layout)
-    println!("\n--- DEBUG INFORMATION ---");
-    println!("{}", debug_data.format());
-
-    // Print Chrome layout data separately for easier parsing
-    if !debug_data.chrome_layout.is_empty() {
-        println!("\n--- CHROME LAYOUT DATA ---");
-        println!("{}", debug_data.chrome_layout);
-        println!("--- END CHROME LAYOUT DATA ---");
-    }
-
-    println!("--- END DEBUG INFORMATION ---\n");
+    println!("\nHeadless reftest for '{}' complete.", test_name);
+    println!("   Debug information has been printed to the console.");
+    println!("   Generated images can be found in: {}", output_dir.display());
 
     Ok(())
 }

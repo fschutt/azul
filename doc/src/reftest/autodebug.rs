@@ -277,9 +277,10 @@ pub(crate) mod cdp {
             width: u32,
             height: u32,
         ) -> Result<(), String> {
-            // Enable Page events once (needed for loadEventFired)
+            // Enable Page + Performance events once
             if !self.page_enabled {
                 self.send_command("Page.enable", &serde_json::json!({}))?;
+                let _ = self.send_command("Performance.enable", &serde_json::json!({"timeDomain": "timeTicks"}));
                 self.page_enabled = true;
             }
 
