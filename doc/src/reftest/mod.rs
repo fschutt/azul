@@ -873,10 +873,10 @@ fn generate_azul_rendering_sized_internal(
         dom_xml.parsed_dom.get_html_string("", "", true),
     );
 
-    let xml_formatting_time = start.elapsed().as_millis() as u64;
+    let xml_formatting_time = start.elapsed().as_micros() as u64;
 
     // Generate and save PNG
-    let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug_internal(
+    let (warnings, layout_time_us, render_time_us) = styled_dom_to_png_with_debug_internal(
         &dom_xml.parsed_dom,
         output_file,
         width,
@@ -889,8 +889,8 @@ fn generate_azul_rendering_sized_internal(
     // Record rendering time
     debug_collector.set_render_info(
         xml_formatting_time,
-        layout_time_ms,
-        render_time_ms,
+        layout_time_us,
+        render_time_us,
         warnings,
     );
 
@@ -946,7 +946,7 @@ fn styled_dom_to_png_with_debug_internal(
     let display_list_debug = format_display_list_for_debug_solver3(&display_list);
     debug_collector.set_display_list_debug_info(display_list_debug);
 
-    let layout_time_ms = start_time_layout.elapsed().as_millis() as u64;
+    let layout_time_us = start_time_layout.elapsed().as_micros() as u64;
 
     let start_time_render = std::time::Instant::now();
 
@@ -965,7 +965,7 @@ fn styled_dom_to_png_with_debug_internal(
     )
     .map_err(|e| anyhow::anyhow!("Rendering failed: {}", e))?;
 
-    let rendering_time_ms = start_time_render.elapsed().as_millis() as u64;
+    let rendering_time_ms = start_time_render.elapsed().as_micros() as u64;
 
     // Convert pixmap to image bytes
     let pixmap_data = pixmap.data();
@@ -987,7 +987,7 @@ fn styled_dom_to_png_with_debug_internal(
     // Write the WebP data to file
     std::fs::write(output_file, webp_data)?;
 
-    Ok((debug_msg, layout_time_ms, rendering_time_ms))
+    Ok((debug_msg, layout_time_us, rendering_time_ms))
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1603,9 +1603,9 @@ pub struct DebugData {
     pub chrome_layout: String,
 
     // Rendering information
-    pub xml_formatting_time_ms: u64,
-    pub layout_time_ms: u64,
-    pub render_time_ms: u64,
+    pub xml_formatting_time_us: u64,
+    pub layout_time_us: u64,
+    pub render_time_us: u64,
     pub render_warnings: Vec<String>,
 }
 
@@ -1653,11 +1653,11 @@ impl DebugData {
         writeln!(
             output,
             "XML formatting time: {} ms",
-            self.xml_formatting_time_ms
+            self.xml_formatting_time_us
         )
         .unwrap();
-        writeln!(output, "Layout time: {} ms", self.layout_time_ms).unwrap();
-        writeln!(output, "Render time: {} ms", self.render_time_ms).unwrap();
+        writeln!(output, "Layout time: {} µs", self.layout_time_us).unwrap();
+        writeln!(output, "Render time: {} µs", self.render_time_us).unwrap();
 
         if !self.render_warnings.is_empty() {
             writeln!(output, "\n## Layout Debug Trace").unwrap();
@@ -1763,14 +1763,14 @@ impl DebugDataCollector {
     /// Add rendering information
     pub fn set_render_info(
         &mut self,
-        xml_formatting_time_ms: u64,
-        layout_time_ms: u64,
-        render_time_ms: u64,
+        xml_formatting_time_us: u64,
+        layout_time_us: u64,
+        render_time_us: u64,
         warnings: Vec<String>,
     ) {
-        self.data.xml_formatting_time_ms = xml_formatting_time_ms;
-        self.data.layout_time_ms = layout_time_ms;
-        self.data.render_time_ms = render_time_ms;
+        self.data.xml_formatting_time_us = xml_formatting_time_us;
+        self.data.layout_time_us = layout_time_us;
+        self.data.render_time_us = render_time_us;
         self.data.render_warnings = warnings;
     }
 
@@ -1943,18 +1943,19 @@ pub struct EnhancedTestResult {
     // Chrome computed layout (via CDP, if available)
     pub chrome_layout: String,
 
-    // Azul timing (ms)
-    pub xml_formatting_time_ms: u64,
-    pub layout_time_ms: u64,
-    pub render_time_ms: u64,
-    pub azul_total_ms: f64,
+    // Azul timing (microseconds for precision)
+    pub azul_parse_us: f64,
+    pub azul_layout_us: f64,
+    pub azul_render_us: f64,
+    pub azul_save_us: f64,
+    pub azul_total_us: f64,
     pub render_warnings: Vec<String>,
 
-    // Chrome timing (from CDP Performance.getMetrics, ms)
-    pub chrome_style_ms: f64,
-    pub chrome_layout_ms: f64,
-    pub chrome_fcp_ms: f64,
-    pub chrome_total_ms: f64,
+    // Chrome timing (microseconds from CDP)
+    pub chrome_style_us: f64,
+    pub chrome_layout_us: f64,
+    pub chrome_fcp_us: f64,
+    pub chrome_total_us: f64,
 }
 
 impl EnhancedTestResult {
@@ -1977,14 +1978,15 @@ impl EnhancedTestResult {
             display_list: String::new(),
             chrome_layout: String::new(),
             render_warnings: Vec::new(),
-            xml_formatting_time_ms: 0,
-            layout_time_ms: 0,
-            render_time_ms: 0,
-            azul_total_ms: 0.0,
-            chrome_style_ms: 0.0,
-            chrome_layout_ms: 0.0,
-            chrome_fcp_ms: 0.0,
-            chrome_total_ms: 0.0,
+            azul_parse_us: 0.0,
+            azul_layout_us: 0.0,
+            azul_render_us: 0.0,
+            azul_save_us: 0.0,
+            azul_total_us: 0.0,
+            chrome_style_us: 0.0,
+            chrome_layout_us: 0.0,
+            chrome_fcp_us: 0.0,
+            chrome_total_us: 0.0,
         }
     }
 
@@ -2012,28 +2014,33 @@ impl EnhancedTestResult {
             solved_layout: debug_data.solved_layout,
             display_list: debug_data.display_list,
             chrome_layout: debug_data.chrome_layout,
-            xml_formatting_time_ms: debug_data.xml_formatting_time_ms,
-            layout_time_ms: debug_data.layout_time_ms,
-            render_time_ms: debug_data.render_time_ms,
-            azul_total_ms: 0.0,
-            chrome_style_ms: 0.0,
-            chrome_layout_ms: 0.0,
-            chrome_fcp_ms: 0.0,
-            chrome_total_ms: 0.0,
+            azul_parse_us: debug_data.xml_formatting_time_us as f64,
+            azul_layout_us: debug_data.layout_time_us as f64,
+            azul_render_us: debug_data.render_time_us as f64,
+            azul_save_us: 0.0,
+            azul_total_us: 0.0,
+            chrome_style_us: 0.0,
+            chrome_layout_us: 0.0,
+            chrome_fcp_us: 0.0,
+            chrome_total_us: 0.0,
         }
     }
 
     /// Set Chrome timing from CDP performance metrics.
     pub fn set_chrome_timing(&mut self, timing: &autodebug::cdp::ChromePerformanceTiming) {
-        self.chrome_style_ms = timing.recalc_style_s * 1000.0;
-        self.chrome_layout_ms = timing.layout_s * 1000.0;
-        self.chrome_fcp_ms = timing.first_contentful_paint_ms;
-        self.chrome_total_ms = timing.load_event_ms;
+        self.chrome_style_us = timing.recalc_style_us;
+        self.chrome_layout_us = timing.layout_us;
+        self.chrome_fcp_us = timing.first_contentful_paint_us;
+        self.chrome_total_us = timing.load_event_us;
     }
 
     /// Set Azul timing from pipeline measurement.
     pub fn set_azul_timing(&mut self, timing: &pipeline::AzulTiming) {
-        self.azul_total_ms = timing.total_us / 1000.0; // store as ms for JSON compat
+        self.azul_parse_us = timing.parse_us;
+        self.azul_layout_us = timing.layout_us;
+        self.azul_render_us = timing.render_us;
+        self.azul_save_us = timing.save_us;
+        self.azul_total_us = timing.total_us;
     }
 }
 

@@ -103,28 +103,29 @@ pub(crate) mod cdp {
 
     /// Chrome performance timing data from CDP Performance domain + Navigation Timing API.
     #[derive(Debug, Clone, Default, serde::Serialize)]
+    /// All timing fields in microseconds for consistency.
     pub struct ChromePerformanceTiming {
-        pub layout_s: f64,
-        pub recalc_style_s: f64,
-        pub script_s: f64,
-        pub task_s: f64,
+        pub layout_us: f64,
+        pub recalc_style_us: f64,
+        pub script_us: f64,
+        pub task_us: f64,
         pub layout_count: u64,
         pub recalc_style_count: u64,
         pub dom_node_count: u64,
-        pub dom_interactive_ms: f64,
-        pub dom_content_loaded_ms: f64,
-        pub load_event_ms: f64,
-        pub first_paint_ms: f64,
-        pub first_contentful_paint_ms: f64,
+        pub dom_interactive_us: f64,
+        pub dom_content_loaded_us: f64,
+        pub load_event_us: f64,
+        pub first_paint_us: f64,
+        pub first_contentful_paint_us: f64,
     }
 
     impl std::fmt::Display for ChromePerformanceTiming {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "style={:.1}ms layout={:.1}ms fcp={:.1}ms total={:.1}ms (nodes={}, layouts={}, recalcs={})",
-                self.recalc_style_s * 1000.0,
-                self.layout_s * 1000.0,
-                self.first_contentful_paint_ms,
-                self.load_event_ms,
+            write!(f, "style={:.0}µs layout={:.0}µs fcp={:.0}µs total={:.0}µs (nodes={}, layouts={}, recalcs={})",
+                self.recalc_style_us,
+                self.layout_us,
+                self.first_contentful_paint_us,
+                self.load_event_us,
                 self.dom_node_count,
                 self.layout_count,
                 self.recalc_style_count,
@@ -377,10 +378,11 @@ pub(crate) mod cdp {
                 let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let value = m.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 match name {
-                    "LayoutDuration" => timing.layout_s = value,
-                    "RecalcStyleDuration" => timing.recalc_style_s = value,
-                    "ScriptDuration" => timing.script_s = value,
-                    "TaskDuration" => timing.task_s = value,
+                    // CDP returns seconds; convert to microseconds
+                    "LayoutDuration" => timing.layout_us = value * 1_000_000.0,
+                    "RecalcStyleDuration" => timing.recalc_style_us = value * 1_000_000.0,
+                    "ScriptDuration" => timing.script_us = value * 1_000_000.0,
+                    "TaskDuration" => timing.task_us = value * 1_000_000.0,
                     "LayoutCount" => timing.layout_count = value as u64,
                     "RecalcStyleCount" => timing.recalc_style_count = value as u64,
                     "Nodes" => timing.dom_node_count = value as u64,
@@ -415,11 +417,12 @@ pub(crate) mod cdp {
                     .and_then(|v| v.as_str())
                 {
                     if let Ok(nav) = serde_json::from_str::<serde_json::Value>(json_str) {
-                        timing.dom_interactive_ms = nav.get("dom_interactive_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                        timing.dom_content_loaded_ms = nav.get("dom_content_loaded_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                        timing.load_event_ms = nav.get("load_event_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                        timing.first_paint_ms = nav.get("first_paint_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                        timing.first_contentful_paint_ms = nav.get("first_contentful_paint_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        // Navigation Timing API returns milliseconds; convert to microseconds
+                        timing.dom_interactive_us = nav.get("dom_interactive_ms").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0;
+                        timing.dom_content_loaded_us = nav.get("dom_content_loaded_ms").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0;
+                        timing.load_event_us = nav.get("load_event_ms").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0;
+                        timing.first_paint_us = nav.get("first_paint_ms").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0;
+                        timing.first_contentful_paint_us = nav.get("first_contentful_paint_ms").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0;
                     }
                 }
             }

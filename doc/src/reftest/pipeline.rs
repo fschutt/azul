@@ -346,9 +346,9 @@ impl ReftestPipeline {
         debug_data.assert_content = metadata.assert_content;
         debug_data.flags = metadata.flags;
         debug_data.author = metadata.author;
-        debug_data.xml_formatting_time_ms = (parse_us / 1000.0) as u64;
-        debug_data.layout_time_ms = (layout_us / 1000.0) as u64;
-        debug_data.render_time_ms = (render_us / 1000.0) as u64;
+        debug_data.xml_formatting_time_us = parse_us.round() as u64;
+        debug_data.layout_time_us = layout_us.round() as u64;
+        debug_data.render_time_us = render_us.round() as u64;
 
         let timing = AzulTiming {
             parse_us,
