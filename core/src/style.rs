@@ -132,11 +132,57 @@ pub fn matches_html_element(
                 }
             }
             Children => {
-                // Default descendant matching - if current doesn't match, that's okay
-                // as long as we find a match somewhere up the ancestor chain
-                if current_selector_matches && !last_selector_matched {
-                    // CSS path chain is broken
-                    return false;
+                if !current_selector_matches {
+                    // Descendant matching: walk up the ancestor chain to find
+                    // an ancestor that matches the current selector group
+                    let mut found_ancestor = false;
+                    let mut ancestor = node_hierarchy[cur_node_id].parent_id();
+                    while let Some(a) = ancestor {
+                        if node_data[a].is_anonymous() {
+                            ancestor = node_hierarchy[a].parent_id();
+                            continue;
+                        }
+                        if selector_group_matches(
+                            &content_group,
+                            &html_node_tree[a],
+                            &node_data[a],
+                            expected_path_ending.clone(),
+                            is_last_content_group,
+                        ) {
+                            found_ancestor = true;
+                            last_selector_matched = true;
+                            next_match_requirement = reason;
+                            // Navigate from the matched ancestor for the next iteration
+                            match reason {
+                                Children | DirectChildren => {
+                                    let mut next = node_hierarchy[a].parent_id();
+                                    while let Some(n) = next {
+                                        if !node_data[n].is_anonymous() {
+                                            break;
+                                        }
+                                        next = node_hierarchy[n].parent_id();
+                                    }
+                                    current_node = next;
+                                }
+                                AdjacentSibling | GeneralSibling => {
+                                    let mut next = node_hierarchy[a].previous_sibling_id();
+                                    while let Some(n) = next {
+                                        if !node_data[n].is_anonymous() {
+                                            break;
+                                        }
+                                        next = node_hierarchy[n].previous_sibling_id();
+                                    }
+                                    current_node = next;
+                                }
+                            }
+                            break;
+                        }
+                        ancestor = node_hierarchy[a].parent_id();
+                    }
+                    if !found_ancestor {
+                        return false;
+                    }
+                    continue;
                 }
             }
         }
