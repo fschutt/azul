@@ -517,13 +517,9 @@ impl CssPropertyCache {
             let nd = &node_data[i];
 
             // Step 0: Apply global CSS baseline (from `*` rules)
+            // OR the global bits on top — preserves inherited fields from Step 1
             if has_global {
-                // Only apply tier1 if the `*` rule actually set tier1 enum properties.
-                // When global_tier1 is 0, it means no tier1 properties were set by `*`,
-                // but assigning 0 would incorrectly set display=None, overflow=Scroll, etc.
-                if global_tier1 != 0 {
-                    result.tier1_enums[i] = global_tier1;
-                }
+                result.tier1_enums[i] |= global_tier1;
                 result.tier2_dims[i] = global_dims;
                 result.tier2_cold[i] = global_cold;
                 result.tier2b_text[i] = global_text;
@@ -532,18 +528,25 @@ impl CssPropertyCache {
             // Step 1: Inherit from parent's COMPACT values (not computed_values)
             // Parent index is always < i in pre-order arena, so already computed.
             //
-            // For tier1: copy the entire u64 — inheritable fields survive because
-            // the getter calls below only override fields that are explicitly set.
-            // Non-inheritable fields get reset to defaults by the getter defaults.
-            //
-            // For tier2/cold/text: copy only inheritable fields.
+            // Step 1: Inherit ONLY inheritable CSS properties from parent.
+            // Non-inheritable fields (display, position, float, overflow, box-sizing,
+            // flex-*, clear, vertical-align, writing-mode) stay at 0 (CSS initial value).
+            // They get set by UA CSS (Step 2) and author CSS (Step 3).
+            const INHERITABLE_TIER1_MASK: u64 =
+                (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
+                | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
+                | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
+                | (VISIBILITY_MASK << VISIBILITY_SHIFT)
+                | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
+                | (DIRECTION_MASK << DIRECTION_SHIFT)
+                | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
+
             let parent_id = node_hierarchy[i].parent_id();
             if let Some(pid) = parent_id {
                 let pi = pid.index();
 
-                // Copy entire tier1 (inheritable enum fields like font-weight,
-                // text-align, visibility, etc. will survive if not overridden)
-                result.tier1_enums[i] = result.tier1_enums[pi];
+                // Copy only inheritable tier1 fields from parent
+                result.tier1_enums[i] = result.tier1_enums[pi] & INHERITABLE_TIER1_MASK;
 
                 // Inheritable tier2: font_size
                 result.tier2_dims[i].font_size = result.tier2_dims[pi].font_size;
@@ -562,45 +565,40 @@ impl CssPropertyCache {
             // This replaces the separate apply_ua_css() pass + cascaded_props + sort.
             {
                 use azul_css::props::property::CssPropertyType as PT;
-                let ua_property_types = [
-                    PT::Display, PT::Width, PT::Height, PT::FontSize, PT::FontWeight,
-                    PT::MarginTop, PT::MarginBottom, PT::MarginLeft, PT::MarginRight,
-                    PT::PaddingTop, PT::PaddingBottom, PT::PaddingLeft, PT::PaddingRight,
-                    PT::TextAlign, PT::VerticalAlign, PT::TextDecoration, PT::Cursor,
-                    PT::ListStyleType, PT::BorderTopStyle, PT::BorderTopWidth, PT::BorderTopColor,
+                // Apply ALL UA CSS defaults for this node type.
+                // Use apply_css_property_to_compact for consistent encoding.
+                // This replaces the incomplete property list that missed overflow, position, etc.
+                use azul_css::props::property::CssPropertyType as PT2;
+                const UA_PROPERTY_TYPES: &[PT2] = &[
+                    // Tier1 enum properties
+                    PT2::Display, PT2::Position, PT2::Float, PT2::Clear,
+                    PT2::OverflowX, PT2::OverflowY, PT2::BoxSizing,
+                    PT2::FlexDirection, PT2::FlexWrap, PT2::JustifyContent,
+                    PT2::AlignItems, PT2::AlignContent, PT2::WritingMode,
+                    PT2::FontWeight, PT2::FontStyle, PT2::TextAlign,
+                    PT2::Visibility, PT2::WhiteSpace, PT2::Direction,
+                    PT2::VerticalAlign, PT2::BorderCollapse,
+                    // Tier2 dimension properties
+                    PT2::Width, PT2::Height, PT2::FontSize,
+                    PT2::MarginTop, PT2::MarginBottom, PT2::MarginLeft, PT2::MarginRight,
+                    PT2::PaddingTop, PT2::PaddingBottom, PT2::PaddingLeft, PT2::PaddingRight,
+                    PT2::BorderTopWidth, PT2::BorderTopStyle, PT2::BorderTopColor,
+                    PT2::BorderRightWidth, PT2::BorderRightStyle, PT2::BorderRightColor,
+                    PT2::BorderBottomWidth, PT2::BorderBottomStyle, PT2::BorderBottomColor,
+                    PT2::BorderLeftWidth, PT2::BorderLeftStyle, PT2::BorderLeftColor,
+                    // Text properties
+                    PT2::TextColor, PT2::LineHeight, PT2::LetterSpacing, PT2::WordSpacing,
+                    PT2::TextDecoration, PT2::Cursor, PT2::ListStyleType,
                 ];
-                for pt in &ua_property_types {
+                for pt in UA_PROPERTY_TYPES {
                     if let Some(ua_prop) = crate::ua_css::get_ua_property(&nd.node_type, *pt) {
-                        // Apply directly to compact — same logic as the global CSS pre-encode
-                        match ua_prop {
-                            CssProperty::Display(v) => if let Some(exact) = v.get_property() {
-                                let encoded = layout_display_to_u8(*exact) as u64;
-                                let shifted_mask = DISPLAY_MASK << DISPLAY_SHIFT;
-                                result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask) | ((encoded & DISPLAY_MASK) << DISPLAY_SHIFT);
-                            },
-                            CssProperty::FontSize(v) => { result.tier2_dims[i].font_size = encode_pixel_prop(v); }
-                            CssProperty::FontWeight(v) => if let Some(exact) = v.get_property() {
-                                let encoded = style_font_weight_to_u8(*exact) as u64;
-                                let shifted_mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
-                                result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask) | ((encoded & FONT_WEIGHT_MASK) << FONT_WEIGHT_SHIFT);
-                            },
-                            CssProperty::MarginTop(v) => { result.tier2_dims[i].margin_top = encode_margin_i16(v); }
-                            CssProperty::MarginBottom(v) => { result.tier2_dims[i].margin_bottom = encode_margin_i16(v); }
-                            CssProperty::MarginLeft(v) => { result.tier2_dims[i].margin_left = encode_margin_i16(v); }
-                            CssProperty::MarginRight(v) => { result.tier2_dims[i].margin_right = encode_margin_i16(v); }
-                            CssProperty::PaddingTop(v) => { result.tier2_dims[i].padding_top = encode_css_pixel_as_i16(v); }
-                            CssProperty::PaddingBottom(v) => { result.tier2_dims[i].padding_bottom = encode_css_pixel_as_i16(v); }
-                            CssProperty::PaddingLeft(v) => { result.tier2_dims[i].padding_left = encode_css_pixel_as_i16(v); }
-                            CssProperty::PaddingRight(v) => { result.tier2_dims[i].padding_right = encode_css_pixel_as_i16(v); }
-                            CssProperty::Width(v) => { result.tier2_dims[i].width = encode_layout_width(v); }
-                            CssProperty::Height(v) => { result.tier2_dims[i].height = encode_layout_height(v); }
-                            CssProperty::TextAlign(v) => if let Some(exact) = v.get_property() {
-                                let encoded = style_text_align_to_u8(*exact) as u64;
-                                let shifted_mask = TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT;
-                                result.tier1_enums[i] = (result.tier1_enums[i] & !shifted_mask) | ((encoded & TEXT_ALIGN_MASK) << TEXT_ALIGN_SHIFT);
-                            },
-                            _ => {} // Other UA properties handled by get_property_slow fallback
-                        }
+                        apply_css_property_to_compact(
+                            ua_prop,
+                            &mut result.tier1_enums[i],
+                            &mut result.tier2_dims[i],
+                            &mut result.tier2_cold[i],
+                            &mut result.tier2b_text[i],
+                        );
                     }
                 }
             }
