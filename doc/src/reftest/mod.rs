@@ -111,6 +111,23 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
     let _ = std::fs::create_dir_all(output_dir.join("reftest_img"));
 
+    // Build font cache ONCE before processing any tests (shared across all).
+    println!("Building shared font cache...");
+    let t_font = std::time::Instant::now();
+    let fc_cache = azul_layout::font::loading::build_font_cache();
+    println!("  Font cache ready in {:.1}ms ({} fonts)",
+        t_font.elapsed().as_secs_f64() * 1000.0,
+        fc_cache.len());
+
+    // Launch persistent Chrome via CDP (reused for all tests)
+    println!("Launching Chrome via CDP...");
+    let mut chrome_cdp = crate::reftest::autodebug::cdp::ChromeCdp::launch(&chrome_path).ok();
+    if chrome_cdp.is_some() {
+        println!("  Chrome CDP connected (persistent instance)");
+    } else {
+        println!("  Chrome CDP failed, falling back to per-test process");
+    }
+
     // Process tests
     test_files.iter().for_each(|test_file| {
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
@@ -128,28 +145,48 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
         // Generate Chrome reference and layout data if they don't exist
         let mut chrome_layout_data = String::new();
+        let mut chrome_timing = None;
         if !chrome_img.exists() {
             println!("  Generating Chrome reference for {}", test_name);
-            match generate_chrome_screenshot_with_debug(
-                &chrome_path,
-                test_file,
-                &chrome_img,
-                &chrome_layout_json,
-                WIDTH,
-                HEIGHT,
-            ) {
-                Ok(layout_data) => {
-                    println!("  Chrome screenshot and layout data generated successfully");
-                    chrome_layout_data = layout_data;
+            let chrome_ok = if let Some(ref mut cdp) = chrome_cdp {
+                // Fast path: reuse persistent CDP connection
+                match cdp.screenshot_and_layout(
+                    test_file, &chrome_img, Some(&chrome_layout_json), WIDTH, HEIGHT,
+                ) {
+                    Ok(()) => {
+                        // Collect performance timing from Chrome
+                        chrome_timing = cdp.get_performance_metrics().ok();
+                        if let Ok(data) = fs::read_to_string(&chrome_layout_json) {
+                            chrome_layout_data = data;
+                        }
+                        true
+                    }
+                    Err(e) => {
+                        eprintln!("  CDP screenshot failed: {}, falling back to process", e);
+                        false
+                    }
                 }
-                Err(e) => {
-                    println!("  Failed to generate Chrome screenshot: {}", e);
-                    return;
+            } else {
+                false
+            };
+
+            if !chrome_ok {
+                // Fallback: spawn Chrome process per test
+                match generate_chrome_screenshot_with_debug(
+                    &chrome_path, test_file, &chrome_img, &chrome_layout_json, WIDTH, HEIGHT,
+                ) {
+                    Ok(layout_data) => { chrome_layout_data = layout_data; }
+                    Err(e) => {
+                        println!("  Failed to generate Chrome screenshot: {}", e);
+                        return;
+                    }
                 }
             }
+            if let Some(ref t) = chrome_timing {
+                println!("  Chrome: {}", t);
+            }
         } else {
-            println!("  Using existing Chrome reference for {}", test_name);
-            // Try to read existing layout data
+            println!("  Using cached Chrome reference for {}", test_name);
             if let Ok(data) = fs::read_to_string(&chrome_layout_json) {
                 chrome_layout_data = data;
             }
@@ -165,12 +202,16 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
         let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
 
-        // Generate Azul rendering
+        // Generate Azul rendering using shared font cache
+        let t_azul = Instant::now();
         let mut debug_data = None;
-        match generate_azul_rendering(test_file, &azul_img, dpi_factor) {
+        match generate_azul_rendering_sized_cached(
+            test_file, &azul_img, WIDTH, HEIGHT, dpi_factor, &fc_cache,
+        ) {
             Ok(mut data) => {
-                println!("  Azul rendering generated successfully");
-                // Add Chrome layout data to debug_data
+                let azul_total_ms = t_azul.elapsed().as_secs_f64() * 1000.0;
+                println!("  Azul: xml={}ms layout={}ms render={}ms total={:.1}ms",
+                    data.xml_formatting_time_ms, data.layout_time_ms, data.render_time_ms, azul_total_ms);
                 data.chrome_layout = chrome_layout_data.clone();
                 debug_data = Some(data);
             }
@@ -189,12 +230,6 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
                     diff_count,
                     if passed { "PASSED" } else { "FAILED" }
                 );
-
-                // Read the original XHTML source
-                let xhtml_source = match fs::read_to_string(test_file) {
-                    Ok(content) => Some(content),
-                    Err(_) => None,
-                };
 
                 // Store enhanced result with debug data
                 let mut enhanced_results_vec = enhanced_results.lock().unwrap();

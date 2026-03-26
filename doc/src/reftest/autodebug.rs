@@ -85,7 +85,7 @@ fn reports_dir(project_root: &Path) -> PathBuf {
 // capture screenshots and extract layout information without respawning
 // Chrome for every test file.
 
-mod cdp {
+pub(crate) mod cdp {
     use std::io::{BufRead, BufReader};
     use std::net::TcpStream;
     use std::path::Path;
@@ -99,6 +99,37 @@ mod cdp {
 
     fn next_id() -> u64 {
         NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Chrome performance timing data from CDP Performance domain + Navigation Timing API.
+    #[derive(Debug, Clone, Default, serde::Serialize)]
+    pub struct ChromePerformanceTiming {
+        pub layout_s: f64,
+        pub recalc_style_s: f64,
+        pub script_s: f64,
+        pub task_s: f64,
+        pub layout_count: u64,
+        pub recalc_style_count: u64,
+        pub dom_node_count: u64,
+        pub dom_interactive_ms: f64,
+        pub dom_content_loaded_ms: f64,
+        pub load_event_ms: f64,
+        pub first_paint_ms: f64,
+        pub first_contentful_paint_ms: f64,
+    }
+
+    impl std::fmt::Display for ChromePerformanceTiming {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "style={:.1}ms layout={:.1}ms fcp={:.1}ms total={:.1}ms (nodes={}, layouts={}, recalcs={})",
+                self.recalc_style_s * 1000.0,
+                self.layout_s * 1000.0,
+                self.first_contentful_paint_ms,
+                self.load_event_ms,
+                self.dom_node_count,
+                self.layout_count,
+                self.recalc_style_count,
+            )
+        }
     }
 
     /// A persistent Chrome instance communicating via CDP over WebSocket.
@@ -328,6 +359,72 @@ mod cdp {
                 .unwrap_or("{}");
 
             Ok(value.to_string())
+        }
+
+        /// Get Chrome performance metrics (LayoutDuration, RecalcStyleDuration, etc.)
+        pub fn get_performance_metrics(&mut self) -> Result<ChromePerformanceTiming, String> {
+            // Enable performance domain if not already
+            let _ = self.send_command("Performance.enable", &serde_json::json!({"timeDomain": "timeTicks"}));
+
+            let result = self.send_command("Performance.getMetrics", &serde_json::json!({}))?;
+            let metrics = result.get("metrics")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            let mut timing = ChromePerformanceTiming::default();
+            for m in &metrics {
+                let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let value = m.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                match name {
+                    "LayoutDuration" => timing.layout_s = value,
+                    "RecalcStyleDuration" => timing.recalc_style_s = value,
+                    "ScriptDuration" => timing.script_s = value,
+                    "TaskDuration" => timing.task_s = value,
+                    "LayoutCount" => timing.layout_count = value as u64,
+                    "RecalcStyleCount" => timing.recalc_style_count = value as u64,
+                    "Nodes" => timing.dom_node_count = value as u64,
+                    _ => {}
+                }
+            }
+
+            // Also get navigation timing via JS
+            let js = r#"(function() {
+                var t = {};
+                var nav = performance.getEntriesByType('navigation');
+                if (nav.length > 0) {
+                    var n = nav[0];
+                    t.dom_interactive_ms = n.domInteractive;
+                    t.dom_content_loaded_ms = n.domContentLoadedEventEnd;
+                    t.load_event_ms = n.loadEventEnd;
+                    t.response_end_ms = n.responseEnd;
+                }
+                var paint = performance.getEntriesByType('paint');
+                for (var i = 0; i < paint.length; i++) {
+                    if (paint[i].name === 'first-paint') t.first_paint_ms = paint[i].startTime;
+                    if (paint[i].name === 'first-contentful-paint') t.first_contentful_paint_ms = paint[i].startTime;
+                }
+                return JSON.stringify(t);
+            })()"#;
+
+            if let Ok(result) = self.send_command("Runtime.evaluate", &serde_json::json!({
+                "expression": js, "returnByValue": true,
+            })) {
+                if let Some(json_str) = result.get("result")
+                    .and_then(|r| r.get("value"))
+                    .and_then(|v| v.as_str())
+                {
+                    if let Ok(nav) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        timing.dom_interactive_ms = nav.get("dom_interactive_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        timing.dom_content_loaded_ms = nav.get("dom_content_loaded_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        timing.load_event_ms = nav.get("load_event_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        timing.first_paint_ms = nav.get("first_paint_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        timing.first_contentful_paint_ms = nav.get("first_contentful_paint_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    }
+                }
+            }
+
+            Ok(timing)
         }
 
         /// Take a screenshot and optionally extract layout for a test at a given size.
