@@ -214,10 +214,7 @@ impl ReftestPipeline {
             (data, None)
         };
 
-        // 2a. Debug pass — warms font cache + collects debug_messages
-        let _ = self.render_azul(test_file, azul_img, width, height, true)?;
-
-        // 2b. Timing pass — accurate measurement, no debug overhead
+        // Single render pass (debug pass disabled for now — investigating blank output)
         let (debug_data, azul_timing_from_render) = self.render_azul(test_file, azul_img, width, height, false)?;
 
         let mut debug_data = debug_data;
@@ -267,12 +264,15 @@ impl ReftestPipeline {
         use azul_layout::callbacks::ExternalSystemCallbacks;
         use azul_layout::window_state::FullWindowState;
 
-        // Parse XHTML → StyledDom via fast path (tokenizer → FastDom → cascade)
+        // Parse XHTML → StyledDom
         let t_parse = Instant::now();
         let xml_content = std::fs::read_to_string(test_file)
             .map_err(|e| format!("read: {}", e))?;
-        let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
-            .map_err(|e| format!("parse: {}", e))?;
+        let dom_xml = azul_layout::xml::domxml_from_str(
+            &xml_content,
+            &azul_core::xml::ComponentMap::with_builtin(),
+        );
+        let styled_dom = dom_xml.parsed_dom;
         let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
 
         // Layout
