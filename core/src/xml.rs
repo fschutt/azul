@@ -2202,7 +2202,7 @@ impl ComponentMap {
 
 /// Map a builtin tag name to its corresponding `NodeType`.
 /// Falls back to `NodeType::Div` for unknown tags.
-fn tag_to_node_type(tag: &str) -> NodeType {
+pub fn tag_to_node_type(tag: &str) -> NodeType {
     match tag {
         // Document structure
         "html" => NodeType::Html,

@@ -132,6 +132,236 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     DomXml { parsed_dom }
 }
 
+/// Fastest path: parse XML string directly into FastDom without intermediate XmlNode tree.
+/// Feeds XML tokenizer events directly into CompactDomBuilder, skipping both the
+/// XmlNode tree construction AND the Dom tree construction.
+pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlError> {
+    use xmlparser::{ElementEnd::*, Token::*, Tokenizer};
+    use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};
+    use azul_core::xml::CompactDomBuilder;
+
+    // Strip BOM
+    let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
+    let mut xml = xml.trim();
+
+    // Skip <?xml ... ?>
+    if xml.starts_with("<?") {
+        if let Some(pos) = xml.find("?>") {
+            xml = &xml[(pos + 2)..];
+        }
+    }
+
+    // Skip <!DOCTYPE ...>
+    let mut xml = xml.trim();
+    if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
+        if let Some(pos) = xml.find(">") {
+            xml = &xml[(pos + 1)..];
+        }
+    } else if xml.starts_with("<!--") {
+        if let Some(end) = xml.find("-->") {
+            xml = &xml[(end + 3)..];
+            xml = xml.trim();
+        }
+    }
+
+    let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
+
+    let mut builder = CompactDomBuilder::new();
+
+    // Temporary storage for current element's attributes
+    let mut current_tag: String = String::new();
+    let mut current_attrs: Vec<(String, String)> = Vec::new();
+    let mut pending_open = false; // true after ElementStart, before we push to builder
+
+    const VOID_ELEMENTS: &[&str] = &[
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+        "param", "source", "track", "wbr",
+    ];
+
+    // Finalize the pending open element: create NodeData from tag + attrs, push to builder
+    let finalize_open = |builder: &mut CompactDomBuilder, tag: &str, attrs: &[(String, String)]| {
+        let tag_lower = tag.to_ascii_lowercase();
+        let node_type = azul_core::xml::tag_to_node_type(&tag_lower);
+        let mut nd = NodeData::create_node(node_type);
+
+        // Apply attributes
+        let mut ids_and_classes = Vec::new();
+        for (key, value) in attrs {
+            match key.as_str() {
+                "id" => {
+                    for id in value.split_whitespace() {
+                        ids_and_classes.push(IdOrClass::Id(id.into()));
+                    }
+                }
+                "class" => {
+                    for class in value.split_whitespace() {
+                        ids_and_classes.push(IdOrClass::Class(class.into()));
+                    }
+                }
+                "focusable" => {
+                    if let Some(f) = azul_core::xml::parse_bool(value.as_str()) {
+                        nd.set_tab_index(if f { TabIndex::Auto } else { TabIndex::NoKeyboardFocus });
+                    }
+                }
+                "tabindex" => {
+                    if let Ok(ti) = value.parse::<isize>() {
+                        match ti {
+                            0 => nd.set_tab_index(TabIndex::Auto),
+                            i if i > 0 => nd.set_tab_index(TabIndex::OverrideInParent(i as u32)),
+                            _ => nd.set_tab_index(TabIndex::NoKeyboardFocus),
+                        }
+                    }
+                }
+                "style" => {
+                    let css_key_map = azul_css::props::property::get_css_key_map();
+                    let mut css_attrs = Vec::new();
+                    for s in value.split(";") {
+                        let mut s = s.split(":");
+                        let key = match s.next() { Some(s) => s, None => continue };
+                        let val = match s.next() { Some(s) => s, None => continue };
+                        azul_css::parser2::parse_css_declaration(
+                            key.trim(), val.trim(),
+                            azul_css::parser2::ErrorLocationRange::default(),
+                            &css_key_map, &mut Vec::new(), &mut css_attrs,
+                        );
+                    }
+                    let props = css_attrs.into_iter().filter_map(|s| {
+                        use azul_css::css::CssDeclaration;
+                        use azul_css::dynamic_selector::CssPropertyWithConditions;
+                        match s {
+                            CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
+                            _ => None,
+                        }
+                    }).collect::<Vec<_>>();
+                    if !props.is_empty() {
+                        nd.set_css_props(props.into());
+                    }
+                }
+                "contenteditable" => {
+                    if azul_core::xml::parse_bool(value.as_str()).unwrap_or(false) {
+                        nd.set_contenteditable(true);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !ids_and_classes.is_empty() {
+            nd.set_ids_and_classes(ids_and_classes.into());
+        }
+
+        builder.open_node(nd);
+    };
+
+    let mut last_was_void = false;
+    let mut tag_stack: Vec<String> = Vec::new(); // for matching close tags
+
+    for token in tokenizer {
+        let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
+        match token {
+            ElementStart { local, .. } => {
+                // Flush any pending open element
+                if pending_open {
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    if is_void {
+                        builder.close_node();
+                    } else {
+                        tag_stack.push(current_tag.clone());
+                    }
+                }
+
+                current_tag = local.to_string();
+                current_attrs.clear();
+                pending_open = true;
+                last_was_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+            }
+            Attribute { local, value, .. } => {
+                current_attrs.push((local.to_string(), decode_xml_entities(value.as_str())));
+            }
+            ElementEnd { end: Open, .. } => {
+                // End of opening tag attributes — finalize the element
+                if pending_open {
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    if is_void {
+                        builder.close_node();
+                    } else {
+                        tag_stack.push(current_tag.clone());
+                    }
+                    pending_open = false;
+                }
+            }
+            ElementEnd { end: Empty, .. } => {
+                // Self-closing element: open + immediately close
+                if pending_open {
+                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    builder.close_node();
+                    pending_open = false;
+                }
+            }
+            ElementEnd { end: Close(_, close_value), .. } => {
+                if pending_open {
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    if is_void {
+                        builder.close_node();
+                    } else {
+                        tag_stack.push(current_tag.clone());
+                    }
+                    pending_open = false;
+                }
+
+                let close_str = close_value.as_str();
+                if VOID_ELEMENTS.contains(&close_str) {
+                    continue;
+                }
+
+                // Pop until we find matching tag
+                while let Some(top) = tag_stack.last() {
+                    if top.to_ascii_lowercase() == close_str.to_ascii_lowercase() {
+                        tag_stack.pop();
+                        builder.close_node();
+                        break;
+                    } else {
+                        // Auto-close mismatched
+                        tag_stack.pop();
+                        builder.close_node();
+                    }
+                }
+            }
+            Text { text } => {
+                if pending_open {
+                    let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                    finalize_open(&mut builder, &current_tag, &current_attrs);
+                    if is_void {
+                        builder.close_node();
+                    } else {
+                        tag_stack.push(current_tag.clone());
+                    }
+                    pending_open = false;
+                }
+
+                let text_str = text.as_str();
+                if !text_str.is_empty() {
+                    let decoded = decode_xml_entities(text_str);
+                    builder.add_leaf(NodeData::create_text(azul_css::AzString::from(decoded.as_str())));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Close any remaining open elements
+    if pending_open {
+        finalize_open(&mut builder, &current_tag, &current_attrs);
+    }
+    while tag_stack.pop().is_some() {
+        builder.close_node();
+    }
+
+    Ok(builder.finish())
+}
+
 /// Fast path: parse XML string to DomXml using arena-based FastDom.
 /// Skips the tree construction and convert_dom_into_compact_dom step.
 pub fn domxml_from_str_fast(xml: &str, component_map: &ComponentMap) -> DomXml {
