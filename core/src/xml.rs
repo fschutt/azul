@@ -5084,78 +5084,7 @@ pub fn render_dom_from_body_node_fast<'a>(
     Ok(styled)
 }
 
-/// Map component name to NodeType
-///
-/// **Deprecated**: Use `render_dom_from_body_node_fast` or `str_to_dom` (which now
-/// uses the fast arena-based path by default). This function builds an intermediate
-/// tree `Dom` before converting to `CompactDom`, which is slower.
-#[deprecated(note = "Use render_dom_from_body_node_fast() or str_to_dom() instead")]
-pub fn render_dom_from_body_node<'a>(
-    body_node: &'a XmlNode,
-    mut global_css: Option<Css>,
-    component_map: &'a ComponentMap,
-    max_width: Option<f32>,
-) -> Result<StyledDom, RenderDomError> {
-    // OPTIMIZATION: Build Dom tree first, then style once at the end
-    // This avoids O(n) StyledDom::create() calls for each of the ~360k nodes
-    let body_dom = xml_node_to_dom_fast(body_node, component_map, false)?;
-    
-    // OPTIMIZATION: Combine all CSS rules and apply ONCE instead of multiple restyle() calls
-    // Each restyle() is O(n * m) where n=nodes and m=CSS rules
-    let mut combined_stylesheets = Vec::new();
-    
-    // Add max-width constraint if specified
-    if let Some(max_width) = max_width {
-        let max_width_css = Css::from_string(
-            format!("html {{ max-width: {max_width}px; }}").into(),
-        );
-        for s in max_width_css.stylesheets.as_ref().iter() {
-            combined_stylesheets.push(s.clone());
-        }
-    }
-    
-    // Add global CSS from <style> tags
-    if let Some(css) = global_css.take() {
-        for s in css.stylesheets.as_ref().iter() {
-            combined_stylesheets.push(s.clone());
-        }
-    }
-    
-    let combined_css = Css::new(combined_stylesheets);
-    
-    // IMPORTANT: Build the full DOM tree BEFORE applying CSS.
-    // CSS selectors like `html { background: ... }` must be able to match the
-    // <html> element, which means it must exist in the tree when CSS is applied.
-    // Previously, CSS was applied to the body-only tree first, then <html> was
-    // wrapped around it with Css::empty() — causing html-targeted rules to be lost.
-    
-    // Determine the root node type from the un-styled DOM
-    use crate::dom::NodeType;
-    let root_node_type = body_dom.root.node_type.clone();
-    
-    let mut full_dom = match root_node_type {
-        NodeType::Html => {
-            // Already has proper HTML root, style as-is
-            body_dom
-        }
-        NodeType::Body => {
-            // Has Body root, wrap in HTML first, then style the whole tree
-            Dom::create_html().with_child(body_dom)
-        }
-        _ => {
-            // Other elements (div, etc), wrap in HTML > Body
-            let body_wrapper = Dom::create_body().with_child(body_dom);
-            Dom::create_html().with_child(body_wrapper)
-        }
-    };
-    
-    // Apply combined CSS once to the COMPLETE DOM tree (including html wrapper)
-    let styled = StyledDom::create(&mut full_dom, combined_css);
-
-    Ok(styled)
-}
-
-/// Takes a single (expanded) app node and renders the DOM or returns an error
+// render_dom_from_body_node() removed — use render_dom_from_body_node_fast() or str_to_dom()
 
 pub fn set_stringified_attributes(
     dom_string: &mut String,
