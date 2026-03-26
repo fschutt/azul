@@ -135,7 +135,38 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
 /// Fastest path: parse XML string directly into FastDom without intermediate XmlNode tree.
 /// Feeds XML tokenizer events directly into CompactDomBuilder, skipping both the
 /// XmlNode tree construction AND the Dom tree construction.
+/// Parse XML string directly into a `FastDom` (arena-based DOM) in a single pass.
+///
+/// Also extracts `<style>` tag content as CSS. Returns both the FastDom and
+/// collected CSS stylesheets. No intermediate `XmlNode` tree is built.
+///
+/// This is the fastest XML→DOM path: XML tokens feed directly into
+/// `CompactDomBuilder`, and `<style>` text is collected inline.
 pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlError> {
+    let (fast_dom, _css) = parse_xml_to_fast_dom_with_css(xml)?;
+    Ok(fast_dom)
+}
+
+/// Parse XML directly into FastDom + extracted CSS, ready for StyledDom.
+pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
+    let (mut fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
+
+    // Attach CSS to the FastDom
+    if !css.is_empty() {
+        let combined_css = Css::new(css.into_iter()
+            .flat_map(|c| c.stylesheets.into_library_owned_vec())
+            .collect());
+        fast_dom.css = vec![azul_core::dom::CssWithNodeId {
+            node_id: 0, // global scope
+            css: combined_css,
+        }].into();
+    }
+
+    Ok(StyledDom::create_from_fast_dom(fast_dom))
+}
+
+/// Internal: parse XML into FastDom + collected CSS stylesheets.
+fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
     use xmlparser::{ElementEnd::*, Token::*, Tokenizer};
     use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};
     use azul_core::xml::CompactDomBuilder;
@@ -167,11 +198,14 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
 
     let mut builder = CompactDomBuilder::new();
+    let mut collected_css: Vec<Css> = Vec::new();
+    let mut inside_style_tag = false;
+    let mut style_text = String::new();
 
     // Temporary storage for current element's attributes
     let mut current_tag: String = String::new();
     let mut current_attrs: Vec<(String, String)> = Vec::new();
-    let mut pending_open = false; // true after ElementStart, before we push to builder
+    let mut pending_open = false;
 
     const VOID_ELEMENTS: &[&str] = &[
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
@@ -316,6 +350,16 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
                     continue;
                 }
 
+                // If closing a <style> tag, parse collected CSS
+                if close_str.to_ascii_lowercase() == "style" && inside_style_tag {
+                    if !style_text.is_empty() {
+                        let parsed_css = Css::from_string(style_text.clone().into());
+                        collected_css.push(parsed_css);
+                    }
+                    inside_style_tag = false;
+                    style_text.clear();
+                }
+
                 // Pop until we find matching tag
                 while let Some(top) = tag_stack.last() {
                     if top.to_ascii_lowercase() == close_str.to_ascii_lowercase() {
@@ -332,6 +376,11 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
             Text { text } => {
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.to_ascii_lowercase().as_str());
+                    // Track if we're entering a <style> tag
+                    if current_tag.to_ascii_lowercase() == "style" {
+                        inside_style_tag = true;
+                        style_text.clear();
+                    }
                     finalize_open(&mut builder, &current_tag, &current_attrs);
                     if is_void {
                         builder.close_node();
@@ -343,8 +392,13 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 
                 let text_str = text.as_str();
                 if !text_str.is_empty() {
-                    let decoded = decode_xml_entities(text_str);
-                    builder.add_leaf(NodeData::create_text(azul_css::AzString::from(decoded.as_str())));
+                    if inside_style_tag {
+                        // Collect <style> content as CSS, don't add as DOM text
+                        style_text.push_str(text_str);
+                    } else {
+                        let decoded = decode_xml_entities(text_str);
+                        builder.add_leaf(NodeData::create_text(azul_css::AzString::from(decoded.as_str())));
+                    }
                 }
             }
             _ => {}
@@ -359,7 +413,7 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
         builder.close_node();
     }
 
-    Ok(builder.finish())
+    Ok((builder.finish(), collected_css))
 }
 
 /// Fast path: parse XML string to DomXml using arena-based FastDom.

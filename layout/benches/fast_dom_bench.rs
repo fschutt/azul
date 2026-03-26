@@ -76,13 +76,11 @@ fn main() {
         println!("  Direct parse:    {:.2}ms (XML tokens → FastDom, {} nodes)",
             direct_parse_ms, fast_dom_direct.node_data.as_ref().len());
 
-        // Direct + StyledDom
+        // Direct + StyledDom (single function, includes CSS extraction)
         let t5 = Instant::now();
-        let fast_dom2 = azul_layout::xml::parse_xml_to_fast_dom(&xml_content).unwrap();
-        // Extract CSS from the <style> tag content
-        let _styled = azul_core::styled_dom::StyledDom::create_from_fast_dom(fast_dom2);
+        let _styled = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
         let direct_styled_ms = t5.elapsed().as_secs_f64() * 1000.0;
-        println!("  Direct+styled:   {:.2}ms (XML → FastDom → StyledDom)", direct_styled_ms);
+        println!("  Direct+styled:   {:.2}ms (XML → StyledDom, single function)", direct_styled_ms);
     }
 
     let component_map = azul_core::xml::ComponentMap::with_builtin();
