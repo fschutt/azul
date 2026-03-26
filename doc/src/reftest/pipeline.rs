@@ -2,7 +2,7 @@
 //!
 //! Used by both `reftest` (batch + headless) and `autodebug` (discovery phase).
 //! Ensures consistent behavior: shared font cache, persistent Chrome CDP,
-//! two-pass Azul rendering (fast timing + debug diagnostics).
+//! shared LayoutWindow (fonts parsed once, reused across all tests).
 
 use std::path::Path;
 use std::time::Instant;
@@ -37,11 +37,10 @@ pub struct TestRunResult {
 /// Chrome backend: persistent CDP or per-test process.
 pub enum ChromeBackend {
     Cdp(ChromeCdp),
-    Process(String), // chrome_path
+    Process(String),
 }
 
 impl ChromeBackend {
-    /// Try CDP first, fall back to process-per-test.
     pub fn new(chrome_path: &str) -> Self {
         match ChromeCdp::launch(chrome_path) {
             Ok(cdp) => {
@@ -55,7 +54,6 @@ impl ChromeBackend {
         }
     }
 
-    /// Take screenshot + extract layout.
     fn screenshot(
         &mut self,
         test_file: &Path,
@@ -84,24 +82,27 @@ impl ChromeBackend {
     }
 }
 
-/// Unified reftest pipeline.
+/// Unified reftest pipeline with shared resources.
 pub struct ReftestPipeline {
     pub fc_cache: rust_fontconfig::FcFontCache,
     pub chrome: ChromeBackend,
+    /// Shared LayoutWindow — fonts are parsed once on first test,
+    /// then reused for all subsequent tests (avoids ~90ms font loading per test).
+    pub layout_window: Option<azul_layout::LayoutWindow>,
 }
 
 impl ReftestPipeline {
     pub fn new(fc_cache: rust_fontconfig::FcFontCache, chrome_path: &str) -> Self {
+        // Pre-create LayoutWindow so fonts are loaded once
+        let layout_window = azul_layout::LayoutWindow::new(fc_cache.clone()).ok();
         Self {
             fc_cache,
             chrome: ChromeBackend::new(chrome_path),
+            layout_window,
         }
     }
 
-    /// Run a single test: Chrome screenshot → Azul render (2 passes) → pixel diff.
-    ///
-    /// Pass 1 (fast): `debug_messages=None` — accurate timing, no string overhead.
-    /// Pass 2 (debug): `debug_messages=Some(...)` — collects layout diagnostics.
+    /// Run a single test: Chrome screenshot → Azul render → pixel diff.
     pub fn run_test(
         &mut self,
         test_file: &Path,
@@ -115,7 +116,7 @@ impl ReftestPipeline {
         let test_name = test_file.file_stem()
             .unwrap().to_string_lossy().to_string();
 
-        // 1. Chrome screenshot (reuses persistent CDP if available)
+        // 1. Chrome screenshot
         let (chrome_layout_data, chrome_timing) = if !chrome_img.exists() {
             self.chrome.screenshot(
                 test_file, chrome_img, chrome_layout_json, width, height,
@@ -125,7 +126,9 @@ impl ReftestPipeline {
             (data, None)
         };
 
-        // 2. Azul render — fast pass for timing
+        // 2. Azul render (uses shared fc_cache; layout_window is NOT shared here
+        //    because generate_azul_rendering_sized_cached creates its own internally.
+        //    TODO: thread layout_window through for font reuse)
         let t_azul = Instant::now();
         let mut debug_data = generate_azul_rendering_sized_cached(
             test_file, azul_img, width, height, dpi_factor, &self.fc_cache,
