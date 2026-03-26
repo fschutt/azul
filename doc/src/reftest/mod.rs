@@ -112,12 +112,10 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
     let _ = std::fs::create_dir_all(output_dir.join("reftest_img"));
 
-    // Build shared font cache + launch persistent Chrome (via pipeline)
+    // Initialize pipeline: FcFontRegistry (background threads) + Chrome CDP
     println!("Initializing reftest pipeline...");
-    let t_init = Instant::now();
-    let fc_cache = azul_layout::font::loading::build_font_cache();
-    println!("  Font cache: {:.1}ms ({} fonts)", t_init.elapsed().as_secs_f64() * 1000.0, fc_cache.len());
-    let mut pipeline = pipeline::ReftestPipeline::new(fc_cache, &chrome_path);
+    let mut pipeline = pipeline::ReftestPipeline::new(&chrome_path)
+        .map_err(|e| anyhow::anyhow!("Pipeline init failed: {}", e))?;
 
     // Process tests via unified pipeline
     for test_file in &test_files {
@@ -128,9 +126,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
         let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
         let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
 
-        let dpi_factor = 1.0; // Default; will be overridden if Chrome image exists with different DPI
-
-        match pipeline.run_test(test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT, dpi_factor) {
+        match pipeline.run_test(test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT) {
             Ok(result) => {
                 let mut enhanced_results_vec = enhanced_results.lock().unwrap();
                 enhanced_results_vec.push(EnhancedTestResult::from_debug_data(
