@@ -1,0 +1,23 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Cascade Specificity</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 16px; }
+            div { color: #cc0000; padding: 10px; margin: 4px; background: #ffeeee; }
+            .classed { color: #0000cc; background: #eeeeff; }
+            #specific { color: #00aa00; background: #eeffee; }
+            div { border: 2px solid #cc0000; }
+            .classed { border-color: #0000cc; }
+            #specific { border-color: #00aa00; }
+        </style>
+    </head>
+    <body>
+        <div>Element selector only: red text, red border</div>
+        <div class="classed">Class selector: blue text, blue border (overrides element)</div>
+        <div id="specific">ID selector: green text, green border (overrides class)</div>
+        <div id="specific" class="classed">ID + class: green wins (ID &gt; class)</div>
+        <div class="classed" style="color: #cc6600; background: #fff8ee; border-color: #cc6600;">Inline style: orange (overrides all)</div>
+    </body>
+</html>

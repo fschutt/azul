@@ -1,0 +1,31 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Inline Style Specificity</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .row { padding: 8px; margin: 4px; border: 1px solid #cccccc; }
+            .red { color: #cc0000; background: #ffeeee; font-size: 18px; }
+            .blue { color: #0000cc; background: #eeeeff; font-weight: bold; }
+            #green-id { color: #00aa00; background: #eeffee; }
+        </style>
+    </head>
+    <body>
+        <div class="row red">
+            Class .red: color red, bg #ffeeee, font-size 18px (all from stylesheet)
+        </div>
+        <div class="row red" style="color: #0000cc;">
+            Class .red + inline color blue: inline wins for color; font-size 18px from .red stays
+        </div>
+        <div class="row blue" style="color: #cc6600; background: #fff8ee;">
+            Class .blue + inline orange: inline wins color+bg; font-weight bold from .blue stays
+        </div>
+        <div class="row" id="green-id" style="color: #cc00cc;">
+            ID #green-id + inline purple: inline wins color; bg #eeffee from ID stays
+        </div>
+        <div class="row red blue" style="color: #000000;">
+            Classes .red.blue + inline black: inline wins color; font-size from .red, bold from .blue
+        </div>
+    </body>
+</html>

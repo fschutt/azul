@@ -1,0 +1,38 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Font Weight Inheritance</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .bold-parent {
+                font-weight: bold;
+                padding: 8px;
+                margin: 8px;
+                border: 2px solid #333333;
+                background: #f0f0f0;
+            }
+            .child { padding: 6px; margin: 4px; background: #eeeeff; }
+            .normal-override { font-weight: normal; background: #ffeeee; }
+            .nested { padding: 4px; margin: 4px; background: #eeffee; }
+        </style>
+    </head>
+    <body>
+        <div class="bold-parent">
+            Bold parent: font-weight bold
+            <div class="child">Child 1: inherits bold from parent</div>
+            <div class="child">Child 2: also inherits bold</div>
+            <div class="child normal-override">Child 3: overrides to font-weight normal</div>
+            <div class="child">
+                Child 4: inherits bold
+                <div class="nested">Grandchild: still inherits bold through chain</div>
+                <div class="nested normal-override">
+                    Grandchild normal: overrides to normal
+                    <div class="nested">Great-grandchild: inherits NORMAL (not bold)</div>
+                </div>
+            </div>
+        </div>
+        <h1 style="background: #ffffdd; font-size: 18px;">H1: UA bold (not from parent)</h1>
+        <p style="background: #ffddff;">P after bold-parent: should be normal weight (no inheritance across siblings)</p>
+    </body>
+</html>

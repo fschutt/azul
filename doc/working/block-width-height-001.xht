@@ -1,0 +1,31 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Block Width and Height</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 12px; }
+            .fixed { width: 200px; height: 60px; background: #cc0000; color: #ffffff; padding: 4px; margin: 5px; }
+            .percent { width: 50%; height: 40px; background: #0000cc; color: #ffffff; padding: 4px; margin: 5px; }
+            .min-max {
+                width: 80%;
+                min-width: 100px;
+                max-width: 400px;
+                height: 30px;
+                min-height: 50px;
+                max-height: 80px;
+                background: #00aa00;
+                color: #ffffff;
+                padding: 4px;
+                margin: 5px;
+            }
+            .auto-height { width: 300px; background: #cc6600; color: #ffffff; padding: 8px; margin: 5px; }
+        </style>
+    </head>
+    <body>
+        <div class="fixed">Fixed 200x60</div>
+        <div class="percent">50% width, 40px height</div>
+        <div class="min-max">80% width (min 100, max 400), min-h 50, max-h 80</div>
+        <div class="auto-height">Auto height: content determines height of this box.</div>
+    </body>
+</html>

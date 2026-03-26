@@ -1,0 +1,44 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Margin Auto Centering</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #eeeeee; font-family: sans-serif; }
+            .h-center {
+                width: 300px;
+                height: 50px;
+                margin: 10px auto;
+                background: #cc0000;
+                color: #ffffff;
+                text-align: center;
+                line-height: 50px;
+            }
+            .flex-parent {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: 400px;
+                height: 200px;
+                background: #ccccff;
+                margin: 20px auto;
+                border: 2px solid #0000cc;
+            }
+            .flex-child {
+                width: 120px;
+                height: 60px;
+                background: #00aa00;
+                color: #ffffff;
+                text-align: center;
+                line-height: 60px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="h-center">margin: 0 auto</div>
+        <div class="h-center" style="width: 500px; background: #0000cc;">Wider centered box</div>
+        <div class="flex-parent">
+            <div class="flex-child">Flex centered</div>
+        </div>
+    </body>
+</html>

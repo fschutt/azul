@@ -1,0 +1,36 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Position Absolute</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 12px; }
+            .parent {
+                position: relative;
+                width: 400px; height: 300px;
+                background: #eeeeee;
+                border: 2px solid #333333;
+                margin: 20px;
+            }
+            .child {
+                position: absolute;
+                width: 80px; height: 40px;
+                color: #ffffff; text-align: center; line-height: 40px;
+            }
+            .tl { top: 0; left: 0; background: #cc0000; }
+            .tr { top: 0; right: 0; background: #0000cc; }
+            .bl { bottom: 0; left: 0; background: #00aa00; }
+            .br { bottom: 0; right: 0; background: #cc6600; }
+            .center { top: 130px; left: 160px; background: #6600cc; }
+        </style>
+    </head>
+    <body>
+        <div class="parent">
+            <div class="child tl">Top-Left</div>
+            <div class="child tr">Top-Right</div>
+            <div class="child bl">Bot-Left</div>
+            <div class="child br">Bot-Right</div>
+            <div class="child center">Center</div>
+        </div>
+    </body>
+</html>

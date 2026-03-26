@@ -1,0 +1,27 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Multiple Classes</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .row { padding: 8px; margin: 4px; border: 1px solid #cccccc; }
+            .a { color: #cc0000; background: #ffeeee; }
+            .b { color: #0000cc; background: #eeeeff; }
+            .c { color: #00aa00; background: #eeffee; }
+            .a.b { color: #9900cc; background: #f0eeff; }
+            .a.b.c { color: #cc6600; background: #fff5ee; }
+            .highlight { font-weight: bold; border-color: #ff8800; }
+        </style>
+    </head>
+    <body>
+        <div class="row a">Class .a only: red text, red bg</div>
+        <div class="row b">Class .b only: blue text, blue bg</div>
+        <div class="row c">Class .c only: green text, green bg</div>
+        <div class="row a b">Classes .a .b: purple text (.a.b wins over .a and .b alone)</div>
+        <div class="row b c">Classes .b .c: green text (.c last single-class rule wins)</div>
+        <div class="row a b c">Classes .a.b.c: orange text (triple-class has highest specificity)</div>
+        <div class="row a highlight">Classes .a .highlight: red text + bold (no conflict, both apply)</div>
+        <div class="row a b highlight">Classes .a.b.highlight: purple text + bold (.a.b wins color)</div>
+    </body>
+</html>

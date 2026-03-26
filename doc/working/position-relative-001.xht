@@ -1,0 +1,26 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Position Relative</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .box {
+                width: 120px; height: 60px; color: #ffffff;
+                text-align: center; line-height: 60px;
+            }
+            .a { background: #cc0000; }
+            .b { background: #0000cc; position: relative; top: -20px; left: 40px; }
+            .c { background: #00aa00; position: relative; top: -10px; left: 80px; }
+            .d { background: #cc6600; position: relative; right: -160px; bottom: 30px; }
+            .ref { background: #999999; margin-top: 40px; }
+        </style>
+    </head>
+    <body>
+        <div class="box a">Static A</div>
+        <div class="box b">Rel B (top:-20, left:40)</div>
+        <div class="box c">Rel C (top:-10, left:80)</div>
+        <div class="box d">Rel D (right:-160, bottom:30)</div>
+        <div class="box ref">Static ref</div>
+    </body>
+</html>

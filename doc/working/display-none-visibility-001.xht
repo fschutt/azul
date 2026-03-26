@@ -1,0 +1,31 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Display None vs Visibility Hidden</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .box { width: 150px; height: 50px; margin: 5px; color: #ffffff; text-align: center; line-height: 50px; }
+            .red { background: #cc0000; }
+            .blue { background: #0000cc; }
+            .green { background: #00aa00; }
+            .none { display: none; }
+            .invisible { visibility: hidden; }
+            .label { padding: 8px; font-weight: bold; margin-top: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="label">Normal flow (all visible):</div>
+        <div class="box red">Box 1</div>
+        <div class="box blue">Box 2</div>
+        <div class="box green">Box 3</div>
+        <div class="label">display: none on Box 2 (removed from flow):</div>
+        <div class="box red">Box 1</div>
+        <div class="box blue none">Box 2</div>
+        <div class="box green">Box 3</div>
+        <div class="label">visibility: hidden on Box 2 (space preserved):</div>
+        <div class="box red">Box 1</div>
+        <div class="box blue invisible">Box 2</div>
+        <div class="box green">Box 3</div>
+    </body>
+</html>

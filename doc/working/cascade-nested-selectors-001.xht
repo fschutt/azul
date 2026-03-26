@@ -1,0 +1,27 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Nested Selectors</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .container { padding: 8px; margin: 8px; border: 2px solid #333333; background: #f8f8f8; }
+            .container .item { background: #ffdddd; padding: 6px; margin: 4px; border: 1px solid #cc0000; color: #cc0000; }
+            .container > .direct { background: #ddddff; padding: 6px; margin: 4px; border: 1px solid #0000cc; color: #0000cc; }
+            .container .wrapper .deep { background: #ddffdd; padding: 6px; margin: 4px; border: 1px solid #00aa00; color: #00aa00; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            Container
+            <div class="item">Direct child .item: red bg (descendant match)</div>
+            <div class="direct">Direct child .direct: blue bg (child combinator match)</div>
+            <div class="wrapper">
+                Wrapper (no special styling)
+                <div class="item">Nested .item: red bg (descendant still matches)</div>
+                <div class="direct">Nested .direct: NO blue bg (child combinator fails - not direct)</div>
+                <div class="deep">Nested .deep: green bg (.container .wrapper .deep matches)</div>
+            </div>
+        </div>
+    </body>
+</html>

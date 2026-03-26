@@ -1,0 +1,36 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Text Overflow</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; }
+            .container { width: 200px; margin: 10px; padding: 8px; border: 2px solid #333333; }
+            .ellipsis {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                background: #ffffcc;
+            }
+            .hidden-overflow {
+                overflow: hidden;
+                white-space: nowrap;
+                background: #ccffcc;
+            }
+            .normal {
+                background: #ffcccc;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container ellipsis">
+            This is a very long text that should be truncated with an ellipsis at the end of the box.
+        </div>
+        <div class="container hidden-overflow">
+            This is a very long text that should be clipped without any ellipsis indicator shown.
+        </div>
+        <div class="container normal">
+            This is a very long text that wraps normally within the container boundaries.
+        </div>
+    </body>
+</html>

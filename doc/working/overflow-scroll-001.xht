@@ -1,0 +1,30 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Overflow Scroll</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .container { width: 200px; height: 100px; margin: 15px; padding: 8px; border: 2px solid #333333; }
+            .auto { overflow: auto; background: #ffffcc; }
+            .hidden { overflow: hidden; background: #ccffcc; }
+            .visible { overflow: visible; background: #ffcccc; }
+            .tall { width: 50px; height: 200px; background: #0000cc; }
+            p { margin: 4px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="container auto">
+            <p>overflow: auto</p>
+            <div class="tall"></div>
+        </div>
+        <div class="container hidden">
+            <p>overflow: hidden</p>
+            <div class="tall"></div>
+        </div>
+        <div class="container visible">
+            <p>overflow: visible</p>
+            <div class="tall"></div>
+        </div>
+    </body>
+</html>

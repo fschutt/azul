@@ -1,0 +1,29 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Color and Background</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .box { width: 200px; height: 60px; margin: 8px; padding: 8px; text-align: center; line-height: 60px; }
+            .solid-red { background-color: #cc0000; color: #ffffff; }
+            .solid-blue { background-color: #0000cc; color: #ffff00; }
+            .solid-green { background-color: #00aa00; color: #ffffff; }
+            .rgba-half { background-color: rgba(0, 0, 0, 0.5); color: #ffffff; }
+            .rgba-quarter { background-color: rgba(255, 0, 0, 0.25); color: #000000; }
+            .opacity-full { background: #6600cc; color: #ffffff; opacity: 1.0; }
+            .opacity-half { background: #6600cc; color: #ffffff; opacity: 0.5; }
+            .opacity-low { background: #6600cc; color: #ffffff; opacity: 0.2; }
+        </style>
+    </head>
+    <body>
+        <div class="box solid-red">Solid Red</div>
+        <div class="box solid-blue">Blue bg, Yellow text</div>
+        <div class="box solid-green">Solid Green</div>
+        <div class="box rgba-half">rgba(0,0,0,0.5)</div>
+        <div class="box rgba-quarter">rgba(255,0,0,0.25)</div>
+        <div class="box opacity-full">opacity: 1.0</div>
+        <div class="box opacity-half">opacity: 0.5</div>
+        <div class="box opacity-low">opacity: 0.2</div>
+    </body>
+</html>

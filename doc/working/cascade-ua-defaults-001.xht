@@ -1,0 +1,32 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>UA CSS Defaults</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .marker { background: #eeeeff; border-bottom: 1px solid #cccccc; }
+        </style>
+    </head>
+    <body>
+        <h1 class="marker">H1: UA bold, largest font, display:block</h1>
+        <h2 class="marker">H2: UA bold, smaller than H1</h2>
+        <h3 class="marker">H3: UA bold, smaller than H2</h3>
+        <h4 class="marker">H4: UA bold, similar to body size</h4>
+        <h5 class="marker">H5: UA bold, smaller than body</h5>
+        <h6 class="marker">H6: UA bold, smallest heading</h6>
+        <p class="marker">P: display:block from UA, normal weight</p>
+        <span class="marker">SPAN: display:inline from UA</span>
+        <span class="marker">second span (should be on same line)</span>
+        <div class="marker">DIV: display:block from UA</div>
+        <ul class="marker">
+            <li>UL/LI: list-style from UA</li>
+            <li>Second list item</li>
+        </ul>
+        <ol class="marker">
+            <li>OL/LI: numbered list from UA</li>
+            <li>Second numbered item</li>
+        </ol>
+        <table class="marker"><tr><td>TABLE: UA defaults</td><td>Cell 2</td></tr></table>
+    </body>
+</html>

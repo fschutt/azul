@@ -1,0 +1,38 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Global Star Selector</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; box-sizing: border-box; color: #666666; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .box {
+                margin: 20px;
+                padding: 15px;
+                background: #ddeeff;
+                border: 2px solid #4488cc;
+                color: #003366;
+            }
+            .inner {
+                padding: 8px;
+                background: #eeffee;
+                border: 1px solid #44aa44;
+            }
+            p { color: #cc0000; }
+        </style>
+    </head>
+    <body>
+        <div>Plain div: * sets color #666, margin 0, padding 0</div>
+        <div class="box">
+            Box: .box overrides margin to 20px, color to #003366
+            <div class="inner">
+                Inner: .inner overrides padding to 8px; color from * is #666
+            </div>
+            <p>Paragraph inside box: p selector sets color red, overrides *</p>
+        </div>
+        <span>Span: * applies color #666, margin 0, box-sizing border-box</span>
+        <div class="box">
+            Second box: confirms .box margin 20px overrides * margin 0
+            <div>Nested plain div: gets * rules (margin 0, color #666)</div>
+        </div>
+    </body>
+</html>

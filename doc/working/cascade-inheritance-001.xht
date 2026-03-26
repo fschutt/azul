@@ -1,0 +1,48 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Cascade Inheritance</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            .parent {
+                font-size: 24px;
+                color: #cc0000;
+                padding: 10px;
+                margin: 8px;
+                border: 2px solid #999999;
+                background: #fff0f0;
+            }
+            .child {
+                background: #f0f0ff;
+                border: 1px dashed #aaaaaa;
+                padding: 6px;
+                margin: 4px;
+            }
+            .grandchild {
+                color: #0000cc;
+                background: #f0fff0;
+                padding: 4px;
+            }
+            .no-inherit-test {
+                background: #fffff0;
+                border: 1px solid #cccccc;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="parent">
+            Parent: font-size 24px, color red, padding 10px
+            <div class="child">
+                Child: inherits font-size 24px + color red; has OWN padding 6px
+                <div class="grandchild">
+                    Grandchild: overrides color to blue; inherits font-size 24px
+                </div>
+            </div>
+            <div class="no-inherit-test">
+                No-inherit test: padding/margin/border must NOT inherit from parent.
+                This div should have 0 margin, 0 padding (from *), own border only.
+            </div>
+        </div>
+    </body>
+</html>

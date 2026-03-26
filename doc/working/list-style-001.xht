@@ -1,0 +1,29 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>List Styles</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; height: 600px; background: #ffffff; font-family: sans-serif; font-size: 14px; }
+            ul, ol { margin: 10px 0 10px 40px; }
+            .disc { list-style-type: disc; color: #cc0000; }
+            .circle { list-style-type: circle; color: #0000cc; }
+            .square { list-style-type: square; color: #00aa00; }
+            .decimal { list-style-type: decimal; color: #cc6600; }
+            .lower-alpha { list-style-type: lower-alpha; color: #6600cc; }
+            h3 { font-size: 16px; margin: 10px 0 4px 0; padding-left: 8px; }
+        </style>
+    </head>
+    <body>
+        <h3 style="color: #cc0000;">Disc (default UL)</h3>
+        <ul class="disc"><li>Item A</li><li>Item B</li><li>Item C</li></ul>
+        <h3 style="color: #0000cc;">Circle</h3>
+        <ul class="circle"><li>Item A</li><li>Item B</li></ul>
+        <h3 style="color: #00aa00;">Square</h3>
+        <ul class="square"><li>Item A</li><li>Item B</li></ul>
+        <h3 style="color: #cc6600;">Decimal (OL)</h3>
+        <ol class="decimal"><li>First</li><li>Second</li><li>Third</li></ol>
+        <h3 style="color: #6600cc;">Lower Alpha (OL)</h3>
+        <ol class="lower-alpha"><li>Alpha</li><li>Beta</li><li>Gamma</li></ol>
+    </body>
+</html>
