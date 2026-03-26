@@ -518,7 +518,12 @@ impl CssPropertyCache {
 
             // Step 0: Apply global CSS baseline (from `*` rules)
             if has_global {
-                result.tier1_enums[i] = global_tier1;
+                // Only apply tier1 if the `*` rule actually set tier1 enum properties.
+                // When global_tier1 is 0, it means no tier1 properties were set by `*`,
+                // but assigning 0 would incorrectly set display=None, overflow=Scroll, etc.
+                if global_tier1 != 0 {
+                    result.tier1_enums[i] = global_tier1;
+                }
                 result.tier2_dims[i] = global_dims;
                 result.tier2_cold[i] = global_cold;
                 result.tier2b_text[i] = global_text;
