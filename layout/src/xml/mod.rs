@@ -347,6 +347,10 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             ElementEnd { end: Open, .. } => {
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
+                    if current_tag == "style" {
+                        inside_style_tag = true;
+                        style_text.clear();
+                    }
                     if current_tag == "head" { head_depth += 1; }
                     if head_depth == 0 {
                         finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
@@ -438,8 +442,13 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     if inside_style_tag {
                         style_text.push_str(text_str);
                     } else if head_depth == 0 {
-                        let decoded = decode_xml_entities(text_str);
-                        builder.add_leaf(NodeData::create_text(azul_css::AzString::from(&*decoded)));
+                        // Skip whitespace-only text at <html> level (between </head> and <body>)
+                        // but keep whitespace inside <body> (it's significant for inline layout)
+                        let inside_body = tag_stack.iter().any(|t| t == "body");
+                        if inside_body || !text_str.trim().is_empty() {
+                            let decoded = decode_xml_entities(text_str);
+                            builder.add_leaf(NodeData::create_text(azul_css::AzString::from(&*decoded)));
+                        }
                     }
                 }
             }

@@ -264,15 +264,12 @@ impl ReftestPipeline {
         use azul_layout::callbacks::ExternalSystemCallbacks;
         use azul_layout::window_state::FullWindowState;
 
-        // Parse XHTML → StyledDom
+        // Parse XHTML → StyledDom (fast single-pass tokenizer)
         let t_parse = Instant::now();
         let xml_content = std::fs::read_to_string(test_file)
             .map_err(|e| format!("read: {}", e))?;
-        let dom_xml = azul_layout::xml::domxml_from_str(
-            &xml_content,
-            &azul_core::xml::ComponentMap::with_builtin(),
-        );
-        let styled_dom = dom_xml.parsed_dom;
+        let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
+            .map_err(|e| format!("parse: {}", e))?;
         let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
 
         // Layout
@@ -340,7 +337,8 @@ impl ReftestPipeline {
             image::ExtendedColorType::Rgba8,
         ).map_err(|e| format!("encode: {}", e))?;
         let save_us = t_save.elapsed().as_secs_f64() * 1_000_000.0;
-        let total_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
+        // total = parse + layout + render (excludes file I/O + WebP encoding)
+        let total_us = parse_us + layout_us + render_us;
 
         let metadata = extract_metadata_from_string(&xml_content);
         let mut debug_data = DebugData::new(xml_content);
