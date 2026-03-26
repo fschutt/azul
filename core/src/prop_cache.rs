@@ -597,6 +597,11 @@ pub struct CssPropertyCache {
     // Built once after restyle + apply_ua_css + compute_inherited_values.
     // Non-compact properties (background, shadow, transform) use get_property_slow().
     pub compact_cache: Option<azul_css::compact_cache::CompactLayoutCache>,
+
+    // Global CSS properties from `*` rules — shared across all nodes.
+    // Applied during build_compact_cache_with_inheritance instead of being
+    // cloned into each node's css_props (saves 50K×N clones).
+    pub global_css_props: Vec<CssProperty>,
 }
 
 impl CssPropertyCache {
@@ -677,43 +682,25 @@ impl CssPropertyCache {
                 }
             }
 
-            // Phase 1: Apply global-only rules to ALL nodes directly
-            // (no per-node selector matching — just clone the declarations once per pseudo-state
-            // and push into css_props for every node)
-            macro_rules! apply_global_rules {($pseudo:expr, $state:expr) => {{
-                let global_props: Vec<StatefulCssProperty> = global_only_rules.iter()
-                    .filter(|rb| crate::style::rule_ends_with(&rb.path, $pseudo))
-                    .flat_map(|rb| rb.declarations.iter().filter_map(|d| match d {
-                        CssDeclaration::Static(s) => Some(StatefulCssProperty {
-                            state: $state,
-                            prop_type: s.get_type(),
-                            property: s.clone(),
-                        }),
-                        CssDeclaration::Dynamic(_) => None,
-                    }))
-                    .collect();
-
-                if !global_props.is_empty() {
-                    for node_idx in 0..node_data.len() {
-                        if !node_data[NodeId::new(node_idx)].is_anonymous() {
-                            for sp in &global_props {
-                                self.css_props.push_to(node_idx, sp.clone());
-                            }
-                        }
-                    }
-                }
-            }};}
-
             // Clear all css_props before assigning
             for entry in self.css_props.build_iter_mut() { entry.clear(); }
 
             use azul_css::dynamic_selector::PseudoStateType;
-            apply_global_rules!(None, PseudoStateType::Normal);
-            apply_global_rules!(Some(Hover), PseudoStateType::Hover);
-            apply_global_rules!(Some(Active), PseudoStateType::Active);
-            apply_global_rules!(Some(Focus), PseudoStateType::Focus);
-            apply_global_rules!(Some(Dragging), PseudoStateType::Dragging);
-            apply_global_rules!(Some(DragOver), PseudoStateType::DragOver);
+
+            // Collect global-only rule declarations ONCE (not per-node).
+            // These are stored in self.global_css_props and applied during
+            // build_compact_cache_with_inheritance for each node, avoiding
+            // 50K × N clones into per-node css_props Vecs.
+            self.global_css_props.clear();
+            for rule in &global_only_rules {
+                if crate::style::rule_ends_with(&rule.path, None) {
+                    for d in rule.declarations.iter() {
+                        if let CssDeclaration::Static(s) = d {
+                            self.global_css_props.push(s.clone());
+                        }
+                    }
+                }
+            }
 
             // Phase 2: Match specific rules per-node (only non-global rules)
             if !specific_rules.is_empty() {
@@ -1500,6 +1487,7 @@ impl CssPropertyCache {
 
             computed_values: vec![Vec::new(); node_count],
             compact_cache: None,
+            global_css_props: Vec::new(),
         }
     }
 
