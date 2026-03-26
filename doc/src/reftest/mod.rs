@@ -128,13 +128,17 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
         match pipeline.run_test(test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT) {
             Ok(result) => {
-                let mut enhanced_results_vec = enhanced_results.lock().unwrap();
-                enhanced_results_vec.push(EnhancedTestResult::from_debug_data(
+                let mut etr = EnhancedTestResult::from_debug_data(
                     result.test_name,
                     result.diff_pixels,
                     result.passed,
                     result.debug_data,
-                ));
+                );
+                etr.set_azul_timing(&result.azul_timing);
+                if let Some(ref ct) = result.chrome_timing {
+                    etr.set_chrome_timing(ct);
+                }
+                enhanced_results.lock().unwrap().push(etr);
             }
             Err(e) => {
                 println!("  ERROR: {}", e);
@@ -1939,11 +1943,18 @@ pub struct EnhancedTestResult {
     // Chrome computed layout (via CDP, if available)
     pub chrome_layout: String,
 
-    // Additional stats
+    // Azul timing (ms)
     pub xml_formatting_time_ms: u64,
     pub layout_time_ms: u64,
     pub render_time_ms: u64,
+    pub azul_total_ms: f64,
     pub render_warnings: Vec<String>,
+
+    // Chrome timing (from CDP Performance.getMetrics, ms)
+    pub chrome_style_ms: f64,
+    pub chrome_layout_ms: f64,
+    pub chrome_fcp_ms: f64,
+    pub chrome_total_ms: f64,
 }
 
 impl EnhancedTestResult {
@@ -1969,6 +1980,11 @@ impl EnhancedTestResult {
             xml_formatting_time_ms: 0,
             layout_time_ms: 0,
             render_time_ms: 0,
+            azul_total_ms: 0.0,
+            chrome_style_ms: 0.0,
+            chrome_layout_ms: 0.0,
+            chrome_fcp_ms: 0.0,
+            chrome_total_ms: 0.0,
         }
     }
 
@@ -1999,7 +2015,26 @@ impl EnhancedTestResult {
             xml_formatting_time_ms: debug_data.xml_formatting_time_ms,
             layout_time_ms: debug_data.layout_time_ms,
             render_time_ms: debug_data.render_time_ms,
+            azul_total_ms: 0.0,
+            chrome_style_ms: 0.0,
+            chrome_layout_ms: 0.0,
+            chrome_fcp_ms: 0.0,
+            chrome_total_ms: 0.0,
         }
+    }
+
+    /// Set Chrome timing from CDP performance metrics.
+    pub fn set_chrome_timing(&mut self, timing: &autodebug::cdp::ChromePerformanceTiming) {
+        self.chrome_style_ms = timing.recalc_style_s * 1000.0;
+        self.chrome_layout_ms = timing.layout_s * 1000.0;
+        self.chrome_fcp_ms = timing.first_contentful_paint_ms;
+        self.chrome_total_ms = timing.load_event_ms;
+    }
+
+    /// Set Azul timing from pipeline measurement.
+    pub fn set_azul_timing(&mut self, timing: &pipeline::AzulTiming) {
+        self.azul_total_ms = timing.total_ms;
+        // xml/layout/render already set from DebugData
     }
 }
 

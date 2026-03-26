@@ -65,9 +65,32 @@ impl ChromeBackend {
     ) -> Result<(String, Option<ChromePerformanceTiming>), String> {
         match self {
             ChromeBackend::Cdp(cdp) => {
+                // CDP saves PNG; if output path is .webp, save as temp PNG then convert
+                let needs_convert = chrome_img.extension().map_or(false, |e| e == "webp");
+                let save_path = if needs_convert {
+                    chrome_img.with_extension("png")
+                } else {
+                    chrome_img.to_path_buf()
+                };
                 cdp.screenshot_and_layout(
-                    test_file, chrome_img, Some(chrome_layout_json), width, height,
+                    test_file, &save_path, Some(chrome_layout_json), width, height,
                 ).map_err(|e| format!("CDP screenshot: {}", e))?;
+                if needs_convert {
+                    // Convert PNG → WebP for consistent format
+                    let img = image::open(&save_path)
+                        .map_err(|e| format!("open png: {}", e))?
+                        .to_rgba8();
+                    let encoder = image::codecs::webp::WebPEncoder::new_lossless(
+                        std::io::BufWriter::new(std::fs::File::create(chrome_img)
+                            .map_err(|e| format!("create webp: {}", e))?)
+                    );
+                    use image::ImageEncoder;
+                    encoder.write_image(
+                        img.as_raw(), img.width(), img.height(),
+                        image::ExtendedColorType::Rgba8,
+                    ).map_err(|e| format!("encode webp: {}", e))?;
+                    let _ = std::fs::remove_file(&save_path);
+                }
                 let timing = cdp.get_performance_metrics().ok();
                 let layout_data = std::fs::read_to_string(chrome_layout_json)
                     .unwrap_or_default();
@@ -125,7 +148,10 @@ impl ReftestPipeline {
         })
     }
 
-    /// Run a single test: Chrome screenshot → Azul render → pixel diff.
+    /// Run a single test: Chrome screenshot → Azul render (2 passes) → pixel diff.
+    ///
+    /// Pass 1 (debug): collects layout diagnostics + warms font cache.
+    /// Pass 2 (timing): accurate measurement without debug overhead.
     pub fn run_test(
         &mut self,
         test_file: &Path,
@@ -148,11 +174,12 @@ impl ReftestPipeline {
             (data, None)
         };
 
-        // 2. Azul render — uses shared LayoutWindow (fonts already parsed)
+        // 2a. Debug pass — warms font cache + collects debug_messages
+        let _ = self.render_azul(test_file, azul_img, width, height, true)?;
+
+        // 2b. Timing pass — accurate measurement, no debug overhead
         let t_azul = Instant::now();
-        let (debug_data, azul_timing) = self.render_azul(
-            test_file, azul_img, width, height,
-        )?;
+        let (debug_data, _) = self.render_azul(test_file, azul_img, width, height, false)?;
         let azul_total_ms = t_azul.elapsed().as_secs_f64() * 1000.0;
 
         let mut debug_data = debug_data;
@@ -170,11 +197,11 @@ impl ReftestPipeline {
             .map_err(|e| format!("compare: {}", e))?;
         let passed = diff_pixels <= PASS_THRESHOLD_PIXELS;
 
-        // 4. Print timing
+        // 4. Print timing comparison
         if let Some(ref ct) = chrome_timing {
             println!("  Chrome: {}", ct);
         }
-        println!("  Azul:   xml={:.0}ms layout={:.0}ms render={:.0}ms total={:.1}ms",
+        println!("  Azul:   parse={:.0}ms layout={:.0}ms render={:.0}ms total={:.1}ms",
             azul_timing.xml_ms, azul_timing.layout_ms, azul_timing.render_ms, azul_timing.total_ms);
         println!("  Diff:   {} pixels ({})",
             diff_pixels, if passed { "PASS" } else { "FAIL" });
@@ -191,12 +218,14 @@ impl ReftestPipeline {
     }
 
     /// Render a test file with Azul using the shared LayoutWindow.
+    /// `collect_debug`: if true, enables layout debug messages (slower but collects diagnostics).
     fn render_azul(
         &mut self,
         test_file: &Path,
         output_file: &Path,
         width: u32,
         height: u32,
+        collect_debug: bool,
     ) -> Result<(DebugData, AzulTiming), String> {
         use azul_core::dom::DomId;
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
@@ -223,12 +252,13 @@ impl ReftestPipeline {
         let external = ExternalSystemCallbacks::rust_internal();
 
         // Use shared layout_window (fonts already loaded from first test)
+        let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
         self.layout_window.layout_and_generate_display_list(
             dom_xml.parsed_dom.clone(),
             &fake_window_state,
             &mut renderer_resources,
             &external,
-            &mut None, // no debug messages for speed
+            &mut debug_messages,
         ).map_err(|e| format!("layout: {}", e))?;
 
         let display_list = self.layout_window

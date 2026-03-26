@@ -571,6 +571,7 @@
           <div>
             <span class="test-badge ${status}">${statusLabel}</span>
             <span class="diff-count">${test.diff_count.toLocaleString()} px</span>
+            <span class="timing-badge" title="Azul: parse=${test.xml_formatting_time_ms||0}ms layout=${test.layout_time_ms||0}ms render=${test.render_time_ms||0}ms total=${(test.azul_total_ms||0).toFixed(1)}ms&#10;Chrome: style=${(test.chrome_style_ms||0).toFixed(1)}ms layout=${(test.chrome_layout_ms||0).toFixed(1)}ms fcp=${(test.chrome_fcp_ms||0).toFixed(1)}ms total=${(test.chrome_total_ms||0).toFixed(1)}ms" style="font-size:11px;color:#888;cursor:help;margin-left:8px">⏱ ${(test.azul_total_ms||0).toFixed(0)}ms${test.chrome_total_ms > 0 ? ' / ' + (test.chrome_total_ms).toFixed(0) + 'ms' : ''}</span>
           </div>
         </div>
         <div class="test-body">
