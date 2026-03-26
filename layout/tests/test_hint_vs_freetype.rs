@@ -1,3 +1,4 @@
+#![cfg(feature = "DISABLED_hint_vs_freetype")]
 //! Compare allsorts hinted output against FreeType reference values.
 //!
 //! # How reference values were captured

@@ -71,7 +71,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
             cache_map: Default::default(),
-    };
+        previous_positions: Vec::new(),    };
     let mut text_cache = TextLayoutCache::new();
 
     let content_size = LogicalSize::new(400.0, 300.0);
@@ -105,7 +105,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
@@ -186,7 +186,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
             cache_map: Default::default(),
-    };
+        previous_positions: Vec::new(),    };
     let mut text_cache = TextLayoutCache::new();
 
     let content_size = LogicalSize::new(800.0, 600.0);
@@ -220,7 +220,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");

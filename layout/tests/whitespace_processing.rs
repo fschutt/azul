@@ -40,7 +40,7 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
         cache_map: Default::default(),
-    };
+        previous_positions: Vec::new(),    };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);
     let fragmentation_context = FragmentationContext::new_paged(content_size);
@@ -70,7 +70,7 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        azul_core::task::GetSystemTimeCallback {
+        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,
         },
         false,

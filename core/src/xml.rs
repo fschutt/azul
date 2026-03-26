@@ -5404,12 +5404,12 @@ pub fn combine_and_replace_dynamic_items(
 /// Given a string and a key => value mapping, replaces parts of the string with the value, i.e.:
 ///
 /// ```rust
-/// # use std::collections::BTreeMap;
-/// # use azul_core::xml::format_args_dynamic;
-/// let mut variables = vec![
-///     (String::from("a"), String::from("value1")),
-///     (String::from("b"), String::from("value2")),
-/// ];
+/// # use azul_core::xml::{format_args_dynamic, ComponentArgument, ComponentArgumentVec};
+/// # use azul_css::AzString;
+/// let variables: ComponentArgumentVec = vec![
+///     ComponentArgument { name: AzString::from("a"), arg_type: AzString::from("value1") },
+///     ComponentArgument { name: AzString::from("b"), arg_type: AzString::from("value2") },
+/// ].into();
 ///
 /// let initial = "hello {a}, {b}{{ {c} }}";
 /// let expected = "hello value1, value2{ {c} }".to_string();

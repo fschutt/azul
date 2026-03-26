@@ -359,7 +359,7 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
         cache_map: Default::default(),
-    };
+        previous_positions: Vec::new(),    };
     let mut text_cache = TextLayoutCache::new();
 
     let content_size = LogicalSize::new(800.0, 600.0);
@@ -390,7 +390,7 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
@@ -599,6 +599,8 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
         style: Default::default(),
         marker_position_outside: None,
+        is_first_fragment: true,
+        is_last_fragment: true,
     };
 
     let layout = Arc::new(UnifiedLayout {

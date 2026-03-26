@@ -30,6 +30,7 @@ fn run_layout(html: &str) -> Vec<DisplayListItem> {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
         cache_map: Default::default(),
+        previous_positions: Vec::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -64,7 +65,7 @@ fn run_layout(html: &str) -> Vec<DisplayListItem> {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
