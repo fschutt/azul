@@ -975,50 +975,39 @@ impl StyledDom {
         eprintln!("[cascade] {} nodes: prep={:.1}ms restyle={:.1}ms compact={:.1}ms total={:.1}ms",
             compact_dom.len(), prep_ms, restyle_ms, inherit_compact_ms, total_ms);
 
-        let nodes_with_window_callbacks = compact_dom
-            .node_data
-            .as_ref()
-            .internal
-            .iter()
-            .enumerate()
-            .filter_map(|(node_id, c)| {
-                if c.get_callbacks().iter().any(|cb| matches!(cb.event, EventFilter::Window(_))) {
-                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+        // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).
+        // For XHTML-parsed DOMs with no callbacks, this early-exits immediately.
+        let has_any_callbacks = compact_dom.node_data.as_ref().internal.iter()
+            .any(|c| !c.get_callbacks().is_empty() || c.get_dataset().is_some());
 
-        let nodes_with_not_callbacks = compact_dom
-            .node_data
-            .as_ref()
-            .internal
-            .iter()
-            .enumerate()
-            .filter_map(|(node_id, c)| {
-                if c.get_callbacks().iter().any(|cb| matches!(cb.event, EventFilter::Not(_))) {
-                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
-                } else {
-                    None
+        let (nodes_with_window_callbacks, nodes_with_not_callbacks, nodes_with_datasets) = if has_any_callbacks {
+            let mut win_cbs = Vec::new();
+            let mut not_cbs = Vec::new();
+            let mut datasets = Vec::new();
+            for (node_id, c) in compact_dom.node_data.as_ref().internal.iter().enumerate() {
+                let cbs = c.get_callbacks();
+                let has_dataset = c.get_dataset().is_some();
+                if !cbs.is_empty() || has_dataset {
+                    datasets.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
                 }
-            })
-            .collect::<Vec<_>>();
-
-        let nodes_with_datasets = compact_dom
-            .node_data
-            .as_ref()
-            .internal
-            .iter()
-            .enumerate()
-            .filter_map(|(node_id, c)| {
-                if !c.get_callbacks().is_empty() || c.get_dataset().is_some() {
-                    Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
-                } else {
-                    None
+                for cb in cbs.iter() {
+                    match cb.event {
+                        EventFilter::Window(_) => {
+                            win_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
+                            break;
+                        }
+                        EventFilter::Not(_) => {
+                            not_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
-            })
-            .collect::<Vec<_>>();
+            }
+            (win_cbs, not_cbs, datasets)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
 
         let mut styled_dom = StyledDom {
             root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),

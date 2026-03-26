@@ -858,12 +858,15 @@ impl CssPropertyCache {
             }
         }
 
+        let t_sort = std::time::Instant::now();
         // Sort css_props by (state, prop_type) for binary search lookups,
         // then flatten into contiguous memory for cache-friendly reads.
         // NOTE: Only sort+flatten css_props here. cascaded_props will be sorted
         // after apply_ua_css() since apply_ua_css() adds more entries.
         self.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
+        let sort_ms = t_sort.elapsed().as_secs_f64() * 1000.0;
 
+        let t_tags = std::time::Instant::now();
         // When restyling, the tag / node ID mappings may change, regenerate them
         // See if the node should have a hit-testing tag ID
         let default_node_state = StyledNodeState::default();
@@ -879,8 +882,8 @@ impl CssPropertyCache {
         
         // Keep a reference to the node data container for use in the closure
         let node_data_container = &node_data.internal;
-        
-        node_data
+
+        let tag_ids = node_data
             .internal
             .iter()
             .enumerate()
@@ -1153,7 +1156,13 @@ impl CssPropertyCache {
                     })
                 }
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        let tags_ms = t_tags.elapsed().as_secs_f64() * 1000.0;
+        #[cfg(feature = "std")]
+        eprintln!("[restyle] sort={:.1}ms tags={:.1}ms", sort_ms, tags_ms);
+
+        tag_ids
     }
 
     pub fn get_computed_css_style_string(

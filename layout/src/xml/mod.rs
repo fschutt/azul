@@ -192,7 +192,9 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
 
-    let mut builder = CompactDomBuilder::new();
+    // Estimate ~20 bytes per node for pre-allocation
+    let estimated_nodes = xml.len() / 20;
+    let mut builder = CompactDomBuilder::with_capacity(estimated_nodes);
     let mut collected_css: Vec<Css> = Vec::new();
     let mut inside_style_tag = false;
     let mut style_text = String::new();
@@ -216,18 +218,19 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
         let node_type = azul_core::xml::tag_to_node_type(tag);
         let mut nd = NodeData::create_node(node_type);
 
-        // Apply attributes
-        let mut ids_and_classes = Vec::new();
+        // Apply attributes — build AttributeTypeVec directly (avoids the
+        // clone + retain dance in set_ids_and_classes for fresh NodeData).
+        let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
         for (key, value) in attrs {
             match key.as_str() {
                 "id" => {
                     for id in value.split_whitespace() {
-                        ids_and_classes.push(IdOrClass::Id(id.into()));
+                        attr_vec.push(azul_core::dom::AttributeType::Id(id.into()));
                     }
                 }
                 "class" => {
                     for class in value.split_whitespace() {
-                        ids_and_classes.push(IdOrClass::Class(class.into()));
+                        attr_vec.push(azul_core::dom::AttributeType::Class(class.into()));
                     }
                 }
                 "focusable" => {
@@ -253,7 +256,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         azul_css::parser2::parse_css_declaration(
                             key.trim(), val.trim(),
                             azul_css::parser2::ErrorLocationRange::default(),
-                            &css_key_map, &mut Vec::new(), &mut css_attrs,
+                            css_key_map, &mut Vec::new(), &mut css_attrs,
                         );
                     }
                     let props = css_attrs.into_iter().filter_map(|s| {
@@ -276,8 +279,8 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 _ => {}
             }
         }
-        if !ids_and_classes.is_empty() {
-            nd.set_ids_and_classes(ids_and_classes.into());
+        if !attr_vec.is_empty() {
+            nd.set_attributes(attr_vec.into());
         }
 
         builder.open_node(nd);
