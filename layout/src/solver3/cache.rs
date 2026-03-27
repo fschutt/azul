@@ -1570,7 +1570,10 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     self_content_box_pos: LogicalPosition,
+    containing_block_size: LogicalSize,
     calculated_positions: &mut super::PositionVec,
+    reflow_needed_for_scrollbars: &mut bool,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     // Collect out-of-flow children (those not already positioned)
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
@@ -1597,21 +1600,23 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             continue;
         }
 
-        // +spec:display-property:7cdba4 - static-position rectangle defaults to parent content-box origin
         // Set static position to parent's content-box origin
-        // +spec:display-property:dfabd1 - static position of block-level abs-pos box set to parent content-box origin (hypothetical box)
-        // +spec:positioning:495cec - static position uses parent content-box origin; auto margins treated as zero
-        // +spec:positioning:f94d22 - 10.6.4: static position for absolutely positioned elements set to parent content-box origin
         super::pos_set(calculated_positions, child_index, self_content_box_pos);
 
-        // Recursively set static positions for nested out-of-flow descendants
-        set_static_positions_recursive(
+        // Perform full layout for the absolutely positioned child so its
+        // inline_layout_result is populated (text rendering needs this).
+        // The containing block for abs-pos is the parent's padding box.
+        calculate_layout_for_subtree(
             ctx,
             tree,
             text_cache,
             child_index,
             self_content_box_pos,
+            containing_block_size,
             calculated_positions,
+            reflow_needed_for_scrollbars,
+            float_cache,
+            ComputeMode::PerformLayout,
         )?;
     }
 
@@ -1945,7 +1950,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         text_cache,
         node_index,
         self_content_box_pos,
+        inner_size_after_scrollbars,
         calculated_positions,
+        reflow_needed_for_scrollbars,
+        float_cache,
     )?;
 
     // === STORE RESULT IN PER-NODE CACHE (Taffy-inspired 9+1 slot cache) ===

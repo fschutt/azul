@@ -1488,9 +1488,24 @@ impl StyleLineHeightParseErrorOwned {
 
 #[cfg(feature = "parser")]
 pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLineHeightParseError> {
-    crate::props::basic::length::parse_percentage_value(input)
-        .map(|inner| StyleLineHeight { inner })
-        .map_err(|e| StyleLineHeightParseError::Percentage(e))
+    // Try <number> or <percentage> first (multiplier of font-size)
+    if let Ok(inner) = crate::props::basic::length::parse_percentage_value(input) {
+        return Ok(StyleLineHeight { inner });
+    }
+    // Try <length> (e.g., "50px") — store as NEGATIVE PercentageValue to signal absolute px.
+    // Convention: negative normalized() = absolute pixel value (CSS line-height can't be negative).
+    // Resolved at layout time in fc.rs where font_size is known.
+    if let Ok(px) = crate::props::basic::pixel::parse_pixel_value(input) {
+        if px.metric == crate::props::basic::length::SizeMetric::Px {
+            let px_val = px.number.get();
+            return Ok(StyleLineHeight {
+                inner: crate::props::basic::length::PercentageValue::new(-px_val * 100.0),
+            });
+        }
+    }
+    Err(StyleLineHeightParseError::Percentage(
+        crate::props::basic::length::PercentageParseError::InvalidUnit("".to_string().into()),
+    ))
 }
 
 #[cfg(feature = "parser")]
@@ -2298,7 +2313,11 @@ mod tests {
             parse_style_line_height("120%").unwrap().inner,
             PercentageValue::new(120.0)
         );
-        assert!(parse_style_line_height("20px").is_err()); // lengths not supported by this parser
+        // px values stored as negative PercentageValue (convention: negative = absolute px)
+        assert_eq!(
+            parse_style_line_height("20px").unwrap().inner,
+            PercentageValue::new(-20.0 * 100.0)
+        );
     }
 
     #[test]

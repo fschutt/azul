@@ -1883,6 +1883,7 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::TableRowGroup
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableCell
             | LayoutDisplay::ListItem
     )
 }

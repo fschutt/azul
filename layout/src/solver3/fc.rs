@@ -1212,21 +1212,23 @@ fn layout_bfc<T: ParsedFontTrait>(
             child_margin.left
         );
 
-        // IMPORTANT: Use the ACTUAL margins from box_props, NOT escaped margins!
-        //
-        // Escaped margins are only relevant for the parent-child relationship WITHIN a node's
-        // own BFC layout. When positioning this child in ITS parent's BFC, we use its actual
-        // margins. CSS 2.2 § 8.3.1: Margin collapsing happens between ADJACENT margins,
-        // which means:
-        //
-        // - Parent's top and first child's top (if no blocker)
-        // - Sibling's bottom and next sibling's top
-        // - Parent's bottom and last child's bottom (if no blocker)
-        //
-        // The escaped_top_margin stored in the child node is for its OWN children, not for itself!
         // +spec:block-formatting-context:0f802c - margins use containing block's writing mode for collapsing/auto expansion in orthogonal flows
-        let child_margin_top = child_margin.main_start(writing_mode);
-        let child_margin_bottom = child_margin.main_end(writing_mode);
+        let child_own_margin_top = child_margin.main_start(writing_mode);
+        let child_own_margin_bottom = child_margin.main_end(writing_mode);
+
+        // CSS 2.2 § 8.3.1: If a child has no top blocker (no padding/border) and its
+        // own BFC layout produced an escaped_top_margin, that margin represents the
+        // collapsed value of (child's margin, child's first child's margin, ...).
+        // Use it for sibling collapse instead of the child's own margin.
+        let child_escaped_top = if !has_margin_collapse_blocker(&child_bp, writing_mode, true) {
+            tree.warm(child_index).and_then(|w| w.escaped_top_margin)
+        } else { None };
+        let child_escaped_bottom = if !has_margin_collapse_blocker(&child_bp, writing_mode, false) {
+            tree.warm(child_index).and_then(|w| w.escaped_bottom_margin)
+        } else { None };
+
+        let child_margin_top = child_escaped_top.unwrap_or(child_own_margin_top);
+        let child_margin_bottom = child_escaped_bottom.unwrap_or(child_own_margin_bottom);
 
         debug_info!(
             ctx,
@@ -1719,11 +1721,24 @@ fn layout_bfc<T: ParsedFontTrait>(
         // their used values are equal, centering the element horizontally.
         
         let (child_cross_pos, mut child_main_pos) = if avoids_floats {
-            // BFC: Position in space between floats
-            (
-                cross_start + child_margin.cross_start(writing_mode),
-                main_pen,
-            )
+            // BFC: Position in float-free space, but also check margin:auto centering.
+            // A flex container or overflow:hidden box establishes a BFC (must avoid floats)
+            // but can still be centered via margin:auto — these are independent concepts.
+            let cross_pos = if child_margin_auto.left && child_margin_auto.right {
+                let remaining = (available_cross - child_used_size.cross(writing_mode)).max(0.0);
+                debug_info!(
+                    ctx,
+                    "[layout_bfc] Child {} BFC + margin:auto centering: available={}, size={}, offset={}",
+                    child_index, available_cross, child_used_size.cross(writing_mode), remaining / 2.0
+                );
+                cross_start + remaining / 2.0
+            } else if child_margin_auto.left {
+                let remaining = (available_cross - child_used_size.cross(writing_mode) - child_margin.right).max(0.0);
+                cross_start + remaining
+            } else {
+                cross_start + child_margin.cross_start(writing_mode)
+            };
+            (cross_pos, main_pen)
         } else {
             // Normal flow: Check for margin: auto centering
             let available_cross = constraints.available_size.cross(writing_mode);
@@ -3165,7 +3180,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         StyleVerticalAlign::TextBottom => text3::cache::VerticalAlign::TextBottom,
         // §10.8.1: <percentage> refers to line-height of the element itself
         StyleVerticalAlign::Percentage(p) => {
-            let offset = p.normalized() * line_height_value.inner.normalized() * font_size;
+            let lh_n = line_height_value.inner.normalized();
+            let resolved_lh = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
+            let offset = p.normalized() * resolved_lh;
             text3::cache::VerticalAlign::Offset(offset)
         }
         // §10.8.1: <length> is absolute offset from baseline
@@ -3391,7 +3408,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:box-model:d4adf6 - ancestor inline boundaries excluded via geometric exclusion
     // +spec:floats:c5e23f - floats in subsequent lines adjacent to a sunk initial letter must clear it
     if let Some(ref il) = initial_letter {
-        let computed_line_height = line_height_value.inner.normalized() * font_size;
+        let lh_n = line_height_value.inner.normalized();
+        let computed_line_height = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
         let (letter_w, letter_h) = layout_initial_letter(
             il.size,
             il.sink,
@@ -3552,7 +3570,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutTextJustify::Distribute => text3::cache::JustifyContent::InterCharacter, // distribute computes to inter-character
         },
         // +spec:line-height:79f3aa - line-height resolved: normal defaults to 1.2, <number>/<percentage> × font-size
-        line_height: text3::cache::LineHeight::Px(line_height_value.inner.normalized() * font_size),
+        // Negative normalized() = absolute px value (convention from parser for "50px" etc.)
+        line_height: text3::cache::LineHeight::Px({
+            let n = line_height_value.inner.normalized();
+            if n < 0.0 { -n } else { n * font_size }
+        }),
         // container's first available font. Approximated as 80%/20% of font_size (typical
         // for Latin fonts). TODO: resolve actual font and use its OS/2 metrics.
         strut_ascent: font_size * 0.8,
