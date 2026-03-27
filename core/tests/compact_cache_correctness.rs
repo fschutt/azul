@@ -486,3 +486,177 @@ fn test_percentage_width_in_compact_cache() {
     assert_eq!(metric, 7, "50% width metric should be Percent (7), got {}", metric);
     assert_eq!(value, 50000, "50% width value should be 50000 (50.0%), got {}", value);
 }
+
+// ===================================================================
+// Text color in styled containers
+// ===================================================================
+
+#[test]
+fn test_text_color_inherits_from_parent_div() {
+    // Parent div sets color: red, child text should inherit it
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("c".into())].into())
+                .with_child(Dom::create_text("hello"))
+        )
+    );
+    let s = styled(dom, ".c { color: #ff0000; }");
+    // node: 0=Html, 1=Body, 2=Div(.c), 3=Text("hello")
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+
+    // Parent div should have red text color
+    let parent_tc = cc.tier2b_text[2].text_color;
+    let parent_r = (parent_tc >> 24) & 0xFF;
+    assert_eq!(parent_r, 255, "parent div text_color red should be 255, got {}", parent_r);
+
+    // Text node should INHERIT red text color from parent
+    let child_tc = cc.tier2b_text[3].text_color;
+    let child_r = (child_tc >> 24) & 0xFF;
+    assert_eq!(child_r, 255, "text node should inherit red text_color, got r={}", child_r);
+}
+
+#[test]
+fn test_text_color_white_on_red_background() {
+    // White text on red background — both properties set via class
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                .with_child(Dom::create_text("visible"))
+        )
+    );
+    let s = styled(dom, ".box { background-color: #ff0000; color: #ffffff; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+
+    // Text node should have white text color (inherited from .box)
+    let text_tc = cc.tier2b_text[3].text_color;
+    assert_eq!(text_tc, 0xFFFFFFFF, "text node text_color should be white (0xFFFFFFFF), got {:#010x}", text_tc);
+}
+
+#[test]
+fn test_line_height_in_compact_cache() {
+    let s = styled_div_with_css(".t { line-height: 1.5; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let lh = cc.tier2b_text[2].line_height;
+    // line-height 1.5 = 1500 in pct_x10 encoding (1.5 * 1000)
+    assert_eq!(lh, 1500, "line-height 1.5 should encode as 1500, got {}", lh);
+}
+
+#[test]
+fn test_line_height_px_in_compact_cache() {
+    let s = styled_div_with_css(".t { line-height: 24px; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let lh = cc.tier2b_text[2].line_height;
+    // line-height: 24px — needs to check how px line-height is encoded
+    // The compact encoder uses: (lh.inner.normalized() * 1000.0).round() as i32
+    // For 24px: normalized() returns 24.0 / DEFAULT_FONT_SIZE... this depends on implementation
+    assert_ne!(lh, 0, "line-height 24px should not be 0, got {}", lh);
+}
+
+#[test]
+fn test_dom_node_id_mapping_with_whitespace_text() {
+    // Verifies that whitespace text nodes between elements don't break
+    // the DOM NodeId → compact cache index mapping.
+    // HTML: <body>\n  <div class="a">text</div>\n  <div class="b">text</div>\n</body>
+    let dom = Dom::create_html().with_child(
+        Dom::create_body()
+            .with_child(Dom::create_text("\n  "))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("a".into())].into())
+                    .with_child(Dom::create_text("first"))
+            )
+            .with_child(Dom::create_text("\n  "))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("b".into())].into())
+                    .with_child(Dom::create_text("second"))
+            )
+            .with_child(Dom::create_text("\n"))
+    );
+    let s = styled(dom, ".a { color: #ff0000; padding: 10px; } .b { color: #0000ff; padding: 20px; }");
+
+    // Find the div.a and div.b node indices
+    let node_count = s.node_data.as_ref().len();
+    let mut div_a_idx = None;
+    let mut div_b_idx = None;
+    for i in 0..node_count {
+        let nd = &s.node_data.as_ref()[i];
+        match &nd.node_type {
+            NodeType::Div => {
+                // Check if this div has class "a" or "b"
+                let attrs = nd.attributes();
+                for attr in attrs.as_ref().iter() {
+                    match attr {
+                        azul_core::dom::AttributeType::Class(c) if c.as_str() == "a" => div_a_idx = Some(i),
+                        azul_core::dom::AttributeType::Class(c) if c.as_str() == "b" => div_b_idx = Some(i),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let a_idx = div_a_idx.expect("Should find div.a");
+    let b_idx = div_b_idx.expect("Should find div.b");
+
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+
+    // div.a should have red text color and 10px padding
+    let a_tc = cc.tier2b_text[a_idx].text_color;
+    let a_r = (a_tc >> 24) & 0xFF;
+    assert_eq!(a_r, 255, "div.a text_color red should be 255 (got {} at idx {})", a_r, a_idx);
+    assert_eq!(cc.tier2_dims[a_idx].padding_top, 100, "div.a padding_top should be 100 (10px) at idx {}", a_idx);
+
+    // div.b should have blue text color and 20px padding
+    let b_tc = cc.tier2b_text[b_idx].text_color;
+    let b_b = (b_tc >> 8) & 0xFF; // blue channel
+    assert_eq!(b_b, 255, "div.b text_color blue should be 255 (got {} at idx {})", b_b, b_idx);
+    assert_eq!(cc.tier2_dims[b_idx].padding_top, 200, "div.b padding_top should be 200 (20px) at idx {}", b_idx);
+
+    // Text "first" inside div.a should inherit red text color
+    let first_text_idx = a_idx + 1; // text is direct child
+    let first_tc = cc.tier2b_text[first_text_idx].text_color;
+    let first_r = (first_tc >> 24) & 0xFF;
+    assert_eq!(first_r, 255, "text 'first' should inherit red from div.a (got r={} at idx {})", first_r, first_text_idx);
+}
+
+#[test]
+fn test_multiple_text_children_with_different_parent_styles() {
+    // Two divs with different colors, each with text children.
+    // Verifies correct CSS property mapping when DOM has interleaved nodes.
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body()
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("red".into())].into())
+                    .with_child(Dom::create_text("red text"))
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("blue".into())].into())
+                    .with_child(Dom::create_text("blue text"))
+            )
+    );
+    let s = styled(dom, ".red { color: #ff0000; background: #ffcccc; } .blue { color: #0000ff; background: #ccccff; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+
+    // node 0=Html, 1=Body, 2=Div.red, 3=Text("red text"), 4=Div.blue, 5=Text("blue text")
+    // Text "red text" should inherit red
+    let red_text_tc = cc.tier2b_text[3].text_color;
+    let red_r = (red_text_tc >> 24) & 0xFF;
+    assert_eq!(red_r, 255, "text 'red text' should have red color (r=255), got r={}", red_r);
+
+    // Text "blue text" should inherit blue
+    let blue_text_tc = cc.tier2b_text[5].text_color;
+    let blue_b = (blue_text_tc >> 8) & 0xFF; // blue in bits 8-15 of RGBA u32
+    assert_eq!(blue_b, 255, "text 'blue text' should have blue color (b=255), got b={}", blue_b);
+
+    // Verify they're DIFFERENT
+    assert_ne!(red_text_tc, blue_text_tc, "red and blue text should have different colors");
+}
