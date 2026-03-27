@@ -2388,7 +2388,7 @@ fn collect_box_props(
 /// Returns true if the node is a text node containing only whitespace characters
 /// that would be collapsed away by the white-space property.
 // according to the 'white-space' property does not generate any anonymous inline boxes (CSS2§9.2.2.1)
-fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+pub fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let binding = styled_dom.node_data.as_container();
     let node_data = binding.get(node_id);
     if let Some(data) = node_data {

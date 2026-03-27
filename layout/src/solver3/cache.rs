@@ -857,7 +857,32 @@ pub fn reconcile_recursive(
     }
 
     // Reconcile children to check for structural changes and build the new tree structure.
-    let new_children_dom_ids: Vec<_> = collect_children_dom_ids(styled_dom, new_dom_id);
+    let mut new_children_dom_ids: Vec<_> = collect_children_dom_ids(styled_dom, new_dom_id);
+
+    // CSS 2.2 §17.2.1: Filter whitespace-only text nodes from table structural elements
+    // (table, row-group, row). Without this, the reconciler sees them as "inline" children
+    // mixed with block-level <td>/<th>, triggering incorrect anonymous IFC wrapping.
+    // The layout tree builder already does this via should_skip_for_table_structure().
+    {
+        use super::getters::{get_display_property, MultiValue};
+        let parent_display = match get_display_property(styled_dom, Some(new_dom_id)) {
+            MultiValue::Exact(d) => d,
+            _ => azul_css::props::layout::display::LayoutDisplay::Block,
+        };
+        if matches!(parent_display,
+            azul_css::props::layout::display::LayoutDisplay::Table
+            | azul_css::props::layout::display::LayoutDisplay::InlineTable
+            | azul_css::props::layout::display::LayoutDisplay::TableRowGroup
+            | azul_css::props::layout::display::LayoutDisplay::TableHeaderGroup
+            | azul_css::props::layout::display::LayoutDisplay::TableFooterGroup
+            | azul_css::props::layout::display::LayoutDisplay::TableRow
+        ) {
+            new_children_dom_ids.retain(|&id| {
+                !super::layout_tree::is_whitespace_only_text(styled_dom, id)
+            });
+        }
+    }
+
     let old_children_indices: Vec<_> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| t.children(idx).to_vec()))
         .unwrap_or_default();
@@ -866,12 +891,7 @@ pub fn reconcile_recursive(
     let mut new_child_hashes = Vec::new();
 
     // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container has mixed block/inline children
-    // +spec:display-property:757898 - Anonymous block boxes around inline content in mixed block/inline containers
     // CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
-    // "When an inline box contains an in-flow block-level box, the inline box
-    // (and its inline ancestors within the same line box) are broken around
-    // the block-level box [...], splitting the inline box into two boxes"
-    //
     // When a block container has mixed block/inline children, we must:
     // 1. Wrap consecutive inline children in anonymous block boxes
     // 2. Leave block-level children as direct children
