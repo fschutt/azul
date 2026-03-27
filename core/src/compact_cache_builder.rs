@@ -435,6 +435,17 @@ impl CssPropertyCache {
         node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
         prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
+        self.build_compact_cache_with_inheritance_debug(node_data, node_hierarchy, prev_font_hashes, &mut None)
+    }
+
+    /// Same as `build_compact_cache_with_inheritance` but with optional debug logging.
+    pub fn build_compact_cache_with_inheritance_debug(
+        &self,
+        node_data: &[NodeData],
+        node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        prev_font_hashes: &[u64],
+        debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
+    ) -> CompactLayoutCache {
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -512,18 +523,24 @@ impl CssPropertyCache {
             }
         }
 
+        // Helper: push debug message if debug_messages is Some
+        macro_rules! cascade_debug {
+            ($($arg:tt)*) => {
+                if let Some(ref mut msgs) = debug_messages {
+                    msgs.push(azul_css::LayoutDebugMessage::css_getter(format!($($arg)*)));
+                }
+            };
+        }
+
         for i in 0..node_count {
             let node_id = NodeId::new(i);
             let nd = &node_data[i];
 
-            // Step 0: Apply global CSS baseline (from `*` rules)
-            // OR the global bits on top — preserves inherited fields from Step 1
-            if has_global {
-                result.tier1_enums[i] |= global_tier1;
-                result.tier2_dims[i] = global_dims;
-                result.tier2_cold[i] = global_cold;
-                result.tier2b_text[i] = global_text;
-            }
+            // Step 0: Apply UA CSS defaults first (lowest priority).
+            // Then global `*` rules override UA (higher priority).
+            // Then per-node CSS (Step 3) overrides both.
+            //
+            // CSS cascade priority: UA < author `*` < author specific < inline
 
             // Step 1: Inherit from parent's COMPACT values (not computed_values)
             // Parent index is always < i in pre-order arena, so already computed.
@@ -558,6 +575,13 @@ impl CssPropertyCache {
 
                 // Inheritable tier2b: all text properties
                 result.tier2b_text[i] = result.tier2b_text[pi];
+            }
+
+            {
+                let d = &result.tier2_dims[i];
+                cascade_debug!("node[{}] {:?} after-inherit: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={} w={} h={}",
+                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
+                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right, d.width, d.height);
             }
 
             // Step 2: Apply UA CSS defaults for this node type directly to compact values.
@@ -603,9 +627,41 @@ impl CssPropertyCache {
                 }
             }
 
+            {
+                let d = &result.tier2_dims[i];
+                cascade_debug!("node[{}] {:?} after-UA: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={}",
+                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
+                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
+            }
+
+            // Step 2.5: Apply global `*` author CSS (overrides UA, overridden by specific rules)
+            // Apply each `*` rule property individually (not bulk-assign) so we only
+            // override properties the `*` rule actually set, preserving UA CSS for others.
+            for prop in self.global_css_props.iter() {
+                apply_css_property_to_compact(
+                    prop,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                );
+            }
+
+            {
+                let d = &result.tier2_dims[i];
+                cascade_debug!("node[{}] {:?} after-global-star: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={}",
+                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
+                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
+                let n_props = self.css_props.get_slice(i).len();
+                let n_inline = nd.css_props.as_ref().len();
+                cascade_debug!("node[{}] css_props={} entries, inline={} entries", i, n_props, n_inline);
+                for prop in self.css_props.get_slice(i) {
+                    cascade_debug!("node[{}]   css_prop: state={:?} type={:?}", i, prop.state, prop.prop_type);
+                }
+            }
+
             // Step 3: Apply this node's CSS properties directly to compact values.
-            // Instead of 56+ getter calls (each doing get_property_slow with 6 data
-            // structure searches), scan css_props + inline CSS once per node.
+            // Per-node author CSS has higher specificity than global `*`.
 
             // Scan css_props (stylesheet rules, sorted by (state, prop_type))
             // Typically 5-15 entries per node. Only Normal state matters for layout.
@@ -618,6 +674,13 @@ impl CssPropertyCache {
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
                 );
+            }
+
+            {
+                let d = &result.tier2_dims[i];
+                cascade_debug!("node[{}] {:?} after-css-props: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={}",
+                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
+                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
             }
 
             // Scan inline CSS (node_data.css_props, typically 0-3 entries)

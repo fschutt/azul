@@ -214,7 +214,8 @@ impl ReftestPipeline {
             (data, None)
         };
 
-        // Single render pass (debug pass disabled for now — investigating blank output)
+        // Debug pass first (warms fonts + collects cascade debug), timing pass second
+        let _ = self.render_azul(test_file, azul_img, width, height, true)?;
         let (debug_data, azul_timing_from_render) = self.render_azul(test_file, azul_img, width, height, false)?;
 
         let mut debug_data = debug_data;
@@ -285,6 +286,27 @@ pub fn render_xhtml_to_webp(
     let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
         .map_err(|e| format!("parse: {}", e))?;
     let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
+
+    // If debug mode, re-run cascade with debug logging to capture per-node cascade trace
+    if collect_debug {
+        let cache = &styled_dom.css_property_cache.ptr;
+        let hierarchy: Vec<_> = styled_dom.node_hierarchy.as_ref().iter().cloned().collect();
+        let prev_hashes: Vec<u64> = cache.compact_cache.as_ref()
+            .map(|c| c.prev_font_hashes.clone())
+            .unwrap_or_default();
+        let mut cascade_msgs: Option<Vec<azul_css::LayoutDebugMessage>> = Some(Vec::new());
+        let _compact = cache.build_compact_cache_with_inheritance_debug(
+            styled_dom.node_data.as_ref(),
+            &hierarchy,
+            &prev_hashes,
+            &mut cascade_msgs,
+        );
+        if let Some(msgs) = cascade_msgs {
+            for msg in &msgs {
+                eprintln!("[CASCADE] {}", msg.message.as_str());
+            }
+        }
+    }
 
     let t_layout = Instant::now();
     let mut fake_window_state = FullWindowState::default();
