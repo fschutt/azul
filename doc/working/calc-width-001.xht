@@ -1,0 +1,19 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Calc Width Test</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { width: 800px; height: 600px; background: #ccc; }
+            .container { display: flex; width: 600px; background: #fff; border: 3px solid #000; }
+            .item { height: 80px; width: calc(33.333% - 10px); background: #ff0000; border: 3px solid #880000; margin: 5px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="item"></div>
+            <div class="item"></div>
+            <div class="item"></div>
+        </div>
+    </body>
+</html>
