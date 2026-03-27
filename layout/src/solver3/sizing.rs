@@ -414,15 +414,25 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             }
             FormattingContext::InlineBlock => {
                 // Inline-block IS an atomic inline - it needs its own intrinsic size.
-                // BUT, if the inline-block contains inline/text children, it's an IFC root
-                // and we need to measure its inline content, not just aggregate child intrinsics.
+                // Check layout tree children AND direct DOM text children (text nodes
+                // are not in the layout tree, only in the DOM).
                 let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
                         .unwrap_or(false)
                 });
-                
-                if has_inline_children {
+
+                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
+                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+                    dom_id.az_children(node_hierarchy).any(|child_id| {
+                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                    })
+                } else {
+                    false
+                };
+
+                if has_inline_children || has_direct_text {
                     // InlineBlock with inline children - measure as IFC root
                     let mut intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
 
