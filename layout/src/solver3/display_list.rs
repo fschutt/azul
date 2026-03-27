@@ -3162,6 +3162,11 @@ where
         }
 
         // Paint the node's visible content.
+        // Skip inline_layout_result on text nodes (FormattingContext::Inline) — their
+        // text is already painted by the parent block's IFC result. Painting both
+        // produces doubled/overlapping text.
+        let is_inline_fc = node.formatting_context == azul_core::dom::FormattingContext::Inline;
+        if !is_inline_fc {
         if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
             let inline_layout = &cached_layout.layout;
             debug_info!(
@@ -3224,6 +3229,7 @@ where
             if pushed_text_shadow {
                 builder.push_item(DisplayListItem::PopTextShadow);
             }
+        }
         } else if let Some(dom_id) = node.dom_node_id {
             // +spec:replaced-elements:edd21b - block-level replaced element painted atomically per E.2
             // +spec:replaced-elements:516b2a - replaced content painted atomically in painting order

@@ -990,6 +990,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                 continue;
             }
 
+            // Skip children that were already sized by their formatting context
+            // (e.g., table cells sized by the table algorithm in layout_table_fc).
+            // Re-laying them would produce duplicate inline_layout_result → double text.
+            if child_node.used_size.is_some() {
+                continue;
+            }
+
             // Compute the child's full subtree layout with temporary positions.
             // Position (0,0) is intentionally wrong — Pass 1 only cares about sizing.
             // The correct positions are determined in Pass 2 below.
@@ -2256,7 +2263,9 @@ fn layout_bfc<T: ParsedFontTrait>(
     // line ~966), considering relatively positioned boxes without offset (applied after layout),
     // and extending to include floats whose bottom margin edge exceeds content edge
     // +spec:positioning:f94d22 - 10.6.3: block-level non-replaced auto height = distance from top content edge to last in-flow child bottom margin edge (or zero)
-    let mut content_box_height = main_pen - total_escaped_top_margin;
+    // CSS 2.2 §8.3.1: escaped margins (both top and bottom) don't contribute to parent height
+    let mut content_box_height = main_pen - total_escaped_top_margin
+        - escaped_bottom_margin.unwrap_or(0.0);
 
     // +spec:block-formatting-context:f73d3e - BFC root grows to fully contain its floats; floats from outside cannot protrude in
     // whose bottom margin edge exceeds bottom content edge; only floats participating
