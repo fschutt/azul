@@ -1559,7 +1559,7 @@ fn position_bfc_child_descendants(
     calculated_positions: &mut super::PositionVec,
 ) {
     let Some(node) = tree.get(node_index) else { return };
-    
+
     for &child_index in tree.children(node_index) {
         let Some(child_node) = tree.get(child_index) else { continue };
 
@@ -1571,7 +1571,7 @@ fn position_bfc_child_descendants(
             content_box_pos.x + child_rel_pos.x,
             content_box_pos.y + child_rel_pos.y,
         );
-        
+
         super::pos_set(calculated_positions, child_index, child_abs_pos);
         
         // Calculate child's content-box position for recursion

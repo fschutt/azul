@@ -1,8 +1,168 @@
 # Reftest Status Report & Next Session Plan
 
-**Date**: 2026-03-27 (updated session 3)
-**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3: 22/44 with major diff reductions)
+**Date**: 2026-03-28 (updated session 4)
+**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3-4: 22/44 with diff reductions)
 **Branch**: layout-debug-clean
+
+---
+
+## Session 4 Fixes
+
+### FIXED: Cascade — `*` selector overwriting inherited text color on Text nodes
+**File**: `core/src/compact_cache_builder.rs` (line ~639)
+- **Root cause**: The `*` selector properties were applied to ALL nodes including Text nodes. Text nodes are not CSS elements — per spec, `*` should only match elements. This caused `* { color: #666 }` to overwrite the inherited `color: red` on a Text child of `<p style="color:red">`.
+- **Fix**: Skip global `*` properties for `nd.is_text_node()` in the compact cache cascade.
+- **Result**: cascade-global-star-001: 37499→37385 ("Paragraph" text now renders RED as expected)
+
+### FIXED: Inline padding not affecting layout positioning
+**Files**: `layout/src/text3/cache.rs` (positioning loop, ~line 7943)
+- **Root cause**: The IFC text layout engine positioned glyph clusters without accounting for inline border/padding. Padding values were correctly retrieved into `InlineBorderInfo` but never used to offset the text pen position.
+- **Fix**: Pre-compute span-boundary offsets by comparing `Arc<StyleProperties>` pointers between consecutive clusters. Only the first cluster of each inline span gets `left_inset`, and only the last gets `right_inset`. Apply these as pen offsets in the positioning loop.
+- **Result**: inline-background-001: 18022→15132, inline-elements-001: 16309→12856
+
+### FIXED: Font-size em/percent resolution — inherited raw values instead of computed px
+**File**: `core/src/compact_cache_builder.rs` (line ~717)
+- **Root cause**: The compact cache inherited RAW font-size values (em, %, pt) from parent to child. When a child resolved `1.5em`, it used `DEFAULT_FONT_SIZE=16px` instead of the parent's actual computed size (14px), giving `24px` instead of `21px`. For `150%`, it resolved against `0.0` (percent_resolve=0) giving `0px` (invisible text).
+- **Fix**: After all CSS properties are applied for each node, resolve font_size from em/percent/pt to px using the parent's already-resolved font_size (pre-order traversal guarantees parent is resolved first).
+- **Result**: font-properties-001: "font-size: 150%" now renders (was invisible), "1.5em" now correct size. Diff increased 16528→22739 because more correct content is now displayed.
+
+### INVESTIGATED: Block positioning (block-positioning-complex-001)
+- Layout `calculated_positions` are CORRECT for all nodes (verified with debug logging)
+- The bug appears to be downstream in display list generation or rendering
+- Deprioritized — requires deeper investigation of the paint pipeline
+
+---
+
+## Session 4 — New Bug Analysis from Visual Comparison
+
+### Current Failing Tests (sorted by diff)
+
+| Diff | Test | Category |
+|-----:|------|----------|
+| 90182 | block-margin-collapse-complex-001 | margin collapse height |
+| 67254 | cascade-display-block-001 | cascade / font metrics |
+| 56730 | text-overflow-001 | text overflow |
+| 49045 | cascade-multiple-classes-001 | cascade / font metrics |
+| 46300 | cascade-font-weight-inherit-001 | cascade / font metrics |
+| 45519 | cascade-specificity-001 | cascade / font metrics |
+| 43430 | cascade-ua-defaults-001 | **TABLE vertical text bug** |
+| 42760 | cascade-nested-selectors-001 | cascade / font metrics |
+| 41659 | cascade-inheritance-001 | cascade / font metrics |
+| 40946 | block-padding-border-001 | block padding/border |
+| 40691 | absolute-non-replaced-height-001 | abs-pos height |
+| 37919 | cascade-inline-style-001 | cascade / font metrics |
+| 37499 | cascade-global-star-001 | **CASCADE: p vs * color** |
+| 32800 | block-positioning-complex-001 | **Z-INDEX paint order** |
+| 23485 | inline-block-text-001 | inline-block sizing |
+| 18022 | inline-background-001 | **INLINE PADDING missing** |
+| 16528 | font-properties-001 | **FONT-SIZE 1.5em/150%** |
+| 16309 | inline-elements-001 | **INLINE PADDING missing** |
+| 16080 | text-basic-001 | text / font metrics |
+| 15607 | table-basic-001 | table paint |
+| 13238 | display-none-visibility-001 | font metrics only |
+| 10386 | inline-block-text-002 | font metrics only |
+
+### NEW BUG A: Z-index paint order (block-positioning-complex-001, diff=32800)
+
+**Visual evidence**: In the overlapping red/green rectangle section, azul shows a red sliver
+to the left of the green rectangle. Chrome shows green completely on top of red. The z-index
+ordering for positioned children is wrong — the red box (lower z-index) should be fully
+behind the green box (higher z-index).
+
+**Root cause hypothesis**: `paint_in_flow_descendants` in `display_list.rs` doesn't separate
+children by stacking context status. Positioned children with explicit z-index are painted
+in document order instead of z-index order.
+
+**Priority**: HIGH — clear visual bug, single test but foundational for z-index correctness.
+
+---
+
+### NEW BUG B: Cascade — p selector color not overriding * selector (cascade-global-star-001, diff=37499)
+
+**Visual evidence**: In cascade-global-star-001, the line "Paragraph inside box: p selector
+sets color red, overrides *" is **RED in Chrome** but **gray in Azul**. The `p { color: red }`
+rule is NOT overriding `* { color: #666 }` for `<p>` elements.
+
+This is a REAL cascade bug (NOT just font metrics). Specificity of `p` (0,0,1) > `*` (0,0,0).
+
+**Affected tests**: Likely contributes to diffs in ALL 9 cascade tests (37k-67k each).
+
+**Root cause hypothesis**: In the compact cache cascade, per-node css_props for element type
+selectors like `p { color: red }` may not be overriding the `* { color: #666 }` that was
+applied earlier. Check if `apply_css_property_to_compact` for per-node rules (step 3) actually
+overwrites the value set by global `*` rules (step 2.5).
+
+**Priority**: CRITICAL — affects 9+ tests, ~400k total diff across all cascade tests.
+
+---
+
+### NEW BUG C: Table content renders vertically (cascade-ua-defaults-001, diff=43430)
+
+**Visual evidence**: In cascade-ua-defaults-001, below "Second numbered item", the text
+"TABLE: UA defaults Cell 2" renders as **vertical single characters** (one char per line:
+T, A, B, L, E, :, ...) instead of horizontal text. Chrome shows it as a single horizontal line.
+
+**Root cause hypothesis**: The `<table>` or `<td>` elements are getting zero or near-zero
+width, forcing text to wrap after every character. The UA stylesheet may not be setting
+`display: table` / `display: table-cell` correctly, or the table layout algorithm is
+computing zero column widths.
+
+**Priority**: MEDIUM — affects 1 test directly, but indicates fundamental table layout issue.
+
+---
+
+### NEW BUG D: font-size 150% not parsed, 1.5em too large (font-properties-001, diff=16528)
+
+**Visual evidence**:
+1. The "font-size: 150%" line is **MISSING** entirely in azul. Chrome shows it at ~21px.
+2. The "font-size: 1.5em" text is **much larger** in azul (~36px) vs Chrome (~21px).
+3. The "font-weight: 100 (thin)" text at top has garbled/overlapping rendering.
+
+**Root cause hypothesis**:
+- 150%: The CSS parser may not handle percentage font-size values, so the declaration is
+  dropped entirely and the element collapses or gets default size.
+- 1.5em: The em calculation may be using the wrong base size (e.g., using a parent's computed
+  font-size that is already enlarged, or doubling the multiplication).
+- font-weight 100: May be mapped to wrong font face or not supported.
+
+**Priority**: MEDIUM — affects font rendering correctness globally.
+
+---
+
+### NEW BUG E: Inline padding not affecting layout/paint (inline-background-001 + inline-elements-001)
+
+**Visual evidence**: In both tests, inline `<span>` elements with padding (e.g., `padding: 2px 6px`)
+render with backgrounds that are **tight to the text** with no visible padding. Chrome shows clear
+padding gaps around the colored inline text spans.
+
+In inline-elements-001, the "yellow span", "cyan bordered span", "Dashed border span" etc.
+all lack the padding space that Chrome shows.
+
+**Root cause hypothesis**: The inline formatting context (IFC) layout does not account for
+padding on inline-level elements when:
+1. Computing the background rectangle dimensions
+2. Advancing the inline pen position after the inline element
+
+Inline padding should:
+- Expand the background rect by padding amounts
+- Add horizontal padding to the inline advance width
+- NOT affect line height (only vertical margins/padding on inline elements don't affect line boxes)
+
+**Affected files**: `layout/src/solver3/ifc.rs` (inline formatting context layout),
+`layout/src/solver3/display_list.rs` (inline background painting)
+
+**Priority**: HIGH — affects 2 tests directly (~34k total diff), plus likely affects other
+inline-heavy tests.
+
+---
+
+## Session 4 Priority Order (bugs to fix)
+
+1. **Bug B: Cascade p vs * color** — CRITICAL, affects 9+ tests (~400k total diff)
+2. **Bug E: Inline padding** — HIGH, affects 2 tests (~34k diff), foundational inline layout
+3. **Bug A: Z-index paint order** — HIGH, clear visual bug (32.8k diff)
+4. **Bug D: Font-size 150%/1.5em** — MEDIUM, 16.5k diff, font correctness
+5. **Bug C: Table vertical text** — MEDIUM, 43.4k diff, table layout fundamental
 
 ---
 

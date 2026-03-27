@@ -639,15 +639,22 @@ impl CssPropertyCache {
             // Step 2.5: Apply global `*` author CSS (overrides UA, overridden by specific rules)
             // Apply each `*` rule property individually (not bulk-assign) so we only
             // override properties the `*` rule actually set, preserving UA CSS for others.
-            for prop in self.global_css_props.iter() {
-                apply_css_property_to_compact(
-                    prop,
-                    &mut result.tier1_enums[i],
-                    &mut result.tier2_dims[i],
-                    &mut result.tier2_cold[i],
-                    &mut result.tier2b_text[i],
-                    &mut result.font_hash_to_families,
-                );
+            //
+            // Per CSS spec, `*` matches all ELEMENTS. Text nodes are not elements —
+            // they must only inherit from their parent. Without this check, `* { color: #666 }`
+            // would overwrite the inherited `color: red` on a Text child of `<p>`,
+            // even though `<p>` correctly got red from `p { color: red }`.
+            if !nd.is_text_node() {
+                for prop in self.global_css_props.iter() {
+                    apply_css_property_to_compact(
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut result.font_hash_to_families,
+                    );
+                }
             }
 
             {
@@ -706,6 +713,41 @@ impl CssPropertyCache {
                     &mut result.tier2b_text[i],
                     &mut result.font_hash_to_families,
                 );
+            }
+
+            // Resolve font-size from em/percent/pt/etc. to px.
+            // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
+            // Pre-order traversal guarantees parent's font_size is already resolved.
+            {
+                let raw_fs = result.tier2_dims[i].font_size;
+                if raw_fs != U32_SENTINEL && raw_fs < U32_SENTINEL_THRESHOLD {
+                    if let Some(pv) = decode_pixel_value_u32(raw_fs) {
+                        if pv.metric != SizeMetric::Px {
+                            let parent_font_size_px = parent_id
+                                .map(|pid| {
+                                    decode_pixel_value_u32(result.tier2_dims[pid.index()].font_size)
+                                        .map(|ppv| ppv.number.get())
+                                        .unwrap_or(16.0)
+                                })
+                                .unwrap_or(16.0);
+
+                            let resolved_px = match pv.metric {
+                                SizeMetric::Em => pv.number.get() * parent_font_size_px,
+                                SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
+                                SizeMetric::Rem => {
+                                    decode_pixel_value_u32(result.tier2_dims[0].font_size)
+                                        .map(|rpv| rpv.number.get())
+                                        .unwrap_or(16.0)
+                                        * pv.number.get()
+                                }
+                                SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
+                                _ => pv.number.get(),
+                            };
+                            result.tier2_dims[i].font_size =
+                                encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
+                        }
+                    }
+                }
             }
 
             // Set populated bit

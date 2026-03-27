@@ -7940,6 +7940,37 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // +spec:inline-formatting-context:eb735b - alignment-baseline: inline-level boxes aligned to parent's baseline via vertical-align
         // +spec:inline-formatting-context:da3f34 - baseline alignment of in-flow inline-level boxes in block axis per dominant-baseline/vertical-align
         // +spec:line-height:e2253a - vertical-align positioning within line boxes
+
+        // Pre-compute inline border/padding offsets at span boundaries.
+        // Only the FIRST cluster of each inline span gets left_inset, and only
+        // the LAST cluster gets right_inset. We detect span boundaries by comparing
+        // Arc<StyleProperties> pointers between consecutive clusters.
+        let inline_offsets: Vec<(f32, f32)> = {
+            let items_slice: &[ShapedItem] = &justified_segment_items;
+            items_slice.iter().enumerate().map(|(idx, item)| {
+                if let ShapedItem::Cluster(c) = item {
+                    if let Some(border) = c.style.border.as_ref() {
+                        if border.has_chrome() {
+                            let style_ptr = Arc::as_ptr(&c.style);
+                            let prev_same_span = idx > 0 && items_slice[idx - 1]
+                                .as_cluster()
+                                .map(|pc| Arc::as_ptr(&pc.style) == style_ptr)
+                                .unwrap_or(false);
+                            let next_same_span = idx + 1 < items_slice.len() && items_slice[idx + 1]
+                                .as_cluster()
+                                .map(|nc| Arc::as_ptr(&nc.style) == style_ptr)
+                                .unwrap_or(false);
+                            let left = if !prev_same_span { border.left_inset() } else { 0.0 };
+                            let right = if !next_same_span { border.right_inset() } else { 0.0 };
+                            return (left, right);
+                        }
+                    }
+                }
+                (0.0, 0.0)
+            }).collect()
+        };
+        let mut inline_offset_idx = 0;
+
         for item in justified_segment_items {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
@@ -7981,6 +8012,15 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
             // Calculate item measure (needed for both positioning and pen advance)
             let item_measure = get_item_measure(&item, is_vertical);
+
+            // Advance pen by inline left_inset at span entry (before positioning glyphs)
+            let (left_inset, right_inset) = if inline_offset_idx < inline_offsets.len() {
+                inline_offsets[inline_offset_idx]
+            } else {
+                (0.0, 0.0)
+            };
+            inline_offset_idx += 1;
+            main_axis_pen += left_inset;
 
             let position = if is_vertical {
                 Point {
@@ -8050,6 +8090,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
             if !is_outside_marker {
                 main_axis_pen += item_measure;
+                // Advance pen by inline right_inset at span exit (after glyph advance)
+                main_axis_pen += right_inset;
             }
 
             // +spec:text-alignment-spacing:e09bd1 - justification space added on top of letter-spacing/word-spacing
