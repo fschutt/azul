@@ -1,14 +1,33 @@
 # Reftest Status Report & Next Session Plan
 
-**Date**: 2026-03-27
-**Score**: 21/44 passing (started at 17/44)
+**Date**: 2026-03-27 (updated session 2)
+**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44)
 **Branch**: layout-debug-clean
 
 ---
 
-## Bugs to Fix (9 bugs, ordered by estimated impact)
+## Session 2 Fixes
 
-### Bug 1: `display: none` not hiding elements
+### FIXED: Bug 1 — display:none not hiding elements
+**Commit**: `beec64bf` — filter display:none children in reconciler's collect_children_dom_ids()
+**Result**: display-none-visibility-001 diff 62067→13238 (remaining diff is font metrics)
+
+### FIXED: Bug 2 — Opacity not working + stacking contexts not found
+**Commits**: `11ca0c64` — Two fixes:
+1. Added `global_css_props` fallback in `get_property_slow()` for `*` selector properties
+2. Fixed `collect_stacking_contexts` to recursively search non-SC descendants via `find_nested_stacking_contexts`
+3. Fixed `paint_in_flow_descendants` to skip stacking context children (prevents double-painting)
+**Result**: color-background-001 diff 36091→4012 (PASS). Opacity 0.5/0.2 now render correctly.
+
+### PARTIALLY FIXED: Bug 4 — z-index ordering
+The stacking context tree fix also improved z-index ordering. block-positioning-complex-001 diff 45300→32800.
+Remaining: positioned children's paint order still has edge cases.
+
+---
+
+## Remaining Bugs (ordered by estimated impact)
+
+### Bug 1: `display: none` not hiding elements — FIXED
 
 **Tests**: display-none-visibility-001 (diff=62067)
 **Impact**: HIGH — also probably affects cascade-display-block-001 (diff=67254)
