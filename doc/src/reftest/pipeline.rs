@@ -214,11 +214,8 @@ impl ReftestPipeline {
             (data, None)
         };
 
-        // Debug pass first (warms fonts + collects cascade debug), timing pass second
-        let _ = self.render_azul(test_file, azul_img, width, height, true)?;
-        let (debug_data, azul_timing_from_render) = self.render_azul(test_file, azul_img, width, height, false)?;
-
-        let mut debug_data = debug_data;
+        // Single pass with debug enabled — collects layout debug messages AND produces the image
+        let (mut debug_data, azul_timing_from_render) = self.render_azul(test_file, azul_img, width, height, true)?;
         debug_data.chrome_layout = chrome_layout_data.clone();
 
         // Use the timing from the render pass (microsecond precision)
@@ -326,6 +323,31 @@ pub fn render_xhtml_to_webp(
         }
     }
 
+    // Dump ALL compact cache values for every node into render_warnings
+    // so they appear in results.json (searchable via jq/grep)
+    if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
+        let n = styled_dom.node_data.as_ref().len();
+        for idx in 0..n {
+            let nd = &styled_dom.node_data.as_ref()[idx];
+            let d = &cc.tier2_dims[idx];
+            let cold = &cc.tier2_cold[idx];
+            let text = &cc.tier2b_text[idx];
+            let t1 = cc.tier1_enums[idx];
+            let display = ((t1 >> azul_css::compact_cache::DISPLAY_SHIFT) & azul_css::compact_cache::DISPLAY_MASK) as u8;
+            let position = ((t1 >> azul_css::compact_cache::POSITION_SHIFT) & azul_css::compact_cache::POSITION_MASK) as u8;
+            let overflow_x = ((t1 >> azul_css::compact_cache::OVERFLOW_X_SHIFT) & azul_css::compact_cache::OVERFLOW_MASK) as u8;
+            let overflow_y = ((t1 >> azul_css::compact_cache::OVERFLOW_Y_SHIFT) & azul_css::compact_cache::OVERFLOW_MASK) as u8;
+            let float = ((t1 >> azul_css::compact_cache::FLOAT_SHIFT) & azul_css::compact_cache::FLOAT_MASK) as u8;
+            let font_weight = ((t1 >> azul_css::compact_cache::FONT_WEIGHT_SHIFT) & azul_css::compact_cache::FONT_WEIGHT_MASK) as u8;
+            eprintln!("[COMPACT] node[{idx}] {:?} t1={t1:#x} disp={display} pos={position} ox={overflow_x} oy={overflow_y} float={float} fw={font_weight} pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={} w={} h={} z={} tc={:#x} fh={}",
+                nd.node_type,
+                d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
+                d.margin_top, d.margin_bottom, d.margin_left, d.margin_right,
+                d.width, d.height,
+                cold.z_index, text.text_color, text.font_family_hash);
+        }
+    }
+
     let t_layout = Instant::now();
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = LogicalSize {
@@ -336,8 +358,19 @@ pub fn render_xhtml_to_webp(
     let mut renderer_resources = azul_core::resources::RendererResources::default();
     let external = ExternalSystemCallbacks::rust_internal();
 
+    // Create a FRESH LayoutWindow per test — only share the font cache + parsed fonts.
+    // The layout cache MUST NOT persist across tests (the reconciler would reuse
+    // old nodes from a previous test with wrong box_props/padding values).
+    let mut fresh_window = azul_layout::LayoutWindow::new_with_shared_fonts(
+        layout_window.font_manager.fc_cache.clone(),
+        layout_window.font_manager.parsed_fonts.clone(),
+    ).map_err(|e| format!("LayoutWindow: {:?}", e))?;
+    fresh_window.font_manager.set_font_chain_cache(
+        layout_window.font_manager.font_chain_cache.clone(),
+    );
+
     let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
-    layout_window.layout_and_generate_display_list(
+    fresh_window.layout_and_generate_display_list(
         styled_dom,
         &fake_window_state,
         &mut renderer_resources,
@@ -345,7 +378,7 @@ pub fn render_xhtml_to_webp(
         &mut debug_messages,
     ).map_err(|e| format!("layout: {}", e))?;
 
-    let display_list = layout_window
+    let display_list = fresh_window
         .layout_results
         .remove(&DomId::ROOT_ID)
         .ok_or("No layout result")?
@@ -358,7 +391,7 @@ pub fn render_xhtml_to_webp(
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &display_list,
         &renderer_resources,
-        &layout_window.font_manager,
+        &fresh_window.font_manager,
         azul_layout::cpurender::RenderOptions {
             width: width as f32,
             height: height as f32,
@@ -396,6 +429,13 @@ pub fn render_xhtml_to_webp(
     debug_data.xml_formatting_time_us = parse_us.round() as u64;
     debug_data.layout_time_us = layout_us.round() as u64;
     debug_data.render_time_us = render_us.round() as u64;
+
+    // Capture layout debug messages into render_warnings for results.json
+    if let Some(msgs) = debug_messages {
+        debug_data.render_warnings = msgs.into_iter()
+            .map(|m| format!("[{:?}] {}", m.message_type, m.message.as_str()))
+            .collect();
+    }
 
     Ok((debug_data, AzulTiming { parse_us, layout_us, render_us, save_us, total_us }))
 }

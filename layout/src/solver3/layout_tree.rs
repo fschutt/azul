@@ -2324,7 +2324,18 @@ fn collect_box_props(
     // Resolve to get initial box_props
     let resolved = unresolved.resolve(&params);
 
-    // Debug ALL nodes with non-zero margins or vh units
+    // Debug ALL node box props (padding, margin, border) for cascade debugging
+    if let Some(msgs) = debug_messages.as_mut() {
+        msgs.push(LayoutDebugMessage::box_props(format!(
+            "[BOX] node[{}] {:?} pad=[{:.1} {:.1} {:.1} {:.1}] mar=[{:.1} {:.1} {:.1} {:.1}] bor=[{:.1} {:.1} {:.1} {:.1}]",
+            dom_id.index(), node_data.node_type,
+            resolved.padding.top, resolved.padding.right, resolved.padding.bottom, resolved.padding.left,
+            resolved.margin.top, resolved.margin.right, resolved.margin.bottom, resolved.margin.left,
+            resolved.border.top, resolved.border.right, resolved.border.bottom, resolved.border.left,
+        )));
+    }
+
+    // Debug nodes with non-zero margins or vh units
     if let Some(msgs) = debug_messages.as_mut() {
         // Check if any margin uses vh
         let has_vh = match &unresolved_margin.top {
