@@ -416,27 +416,8 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
         // +spec:inline-formatting-context:a180ed - IFC establishment: inline-level boxes fragmented into line boxes with baseline alignment
-        FormattingContext::Inline => {
-            // Text nodes (NodeType::Text) should NOT create their own IFC — they are
-            // inline CONTENT that participates in their parent block's IFC. Only block
-            // containers with inline children establish IFCs. Without this check, table
-            // cells get text rendered twice: once from the cell's IFC and once from the
-            // text node's redundant IFC.
-            let is_text_node = tree.get(node_index)
-                .and_then(|n| n.dom_node_id)
-                .map(|id| matches!(
-                    ctx.styled_dom.node_data.as_container()[id].get_node_type(),
-                    azul_core::dom::NodeType::Text(_)
-                ))
-                .unwrap_or(false);
-
-            if is_text_node {
-                Ok(BfcLayoutResult::from_output(LayoutOutput::default()))
-            } else {
-                layout_ifc(ctx, text_cache, tree, node_index, constraints)
-                    .map(BfcLayoutResult::from_output)
-            }
-        }
+        FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
+            .map(BfcLayoutResult::from_output),
         FormattingContext::InlineBlock => {
             // +spec:display-property:1f5ddf - inline-level boxes with non-flow inner display establish new formatting context
             // +spec:inline-formatting-context:1ad004 - atomic inline (inline-block) establishes new formatting context
@@ -5384,6 +5365,16 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+
+        // The cell now owns the authoritative IFC result. Clear any duplicate
+        // inline_layout_result from text children that was set during the cell's
+        // prior BFC Pass 1 (which ran before layout_cell_for_height).
+        let cell_children: Vec<usize> = tree.children(cell_index).to_vec();
+        for child_idx in cell_children {
+            if let Some(warm) = tree.warm_mut(child_idx) {
+                warm.inline_layout_result = None;
+            }
+        }
 
         debug_table_layout!(
             ctx,
