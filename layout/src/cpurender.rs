@@ -2930,67 +2930,73 @@ fn render_border(
     Ok(())
 }
 
-/// Render border with per-side colors/widths/styles.
-/// Each side is rendered as a separate trapezoid (the CSS border model).
+/// Render border with per-side colors/widths/styles using CSS trapezoid model.
+/// Each side is a trapezoid: outer edge → inner edge with 45° miters at corners.
 fn render_border_sides(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     colors: [ColorU; 4], // top, right, bottom, left
-    widths: [f32; 4],
-    styles: [azul_css::props::style::border::BorderStyle; 4],
-    border_radius: &BorderRadius,
+    widths: [f32; 4],    // top, right, bottom, left
+    _styles: [azul_css::props::style::border::BorderStyle; 4],
+    _border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
-    // Render each side individually using clipped render_border calls.
-    // Each call renders the full border shape but clipped to just one side.
     let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
         Some(r) => r,
         None => return Ok(()),
     };
 
-    // Top side: clip to top half
-    let top_clip = AzRect::from_xywh(rect.x, rect.y, rect.width, widths[0] * dpi_factor + 1.0);
-    if widths[0] > 0.0 && colors[0].a > 0 {
-        let combined_clip = match (clip, top_clip) {
-            (Some(c), Some(tc)) => c.clip(&tc),
-            (None, tc) => tc,
-            (c, None) => c,
-        };
-        render_border(pixmap, bounds, colors[0], widths[0], styles[0], border_radius, combined_clip, dpi_factor)?;
+    // Outer corners
+    let ox = rect.x as f64;
+    let oy = rect.y as f64;
+    let ow = rect.width as f64;
+    let oh = rect.height as f64;
+
+    // Inner corners (inset by per-side widths)
+    let wt = (widths[0] * dpi_factor) as f64;
+    let wr = (widths[1] * dpi_factor) as f64;
+    let wb = (widths[2] * dpi_factor) as f64;
+    let wl = (widths[3] * dpi_factor) as f64;
+
+    let ix = ox + wl;
+    let iy = oy + wt;
+    let iw = ow - wl - wr;
+    let ih = oh - wt - wb;
+
+    // Each side is a trapezoid with 4 vertices:
+    // Top:    (ox, oy) → (ox+ow, oy) → (ix+iw, iy) → (ix, iy)
+    // Right:  (ox+ow, oy) → (ox+ow, oy+oh) → (ix+iw, iy+ih) → (ix+iw, iy)
+    // Bottom: (ox+ow, oy+oh) → (ox, oy+oh) → (ix, iy+ih) → (ix+iw, iy+ih)
+    // Left:   (ox, oy+oh) → (ox, oy) → (ix, iy) → (ix, iy+ih)
+
+    let sides: [(f64, f64, f64, f64, f64, f64, f64, f64, ColorU, f32); 4] = [
+        // Top trapezoid
+        (ox, oy, ox+ow, oy, ix+iw, iy, ix, iy, colors[0], widths[0]),
+        // Right trapezoid
+        (ox+ow, oy, ox+ow, oy+oh, ix+iw, iy+ih, ix+iw, iy, colors[1], widths[1]),
+        // Bottom trapezoid
+        (ox+ow, oy+oh, ox, oy+oh, ix, iy+ih, ix+iw, iy+ih, colors[2], widths[2]),
+        // Left trapezoid
+        (ox, oy+oh, ox, oy, ix, iy, ix, iy+ih, colors[3], widths[3]),
+    ];
+
+    for &(x0, y0, x1, y1, x2, y2, x3, y3, color, width) in &sides {
+        if width <= 0.0 || color.a == 0 {
+            continue;
+        }
+
+        let mut path = PathStorage::new();
+        path.move_to(x0, y0);
+        path.line_to(x1, y1);
+        path.line_to(x2, y2);
+        path.line_to(x3, y3);
+        path.close_polygon(PATH_FLAGS_NONE);
+
+        let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+        agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     }
-    // Right side
-    let right_x = rect.x + rect.width - widths[1] * dpi_factor - 1.0;
-    let right_clip = AzRect::from_xywh(right_x.max(rect.x), rect.y, widths[1] * dpi_factor + 1.0, rect.height);
-    if widths[1] > 0.0 && colors[1].a > 0 {
-        let combined_clip = match (clip, right_clip) {
-            (Some(c), Some(rc)) => c.clip(&rc),
-            (None, rc) => rc,
-            (c, None) => c,
-        };
-        render_border(pixmap, bounds, colors[1], widths[1], styles[1], border_radius, combined_clip, dpi_factor)?;
-    }
-    // Bottom side
-    let bottom_y = rect.y + rect.height - widths[2] * dpi_factor - 1.0;
-    let bottom_clip = AzRect::from_xywh(rect.x, bottom_y.max(rect.y), rect.width, widths[2] * dpi_factor + 1.0);
-    if widths[2] > 0.0 && colors[2].a > 0 {
-        let combined_clip = match (clip, bottom_clip) {
-            (Some(c), Some(bc)) => c.clip(&bc),
-            (None, bc) => bc,
-            (c, None) => c,
-        };
-        render_border(pixmap, bounds, colors[2], widths[2], styles[2], border_radius, combined_clip, dpi_factor)?;
-    }
-    // Left side
-    let left_clip = AzRect::from_xywh(rect.x, rect.y, widths[3] * dpi_factor + 1.0, rect.height);
-    if widths[3] > 0.0 && colors[3].a > 0 {
-        let combined_clip = match (clip, left_clip) {
-            (Some(c), Some(lc)) => c.clip(&lc),
-            (None, lc) => lc,
-            (c, None) => c,
-        };
-        render_border(pixmap, bounds, colors[3], widths[3], styles[3], border_radius, combined_clip, dpi_factor)?;
-    }
+
     Ok(())
 }
 
