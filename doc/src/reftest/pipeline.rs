@@ -287,7 +287,25 @@ pub fn render_xhtml_to_webp(
         .map_err(|e| format!("parse: {}", e))?;
     let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
 
-    // If debug mode, re-run cascade with debug logging to capture per-node cascade trace
+    // Dump body compact cache values for diagnostics (when debug enabled)
+    if collect_debug {
+        let cache = &styled_dom.css_property_cache.ptr;
+        if let Some(cc) = cache.compact_cache.as_ref() {
+            let n = styled_dom.node_data.as_ref().len().min(15);
+            for idx in 0..n {
+                let nd = &styled_dom.node_data.as_ref()[idx];
+                let d = &cc.tier2_dims[idx];
+                let t1 = cc.tier1_enums[idx];
+                let display = ((t1 >> azul_css::compact_cache::DISPLAY_SHIFT) & azul_css::compact_cache::DISPLAY_MASK) as u8;
+                eprintln!("[COMPACT-ACTUAL] node[{}] {:?} display={} pt={} pb={} pl={} pr={} mt={} mb={} w={} h={}",
+                    idx, nd.node_type, display,
+                    d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
+                    d.margin_top, d.margin_bottom, d.width, d.height);
+            }
+        }
+    }
+
+    // Also re-run cascade with debug logging to capture per-step trace
     if collect_debug {
         let cache = &styled_dom.css_property_cache.ptr;
         let hierarchy: Vec<_> = styled_dom.node_hierarchy.as_ref().iter().cloned().collect();
