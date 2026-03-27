@@ -416,8 +416,27 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
         // +spec:inline-formatting-context:a180ed - IFC establishment: inline-level boxes fragmented into line boxes with baseline alignment
-        FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
-            .map(BfcLayoutResult::from_output),
+        FormattingContext::Inline => {
+            // Text nodes (NodeType::Text) should NOT create their own IFC — they are
+            // inline CONTENT that participates in their parent block's IFC. Only block
+            // containers with inline children establish IFCs. Without this check, table
+            // cells get text rendered twice: once from the cell's IFC and once from the
+            // text node's redundant IFC.
+            let is_text_node = tree.get(node_index)
+                .and_then(|n| n.dom_node_id)
+                .map(|id| matches!(
+                    ctx.styled_dom.node_data.as_container()[id].get_node_type(),
+                    azul_core::dom::NodeType::Text(_)
+                ))
+                .unwrap_or(false);
+
+            if is_text_node {
+                Ok(BfcLayoutResult::from_output(LayoutOutput::default()))
+            } else {
+                layout_ifc(ctx, text_cache, tree, node_index, constraints)
+                    .map(BfcLayoutResult::from_output)
+            }
+        }
         FormattingContext::InlineBlock => {
             // +spec:display-property:1f5ddf - inline-level boxes with non-flow inner display establish new formatting context
             // +spec:inline-formatting-context:1ad004 - atomic inline (inline-block) establishes new formatting context
@@ -987,13 +1006,6 @@ fn layout_bfc<T: ParsedFontTrait>(
             // +spec:positioning:7dd6d1 - Absolutely positioned boxes are taken out of the normal flow (no impact on later siblings, no margin collapsing)
             let position_type = get_position_type(ctx.styled_dom, child_dom_id);
             if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-                continue;
-            }
-
-            // Skip children that were already sized by their formatting context
-            // (e.g., table cells sized by the table algorithm in layout_table_fc).
-            // Re-laying them would produce duplicate inline_layout_result → double text.
-            if child_node.used_size.is_some() {
                 continue;
             }
 
