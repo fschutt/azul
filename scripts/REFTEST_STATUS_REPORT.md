@@ -1,8 +1,30 @@
 # Reftest Status Report & Next Session Plan
 
-**Date**: 2026-03-27 (updated session 2)
-**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44)
+**Date**: 2026-03-27 (updated session 3)
+**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3: 22/44 with major diff reductions)
 **Branch**: layout-debug-clean
+
+---
+
+## Session 3 Fixes (diff reductions, no new passes yet)
+
+### FIXED: CSS selector matching — descendant and child combinators
+**Commit**: `569b2842` — Rewrote `matches_html_element()` in `core/src/style.rs`
+- **Root cause**: Descendant combinator (space) only checked one parent level instead of searching all ancestors. Child combinator (`>`) didn't verify rightmost selector matched target node.
+- **Fix**: Complete rewrite: collect all selector groups, require rightmost matches target, then walk ancestors/siblings with proper combinator logic (descendant searches all ancestors, child checks only parent).
+- **Result**: cascade-nested-selectors-001: 103156→42760 (all backgrounds now correct)
+
+### FIXED: Table row background paint order
+**Commit**: `569b2842` — Skip `paint_node_background_and_border` for table-internal elements
+- **Root cause**: TR elements' `calculated_positions` had wrong Y values (all at y=20 instead of correct row positions). The recursive paint descent re-painted row backgrounds at wrong positions, covering header cell content.
+- **Fix**: Skip background painting for `TableRowGroup`, `TableRow`, `TableColumnGroup` in `paint_node_background_and_border` since `paint_table_items` already handles them correctly using cell bounding boxes.
+- **Result**: table-basic-001: 27059→15607 (header text now visible with correct dark background)
+
+### FIXED: Block intrinsic height margin collapse
+**Commit**: `2fe02b4d` — Apply margin collapsing in `calculate_block_intrinsic_sizes`
+- **Root cause**: `sizing.rs` added full margins (top+bottom) for each child in block intrinsic height calculation, ignoring CSS 2.2 §8.3.1 margin collapsing. This overstated `used_size` for auto-height containers by hundreds of pixels.
+- **Fix**: Only include border+padding in block-axis extras (not margins). Add collapsed sibling gaps (max of adjacent margins). Omit first/last child margins (they may escape parent per parent-child collapse).
+- **Result**: block-margin-collapse-complex-001: 373182→90182 (4x improvement)
 
 ---
 
