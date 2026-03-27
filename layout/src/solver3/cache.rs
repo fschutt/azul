@@ -48,7 +48,7 @@ use crate::{
             MultiValue,
         },
         layout_tree::{
-            is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode, LayoutNodeHot, LayoutTreeBuilder, SubtreeHash,
+            get_display_type, is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode, LayoutNodeHot, LayoutTreeBuilder, SubtreeHash,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -485,6 +485,7 @@ pub const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign
 /// Collects DOM child IDs from the node hierarchy into a Vec.
 ///
 /// This is a helper function that flattens the sibling iteration into a simple loop.
+/// Children with `display: none` are filtered out since they generate no boxes.
 pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
     let hierarchy_container = styled_dom.node_hierarchy.as_container();
     let mut children = Vec::new();
@@ -497,12 +498,18 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
         return children;
     };
 
-    children.push(child_id);
+    // +spec:display-property:9f02c6 - display:none elements generate no boxes
+    // +spec:display-property:3b507e - display:none excludes subtree from box tree
+    if get_display_type(styled_dom, child_id) != LayoutDisplay::None {
+        children.push(child_id);
+    }
     while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
         let Some(next) = hierarchy_item.next_sibling_id() else {
             break;
         };
-        children.push(next);
+        if get_display_type(styled_dom, next) != LayoutDisplay::None {
+            children.push(next);
+        }
         child_id = next;
     }
 
