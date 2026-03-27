@@ -3045,12 +3045,41 @@ where
         builder: &mut DisplayListBuilder,
         row_idx: usize,
     ) -> Result<()> {
-        // Layer 5: Paint row background
-        self.paint_element_background(builder, row_idx)?;
+        // Layer 5: Paint row background.
+        // Rows don't have entries in calculated_positions (adding them would
+        // double-offset cells during position recursion). Compute the row rect
+        // from the bounding box of its cell children.
+        if let Some(row_node) = self.positioned_tree.tree.get(row_idx) {
+            if let Some(dom_id) = row_node.dom_node_id {
+                let styled_node_state = self.get_styled_node_state(dom_id);
+                let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
+                if bg_color.a > 0 {
+                    // Compute row rect from cell children
+                    let mut min_x = f32::MAX;
+                    let mut min_y = f32::MAX;
+                    let mut max_x = f32::MIN;
+                    let mut max_y = f32::MIN;
+                    for &cell_idx in self.positioned_tree.tree.children(row_idx) {
+                        if let Some(cell_rect) = self.get_paint_rect(cell_idx) {
+                            min_x = min_x.min(cell_rect.origin.x);
+                            min_y = min_y.min(cell_rect.origin.y);
+                            max_x = max_x.max(cell_rect.origin.x + cell_rect.size.width);
+                            max_y = max_y.max(cell_rect.origin.y + cell_rect.size.height);
+                        }
+                    }
+                    if min_x < max_x && min_y < max_y {
+                        let row_rect = LogicalRect::new(
+                            LogicalPosition::new(min_x, min_y),
+                            LogicalSize::new(max_x - min_x, max_y - min_y),
+                        );
+                        builder.push_rect(row_rect, bg_color, BorderRadius::default());
+                    }
+                }
+            }
+        }
 
         // Layer 6: Paint cell backgrounds (topmost layer)
-        let row_node = self.positioned_tree.tree.get(row_idx);
-        if let Some(node) = row_node {
+        if let Some(_node) = self.positioned_tree.tree.get(row_idx) {
             for &cell_idx in self.positioned_tree.tree.children(row_idx) {
                 self.paint_element_background(builder, cell_idx)?;
             }

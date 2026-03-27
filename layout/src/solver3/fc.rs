@@ -5812,8 +5812,9 @@ fn position_table_cells<T: ParsedFontTrait>(
                         height: row_height,
                     });
                 }
-                let row_pos = LogicalPosition::new(0.0, row_y);
-                positions.insert(row_node_idx, row_pos);
+                // Don't add to `positions` map (feeds position_bfc_child_descendants,
+                // would double-offset cells). The display list computes row paint
+                // rects from the row's cell children.
             }
         }
     }
