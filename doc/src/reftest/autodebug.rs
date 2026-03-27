@@ -1486,6 +1486,19 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
         writeln!(prompt, "- Azul (current): `{}`\n", sr.azul_screenshot.display()).unwrap();
     }
 
+    // Image analysis tools
+    writeln!(prompt, "### Image Comparison Tips\n").unwrap();
+    writeln!(prompt, "Use `magick` (ImageMagick) via the Bash tool to zoom into diff regions:").unwrap();
+    writeln!(prompt, "```bash").unwrap();
+    writeln!(prompt, "# Crop top-left 400x300 region for close inspection:").unwrap();
+    writeln!(prompt, "magick chrome.webp -crop 400x300+0+0 /tmp/chrome_crop.png").unwrap();
+    writeln!(prompt, "magick azul.webp -crop 400x300+0+0 /tmp/azul_crop.png").unwrap();
+    writeln!(prompt, "# Create enhanced pixel diff:").unwrap();
+    writeln!(prompt, "magick composite /tmp/azul_crop.png /tmp/chrome_crop.png -compose difference /tmp/diff.png").unwrap();
+    writeln!(prompt, "magick /tmp/diff.png -auto-level /tmp/diff_enhanced.png").unwrap();
+    writeln!(prompt, "# Then use Read tool to view /tmp/diff_enhanced.png").unwrap();
+    writeln!(prompt, "```\n").unwrap();
+
     // Pixel diff analysis for each resolution
     writeln!(prompt, "## Pixel Diff Analysis\n").unwrap();
     for sr in &test.size_results {
