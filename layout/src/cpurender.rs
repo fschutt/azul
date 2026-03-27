@@ -2139,12 +2139,19 @@ fn render_single_item(
                         .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                 };
 
+                let border_style = styles
+                    .top
+                    .and_then(|s| s.get_property().cloned())
+                    .map(|s| s.inner)
+                    .unwrap_or(azul_css::props::style::border::BorderStyle::Solid);
+
                 let clip = *clip_stack.last().unwrap();
                 render_border(
                     pixmap,
                     &scroll_rect(bounds.inner()),
                     color,
                     width,
+                    border_style,
                     &simple_radius,
                     clip,
                     dpi_factor,
@@ -2751,12 +2758,20 @@ fn render_border(
     bounds: &LogicalRect,
     color: ColorU,
     width: f32,
+    border_style: azul_css::props::style::border::BorderStyle,
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
+    use azul_css::props::style::border::BorderStyle;
+
     if color.a == 0 || width <= 0.0 {
         return Ok(());
+    }
+
+    match border_style {
+        BorderStyle::None | BorderStyle::Hidden => return Ok(()),
+        _ => {}
     }
 
     let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
@@ -2862,8 +2877,43 @@ fn render_border(
         }
     }
 
-    // 3. Fill with EvenOdd to create the hole
-    agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::EvenOdd, clip);
+    // 3. Render based on border style
+    match border_style {
+        BorderStyle::Dashed | BorderStyle::Dotted => {
+            // For dashed/dotted: stroke the border path with dash pattern
+            // instead of filling the double-path with EvenOdd
+            use agg_rust::conv_stroke::ConvStroke;
+            use agg_rust::conv_dash::ConvDash;
+
+            // Build a single center-line path (midpoint of the border width)
+            let half = sw / 2.0;
+            let mut stroke_path = PathStorage::new();
+            let (cx, cy, cw, ch) = (x + half, y + half, w - sw, h - sw);
+            stroke_path.move_to(cx, cy);
+            stroke_path.line_to(cx + cw, cy);
+            stroke_path.line_to(cx + cw, cy + ch);
+            stroke_path.line_to(cx, cy + ch);
+            stroke_path.close_polygon(PATH_FLAGS_NONE);
+
+            // Apply dash pattern
+            let mut dashed = ConvDash::new(stroke_path);
+            if border_style == BorderStyle::Dashed {
+                dashed.add_dash(sw * 3.0, sw); // CSS spec: 3:1 ratio
+            } else {
+                dashed.add_dash(sw, sw); // dotted: 1:1 ratio
+            }
+
+            // Stroke the dashed path
+            let mut stroked = ConvStroke::new(dashed);
+            stroked.set_width(sw);
+
+            agg_fill_path_clipped(pixmap, &mut stroked, &agg_color, FillingRule::NonZero, clip);
+        }
+        _ => {
+            // Solid (and other unsupported styles): fill double-path with EvenOdd
+            agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::EvenOdd, clip);
+        }
+    }
 
     Ok(())
 }
