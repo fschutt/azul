@@ -1574,11 +1574,18 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // to avoid double-subtraction when compute_non_flex_layout delegates to
         // layout_formatting_context → layout_bfc.
 
-        // Convert Taffy's AvailableSpace to our Text3AvailableSpace for caching
-        let available_width_type = match inputs.available_space.width {
-            AvailableSpace::Definite(w) => crate::text3::cache::AvailableSpace::Definite(w),
-            AvailableSpace::MinContent => crate::text3::cache::AvailableSpace::MinContent,
-            AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
+        // Convert Taffy's AvailableSpace to our Text3AvailableSpace for caching.
+        // When the child has known_dimensions.width (from flex/grid layout), use that
+        // instead of the parent's available_space — otherwise text centers/wraps in
+        // the wrong width (e.g., 404px parent instead of 120px child).
+        let available_width_type = if inputs.known_dimensions.width.is_some() {
+            crate::text3::cache::AvailableSpace::Definite(available_width)
+        } else {
+            match inputs.available_space.width {
+                AvailableSpace::Definite(w) => crate::text3::cache::AvailableSpace::Definite(w),
+                AvailableSpace::MinContent => crate::text3::cache::AvailableSpace::MinContent,
+                AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
+            }
         };
 
         // Get text-align from CSS for this node (important for centering content in flex items)

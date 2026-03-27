@@ -7752,8 +7752,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify; non-collapsible WS may skip justification
         // 2. Calculate justification spacing *for this segment only*.
         // +spec:text-alignment-spacing:30d322 - justify lines with justification opportunities when text-align is justify
-        let (extra_word_spacing, extra_char_spacing) = if constraints.text_justify
-            != JustifyContent::None
+        // CSS Text 3 §6: text-justify controls HOW to justify, but only applies
+        // when text-align is justify/justify-all. Without this check, ALL text
+        // gets justified because text-justify defaults to auto (→ InterWord).
+        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align == TextAlign::Justify
+            || constraints.text_align == TextAlign::JustifyAll)
+            && constraints.text_justify != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
             && constraints.text_justify != JustifyContent::Kashida
         {
