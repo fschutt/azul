@@ -2866,6 +2866,20 @@ where
         }
 
         // CSS 2.2 Section 17.5.1: Tables in the visual formatting model
+        // Table-internal elements (row groups, rows, columns, column groups) have their
+        // backgrounds painted by paint_table_items() in the correct 6-layer order.
+        // Skip background painting here to avoid double-painting at wrong positions
+        // (calculated_positions for TR elements may not reflect row offsets correctly;
+        // paint_table_items computes row rects from cell bounding boxes instead).
+        // Table CELLS still need content painting via paint_in_flow_descendants, so
+        // we only skip the background/border here — content painting continues normally.
+        if matches!(node.formatting_context,
+            FormattingContext::TableRowGroup | FormattingContext::TableRow |
+            FormattingContext::TableColumnGroup
+        ) {
+            return Ok(());
+        }
+
         // Tables have a special 6-layer background painting order
         if matches!(node.formatting_context, FormattingContext::Table) {
             debug_info!(

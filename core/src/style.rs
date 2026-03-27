@@ -64,116 +64,133 @@ pub fn matches_html_element(
         return false;
     }
 
-    let mut current_node = Some(node_id);
-    let mut next_match_requirement = Children; // Default: any ancestor can match
-    let mut last_selector_matched = true;
+    // Collect all selector groups (processed right-to-left from the CSS path).
+    let groups: Vec<(CssContentGroup<'_>, CssGroupSplitReason)> =
+        CssGroupIterator::new(css_path.selectors.as_ref()).collect();
 
-    let mut iterator = CssGroupIterator::new(css_path.selectors.as_ref());
-    while let Some((content_group, reason)) = iterator.next() {
-        let is_last_content_group = iterator.is_last_content_group();
-        let cur_node_id = match current_node {
-            Some(c) => c,
-            None => {
-                // The node has no parent/sibling, but the CSS path
-                // still has an extra limitation - only valid if the
-                // next content group is a "*" element
-                return *content_group == [&CssPathSelector::Global];
-            }
-        };
+    if groups.is_empty() {
+        return false;
+    }
 
-        let current_selector_matches = selector_group_matches(
-            &content_group,
-            &html_node_tree[cur_node_id],
-            &node_data[cur_node_id],
-            expected_path_ending.clone(),
-            is_last_content_group,
-        );
+    // The rightmost group must match the target node directly.
+    let (ref first_group, first_reason) = groups[0];
+    let is_last_content_group = groups.len() == 1;
+    if !selector_group_matches(
+        first_group,
+        &html_node_tree[node_id],
+        &node_data[node_id],
+        expected_path_ending.clone(),
+        is_last_content_group,
+    ) {
+        return false;
+    }
 
-        match next_match_requirement {
+    // Navigate from the target node upward/sideways through the DOM,
+    // matching each remaining selector group with its combinator.
+    let mut current_node = node_id;
+
+    for (group_idx, (content_group, _reason)) in groups.iter().enumerate().skip(1) {
+        // The combinator comes from the PREVIOUS group's reason
+        let combinator = groups[group_idx - 1].1;
+        let is_last = group_idx == groups.len() - 1;
+
+        match combinator {
             DirectChildren => {
-                // The element was a ">" element and the current direct parent must match
-                if !current_selector_matches {
+                // Parent must match directly (child combinator `>`)
+                let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
+                match parent {
+                    Some(p) if selector_group_matches(
+                        content_group, &html_node_tree[p], &node_data[p],
+                        expected_path_ending.clone(), is_last,
+                    ) => { current_node = p; }
+                    _ => return false,
+                }
+            }
+            Children => {
+                // Search up ancestor chain for a match (descendant combinator ` `)
+                let mut ancestor = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
+                let mut found = false;
+                while let Some(anc) = ancestor {
+                    if selector_group_matches(
+                        content_group, &html_node_tree[anc], &node_data[anc],
+                        expected_path_ending.clone(), is_last,
+                    ) {
+                        current_node = anc;
+                        found = true;
+                        break;
+                    }
+                    ancestor = find_non_anonymous_parent(anc, node_hierarchy, node_data);
+                }
+                if !found {
                     return false;
                 }
             }
             AdjacentSibling => {
-                // The element was a "+" element and the immediate previous sibling must match
-                if !current_selector_matches {
-                    return false;
+                // Immediate previous sibling must match (adjacent sibling `+`)
+                let sibling = find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
+                match sibling {
+                    Some(s) if selector_group_matches(
+                        content_group, &html_node_tree[s], &node_data[s],
+                        expected_path_ending.clone(), is_last,
+                    ) => { current_node = s; }
+                    _ => return false,
                 }
             }
             GeneralSibling => {
-                // The element was a "~" element
-                // We need to search through all previous siblings until we find a match
-                if !current_selector_matches {
-                    // Try to find a matching previous sibling
-                    let mut found_match = false;
-                    let mut sibling = node_hierarchy[cur_node_id].previous_sibling_id();
-                    while let Some(sib_id) = sibling {
-                        if selector_group_matches(
-                            &content_group,
-                            &html_node_tree[sib_id],
-                            &node_data[sib_id],
-                            expected_path_ending.clone(),
-                            is_last_content_group,
-                        ) {
-                            found_match = true;
-                            current_node = Some(sib_id);
-                            break;
-                        }
-                        sibling = node_hierarchy[sib_id].previous_sibling_id();
+                // Search previous siblings for a match (general sibling `~`)
+                let mut sibling = find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
+                let mut found = false;
+                while let Some(sib) = sibling {
+                    if selector_group_matches(
+                        content_group, &html_node_tree[sib], &node_data[sib],
+                        expected_path_ending.clone(), is_last,
+                    ) {
+                        current_node = sib;
+                        found = true;
+                        break;
                     }
-                    if !found_match {
-                        return false;
-                    }
-                    // Update the reason for the next iteration based on what we found
-                    next_match_requirement = reason;
-                    continue;
+                    sibling = find_non_anonymous_prev_sibling(sib, node_hierarchy, node_data);
                 }
-            }
-            Children => {
-                // Default descendant matching - if current doesn't match, that's okay
-                // as long as we find a match somewhere up the ancestor chain
-                if current_selector_matches && !last_selector_matched {
-                    // CSS path chain is broken
+                if !found {
                     return false;
                 }
-            }
-        }
-
-        // Important: Set if the current selector has matched the element
-        last_selector_matched = current_selector_matches;
-        // Select how the next content group should be matched
-        next_match_requirement = reason;
-
-        // Navigate to the next node based on the combinator type
-        match reason {
-            Children | DirectChildren => {
-                // Go to parent for descendant/child selectors, skipping anonymous nodes
-                let mut next = node_hierarchy[cur_node_id].parent_id();
-                while let Some(n) = next {
-                    if !node_data[n].is_anonymous() {
-                        break;
-                    }
-                    next = node_hierarchy[n].parent_id();
-                }
-                current_node = next;
-            }
-            AdjacentSibling | GeneralSibling => {
-                // Go to previous sibling for sibling selectors, skipping anonymous nodes
-                let mut next = node_hierarchy[cur_node_id].previous_sibling_id();
-                while let Some(n) = next {
-                    if !node_data[n].is_anonymous() {
-                        break;
-                    }
-                    next = node_hierarchy[n].previous_sibling_id();
-                }
-                current_node = next;
             }
         }
     }
 
-    last_selector_matched
+    true
+}
+
+/// Find the first non-anonymous parent of a node.
+fn find_non_anonymous_parent(
+    node_id: NodeId,
+    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<NodeData>,
+) -> Option<NodeId> {
+    let mut next = node_hierarchy[node_id].parent_id();
+    while let Some(n) = next {
+        if !node_data[n].is_anonymous() {
+            return Some(n);
+        }
+        next = node_hierarchy[n].parent_id();
+    }
+    None
+}
+
+/// Find the first non-anonymous previous sibling of a node.
+fn find_non_anonymous_prev_sibling(
+    node_id: NodeId,
+    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<NodeData>,
+) -> Option<NodeId> {
+    let mut next = node_hierarchy[node_id].previous_sibling_id();
+    while let Some(n) = next {
+        if !node_data[n].is_anonymous() {
+            return Some(n);
+        }
+        next = node_hierarchy[n].previous_sibling_id();
+    }
+    None
 }
 
 /// A CSS group is a group of css selectors in a path that specify the rule that a
