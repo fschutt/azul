@@ -226,3 +226,224 @@ fn test_background_color_via_class_selector() {
     let bg = cache.get_background_content(&node_data[div_id], &div_id, &state);
     assert!(bg.is_some(), "Div with class 'red' should have background-color from .red {{ background-color: #ff0000 }}");
 }
+
+// ===================================================================
+// Round-trip: CSS → compact cache → getter reads
+// Tests that the compact builder encodes values correctly AND the
+// layout engine's getters decode them back to the original values.
+// ===================================================================
+
+/// Helper: create a styled dom with a body child div that has the given CSS
+fn styled_div_with_css(css: &str) -> StyledDom {
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("t".into())].into())
+        )
+    );
+    styled(dom, css)
+}
+
+/// Read a compact i16 field and decode to f32 px value (÷10)
+fn read_compact_i16_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
+    let cc = styled.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let d = &cc.tier2_dims[idx];
+    let raw = match field {
+        "padding_top" => d.padding_top,
+        "padding_bottom" => d.padding_bottom,
+        "padding_left" => d.padding_left,
+        "padding_right" => d.padding_right,
+        "margin_top" => d.margin_top,
+        "margin_bottom" => d.margin_bottom,
+        "margin_left" => d.margin_left,
+        "margin_right" => d.margin_right,
+        "border_top_width" => d.border_top_width,
+        "border_bottom_width" => d.border_bottom_width,
+        "border_left_width" => d.border_left_width,
+        "border_right_width" => d.border_right_width,
+        "top" => d.top,
+        "bottom" => d.bottom,
+        "left" => d.left,
+        "right" => d.right,
+        _ => panic!("Unknown field: {}", field),
+    };
+    raw as f32 / 10.0
+}
+
+/// Read a compact u32 width/height field and decode to f32 px value
+fn read_compact_u32_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
+    let cc = styled.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let d = &cc.tier2_dims[idx];
+    let raw = match field {
+        "width" => d.width,
+        "height" => d.height,
+        _ => panic!("Unknown field: {}", field),
+    };
+    // Decode: lower 4 bits = metric, upper 28 bits = value
+    let metric = raw & 0xF;
+    let value = (raw >> 4) as i32;
+    if metric == 0 { // Px
+        value as f32 / 1000.0
+    } else {
+        panic!("Expected Px metric (0), got {}", metric);
+    }
+}
+
+#[test]
+fn test_roundtrip_padding() {
+    let s = styled_div_with_css(".t { padding: 15px; }");
+    // node 0=Html, 1=Body, 2=Div
+    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_top"), 15.0, "padding-top");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_bottom"), 15.0, "padding-bottom");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_left"), 15.0, "padding-left");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_right"), 15.0, "padding-right");
+}
+
+#[test]
+fn test_roundtrip_margin() {
+    let s = styled_div_with_css(".t { margin: 10px; }");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_top"), 10.0, "margin-top");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_bottom"), 10.0, "margin-bottom");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_left"), 10.0, "margin-left");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_right"), 10.0, "margin-right");
+}
+
+#[test]
+fn test_roundtrip_width_height() {
+    let s = styled_div_with_css(".t { width: 200px; height: 100px; }");
+    assert_eq!(read_compact_u32_as_px(&s, 2, "width"), 200.0, "width");
+    assert_eq!(read_compact_u32_as_px(&s, 2, "height"), 100.0, "height");
+}
+
+#[test]
+fn test_roundtrip_border_width() {
+    let s = styled_div_with_css(".t { border: 3px solid red; }");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "border_top_width"), 3.0, "border-top-width");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "border_bottom_width"), 3.0, "border-bottom-width");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "border_left_width"), 3.0, "border-left-width");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "border_right_width"), 3.0, "border-right-width");
+}
+
+#[test]
+fn test_roundtrip_position_offsets() {
+    let s = styled_div_with_css(".t { position: absolute; top: 10px; left: 20px; bottom: 30px; right: 40px; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let t1 = cc.tier1_enums[2];
+    let pos = ((t1 >> POSITION_SHIFT) & POSITION_MASK) as u8;
+    // position: absolute = 2 in new encoding (Static=0, Relative=1, Absolute=2)
+    assert_eq!(pos, 2, "position should be absolute (2), got {}", pos);
+    assert_eq!(read_compact_i16_as_px(&s, 2, "top"), 10.0, "top");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "left"), 20.0, "left");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "bottom"), 30.0, "bottom");
+    assert_eq!(read_compact_i16_as_px(&s, 2, "right"), 40.0, "right");
+}
+
+#[test]
+fn test_roundtrip_display_flex() {
+    let s = styled_div_with_css(".t { display: flex; flex-direction: column; flex-wrap: wrap; justify-content: center; align-items: center; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let t1 = cc.tier1_enums[2];
+    let display = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
+    assert_eq!(display, layout_display_to_u8(azul_css::props::layout::LayoutDisplay::Flex), "display:flex");
+    let flex_dir = ((t1 >> FLEX_DIRECTION_SHIFT) & FLEX_DIR_MASK) as u8;
+    assert_eq!(flex_dir, layout_flex_direction_to_u8(azul_css::props::layout::LayoutFlexDirection::Column), "flex-direction:column");
+    let flex_wrap = ((t1 >> FLEX_WRAP_SHIFT) & FLEX_WRAP_MASK) as u8;
+    assert_eq!(flex_wrap, layout_flex_wrap_to_u8(azul_css::props::layout::LayoutFlexWrap::Wrap), "flex-wrap:wrap");
+}
+
+#[test]
+fn test_roundtrip_overflow_visible_default() {
+    // No overflow set → should default to visible (0)
+    let s = styled_div_with_css(".t { width: 100px; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let t1 = cc.tier1_enums[2];
+    let ox = ((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8;
+    let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
+    assert_eq!(ox, 0, "overflow-x should default to visible (0)");
+    assert_eq!(oy, 0, "overflow-y should default to visible (0)");
+}
+
+#[test]
+fn test_roundtrip_overflow_hidden() {
+    let s = styled_div_with_css(".t { overflow: hidden; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let t1 = cc.tier1_enums[2];
+    let ox = ((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8;
+    let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
+    assert_eq!(ox, layout_overflow_to_u8(azul_css::props::layout::LayoutOverflow::Hidden), "overflow-x:hidden");
+    assert_eq!(oy, layout_overflow_to_u8(azul_css::props::layout::LayoutOverflow::Hidden), "overflow-y:hidden");
+}
+
+#[test]
+fn test_roundtrip_text_color() {
+    let s = styled_div_with_css(".t { color: #ff0000; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let text_color = cc.tier2b_text[2].text_color;
+    // Encoded as RGBA u32: (r<<24) | (g<<16) | (b<<8) | a
+    let r = (text_color >> 24) & 0xFF;
+    let g = (text_color >> 16) & 0xFF;
+    let b = (text_color >> 8) & 0xFF;
+    let a = text_color & 0xFF;
+    assert_eq!(r, 255, "red");
+    assert_eq!(g, 0, "green");
+    assert_eq!(b, 0, "blue");
+    assert_eq!(a, 255, "alpha");
+}
+
+#[test]
+fn test_roundtrip_border_color() {
+    let s = styled_div_with_css(".t { border: 1px solid #00ff00; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let c = cc.tier2_cold[2].border_top_color;
+    let r = (c >> 24) & 0xFF;
+    let g = (c >> 16) & 0xFF;
+    let b = (c >> 8) & 0xFF;
+    assert_eq!(r, 0, "border-top-color red");
+    assert_eq!(g, 255, "border-top-color green");
+    assert_eq!(b, 0, "border-top-color blue");
+}
+
+#[test]
+fn test_roundtrip_global_star_overrides_ua_margin() {
+    // * { margin: 0; } should override body's UA margin: 8px
+    let dom = Dom::create_html().with_child(Dom::create_body());
+    let s = styled(dom, "* { margin: 0; }");
+    // Body is node 1
+    assert_eq!(read_compact_i16_as_px(&s, 1, "margin_top"), 0.0, "body margin-top should be 0 (overridden by *)");
+    assert_eq!(read_compact_i16_as_px(&s, 1, "margin_left"), 0.0, "body margin-left should be 0 (overridden by *)");
+}
+
+#[test]
+fn test_roundtrip_specific_overrides_global_star() {
+    // body { padding: 20px; } should override * { padding: 0; }
+    let dom = Dom::create_html().with_child(Dom::create_body());
+    let s = styled(dom, "* { padding: 0; } body { padding: 20px; }");
+    assert_eq!(read_compact_i16_as_px(&s, 1, "padding_top"), 20.0,
+        "body padding-top should be 20px (body selector overrides *)");
+    assert_eq!(read_compact_i16_as_px(&s, 1, "padding_bottom"), 20.0,
+        "body padding-bottom should be 20px (body selector overrides *)");
+}
+
+#[test]
+fn test_roundtrip_font_weight_default() {
+    // No CSS → font-weight should default to Normal (0 in encoding)
+    let s = styled_div_with_css(".t { width: 100px; }");
+    assert_eq!(get_font_weight(&s, 2), 0, "font-weight should default to Normal (0)");
+}
+
+#[test]
+fn test_roundtrip_visibility() {
+    let s = styled_div_with_css(".t { visibility: hidden; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let t1 = cc.tier1_enums[2];
+    let vis = ((t1 >> VISIBILITY_SHIFT) & VISIBILITY_MASK) as u8;
+    assert_ne!(vis, 0, "visibility:hidden should not be 0 (visible)");
+}
+
+#[test]
+fn test_roundtrip_z_index() {
+    let s = styled_div_with_css(".t { position: relative; z-index: 5; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    assert_eq!(cc.tier2_cold[2].z_index, 5, "z-index should be 5");
+}
