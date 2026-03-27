@@ -1699,6 +1699,13 @@ impl CssPropertyCache {
             return Some(p);
         }
 
+        // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0)
+        // These are collected once during restyle and apply to all nodes.
+        // Lower priority than per-node rules but higher than inheritance/UA.
+        if let Some(p) = self.global_css_props.iter().find(|p| p.get_type() == *css_property_type) {
+            return Some(p);
+        }
+
         // PRIORITY 3: Cascaded/inherited properties
         if let Some(p) = Self::find_in_stateful(
             self.cascaded_props.get_slice(node_id.index()),

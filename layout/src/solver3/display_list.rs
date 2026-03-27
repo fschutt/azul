@@ -1826,6 +1826,10 @@ where
                 child_contexts.push(self.collect_stacking_contexts(child_index)?);
             } else {
                 in_flow_children.push(child_index);
+                // Recurse into non-stacking-context children to find nested
+                // stacking contexts. Per CSS 2.2 Appendix E, these are promoted
+                // to be child stacking contexts of the nearest ancestor SC.
+                self.find_nested_stacking_contexts(child_index, &mut child_contexts)?;
             }
         }
 
@@ -1835,6 +1839,23 @@ where
             child_contexts,
             in_flow_children,
         })
+    }
+
+    /// Recursively searches non-stacking-context subtrees for nested stacking
+    /// contexts, promoting them to the parent stacking context's child list.
+    fn find_nested_stacking_contexts(
+        &mut self,
+        parent_index: usize,
+        child_contexts: &mut Vec<StackingContext>,
+    ) -> Result<()> {
+        for &child_index in self.positioned_tree.tree.children(parent_index) {
+            if self.establishes_stacking_context(child_index) {
+                child_contexts.push(self.collect_stacking_contexts(child_index)?);
+            } else {
+                self.find_nested_stacking_contexts(child_index, child_contexts)?;
+            }
+        }
+        Ok(())
     }
 
     // +spec:box-model:de94ab - stacking context painting order (negative z, in-flow, z=0, positive z)
@@ -2133,12 +2154,19 @@ where
         //    - Then: Float, non-dragging children (so they appear on top)
         //    - Finally: Dragging children (so they appear on top of everything per W3C spec)
 
-        // Separate children into floats, non-floats, and dragging
+        // Separate children into floats, non-floats, and dragging.
+        // Skip children that establish stacking contexts - those are painted
+        // separately via generate_for_stacking_context with proper z-ordering.
         let mut non_float_children = Vec::new();
         let mut float_children = Vec::new();
         let mut dragging_children = Vec::new();
 
         for &child_index in children_indices {
+            // Skip stacking context children - they're painted by the stacking
+            // context tree traversal, not by the in-flow descendant path.
+            if self.establishes_stacking_context(child_index) {
+                continue;
+            }
             let child_node = self
                 .positioned_tree
                 .tree
