@@ -447,3 +447,42 @@ fn test_roundtrip_z_index() {
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     assert_eq!(cc.tier2_cold[2].z_index, 5, "z-index should be 5");
 }
+
+#[test]
+fn test_calc_width_falls_through_to_slow_path() {
+    // calc() values can't be pre-resolved to px, so compact cache stores U32_SENTINEL.
+    // The getter should fall through to the slow path and return the calc expression.
+    let s = styled_div_with_css(".t { width: calc(100% - 20px); }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let raw = cc.tier2_dims[2].width;
+    // Should be U32_SENTINEL (calc can't be pre-encoded)
+    assert!(raw >= azul_css::compact_cache::U32_SENTINEL_THRESHOLD,
+        "calc() width should encode as sentinel (got {}), compact cache should fall through to slow path", raw);
+
+    // Verify the slow path returns the actual calc value
+    let node_data = &s.node_data.as_container();
+    let div_id = azul_core::dom::NodeId::new(2);
+    let state = azul_core::styled_dom::StyledNodeState::default();
+    let width_prop = s.css_property_cache.ptr.get_width(&node_data[div_id], &div_id, &state);
+    assert!(width_prop.is_some(), "slow path should return width property for calc()");
+    if let Some(w) = width_prop {
+        // Check it's a calc variant via the inner LayoutWidth
+        if let Some(inner) = w.get_property() {
+            assert!(matches!(inner, azul_css::props::layout::LayoutWidth::Calc(_)),
+                "slow path should return LayoutWidth::Calc, got {:?}", inner);
+        }
+    }
+}
+
+#[test]
+fn test_percentage_width_in_compact_cache() {
+    // Percentage values should encode with metric=Percent in compact cache
+    let s = styled_div_with_css(".t { width: 50%; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let raw = cc.tier2_dims[2].width;
+    // Decode: lower 4 bits = metric (Percent=7), upper 28 bits = value
+    let metric = raw & 0xF;
+    let value = (raw >> 4) as i32;
+    assert_eq!(metric, 7, "50% width metric should be Percent (7), got {}", metric);
+    assert_eq!(value, 50000, "50% width value should be 50000 (50.0%), got {}", value);
+}

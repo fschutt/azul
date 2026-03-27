@@ -1,41 +1,35 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
-        <title>Showcase: Complex Flexbox Layout with Nested Containers</title>
-        <link rel="author" title="Azul Layout" href="https://azul.rs/" />
-        <meta name="flags" content="" />
-        <meta name="assert" content="Flexbox should handle complex nested layouts with different flex-direction, justify-content, and align-items combinations." />
+        <title>Showcase: Complex Flexbox Layout</title>
         <style type="text/css">
-            * { margin: 0; padding: 0; }
-            body {
-                width: 800px;
-                height: 600px;
-                background: #f0f0f0;
-            }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { width: 800px; height: 600px; background: #ddd; }
             .container {
                 display: flex;
                 width: 100%;
                 height: 100%;
                 flex-direction: column;
-                padding: 20px;
+                padding: 10px;
+                background: #bbb;
+                border: 5px solid #000;
             }
             .header {
                 display: flex;
-                height: 80px;
-                background: #667eea;
+                height: 60px;
+                background: #ff0000;
+                border: 3px solid #800000;
+                margin-bottom: 10px;
                 justify-content: space-between;
                 align-items: center;
-                padding: 0 20px;
-                margin-bottom: 10px;
-            }
-            .header-left, .header-right {
-                display: flex;
+                padding: 0 10px;
             }
             .header-item {
-                width: 40px;
-                height: 40px;
-                background: #9ca3e8;
-                margin-left: 10px;
+                width: 30px;
+                height: 30px;
+                background: #ffff00;
+                border: 2px solid #888800;
+                margin-left: 5px;
             }
             .content {
                 display: flex;
@@ -44,75 +38,79 @@
             .sidebar {
                 display: flex;
                 flex-direction: column;
-                width: 200px;
-                background: #3b82f6;
-                padding: 15px;
+                width: 150px;
+                background: #0000ff;
+                border: 3px solid #000080;
+                padding: 10px;
                 margin-right: 10px;
             }
             .sidebar-item {
-                height: 50px;
-                background: #60a5fa;
-                margin-bottom: 10px;
+                height: 40px;
+                background: #00ffff;
+                border: 2px solid #008888;
+                margin-bottom: 8px;
             }
             .main {
                 display: flex;
                 flex: 1;
-                flex-direction: column;
-            }
-            .cards {
-                display: flex;
                 flex-wrap: wrap;
-                flex: 1;
+                align-content: flex-start;
             }
             .card {
                 display: flex;
                 flex-direction: column;
-                width: calc(33.333% - 10px);
-                background: white;
-                padding: 20px;
-                justify-content: space-between;
-                margin-right: 15px;
-                margin-bottom: 15px;
-            }
-            .card-header {
-                height: 40px;
-                background: #10b981;
+                width: 200px;
+                height: 120px;
+                background: #ffffff;
+                border: 3px solid #00aa00;
+                padding: 8px;
+                margin-right: 10px;
                 margin-bottom: 10px;
             }
-            .card-content {
-                flex: 1;
-                background: #f3f4f6;
-            }
-            .card-footer {
+            .card-top {
                 height: 30px;
-                background: #6366f1;
-                margin-top: 10px;
+                background: #00ff00;
+                border: 2px solid #006600;
+                margin-bottom: 5px;
+            }
+            .card-mid {
+                flex: 1;
+                background: #ff00ff;
+                border: 2px solid #880088;
+            }
+            .card-bot {
+                height: 20px;
+                background: #ff8800;
+                border: 2px solid #884400;
+                margin-top: 5px;
             }
             .footer {
                 display: flex;
-                height: 60px;
-                background: #1f2937;
+                height: 50px;
+                background: #333333;
+                border: 3px solid #000;
+                margin-top: 10px;
                 justify-content: center;
                 align-items: center;
-                margin-top: 10px;
             }
             .footer-item {
-                width: 80px;
-                height: 30px;
-                background: #374151;
-                margin-left: 20px;
+                width: 60px;
+                height: 25px;
+                background: #666666;
+                border: 2px solid #999;
+                margin-left: 15px;
             }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <div class="header-left">
+                <div style="display:flex;">
                     <div class="header-item"></div>
                     <div class="header-item"></div>
                     <div class="header-item"></div>
                 </div>
-                <div class="header-right">
+                <div style="display:flex;">
                     <div class="header-item"></div>
                     <div class="header-item"></div>
                 </div>
@@ -125,42 +123,29 @@
                     <div class="sidebar-item"></div>
                 </div>
                 <div class="main">
-                    <div class="cards">
-                        <div class="card">
-                            <div class="card-header"></div>
-                            <div class="card-content"></div>
-                            <div class="card-footer"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header"></div>
-                            <div class="card-content"></div>
-                            <div class="card-footer"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header"></div>
-                            <div class="card-content"></div>
-                            <div class="card-footer"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header"></div>
-                            <div class="card-content"></div>
-                            <div class="card-footer"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header"></div>
-                            <div class="card-content"></div>
-                            <div class="card-footer"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header"></div>
-                            <div class="card-content"></div>
-                            <div class="card-footer"></div>
-                        </div>
+                    <div class="card">
+                        <div class="card-top"></div>
+                        <div class="card-mid"></div>
+                        <div class="card-bot"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-top"></div>
+                        <div class="card-mid"></div>
+                        <div class="card-bot"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-top"></div>
+                        <div class="card-mid"></div>
+                        <div class="card-bot"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-top"></div>
+                        <div class="card-mid"></div>
+                        <div class="card-bot"></div>
                     </div>
                 </div>
             </div>
             <div class="footer">
-                <div class="footer-item"></div>
                 <div class="footer-item"></div>
                 <div class="footer-item"></div>
                 <div class="footer-item"></div>

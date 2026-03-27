@@ -3,39 +3,42 @@
     <head>
         <title>Flexbox: Simple Test</title>
         <style type="text/css">
-            * { margin: 0; padding: 0; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
                 width: 800px;
                 height: 600px;
                 padding: 20px;
-                background: #ecf0f1;
+                background: #cccccc;
             }
             .container {
                 display: flex;
                 width: 100%;
                 height: 100px;
                 background: white;
-                border: 2px solid black;
+                border: 5px solid #000;
             }
             .item1 {
                 flex-grow: 1;
-                background: #e74c3c;
+                background: #ff0000;
+                border: 3px solid #880000;
             }
             .item2 {
                 flex-grow: 2;
-                background: #3498db;
+                background: #0000ff;
+                border: 3px solid #000088;
             }
             .item3 {
                 flex-grow: 3;
-                background: #2ecc71;
+                background: #00ff00;
+                border: 3px solid #008800;
             }
         </style>
     </head>
     <body>
         <div class="container">
-            <div class="item1" style="flex-grow: 1;"></div>
-            <div class="item2" style="flex-grow: 2;"></div>
-            <div class="item3" style="flex-grow: 3;"></div>
+            <div class="item1"></div>
+            <div class="item2"></div>
+            <div class="item3"></div>
         </div>
     </body>
 </html>
