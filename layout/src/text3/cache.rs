@@ -484,6 +484,96 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
     }
 }
 
+/// Bundles all font-related state that can be shared across layout passes.
+///
+/// Separates font concerns from layout/rendering state (`LayoutWindow`).
+/// Each test/render creates a fresh `LayoutWindow` from a shared `FontContext`,
+/// avoiding stale layout cache reuse while keeping parsed fonts warm.
+///
+/// Usage:
+/// ```ignore
+/// let ctx = FontContext::from_fc_cache(fc_cache);
+/// ctx.pre_resolve_chains(&styled_dom, &platform);
+/// ctx.load_fonts_for_chains();
+///
+/// // Per-test: create fresh LayoutWindow from context
+/// let mut window = LayoutWindow::from_font_context(&ctx)?;
+/// window.layout_and_generate_display_list(styled_dom, ...)?;
+/// ```
+#[derive(Debug, Clone)]
+pub struct FontContext {
+    pub fc_cache: Arc<FcFontCache>,
+    pub parsed_fonts: Arc<Mutex<HashMap<FontId, azul_css::props::basic::FontRef>>>,
+    pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    pub embedded_fonts: HashMap<u64, azul_css::props::basic::FontRef>,
+}
+
+impl FontContext {
+    /// Create from an `FcFontCache` (e.g., from `FcFontRegistry::into_fc_font_cache()`).
+    /// Parsed fonts, font chains, and embedded fonts start empty.
+    pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
+        Self {
+            fc_cache: Arc::new(fc_cache),
+            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
+            font_chain_cache: HashMap::new(),
+            embedded_fonts: HashMap::new(),
+        }
+    }
+
+    /// Pre-resolve font chains for a StyledDom's CSS font stacks.
+    /// Call this before layout so text rendering doesn't skip glyphs.
+    pub fn pre_resolve_chains_for_dom(
+        &mut self,
+        styled_dom: &azul_core::styled_dom::StyledDom,
+        platform: &azul_css::system::Platform,
+    ) {
+        use crate::solver3::getters::{
+            collect_and_resolve_font_chains,
+        };
+        let chains = collect_and_resolve_font_chains(styled_dom, &self.fc_cache, platform);
+        self.font_chain_cache = chains.into_fontconfig_chains();
+    }
+
+    /// Load parsed font bytes from disk for all fonts referenced in `font_chain_cache`.
+    pub fn load_fonts_for_chains(&self) {
+        use crate::solver3::getters::{collect_font_ids_from_chains, compute_fonts_to_load, load_fonts_from_disk};
+        use crate::text3::default::PathLoader;
+
+        // Convert FontChainKey → FontChainKeyOrRef for collect_font_ids_from_chains
+        let chains_map: HashMap<FontChainKeyOrRef, _> = self.font_chain_cache.iter()
+            .map(|(k, v)| (FontChainKeyOrRef::Chain(k.clone()), v.clone()))
+            .collect();
+        let resolved = crate::solver3::getters::ResolvedFontChains { chains: chains_map };
+        let required = collect_font_ids_from_chains(&resolved);
+        let already = self.parsed_fonts.lock().map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        let to_load = compute_fonts_to_load(&required, &already);
+
+        if !to_load.is_empty() {
+            let loader = PathLoader::new();
+            let result = load_fonts_from_disk(
+                &to_load,
+                &self.fc_cache,
+                |bytes, index| loader.load_font(bytes, index),
+            );
+            if let Ok(mut map) = self.parsed_fonts.lock() {
+                for (id, font) in result.loaded {
+                    map.insert(id, font);
+                }
+            }
+        }
+    }
+
+    /// Convert into a `FontManager` with all data populated.
+    pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
+        FontManager {
+            fc_cache: self.fc_cache.clone(),
+            parsed_fonts: self.parsed_fonts.clone(),
+            font_chain_cache: self.font_chain_cache.clone(),
+            embedded_fonts: Mutex::new(self.embedded_fonts.clone()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FontManager<T> {
     /// Cache that holds the **file paths** of the fonts (not any font data itself)

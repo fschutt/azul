@@ -1037,10 +1037,11 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    // Snapshot the cache — clone once, reuse for all renders
+    // Snapshot the cache → build FontContext for rendering
     let fc_cache = font_registry.cache.read()
         .map(|c| c.clone())
         .map_err(|e| format!("Failed to read font cache: {}", e))?;
+    let font_context = azul_layout::FontContext::from_fc_cache(fc_cache.clone());
     // Signal shutdown so background threads exit cleanly
     font_registry.shutdown.store(true, std::sync::atomic::Ordering::Release);
     font_registry.queue_condvar.notify_all();
@@ -1067,7 +1068,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
             &job.azul_file,
             job.size.width,
             job.size.height,
-            &fc_cache,
+            &font_context,
         ) {
             Ok(dd) => {
                 let mut map = debug_data_map.lock().unwrap();
@@ -1408,19 +1409,16 @@ fn generate_chrome_layout_with_timeout(
 }
 
 /// Render a test using the new pipeline's stateless render function.
-/// Creates a per-call LayoutWindow from the shared font cache.
-/// Safe for parallel use (each call gets its own LayoutWindow).
+/// Render using FontContext. Safe for parallel use (each call creates its own LayoutWindow).
 fn generate_azul_rendering_at_size_cached(
     test_file: &Path,
     output_file: &Path,
     width: u32,
     height: u32,
-    fc_cache: &rust_fontconfig::FcFontCache,
+    font_context: &azul_layout::FontContext,
 ) -> Result<super::DebugData, String> {
-    let mut layout_window = azul_layout::LayoutWindow::new(fc_cache.clone())
-        .map_err(|e| format!("LayoutWindow: {:?}", e))?;
     let (debug_data, _timing) = super::pipeline::render_xhtml_to_webp(
-        &mut layout_window, test_file, output_file, width, height, false,
+        font_context, test_file, output_file, width, height, false,
     )?;
     Ok(debug_data)
 }

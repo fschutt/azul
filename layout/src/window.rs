@@ -485,10 +485,18 @@ impl LayoutWindow {
     }
 
     /// Create a new layout window that shares already-parsed fonts with
-    /// previous windows. The `fc_cache` (path discovery) and `parsed_fonts`
-    /// (parsed font data) are shared via Arc, so fonts parsed during the
-    /// first layout are reused by subsequent layouts without re-reading
-    /// from disk.
+    /// Create a LayoutWindow from a `FontContext` — shares all font data,
+    /// starts with fresh layout cache, text cache, and all other state.
+    pub fn from_font_context(ctx: &crate::text3::cache::FontContext) -> Result<Self, crate::solver3::LayoutError> {
+        let fm = ctx.to_font_manager();
+        let fc_cache = fm.fc_cache.clone();
+        let parsed_fonts = fm.parsed_fonts.clone();
+        let mut lw = Self::new_with_shared_fonts(fc_cache, parsed_fonts)?;
+        lw.font_manager = fm;
+        Ok(lw)
+    }
+
+    /// Create from shared fc_cache + parsed_fonts Arcs.
     pub fn new_with_shared_fonts(
         fc_cache: std::sync::Arc<FcFontCache>,
         parsed_fonts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, FontRef>>>,
