@@ -2105,57 +2105,69 @@ fn render_single_item(
                 styles,
                 border_radius,
             } => {
-                use azul_css::{css::CssPropertyValue, props::basic::pixel::DEFAULT_FONT_SIZE};
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
 
-                let width = widths
-                    .top
-                    .and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
-                    .unwrap_or(0.0);
+                let default_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
-                let color = colors
-                    .top
-                    .and_then(|c| c.get_property().cloned())
-                    .map(|c| c.inner)
-                    .unwrap_or(ColorU {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    });
+                let w_top = widths.top.and_then(|w| w.get_property().cloned())
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                let w_right = widths.right.and_then(|w| w.get_property().cloned())
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                let w_bottom = widths.bottom.and_then(|w| w.get_property().cloned())
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                let w_left = widths.left.and_then(|w| w.get_property().cloned())
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+
+                let c_top = colors.top.and_then(|c| c.get_property().cloned())
+                    .map(|c| c.inner).unwrap_or(default_color);
+                let c_right = colors.right.and_then(|c| c.get_property().cloned())
+                    .map(|c| c.inner).unwrap_or(default_color);
+                let c_bottom = colors.bottom.and_then(|c| c.get_property().cloned())
+                    .map(|c| c.inner).unwrap_or(default_color);
+                let c_left = colors.left.and_then(|c| c.get_property().cloned())
+                    .map(|c| c.inner).unwrap_or(default_color);
+
+                use azul_css::props::style::border::BorderStyle;
+                let s_top = styles.top.and_then(|s| s.get_property().cloned())
+                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
+                let s_right = styles.right.and_then(|s| s.get_property().cloned())
+                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
+                let s_bottom = styles.bottom.and_then(|s| s.get_property().cloned())
+                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
+                let s_left = styles.left.and_then(|s| s.get_property().cloned())
+                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
 
                 let simple_radius = BorderRadius {
-                    top_left: border_radius
-                        .top_left
+                    top_left: border_radius.top_left
                         .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
-                    top_right: border_radius
-                        .top_right
+                    top_right: border_radius.top_right
                         .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
-                    bottom_left: border_radius
-                        .bottom_left
+                    bottom_left: border_radius.bottom_left
                         .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
-                    bottom_right: border_radius
-                        .bottom_right
+                    bottom_right: border_radius.bottom_right
                         .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
                 };
 
-                let border_style = styles
-                    .top
-                    .and_then(|s| s.get_property().cloned())
-                    .map(|s| s.inner)
-                    .unwrap_or(azul_css::props::style::border::BorderStyle::Solid);
-
                 let clip = *clip_stack.last().unwrap();
-                render_border(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    color,
-                    width,
-                    border_style,
-                    &simple_radius,
-                    clip,
-                    dpi_factor,
-                )?;
+                let b = scroll_rect(bounds.inner());
+
+                // If all sides same color/width/style, use single render_border call
+                let all_same = c_top == c_right && c_top == c_bottom && c_top == c_left
+                    && w_top == w_right && w_top == w_bottom && w_top == w_left
+                    && s_top == s_right && s_top == s_bottom && s_top == s_left;
+
+                if all_same {
+                    render_border(pixmap, &b, c_top, w_top, s_top, &simple_radius, clip, dpi_factor)?;
+                } else {
+                    // Per-side rendering: render each side separately
+                    render_border_sides(
+                        pixmap, &b,
+                        [c_top, c_right, c_bottom, c_left],
+                        [w_top, w_right, w_bottom, w_left],
+                        [s_top, s_right, s_bottom, s_left],
+                        &simple_radius, clip, dpi_factor,
+                    )?;
+                }
             }
             DisplayListItem::Underline {
                 bounds,
@@ -2915,6 +2927,70 @@ fn render_border(
         }
     }
 
+    Ok(())
+}
+
+/// Render border with per-side colors/widths/styles.
+/// Each side is rendered as a separate trapezoid (the CSS border model).
+fn render_border_sides(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    colors: [ColorU; 4], // top, right, bottom, left
+    widths: [f32; 4],
+    styles: [azul_css::props::style::border::BorderStyle; 4],
+    border_radius: &BorderRadius,
+    clip: Option<AzRect>,
+    dpi_factor: f32,
+) -> Result<(), String> {
+    // Render each side individually using clipped render_border calls.
+    // Each call renders the full border shape but clipped to just one side.
+    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    // Top side: clip to top half
+    let top_clip = AzRect::from_xywh(rect.x, rect.y, rect.width, widths[0] * dpi_factor + 1.0);
+    if widths[0] > 0.0 && colors[0].a > 0 {
+        let combined_clip = match (clip, top_clip) {
+            (Some(c), Some(tc)) => c.clip(&tc),
+            (None, tc) => tc,
+            (c, None) => c,
+        };
+        render_border(pixmap, bounds, colors[0], widths[0], styles[0], border_radius, combined_clip, dpi_factor)?;
+    }
+    // Right side
+    let right_x = rect.x + rect.width - widths[1] * dpi_factor - 1.0;
+    let right_clip = AzRect::from_xywh(right_x.max(rect.x), rect.y, widths[1] * dpi_factor + 1.0, rect.height);
+    if widths[1] > 0.0 && colors[1].a > 0 {
+        let combined_clip = match (clip, right_clip) {
+            (Some(c), Some(rc)) => c.clip(&rc),
+            (None, rc) => rc,
+            (c, None) => c,
+        };
+        render_border(pixmap, bounds, colors[1], widths[1], styles[1], border_radius, combined_clip, dpi_factor)?;
+    }
+    // Bottom side
+    let bottom_y = rect.y + rect.height - widths[2] * dpi_factor - 1.0;
+    let bottom_clip = AzRect::from_xywh(rect.x, bottom_y.max(rect.y), rect.width, widths[2] * dpi_factor + 1.0);
+    if widths[2] > 0.0 && colors[2].a > 0 {
+        let combined_clip = match (clip, bottom_clip) {
+            (Some(c), Some(bc)) => c.clip(&bc),
+            (None, bc) => bc,
+            (c, None) => c,
+        };
+        render_border(pixmap, bounds, colors[2], widths[2], styles[2], border_radius, combined_clip, dpi_factor)?;
+    }
+    // Left side
+    let left_clip = AzRect::from_xywh(rect.x, rect.y, widths[3] * dpi_factor + 1.0, rect.height);
+    if widths[3] > 0.0 && colors[3].a > 0 {
+        let combined_clip = match (clip, left_clip) {
+            (Some(c), Some(lc)) => c.clip(&lc),
+            (None, lc) => lc,
+            (c, None) => c,
+        };
+        render_border(pixmap, bounds, colors[3], widths[3], styles[3], border_radius, combined_clip, dpi_factor)?;
+    }
     Ok(())
 }
 
