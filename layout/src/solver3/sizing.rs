@@ -613,48 +613,68 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
         let mut total_main_size = 0.0;
+        // Track margins for CSS 2.2 §8.3.1 collapsing in the block direction.
+        // Block margins collapse between siblings (max instead of sum) and
+        // parent-child margins can escape (first/last child).
+        let mut last_margin_main_end = 0.0f32;
+        let mut is_first_child = true;
 
         for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto margins as zero
-                // are based on the outer size of the box (margin-box). Add the child's margin,
-                // border, and padding to its intrinsic content size. Auto margins are treated
-                // as zero for this purpose.
                 let child_node = tree.get(child_index);
-                let (cross_extras, main_extras) = if let Some(cn) = child_node {
-                    let bp = cn.box_props.unpack();
-                    let h = bp.margin.left + bp.margin.right
-                          + bp.border.left + bp.border.right
-                          + bp.padding.left + bp.padding.right;
-                    let v = bp.margin.top + bp.margin.bottom
-                          + bp.border.top + bp.border.bottom
-                          + bp.padding.top + bp.padding.bottom;
-                    match writing_mode {
-                        LayoutWritingMode::HorizontalTb => (h, v),
-                        _ => (v, h),
-                    }
-                } else {
-                    (0.0, 0.0)
-                };
+                let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
+                    if let Some(cn) = child_node {
+                        let bp = cn.box_props.unpack();
+                        let h = bp.margin.left + bp.margin.right
+                              + bp.border.left + bp.border.right
+                              + bp.padding.left + bp.padding.right;
+                        let v_bp = bp.border.top + bp.border.bottom
+                              + bp.padding.top + bp.padding.bottom;
+                        match writing_mode {
+                            LayoutWritingMode::HorizontalTb => (h, v_bp, bp.margin.top, bp.margin.bottom),
+                            _ => (v_bp, h, bp.margin.left, bp.margin.right),
+                        }
+                    } else {
+                        (0.0, 0.0, 0.0, 0.0)
+                    };
 
-                let (child_min_cross, child_max_cross, child_main_size) = match writing_mode {
+                let (child_min_cross, child_max_cross, child_border_box_main) = match writing_mode {
                     LayoutWritingMode::HorizontalTb => (
                         child_intrinsic.min_content_width + cross_extras,
                         child_intrinsic.max_content_width + cross_extras,
-                        child_intrinsic.max_content_height + main_extras,
+                        child_intrinsic.max_content_height + main_border_padding,
                     ),
                     _ => (
                         child_intrinsic.min_content_height + cross_extras,
                         child_intrinsic.max_content_height + cross_extras,
-                        child_intrinsic.max_content_width + main_extras,
+                        child_intrinsic.max_content_width + main_border_padding,
                     ),
                 };
 
                 max_child_min_cross = max_child_min_cross.max(child_min_cross);
                 max_child_max_cross = max_child_max_cross.max(child_max_cross);
-                total_main_size += child_main_size;
+
+                // CSS 2.2 §8.3.1 margin collapsing for intrinsic sizing:
+                // - First child's margin-start can escape (don't add to total)
+                // - Between siblings: collapsed gap = max(prev_end, curr_start)
+                // - Last child's margin-end can escape (don't add to total)
+                if is_first_child {
+                    is_first_child = false;
+                    // First child: top margin may escape, don't add it
+                } else {
+                    // Sibling gap: collapsed margin between prev bottom and current top
+                    let collapsed_gap = crate::solver3::fc::collapse_margins(
+                        last_margin_main_end, main_margin_start
+                    );
+                    total_main_size += collapsed_gap;
+                }
+
+                total_main_size += child_border_box_main;
+                last_margin_main_end = main_margin_end;
             }
         }
+        // Last child's margin-end may escape — don't add it to total_main_size
 
         let (min_width, max_width, min_height, max_height) = match writing_mode {
             LayoutWritingMode::HorizontalTb => (
