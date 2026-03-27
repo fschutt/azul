@@ -1214,6 +1214,13 @@ pub struct CompactLayoutCache {
     /// which specific nodes' font-family changed (rather than relying on a
     /// collision-prone global XOR hash).
     pub prev_font_hashes: Vec<u64>,
+    /// Reverse map: `font_family_hash` (u64) → actual `StyleFontFamilyVec`.
+    ///
+    /// Populated during `build_compact_cache()` as a byproduct of hash computation.
+    /// Consumers use this to look up font family names from the compact cache hash
+    /// without going through `get_property_slow()` (which fails for inherited values
+    /// on text nodes).
+    pub font_hash_to_families: alloc::collections::BTreeMap<u64, crate::props::basic::font::StyleFontFamilyVec>,
 }
 
 impl CompactLayoutCache {
@@ -1226,6 +1233,7 @@ impl CompactLayoutCache {
             tier2b_text: Vec::new(),
             font_dirty_nodes: Vec::new(),
             prev_font_hashes: Vec::new(),
+            font_hash_to_families: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -1238,6 +1246,7 @@ impl CompactLayoutCache {
             tier2b_text: vec![CompactTextProps::default(); node_count],
             font_dirty_nodes: Vec::new(),
             prev_font_hashes: vec![0u64; node_count],
+            font_hash_to_families: alloc::collections::BTreeMap::new(),
         }
     }
 

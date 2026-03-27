@@ -2309,16 +2309,28 @@ pub fn get_style_properties(
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
-    // NEW: Get ALL fonts from CSS font-family, not just first
     use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
 
-    let font_families = cache
-        .get_font_family(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .unwrap_or_else(|| {
-            // Default to serif (same as browser default)
-            StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
-        });
+    // Fast path: use compact cache reverse map (works for inherited values on text nodes).
+    // Slow path: only for non-normal pseudo states (:hover, :focus, etc.)
+    let font_families = if node_state.is_normal() {
+        cache.compact_cache.as_ref()
+            .and_then(|cc| {
+                let fh = cc.tier2b_text[dom_id.index()].font_family_hash;
+                if fh == 0 { return None; }
+                cc.font_hash_to_families.get(&fh).cloned()
+            })
+            .unwrap_or_else(|| {
+                StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
+            })
+    } else {
+        cache
+            .get_font_family(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().cloned())
+            .unwrap_or_else(|| {
+                StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
+            })
+    };
 
     // Get parent's font-size for proper em resolution in font-size property
     let parent_font_size = styled_dom
@@ -3126,17 +3138,19 @@ pub fn collect_font_stacks_from_styled_dom(
     // representative node to get the actual font-family names.
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
-    for (&(_fh, _wb, _sb), &repr_idx) in &unique_font_keys {
-        let nd = &node_data.internal[repr_idx];
+    for (&(fh, _wb, _sb), &repr_idx) in &unique_font_keys {
         let dom_id = match NodeId::from_usize(repr_idx) {
             Some(id) => id,
             None => continue,
         };
         let node_state = &styled_nodes[dom_id].styled_node_state;
 
-        let font_families = cache
-            .get_font_family(nd, &dom_id, node_state)
-            .and_then(|v| v.get_property().cloned())
+        // Use reverse map from compact cache: hash → actual font families.
+        // This works for ALL nodes including text nodes that inherit font-family
+        // via compact cache (where get_property_slow would return None).
+        let font_families = compact.font_hash_to_families
+            .get(&fh)
+            .cloned()
             .unwrap_or_else(|| {
                 StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
             });

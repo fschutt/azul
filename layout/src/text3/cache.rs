@@ -506,6 +506,9 @@ pub struct FontContext {
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, azul_css::props::basic::FontRef>>>,
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     pub embedded_fonts: HashMap<u64, azul_css::props::basic::FontRef>,
+    /// Reverse map: font_family_hash → actual StyleFontFamilyVec.
+    /// Accumulated across DOMs for persistence. Copied to FontManager on LayoutWindow creation.
+    pub font_hash_to_families: HashMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
 }
 
 impl FontContext {
@@ -517,6 +520,7 @@ impl FontContext {
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: HashMap::new(),
+            font_hash_to_families: HashMap::new(),
         }
     }
 
@@ -570,6 +574,7 @@ impl FontContext {
             parsed_fonts: self.parsed_fonts.clone(),
             font_chain_cache: self.font_chain_cache.clone(),
             embedded_fonts: Mutex::new(self.embedded_fonts.clone()),
+            font_hash_to_families: self.font_hash_to_families.clone(),
         }
     }
 }
@@ -588,6 +593,10 @@ pub struct FontManager<T> {
     /// Cache for direct FontRefs (embedded fonts like Material Icons)
     /// These are fonts referenced via FontStack::Ref that bypass fontconfig
     pub embedded_fonts: Mutex<HashMap<u64, azul_css::props::basic::FontRef>>,
+    /// Reverse map: font_family_hash → actual StyleFontFamilyVec.
+    /// Accumulated across DOMs. Used by font collection and text shaping to
+    /// resolve compact cache hashes without get_property_slow.
+    pub font_hash_to_families: HashMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -595,8 +604,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
         Ok(Self {
             fc_cache: Arc::new(fc_cache),
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(), // Populated via set_font_chain_cache()
+            font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
+            font_hash_to_families: HashMap::new(),
         })
     }
 
@@ -612,6 +622,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
+            font_hash_to_families: HashMap::new(),
         })
     }
 
@@ -629,6 +640,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             parsed_fonts,
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
+            font_hash_to_families: HashMap::new(),
         })
     }
 

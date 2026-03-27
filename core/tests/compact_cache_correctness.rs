@@ -660,3 +660,87 @@ fn test_multiple_text_children_with_different_parent_styles() {
     // Verify they're DIFFERENT
     assert_ne!(red_text_tc, blue_text_tc, "red and blue text should have different colors");
 }
+
+#[test]
+fn test_font_family_inherits_from_body() {
+    // body sets font-family: sans-serif, text inside div should inherit it
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                .with_child(Dom::create_text("hello"))
+        )
+    );
+    let s = styled(dom, "body { font-family: sans-serif; } .box { background: red; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    // node 0=Html, 1=Body, 2=Div, 3=Text
+    let body_fh = cc.tier2b_text[1].font_family_hash;
+    let div_fh = cc.tier2b_text[2].font_family_hash;
+    let text_fh = cc.tier2b_text[3].font_family_hash;
+    
+    assert_ne!(body_fh, 0, "body should have non-zero font_family_hash for sans-serif");
+    assert_eq!(div_fh, body_fh, "div should inherit font_family_hash from body");
+    assert_eq!(text_fh, body_fh, "text should inherit font_family_hash from body (via div)");
+}
+
+#[test]
+fn test_font_hash_to_families_populated() {
+    // font_hash_to_families reverse map should be populated for explicit font-family
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                .with_child(Dom::create_text("hello"))
+        )
+    );
+    let s = styled(dom, "body { font-family: sans-serif; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+
+    let body_fh = cc.tier2b_text[1].font_family_hash;
+    assert_ne!(body_fh, 0, "body should have non-zero font_family_hash");
+
+    // The reverse map should contain the hash
+    let families = cc.font_hash_to_families.get(&body_fh);
+    assert!(families.is_some(), "font_hash_to_families should contain body's hash");
+
+    // The families should include "sans-serif"
+    let families = families.unwrap();
+    let family_names: Vec<String> = (0..families.len())
+        .map(|i| families.get(i).unwrap().as_string())
+        .collect();
+    assert!(family_names.iter().any(|n| n == "sans-serif"),
+        "font families should contain 'sans-serif', got {:?}", family_names);
+}
+
+#[test]
+fn test_font_hash_to_families_text_node_inherits() {
+    // Text node inherits font_family_hash from body.
+    // The reverse map entry should be reachable using the text node's hash.
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                .with_child(Dom::create_text("hello"))
+        )
+    );
+    let s = styled(dom, "body { font-family: sans-serif; }");
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+
+    // node 3 is text — it inherits font_family_hash from body (via div)
+    let text_fh = cc.tier2b_text[3].font_family_hash;
+    assert_ne!(text_fh, 0, "text node should have inherited non-zero font_family_hash");
+
+    // The same hash should resolve to the same families via reverse map
+    let families = cc.font_hash_to_families.get(&text_fh);
+    assert!(families.is_some(),
+        "text node's inherited hash should be in font_hash_to_families");
+    let families = families.unwrap();
+    let family_names: Vec<String> = (0..families.len())
+        .map(|i| families.get(i).unwrap().as_string())
+        .collect();
+    assert!(family_names.iter().any(|n| n == "sans-serif"),
+        "inherited families should contain 'sans-serif', got {:?}", family_names);
+}

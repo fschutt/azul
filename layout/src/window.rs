@@ -801,6 +801,14 @@ impl LayoutWindow {
                     ));
                 }
 
+                // Merge font hash→families from compact cache into FontManager
+                // so the reverse map accumulates across DOMs.
+                if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
+                    for (k, v) in cc.font_hash_to_families.iter() {
+                        self.font_manager.font_hash_to_families.insert(*k, v.clone());
+                    }
+                }
+
                 // Step 0+1: Collect font stacks, register embedded FontRefs,
                 // and resolve chains in a single pass over the DOM nodes.
                 let chains = collect_and_resolve_font_chains_with_registration(

@@ -363,8 +363,9 @@ impl CssPropertyCache {
                     let mut hasher = DefaultHasher::new();
                     families.hash(&mut hasher);
                     let h = hasher.finish();
-                    // 0 is reserved as "unset" sentinel, avoid collision
-                    result.tier2b_text[i].font_family_hash = if h == 0 { 1 } else { h };
+                    let h = if h == 0 { 1 } else { h };
+                    result.tier2b_text[i].font_family_hash = h;
+                    result.font_hash_to_families.insert(h, families.clone());
                 }
             }
 
@@ -622,6 +623,7 @@ impl CssPropertyCache {
                             &mut result.tier2_dims[i],
                             &mut result.tier2_cold[i],
                             &mut result.tier2b_text[i],
+                            &mut result.font_hash_to_families,
                         );
                     }
                 }
@@ -644,6 +646,7 @@ impl CssPropertyCache {
                     &mut result.tier2_dims[i],
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
+                    &mut result.font_hash_to_families,
                 );
             }
 
@@ -673,6 +676,7 @@ impl CssPropertyCache {
                     &mut result.tier2_dims[i],
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
+                    &mut result.font_hash_to_families,
                 );
             }
 
@@ -700,6 +704,7 @@ impl CssPropertyCache {
                     &mut result.tier2_dims[i],
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
+                    &mut result.font_hash_to_families,
                 );
             }
 
@@ -709,12 +714,18 @@ impl CssPropertyCache {
             }
         }
 
-        // Font dirty tracking
+        // Font dirty tracking.
+        // When prev_font_hashes is empty (first build for this DOM), mark ALL
+        // text nodes dirty to force font resolution. Without this, a DOM with
+        // no explicit font-family (all hashes 0) would compare 0==0 and skip
+        // resolution, even though font-weight/font-style may differ from the
+        // cached chains of a previous DOM.
         result.font_dirty_nodes.clear();
+        let first_build = prev_font_hashes.is_empty();
         for i in 0..node_count {
             let new_hash = result.tier2b_text[i].font_family_hash;
             let old_hash = prev_font_hashes.get(i).copied().unwrap_or(0);
-            if new_hash != old_hash {
+            if first_build || new_hash != old_hash {
                 result.font_dirty_nodes.push(i);
             }
         }
@@ -737,6 +748,7 @@ fn apply_css_property_to_compact(
     dims: &mut CompactNodeProps,
     cold: &mut CompactNodePropsCold,
     text: &mut CompactTextProps,
+    font_hash_map: &mut alloc::collections::BTreeMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
 ) {
     macro_rules! set_tier1 {
         ($v:expr, $shift:expr, $mask:expr, $encoder:ident) => {
@@ -879,7 +891,9 @@ fn apply_css_property_to_compact(
                 let mut hasher = DefaultHasher::new();
                 families.hash(&mut hasher);
                 let h = hasher.finish();
-                text.font_family_hash = if h == 0 { 1 } else { h };
+                let h = if h == 0 { 1 } else { h };
+                text.font_family_hash = h;
+                font_hash_map.insert(h, families.clone());
             }
         }
         CssProperty::LineHeight(v) => {
