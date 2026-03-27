@@ -2078,16 +2078,18 @@ fn layout_bfc<T: ParsedFontTrait>(
             accumulated_top_margin,
             node_index
         );
-    } else if !top_margin_resolved {
-        // Unusual case: no content, zero margin
+    } else if !top_margin_resolved && accumulated_top_margin > 0.0 {
+        // No content was positioned, but margins accumulated (from empty blocks with margins)
         escaped_top_margin = Some(accumulated_top_margin);
         debug_info!(
             ctx,
-            "[layout_bfc] Escaping top margin (zero, no content): accumulated={}, node={}",
+            "[layout_bfc] Escaping top margin (no content, nonzero): accumulated={}, node={}",
             accumulated_top_margin,
             node_index
         );
     } else {
+        // Don't set escaped_top_margin = Some(0) — that would override the child's
+        // own margin (e.g., 30px) with 0 during sibling collapse.
         debug_info!(
             ctx,
             "[layout_bfc] NOT escaping top margin: top_margin_resolved={}, escaped={}, \
