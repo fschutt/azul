@@ -3696,6 +3696,8 @@ struct TableLayoutContext {
     collapsed_columns: std::collections::HashSet<usize>,
     /// Rows that are hidden-empty (zero height, border-spacing on only one side)
     hidden_empty_rows: std::collections::HashSet<usize>,
+    /// Layout tree indices for each row (row index → layout node index)
+    row_node_indices: Vec<usize>,
 }
 
 impl TableLayoutContext {
@@ -3713,6 +3715,7 @@ impl TableLayoutContext {
             collapsed_rows: std::collections::HashSet::new(),
             collapsed_columns: std::collections::HashSet::new(),
             hidden_empty_rows: std::collections::HashSet::new(),
+            row_node_indices: Vec::new(),
         }
     }
 }
@@ -4739,6 +4742,11 @@ fn analyze_table_row<T: ParsedFontTrait>(
     let row_node = tree.get(row_index).ok_or(LayoutError::InvalidTree)?;
     let row_num = table_ctx.num_rows;
     table_ctx.num_rows += 1;
+    // Track the layout tree index for this row (for positioning/painting)
+    if table_ctx.row_node_indices.len() <= row_num {
+        table_ctx.row_node_indices.resize(row_num + 1, 0);
+    }
+    table_ctx.row_node_indices[row_num] = row_index;
 
     // CSS 2.2 Section 17.6: Check if this row has visibility:collapse
     if is_visibility_collapsed(ctx, row_node) {
@@ -5786,6 +5794,27 @@ fn position_table_cells<T: ParsedFontTrait>(
             y_offset += height; // height is 0.0
         } else {
             y_offset += height + v_spacing; // Add spacing between rows
+        }
+    }
+
+    // Store row positions and sizes so paint_element_background can paint row backgrounds.
+    // Row width = sum of column widths + spacing. Row height from row_heights.
+    {
+        let total_col_width: f32 = table_ctx.columns.iter().map(|c| c.computed_width.unwrap_or(0.0)).sum::<f32>()
+            + h_spacing * (table_ctx.columns.len().max(1) - 1) as f32
+            + h_spacing * 2.0; // border-spacing on left+right edges
+        for (i, &row_y) in row_positions.iter().enumerate() {
+            if let Some(&row_node_idx) = table_ctx.row_node_indices.get(i) {
+                let row_height = table_ctx.row_heights.get(i).copied().unwrap_or(0.0);
+                if let Some(row_node) = tree.get_mut(row_node_idx) {
+                    row_node.used_size = Some(LogicalSize {
+                        width: total_col_width,
+                        height: row_height,
+                    });
+                }
+                let row_pos = LogicalPosition::new(0.0, row_y);
+                positions.insert(row_node_idx, row_pos);
+            }
         }
     }
 
