@@ -249,8 +249,6 @@ impl ReftestPipeline {
         })
     }
 
-    /// Render a test file with Azul using the shared LayoutWindow.
-    /// `collect_debug`: if true, enables layout debug messages (slower but collects diagnostics).
     fn render_azul(
         &mut self,
         test_file: &Path,
@@ -259,105 +257,105 @@ impl ReftestPipeline {
         height: u32,
         collect_debug: bool,
     ) -> Result<(DebugData, AzulTiming), String> {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_layout::callbacks::ExternalSystemCallbacks;
-        use azul_layout::window_state::FullWindowState;
+        render_xhtml_to_webp(&mut self.layout_window, test_file, output_file, width, height, collect_debug)
+    }
+}
 
-        // Parse XHTML → StyledDom (fast single-pass tokenizer)
-        let t_parse = Instant::now();
-        let xml_content = std::fs::read_to_string(test_file)
-            .map_err(|e| format!("read: {}", e))?;
-        let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
-            .map_err(|e| format!("parse: {}", e))?;
-        let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
+/// Core render function: XHTML file → parse → layout → CPU render → WebP.
+///
+/// Takes a `&mut LayoutWindow` so it can be called from both:
+/// - `ReftestPipeline::render_azul` (sequential, shared LayoutWindow)
+/// - autodebug parallel rendering (per-thread LayoutWindow)
+pub fn render_xhtml_to_webp(
+    layout_window: &mut azul_layout::LayoutWindow,
+    test_file: &Path,
+    output_file: &Path,
+    width: u32,
+    height: u32,
+    collect_debug: bool,
+) -> Result<(DebugData, AzulTiming), String> {
+    use azul_core::dom::DomId;
+    use azul_core::geom::LogicalSize;
+    use azul_layout::callbacks::ExternalSystemCallbacks;
+    use azul_layout::window_state::FullWindowState;
 
-        // Layout
-        let t_layout = Instant::now();
-        let mut fake_window_state = FullWindowState::default();
-        fake_window_state.size.dimensions = LogicalSize {
+    let t_parse = Instant::now();
+    let xml_content = std::fs::read_to_string(test_file)
+        .map_err(|e| format!("read: {}", e))?;
+    let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
+        .map_err(|e| format!("parse: {}", e))?;
+    let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
+
+    let t_layout = Instant::now();
+    let mut fake_window_state = FullWindowState::default();
+    fake_window_state.size.dimensions = LogicalSize {
+        width: width as f32,
+        height: height as f32,
+    };
+    fake_window_state.size.dpi = 96;
+    let mut renderer_resources = azul_core::resources::RendererResources::default();
+    let external = ExternalSystemCallbacks::rust_internal();
+
+    let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
+    layout_window.layout_and_generate_display_list(
+        styled_dom,
+        &fake_window_state,
+        &mut renderer_resources,
+        &external,
+        &mut debug_messages,
+    ).map_err(|e| format!("layout: {}", e))?;
+
+    let display_list = layout_window
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .ok_or("No layout result")?
+        .display_list;
+    let layout_us = t_layout.elapsed().as_secs_f64() * 1_000_000.0;
+
+    let t_render = Instant::now();
+    let dpi_factor = 1.0_f32;
+    let mut glyph_cache = azul_layout::glyph_cache::GlyphCache::new();
+    let pixmap = azul_layout::cpurender::render_with_font_manager(
+        &display_list,
+        &renderer_resources,
+        &layout_window.font_manager,
+        azul_layout::cpurender::RenderOptions {
             width: width as f32,
             height: height as f32,
-        };
-        fake_window_state.size.dpi = 96;
-        let mut renderer_resources = azul_core::resources::RendererResources::default();
-        let external = ExternalSystemCallbacks::rust_internal();
+            dpi_factor,
+        },
+        &mut glyph_cache,
+    ).map_err(|e| format!("render: {}", e))?;
+    let render_us = t_render.elapsed().as_secs_f64() * 1_000_000.0;
 
-        // Use shared layout_window (fonts already loaded from first test)
-        let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
-        self.layout_window.layout_and_generate_display_list(
-            styled_dom,
-            &fake_window_state,
-            &mut renderer_resources,
-            &external,
-            &mut debug_messages,
-        ).map_err(|e| format!("layout: {}", e))?;
+    let t_save = Instant::now();
+    let pixmap_data = pixmap.data();
+    let img = image::RgbaImage::from_raw(
+        (width as f32 * dpi_factor) as u32,
+        (height as f32 * dpi_factor) as u32,
+        pixmap_data.to_vec(),
+    ).ok_or("Failed to create image")?;
+    let encoder = image::codecs::webp::WebPEncoder::new_lossless(
+        std::io::BufWriter::new(std::fs::File::create(output_file)
+            .map_err(|e| format!("create: {}", e))?)
+    );
+    use image::ImageEncoder;
+    encoder.write_image(
+        img.as_raw(), img.width(), img.height(),
+        image::ExtendedColorType::Rgba8,
+    ).map_err(|e| format!("encode: {}", e))?;
+    let save_us = t_save.elapsed().as_secs_f64() * 1_000_000.0;
+    let total_us = parse_us + layout_us + render_us;
 
-        let display_list = self.layout_window
-            .layout_results
-            .remove(&DomId::ROOT_ID)
-            .ok_or("No layout result")?
-            .display_list;
-        let layout_us = t_layout.elapsed().as_secs_f64() * 1_000_000.0;
+    let metadata = extract_metadata_from_string(&xml_content);
+    let mut debug_data = DebugData::new(xml_content);
+    debug_data.title = metadata.title;
+    debug_data.assert_content = metadata.assert_content;
+    debug_data.flags = metadata.flags;
+    debug_data.author = metadata.author;
+    debug_data.xml_formatting_time_us = parse_us.round() as u64;
+    debug_data.layout_time_us = layout_us.round() as u64;
+    debug_data.render_time_us = render_us.round() as u64;
 
-        // CPU render
-        let t_render = Instant::now();
-        let dpi_factor = 1.0_f32;
-        let mut glyph_cache = azul_layout::glyph_cache::GlyphCache::new();
-        let pixmap = azul_layout::cpurender::render_with_font_manager(
-            &display_list,
-            &renderer_resources,
-            &self.layout_window.font_manager,
-            azul_layout::cpurender::RenderOptions {
-                width: width as f32,
-                height: height as f32,
-                dpi_factor,
-            },
-            &mut glyph_cache,
-        ).map_err(|e| format!("render: {}", e))?;
-        let render_us = t_render.elapsed().as_secs_f64() * 1_000_000.0;
-
-        // Save image (WebP encoding + disk write — not counted in layout/render timing)
-        let t_save = Instant::now();
-        let pixmap_data = pixmap.data();
-        let img = image::RgbaImage::from_raw(
-            (width as f32 * dpi_factor) as u32,
-            (height as f32 * dpi_factor) as u32,
-            pixmap_data.to_vec(),
-        ).ok_or("Failed to create image")?;
-        let encoder = image::codecs::webp::WebPEncoder::new_lossless(
-            std::io::BufWriter::new(std::fs::File::create(output_file)
-                .map_err(|e| format!("create: {}", e))?)
-        );
-        use image::ImageEncoder;
-        encoder.write_image(
-            img.as_raw(),
-            img.width(),
-            img.height(),
-            image::ExtendedColorType::Rgba8,
-        ).map_err(|e| format!("encode: {}", e))?;
-        let save_us = t_save.elapsed().as_secs_f64() * 1_000_000.0;
-        // total = parse + layout + render (excludes file I/O + WebP encoding)
-        let total_us = parse_us + layout_us + render_us;
-
-        let metadata = extract_metadata_from_string(&xml_content);
-        let mut debug_data = DebugData::new(xml_content);
-        debug_data.title = metadata.title;
-        debug_data.assert_content = metadata.assert_content;
-        debug_data.flags = metadata.flags;
-        debug_data.author = metadata.author;
-        debug_data.xml_formatting_time_us = parse_us.round() as u64;
-        debug_data.layout_time_us = layout_us.round() as u64;
-        debug_data.render_time_us = render_us.round() as u64;
-
-        let timing = AzulTiming {
-            parse_us,
-            layout_us,
-            render_us,
-            save_us,
-            total_us,
-        };
-
-        Ok((debug_data, timing))
-    }
+    Ok((debug_data, AzulTiming { parse_us, layout_us, render_us, save_us, total_us }))
 }

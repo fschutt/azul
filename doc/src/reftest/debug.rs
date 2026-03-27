@@ -500,8 +500,12 @@ fn generate_azul_with_debug(
     test_file: &Path,
     output_path: &Path,
 ) -> anyhow::Result<(Vec<String>, Vec<String>, Option<String>)> {
-    // Use the existing generate_azul_rendering function
-    let debug_data = super::generate_azul_rendering(test_file, output_path, 1.0)?;
+    let fc_cache = azul_layout::font::loading::build_font_cache();
+    let mut layout_window = azul_layout::LayoutWindow::new(fc_cache)
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let (debug_data, _) = super::pipeline::render_xhtml_to_webp(
+        &mut layout_window, test_file, output_path, super::WIDTH, super::HEIGHT, true,
+    ).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Extract CSS warnings (DebugData has css_warnings as String)
     let css_warnings = if debug_data.css_warnings.is_empty() {

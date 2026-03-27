@@ -20,7 +20,6 @@ use crate::spec::executor::{
 };
 
 use super::{
-    generate_azul_rendering_sized, generate_azul_rendering_sized_cached,
     generate_chrome_screenshot, get_chrome_path, find_test_files,
     pixels_similar, DebugData,
 };
@@ -1408,26 +1407,22 @@ fn generate_chrome_layout_with_timeout(
     Ok(())
 }
 
-/// Generate Azul rendering at a specific size.
-fn generate_azul_rendering_at_size(
-    test_file: &Path,
-    output_file: &Path,
-    width: u32,
-    height: u32,
-) -> Result<DebugData, String> {
-    generate_azul_rendering_sized(test_file, output_file, width, height, 1.0)
-        .map_err(|e| format!("{}", e))
-}
-
+/// Render a test using the new pipeline's stateless render function.
+/// Creates a per-call LayoutWindow from the shared font cache.
+/// Safe for parallel use (each call gets its own LayoutWindow).
 fn generate_azul_rendering_at_size_cached(
     test_file: &Path,
     output_file: &Path,
     width: u32,
     height: u32,
     fc_cache: &rust_fontconfig::FcFontCache,
-) -> Result<DebugData, String> {
-    generate_azul_rendering_sized_cached(test_file, output_file, width, height, 1.0, fc_cache)
-        .map_err(|e| format!("{}", e))
+) -> Result<super::DebugData, String> {
+    let mut layout_window = azul_layout::LayoutWindow::new(fc_cache.clone())
+        .map_err(|e| format!("LayoutWindow: {:?}", e))?;
+    let (debug_data, _timing) = super::pipeline::render_xhtml_to_webp(
+        &mut layout_window, test_file, output_file, width, height, false,
+    )?;
+    Ok(debug_data)
 }
 
 // ── Prompt Builder ─────────────────────────────────────────────────────
