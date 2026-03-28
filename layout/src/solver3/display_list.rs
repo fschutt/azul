@@ -2019,6 +2019,31 @@ where
         
         builder.push_cursor_rect(rect, style.color);
 
+        // Render preedit (IME composition) indicator as an underline after the cursor.
+        // The underline tells the user that unconfirmed composition text is pending.
+        if let Some(ref preedit) = self.ctx.preedit_text {
+            if !preedit.is_empty() {
+                // Approximate preedit width: ~8px per character (rough monospace estimate)
+                // This is a visual indicator only; the actual IME candidate window
+                // shows the composition text. Full inline rendering would require
+                // shaping the preedit text through the font pipeline.
+                let char_count = preedit.chars().count() as f32;
+                let approx_char_width = style.width.max(8.0);
+                let preedit_width = char_count * approx_char_width;
+                let underline_bounds = azul_core::geom::LogicalRect {
+                    origin: azul_core::geom::LogicalPosition {
+                        x: rect.origin.x + rect.size.width,
+                        y: rect.origin.y + rect.size.height - 2.0,
+                    },
+                    size: azul_core::geom::LogicalSize {
+                        width: preedit_width,
+                        height: 2.0,
+                    },
+                };
+                builder.push_underline(underline_bounds, style.color, 2.0);
+            }
+        }
+
         Ok(())
     }
 

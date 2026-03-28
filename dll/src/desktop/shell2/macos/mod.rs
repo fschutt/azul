@@ -596,6 +596,7 @@ define_class!(
                         );
                     }
                     macos_window.sync_ime_position_to_os();
+                    macos_window.request_redraw();
                 }
             }
         }
@@ -1181,6 +1182,7 @@ define_class!(
                         );
                     }
                     macos_window.sync_ime_position_to_os();
+                    macos_window.request_redraw();
                 }
             }
         }

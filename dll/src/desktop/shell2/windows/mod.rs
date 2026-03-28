@@ -2967,6 +2967,8 @@ unsafe extern "system" fn window_proc(
                     }
                 }
 
+                // Trigger redraw so preedit indicator is rendered
+                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 // Let Windows show composition window by default
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
             } else {

@@ -219,6 +219,9 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// This is separate from selections - the cursor represents the text insertion point
     /// in a contenteditable element and should be painted independently.
     pub cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    /// IME preedit (composition) text to render inline at the cursor position.
+    /// When Some, the text should be rendered with an underline decoration.
+    pub preedit_text: Option<String>,
     /// Per-node multi-slot cache (Taffy-inspired 9+1 architecture).
     /// Moved out of LayoutCache via std::mem::take for the duration of layout,
     /// then moved back after the layout pass completes.
@@ -449,6 +452,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
+        preedit_text: None,
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         image_cache,
         system_style: system_style.clone(),
@@ -495,6 +499,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location,
+        preedit_text: None,
         cache_map, // Moved from LayoutCache; will be moved back after layout
         image_cache,
         system_style,

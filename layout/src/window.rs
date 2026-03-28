@@ -4911,6 +4911,7 @@ impl LayoutWindow {
             fragmentation_context: None,
             cursor_is_visible,
             cursor_location,
+            preedit_text: self.cursor_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,
             system_style: self.system_style.clone(),

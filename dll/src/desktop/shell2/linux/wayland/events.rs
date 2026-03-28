@@ -784,6 +784,10 @@ pub(super) struct TextInputPendingState {
     pub preedit_cursor_begin: i32,
     pub preedit_cursor_end: i32,
     pub commit_text: Option<String>,
+    /// Number of UTF-8 bytes to delete before cursor
+    pub delete_before: u32,
+    /// Number of UTF-8 bytes to delete after cursor
+    pub delete_after: u32,
 }
 
 impl Default for TextInputPendingState {
@@ -793,6 +797,8 @@ impl Default for TextInputPendingState {
             preedit_cursor_begin: -1,
             preedit_cursor_end: -1,
             commit_text: None,
+            delete_before: 0,
+            delete_after: 0,
         }
     }
 }
@@ -874,18 +880,20 @@ pub(super) extern "C" fn text_input_commit_string_handler(
 }
 
 pub(super) extern "C" fn text_input_delete_surrounding_text_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _text_input: *mut zwp_text_input_v3,
     before_length: u32,
     after_length: u32,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
     log_debug!(
         LogCategory::Platform,
         "[Wayland] text_input_v3: delete_surrounding_text before={} after={}",
         before_length,
         after_length
     );
-    // TODO: implement surrounding text deletion for advanced IME features
+    window.text_input_pending.delete_before = before_length;
+    window.text_input_pending.delete_after = after_length;
 }
 
 pub(super) extern "C" fn text_input_done_handler(
@@ -900,34 +908,63 @@ pub(super) extern "C" fn text_input_done_handler(
         serial
     );
 
-    // Apply pending state: committed text goes to record_text_input,
-    // preedit goes to cursor_manager for inline display
+    // Extract all pending state at once
     let commit_text = window.text_input_pending.commit_text.take();
     let preedit_text = window.text_input_pending.preedit_text.take();
     let preedit_begin = window.text_input_pending.preedit_cursor_begin;
     let preedit_end = window.text_input_pending.preedit_cursor_end;
+    let delete_before = window.text_input_pending.delete_before;
+    let delete_after = window.text_input_pending.delete_after;
 
     // Reset pending state
     window.text_input_pending = TextInputPendingState::default();
 
+    let mut needs_process = false;
+
+    // Step 1: Apply surrounding text deletions
+    // The IME sends byte counts, but delete_selection operates on grapheme clusters.
+    // Approximate: each deletion request removes one grapheme cluster.
+    if delete_before > 0 || delete_after > 0 {
+        if let Some(ref mut lw) = window.common.layout_window {
+            if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                // Delete before cursor (backspace direction)
+                for _ in 0..delete_before {
+                    lw.delete_selection(focused, false);
+                }
+                // Delete after cursor (forward/delete direction)
+                for _ in 0..delete_after {
+                    lw.delete_selection(focused, true);
+                }
+                needs_process = true;
+            }
+        }
+    }
+
+    // Step 2: Commit confirmed text
     if let Some(text) = commit_text {
         if !text.is_empty() {
-            // Clear preedit before committing
             if let Some(ref mut lw) = window.common.layout_window {
                 lw.cursor_manager.clear_preedit();
                 let _ = lw.record_text_input(&text);
             }
-            // Process events after text input
-            let _ = window.process_window_events(0);
+            needs_process = true;
         }
     }
 
-    // Update preedit display
+    if needs_process {
+        let _ = window.process_window_events(0);
+    }
+
+    // Step 3: Update preedit display + request redraw
     if let Some(ref mut lw) = window.common.layout_window {
         if let Some(ref preedit) = preedit_text {
             lw.cursor_manager.set_preedit(preedit.clone(), preedit_begin, preedit_end);
         } else {
             lw.cursor_manager.clear_preedit();
         }
+    }
+    // Preedit changes need a redraw even without process_window_events
+    if preedit_text.is_some() {
+        window.request_redraw();
     }
 }

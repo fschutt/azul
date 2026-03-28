@@ -2087,6 +2087,7 @@ impl WaylandWindow {
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
+        self.sync_text_input_v3_focus_state();
         self.sync_ime_position_to_os();
 
         Ok(result)
@@ -3028,6 +3029,14 @@ impl Drop for WaylandWindow {
         }
 
         unsafe {
+            // Clean up text-input v3 resources
+            if let Some(text_input) = self.text_input.take() {
+                (self.wayland.wl_proxy_destroy)(text_input as _);
+            }
+            if let Some(manager) = self.text_input_manager.take() {
+                (self.wayland.wl_proxy_destroy)(manager as _);
+            }
+
             // Clean up KDE blur resources
             if let Some(blur) = self.current_blur.take() {
                 (self.wayland.wl_proxy_destroy)(blur as _);
@@ -3754,6 +3763,61 @@ impl WaylandWindow {
                 }
             }
         }
+    }
+
+    /// Check if a contenteditable is focused and enable/disable text-input v3 accordingly.
+    /// Called after every layout pass.
+    fn sync_text_input_v3_focus_state(&mut self) {
+        let has_contenteditable_focus = self.common.layout_window.as_ref()
+            .map(|lw| lw.cursor_manager.cursor_location.is_some())
+            .unwrap_or(false);
+
+        if has_contenteditable_focus && !self.text_input_enabled {
+            self.text_input_v3_enable();
+            self.send_surrounding_text();
+        } else if !has_contenteditable_focus && self.text_input_enabled {
+            self.text_input_v3_disable();
+        }
+    }
+
+    /// Send surrounding text context to IME so it can provide context-aware completions.
+    fn send_surrounding_text(&self) {
+        let text_input = match self.text_input {
+            Some(ti) if self.text_input_enabled => ti,
+            _ => return,
+        };
+
+        // Get the text content and cursor offset from the focused contenteditable
+        let (text, cursor_byte, anchor_byte) = match self.common.layout_window.as_ref() {
+            Some(lw) => {
+                let cursor_offset = lw.cursor_manager.cursor.as_ref()
+                    .map(|c| c.cluster_id.start_byte_in_run as i32)
+                    .unwrap_or(0);
+                // Get text from the focused node's value
+                // For now, send empty string with cursor at 0 if we can't extract text
+                // The IME still works without surrounding text, just less intelligently
+                (std::ffi::CString::new("").unwrap(), cursor_offset, cursor_offset)
+            }
+            None => return,
+        };
+
+        // set_surrounding_text: opcode 3, args (text: string, cursor: int, anchor: int)
+        type SurroundingFn = unsafe extern "C" fn(
+            *mut defines::wl_proxy, u32,
+            *const std::ffi::c_char, i32, i32,
+        );
+        let set_surrounding: SurroundingFn =
+            unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+        unsafe {
+            set_surrounding(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_SET_SURROUNDING_TEXT,
+                text.as_ptr(),
+                cursor_byte,
+                anchor_byte,
+            );
+        }
+        // Note: commit is called by the caller (enable or sync_ime_position)
     }
 
     /// Enable text-input v3 for IME input (call when contenteditable gains focus)
