@@ -357,56 +357,67 @@ pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
 /// # Returns
 /// * `HttpResult<HttpResponse>` - The response or an error
 #[cfg(feature = "http")]
+fn make_agent(timeout_secs: u64) -> ureq::Agent {
+    use std::time::Duration;
+
+    let tls_config = ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .unversioned_rustls_crypto_provider(
+            std::sync::Arc::new(rustls_rustcrypto::provider())
+        )
+        .build();
+
+    ureq::Agent::config_builder()
+        .tls_config(tls_config)
+        .timeout_global(Some(Duration::from_secs(timeout_secs)))
+        .build()
+        .new_agent()
+}
+
+#[cfg(feature = "http")]
 pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
     use std::io::Read;
-    use std::time::Duration;
-    
+
+    let agent = make_agent(config.timeout_secs);
+
     // Build the request
-    let mut request = ureq::get(url)
-        .timeout(Duration::from_secs(config.timeout_secs));
-    
+    let mut request = agent.get(url);
+
     // Add user agent
     if !config.user_agent.as_str().is_empty() {
-        request = request.set("User-Agent", config.user_agent.as_str());
+        request = request.header("User-Agent", config.user_agent.as_str());
     }
-    
+
     // Add custom headers
     for header in config.headers.as_slice() {
-        request = request.set(header.name.as_str(), header.value.as_str());
+        request = request.header(header.name.as_str(), header.value.as_str());
     }
-    
+
     // Execute request
-    let response = request.call().map_err(|e| match e {
-        ureq::Error::Status(code, response) => {
-            HttpError::http_status(code, response.status_text().to_string().into())
-        }
-        ureq::Error::Transport(transport) => {
-            let kind = transport.kind();
-            match kind {
-                ureq::ErrorKind::Dns => HttpError::connection_failed(format!("DNS resolution failed: {}", transport).into()),
-                ureq::ErrorKind::ConnectionFailed => HttpError::connection_failed(transport.to_string().into()),
-                ureq::ErrorKind::Io => HttpError::io_error(transport.to_string().into()),
-                ureq::ErrorKind::InvalidUrl => HttpError::invalid_url(url.to_string().into()),
-                ureq::ErrorKind::TooManyRedirects => HttpError::other("Too many redirects".into()),
-                _ => HttpError::other(transport.to_string().into()),
-            }
-        }
+    let response = request.call().map_err(|e| {
+        HttpError::other(e.to_string().into())
     })?;
-    
-    let status_code = response.status();
-    let content_type = AzString::from(response.content_type().to_string());
-    let content_length = response.header("Content-Length")
+
+    let status_code = response.status().as_u16();
+    let content_type = AzString::from(
+        response.headers().get("Content-Type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string()
+    );
+    let content_length = response.headers().get("Content-Length")
+        .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
-    
+
     // Collect response headers
     let mut headers = Vec::new();
-    for name in response.headers_names() {
-        if let Some(value) = response.header(&name) {
-            headers.push(HttpHeader::new(name, value));
+    for (name, value) in response.headers().iter() {
+        if let Ok(v) = value.to_str() {
+            headers.push(HttpHeader::new(name.to_string(), v.to_string()));
         }
     }
-    
+
     // Check response size limit
     if config.max_response_size > 0 && content_length > config.max_response_size {
         return Err(HttpError::response_too_large(
@@ -414,17 +425,18 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
             content_length,
         ));
     }
-    
+
     // Read body with size limit
     let mut body = Vec::new();
     let limit = if config.max_response_size > 0 {
-        config.max_response_size
+        config.max_response_size as usize
     } else {
-        u64::MAX
+        usize::MAX
     };
-    let mut reader = response.into_reader().take(limit);
+    let mut body_reader = response.into_body();
+    let mut reader = body_reader.as_reader().take(limit as u64);
     reader.read_to_end(&mut body).map_err(|e| HttpError::io_error(e.to_string().into()))?;
-    
+
     Ok(HttpResponse {
         status_code,
         body: U8Vec::from(body),
@@ -478,15 +490,12 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
 /// * `bool` - True if reachable (2xx status)
 #[cfg(feature = "http")]
 pub fn is_url_reachable(url: &str) -> bool {
-    use std::time::Duration;
-    
-    let response = ureq::head(url)
-        .timeout(Duration::from_secs(10))
-        .call();
-    
-    match response {
-        Ok(resp) => resp.status() >= 200 && resp.status() < 300,
-        Err(ureq::Error::Status(code, _)) => code >= 200 && code < 300,
+    let agent = make_agent(10);
+    match agent.head(url).call() {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            code >= 200 && code < 300
+        }
         Err(_) => false,
     }
 }

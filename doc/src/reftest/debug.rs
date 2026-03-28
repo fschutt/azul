@@ -325,11 +325,13 @@ fn call_gemini_api(
 
     let url = format!("{}?key={}", GEMINI_API_URL, api_key);
 
-    let response: GeminiResponse = ureq::post(&url)
-        .set("Content-Type", "application/json")
+    let agent = crate::reftest::make_https_agent();
+    let response: GeminiResponse = agent.post(&url)
+        .header("Content-Type", "application/json")
         .send_json(&request)
         .map_err(|e| anyhow::anyhow!("Gemini API request failed: {}", e))?
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse Gemini response: {}", e))?;
 
     // Check for errors

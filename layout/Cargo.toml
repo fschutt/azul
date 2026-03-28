@@ -73,7 +73,11 @@ zip = { version = "2.1", default-features = false, features = ["deflate"], optio
 material-icons = { version = "0.3", optional = true }
 
 # HTTP client for downloading language packs
-ureq = { version = "2.9", default-features = false, features = ["tls"], optional = true }
+# HTTP client — uses pure-Rust TLS (no ring/aws-lc-rs C code)
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
+rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
+webpki-roots = { version = "1.0", optional = true }
 
 # URL parsing
 url = { version = "2.5", default-features = false, optional = true }
@@ -213,7 +217,7 @@ icu_chrono = ["icu", "dep:chrono"]
 fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip_support", "strfmt", "std"]
 
 # HTTP client support for downloading resources
-http = ["dep:ureq", "dep:url", "std"]
+http = ["dep:ureq", "dep:url", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
 
 # ZIP file manipulation (standalone, for C API)
 zip_support = ["dep:zip", "std"]

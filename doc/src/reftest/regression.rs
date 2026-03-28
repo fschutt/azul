@@ -1429,12 +1429,13 @@ pub fn run_statistics_send(config: RegressionConfig, output_path: Option<PathBuf
     
     eprintln!("[INFO] Sending to Gemini API (this may take a while)...");
     
-    let response: GeminiResponse = ureq::post(&url)
-        .timeout(std::time::Duration::from_secs(600)) // 10 minute timeout
-        .set("Content-Type", "application/json")
+    let agent = crate::reftest::make_https_agent();
+    let response: GeminiResponse = agent.post(&url)
+        .header("Content-Type", "application/json")
         .send_json(&request)
         .map_err(|e| anyhow::anyhow!("Gemini API request failed: {}", e))?
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse Gemini response: {}", e))?;
     
     // Check for errors

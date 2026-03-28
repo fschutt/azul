@@ -36,6 +36,22 @@ pub mod pipeline;
 pub mod debug;
 pub mod regression;
 
+/// Create a ureq Agent with pure-Rust TLS (rustls + rustls-rustcrypto)
+pub fn make_https_agent() -> ureq::Agent {
+    let tls_config = ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .unversioned_rustls_crypto_provider(
+            std::sync::Arc::new(rustls_rustcrypto::provider())
+        )
+        .build();
+
+    ureq::Agent::config_builder()
+        .tls_config(tls_config)
+        .timeout_global(Some(std::time::Duration::from_secs(600)))
+        .build()
+        .new_agent()
+}
+
 pub const WIDTH: u32 = 1920;
 pub const HEIGHT: u32 = 1080;
 

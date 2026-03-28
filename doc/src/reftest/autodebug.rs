@@ -186,9 +186,10 @@ pub(crate) mod cdp {
             // Get the page WebSocket URL from the JSON API
             // We need to connect to a page target, not the browser target
             let json_url = format!("http://127.0.0.1:{}/json/list", port);
-            let resp = ureq::get(&json_url).call()
+            let agent = ureq::Agent::new_with_defaults();
+            let resp = agent.get(&json_url).call()
                 .map_err(|e| format!("GET {}: {}", json_url, e))?;
-            let targets: Vec<serde_json::Value> = resp.into_json()
+            let targets: Vec<serde_json::Value> = resp.into_body().read_json()
                 .map_err(|e| format!("Parse JSON from {}: {}", json_url, e))?;
 
             // Find the first page target
