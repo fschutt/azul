@@ -159,8 +159,12 @@ impl CpuBackend {
 
     /// Render the current display list into `last_frame`.
     ///
-    /// Called after each layout pass.  Uses the retained `CompositorState`
-    /// for efficient incremental rendering when only damage rects changed.
+    /// Uses damage-rect-based incremental rendering when possible:
+    /// - Compares current display list against `previous_display_list`
+    /// - If items match structurally, only repaints changed regions
+    /// - On resize, uses grow-only buffer reuse for window expansion
+    ///
+    /// Returns the damage rects that were rendered (empty = full repaint).
     #[cfg(feature = "cpurender")]
     pub fn render_frame(
         &mut self,
@@ -169,67 +173,128 @@ impl CpuBackend {
         width: f32,
         height: f32,
         dpi_factor: f32,
-    ) {
+    ) -> Vec<azul_core::geom::LogicalRect> {
         use azul_core::dom::DomId;
+        use azul_layout::cpurender;
 
         // Get the display list from layout results
         let dom_id = DomId { inner: 0 };
         let display_list = match layout_window.layout_results.get(&dom_id) {
             Some(result) => &result.display_list,
-            None => return,
+            None => return Vec::new(),
         };
 
         let pixel_w = (width * dpi_factor).ceil() as u32;
         let pixel_h = (height * dpi_factor).ceil() as u32;
         if pixel_w == 0 || pixel_h == 0 {
-            return;
+            return Vec::new();
         }
 
         // Allocate or resize compositor
         let compositor = self.compositor.get_or_insert_with(|| {
-            azul_layout::cpurender::CompositorState::new(pixel_w, pixel_h)
+            cpurender::CompositorState::new(pixel_w, pixel_h)
         });
 
         // Check if we need to resize the root layer
         let root = compositor.layers.get(&compositor.root_layer);
-        let needs_resize = match root {
-            Some(layer) => {
-                layer.pixbuf.width() != pixel_w || layer.pixbuf.height() != pixel_h
+        let (old_pw, old_ph) = match root {
+            Some(layer) => (layer.pixbuf.width(), layer.pixbuf.height()),
+            None => (0, 0),
+        };
+        let needs_resize = old_pw != pixel_w || old_ph != pixel_h;
+
+        let mut resize_damage = Vec::new();
+        if needs_resize {
+            let is_grow = pixel_w >= old_pw && pixel_h >= old_ph && old_pw > 0 && old_ph > 0;
+            if is_grow {
+                // Grow-only: resize root layer pixbuf, keep old content
+                if let Some(root_layer) = compositor.layers.get_mut(&compositor.root_layer) {
+                    let _ = root_layer.pixbuf.resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
+                    root_layer.bounds.size = azul_core::geom::LogicalSize {
+                        width: pixel_w as f32, height: pixel_h as f32,
+                    };
+                }
+                resize_damage = cpurender::compute_resize_damage(
+                    old_pw as f32, old_ph as f32,
+                    pixel_w as f32, pixel_h as f32,
+                );
+            } else {
+                // Shrink or first allocation: full recreate
+                *compositor = cpurender::CompositorState::new(pixel_w, pixel_h);
             }
-            None => true,
+        }
+
+        // Compute display list damage (incremental path)
+        let dl_damage = match &self.previous_display_list {
+            Some(old_dl) if !needs_resize => {
+                cpurender::compute_display_list_damage(old_dl, display_list)
+            }
+            _ => None, // first frame or resize → full repaint
         };
 
-        if needs_resize {
-            // Recreate compositor for new size
-            *compositor = azul_layout::cpurender::CompositorState::new(pixel_w, pixel_h);
+        // Determine render path
+        let all_damage: Vec<azul_core::geom::LogicalRect>;
+        let is_incremental;
+
+        match dl_damage {
+            Some(rects) if rects.is_empty() && resize_damage.is_empty() => {
+                // Nothing changed — skip rendering entirely
+                self.previous_display_list = Some(display_list.clone());
+                return Vec::new();
+            }
+            Some(mut rects) if !needs_resize => {
+                // Incremental: only repaint changed items
+                rects.extend(resize_damage);
+                all_damage = rects;
+                is_incremental = true;
+            }
+            _ => {
+                // Full repaint (first frame, structural change, resize)
+                all_damage = resize_damage;
+                is_incremental = false;
+            }
         }
 
-        // Allocate layers from display list
-        compositor.allocate_layers_from_display_list(display_list, dpi_factor);
-
-        // Render into layers
-        if let Err(e) = compositor.render_layers(
-            display_list,
-            dpi_factor,
-            renderer_resources,
-            Some(&layout_window.font_manager),
-            &mut self.glyph_cache,
-        ) {
-            eprintln!("[CpuBackend] render_layers error: {}", e);
-        }
-
-        // Composite layers into final output — reuse last_frame if dimensions match
+        // Acquire output pixmap
         let mut output = match self.last_frame.take() {
             Some(p) if p.width() == pixel_w && p.height() == pixel_h => p,
-            _ => match azul_layout::cpurender::AzulPixmap::new(pixel_w, pixel_h) {
-                Some(p) => p,
-                None => return,
+            Some(mut p) if pixel_w >= p.width() && pixel_h >= p.height() => {
+                let _ = p.resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
+                p
+            }
+            _ => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+                Some(mut p) => { p.fill(255, 255, 255, 255); p }
+                None => return Vec::new(),
             },
         };
-        output.fill(255, 255, 255, 255);
-        compositor.composite_frame(&mut output, dpi_factor);
 
+        let render_state = cpurender::CpuRenderState::new(
+            cpurender::ScrollOffsetMap::new()
+        );
+
+        if is_incremental && !all_damage.is_empty() {
+            // Incremental: render only damaged regions
+            let _ = cpurender::render_display_list_damaged(
+                display_list, &mut output, dpi_factor,
+                renderer_resources, Some(&layout_window.font_manager),
+                &mut self.glyph_cache, &render_state, &all_damage,
+            );
+        } else {
+            // Full render
+            output.fill(255, 255, 255, 255);
+            compositor.allocate_layers_from_display_list(display_list, dpi_factor);
+            if let Err(e) = compositor.render_layers(
+                display_list, dpi_factor, renderer_resources,
+                Some(&layout_window.font_manager), &mut self.glyph_cache,
+            ) {
+                eprintln!("[CpuBackend] render_layers error: {}", e);
+            }
+            compositor.composite_frame(&mut output, dpi_factor);
+        }
+
+        self.previous_display_list = Some(display_list.clone());
         self.last_frame = Some(output);
+        all_damage
     }
 }
 
