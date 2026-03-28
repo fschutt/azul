@@ -2044,7 +2044,7 @@ fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool
         && b.origin.y - gap <= a.origin.y + a.size.height
 }
 
-fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
+pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     let x = a.origin.x.min(b.origin.x);
     let y = a.origin.y.min(b.origin.y);
     let right = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
@@ -2459,6 +2459,7 @@ fn render_single_item(
                 font_hash,
                 color,
                 clip_rect,
+                ..
             } => {
                 let clip = *clip_stack.last().unwrap();
                 render_text(

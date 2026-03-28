@@ -304,6 +304,93 @@ pub struct DisplayList {
 }
 
 impl DisplayList {
+    /// Patch text glyph data for a specific layout node without rebuilding
+    /// the entire display list. Returns the damage rect covering all
+    /// affected text items, or None if no matching items found.
+    ///
+    /// Used for GlyphSwap incremental relayout: glyphs changed but
+    /// positions are identical, so only the glyph IDs need updating.
+    pub fn patch_text_glyphs(
+        &mut self,
+        node_index: usize,
+        new_glyphs_by_run: &[Vec<GlyphInstance>],
+    ) -> Option<LogicalRect> {
+        let mut run_idx = 0;
+        let mut damage: Option<LogicalRect> = None;
+
+        for item in &mut self.items {
+            if let DisplayListItem::Text {
+                ref mut glyphs,
+                ref clip_rect,
+                source_node_index: Some(src_idx),
+                ..
+            } = item {
+                if *src_idx == node_index {
+                    if run_idx < new_glyphs_by_run.len() {
+                        *glyphs = new_glyphs_by_run[run_idx].clone();
+                        let bounds = *clip_rect.inner();
+                        damage = Some(match damage {
+                            Some(d) => crate::cpurender::union_rect(&d, &bounds),
+                            None => bounds,
+                        });
+                        run_idx += 1;
+                    }
+                }
+            }
+        }
+
+        damage
+    }
+
+    /// Compute a damage rect from the difference between old and new text
+    /// layout results, starting from a given line index.
+    pub fn compute_text_damage_rect(
+        old_items: &[super::super::text3::cache::PositionedItem],
+        new_items: &[super::super::text3::cache::PositionedItem],
+        container_origin: LogicalPosition,
+        affected_line: usize,
+    ) -> LogicalRect {
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+
+        let expand = |items: &[super::super::text3::cache::PositionedItem]| -> (f32, f32, f32, f32) {
+            let mut lx = f32::MAX;
+            let mut ly = f32::MAX;
+            let mut rx = f32::MIN;
+            let mut ry = f32::MIN;
+            for item in items {
+                if item.line_index >= affected_line {
+                    let bounds = item.item.bounds();
+                    let x = container_origin.x + item.position.x;
+                    let y = container_origin.y + item.position.y;
+                    lx = lx.min(x);
+                    ly = ly.min(y);
+                    rx = rx.max(x + bounds.width);
+                    ry = ry.max(y + bounds.height);
+                }
+            }
+            (lx, ly, rx, ry)
+        };
+
+        let (olx, oly, orx, ory) = expand(old_items);
+        let (nlx, nly, nrx, nry) = expand(new_items);
+        min_x = olx.min(nlx);
+        min_y = oly.min(nly);
+        max_x = orx.max(nrx);
+        max_y = ory.max(nry);
+
+        if min_x > max_x || min_y > max_y {
+            return LogicalRect::default();
+        }
+
+        LogicalRect {
+            origin: LogicalPosition { x: min_x, y: min_y },
+            size: LogicalSize { width: max_x - min_x, height: max_y - min_y },
+        }
+    }
+
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
     pub fn to_debug_json(&self) -> String {
@@ -544,10 +631,13 @@ pub enum DisplayListItem {
     /// Text rendered with individual glyph positioning (for simple renderers)
     Text {
         glyphs: Vec<GlyphInstance>,
-        font_hash: FontHash, // Changed from FontRef - just store the hash
+        font_hash: FontHash,
         font_size_px: f32,
         color: ColorU,
         clip_rect: WindowLogicalRect,
+        /// Layout node index that produced this text run.
+        /// Enables patching glyphs without full display list regeneration.
+        source_node_index: Option<usize>,
     },
     /// Underline decoration for text (CSS text-decoration: underline)
     Underline {
@@ -1333,6 +1423,7 @@ impl DisplayListBuilder {
                 font_size_px,
                 color,
                 clip_rect: clip_rect.into(),
+                source_node_index: None,
             });
         } else {
             self.debug_log(format!(
@@ -4505,6 +4596,7 @@ fn clip_and_offset_display_item(
             font_size_px,
             color,
             clip_rect,
+            ..
         } => clip_text_item(
             glyphs,
             *font_hash,
@@ -4998,6 +5090,7 @@ fn clip_text_item(
         font_size_px,
         color,
         clip_rect: offset_rect_y(clip_rect, -page_top).into(),
+        source_node_index: None,
     })
 }
 
@@ -5548,6 +5641,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             font_size_px,
             color,
             clip_rect,
+            ..
         } => {
             let offset_glyphs: Vec<GlyphInstance> = glyphs
                 .iter()
@@ -5566,6 +5660,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
                 font_size_px: *font_size_px,
                 color: *color,
                 clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
+                source_node_index: None,
             }
         }
         DisplayListItem::TextLayout {
@@ -5848,6 +5943,7 @@ fn generate_text_display_items(
         font_size_px: font_size,
         color,
         clip_rect: bounds.into(),
+        source_node_index: None,
     }]
 }
 
