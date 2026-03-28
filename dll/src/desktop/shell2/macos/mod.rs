@@ -1697,6 +1697,9 @@ pub struct MacOSWindow {
     /// Glyph cache — persists across frames for CPU text rendering
     #[cfg(feature = "cpurender")]
     glyph_cache: azul_layout::glyph_cache::GlyphCache,
+    /// Previous display list for CPU damage computation
+    #[cfg(feature = "cpurender")]
+    previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
     /// Window is open flag
     is_open: bool,
     /// Main thread marker (required for AppKit)
@@ -2804,6 +2807,8 @@ impl MacOSWindow {
             cpu_view,
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            #[cfg(feature = "cpurender")]
+            previous_display_list: None,
             is_open: true,
             mtm,
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
