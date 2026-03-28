@@ -1694,6 +1694,9 @@ pub struct MacOSWindow {
     gl_functions: Option<Rc<GlFunctions>>,
     /// CPU rendering components (if backend == CPU)
     cpu_view: Option<Retained<CPUView>>,
+    /// Glyph cache — persists across frames for CPU text rendering
+    #[cfg(feature = "cpurender")]
+    glyph_cache: azul_layout::glyph_cache::GlyphCache,
     /// Window is open flag
     is_open: bool,
     /// Main thread marker (required for AppKit)
@@ -2799,6 +2802,8 @@ impl MacOSWindow {
             gl_context,
             gl_functions,
             cpu_view,
+            #[cfg(feature = "cpurender")]
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             is_open: true,
             mtm,
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
@@ -4830,14 +4835,12 @@ impl MacOSWindow {
                         gpu_cache, dom_id, &scroll_offsets,
                     );
                     let opts = RenderOptions { width, height, dpi_factor: dpi };
-                    let mut glyph_cache = azul_layout::glyph_cache::GlyphCache::new();
-
                     match render_with_font_manager_and_scroll(
                         &result.display_list,
                         &layout_window.renderer_resources,
                         &layout_window.font_manager,
                         opts,
-                        &mut glyph_cache,
+                        &mut self.glyph_cache,
                         &render_state,
                     ) {
                         Ok(pixmap) => {
