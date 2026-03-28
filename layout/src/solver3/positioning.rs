@@ -591,7 +591,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 }
             }
 
-            calculated_positions.insert(node_index, final_pos);
+            super::pos_set(calculated_positions, node_index, final_pos);
         }
     }
     Ok(())
