@@ -948,6 +948,52 @@ impl AzulPixmap {
         }
     }
 
+    /// Resize the pixmap preserving existing content in the top-left corner.
+    /// New right/bottom strips are filled with the specified color.
+    /// Only grows — returns None if new dimensions are smaller (caller should realloc).
+    pub fn resize_grow_only(
+        &mut self,
+        new_width: u32,
+        new_height: u32,
+        fill_r: u8, fill_g: u8, fill_b: u8, fill_a: u8,
+    ) -> Option<()> {
+        if new_width < self.width || new_height < self.height {
+            return None;
+        }
+        if new_width == self.width && new_height == self.height {
+            return Some(());
+        }
+
+        let old_w = self.width as usize;
+        let old_h = self.height as usize;
+        let new_w = new_width as usize;
+        let new_h = new_height as usize;
+        let mut new_data = vec![fill_a; new_w * new_h * 4];
+
+        // Fill entire buffer with fill color first (covers right + bottom strips)
+        for chunk in new_data.chunks_exact_mut(4) {
+            chunk[0] = fill_r;
+            chunk[1] = fill_g;
+            chunk[2] = fill_b;
+            chunk[3] = fill_a;
+        }
+
+        // Copy old rows into top-left corner
+        let old_stride = old_w * 4;
+        let new_stride = new_w * 4;
+        for row in 0..old_h {
+            let src = row * old_stride;
+            let dst = row * new_stride;
+            new_data[dst..dst + old_stride]
+                .copy_from_slice(&self.data[src..src + old_stride]);
+        }
+
+        self.data = new_data;
+        self.width = new_width;
+        self.height = new_height;
+        Some(())
+    }
+
     /// Encode to PNG using the `png` crate.
     pub fn encode_png(&self) -> Result<Vec<u8>, String> {
         let mut buf = Vec::new();
@@ -2053,6 +2099,55 @@ pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
         origin: LogicalPosition { x, y },
         size: LogicalSize { width: right - x, height: bottom - y },
     }
+}
+
+/// Compute damage rects for a grow-only window resize.
+/// Returns the right strip and bottom strip that need rendering.
+pub fn compute_resize_damage(
+    old_width: f32, old_height: f32,
+    new_width: f32, new_height: f32,
+) -> Vec<LogicalRect> {
+    let mut rects = Vec::new();
+    if new_width > old_width {
+        rects.push(LogicalRect {
+            origin: LogicalPosition { x: old_width, y: 0.0 },
+            size: LogicalSize { width: new_width - old_width, height: new_height },
+        });
+    }
+    if new_height > old_height {
+        rects.push(LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: old_height },
+            size: LogicalSize {
+                width: old_width.min(new_width),
+                height: new_height - old_height,
+            },
+        });
+    }
+    rects
+}
+
+/// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
+/// Returns the number of pixels that differ by more than `threshold` per channel.
+pub fn compare_region(
+    a: &AzulPixmap, b: &AzulPixmap,
+    x: u32, y: u32, w: u32, h: u32,
+    threshold: u8,
+) -> usize {
+    let mut diff_count = 0;
+    for row in y..y.min(a.height).min(b.height).min(y + h) {
+        for col in x..x.min(a.width).min(b.width).min(x + w) {
+            let ai = (row * a.width + col) as usize * 4;
+            let bi = (row * b.width + col) as usize * 4;
+            if ai + 3 >= a.data.len() || bi + 3 >= b.data.len() { continue; }
+            let dr = (a.data[ai] as i16 - b.data[bi] as i16).unsigned_abs() as u8;
+            let dg = (a.data[ai+1] as i16 - b.data[bi+1] as i16).unsigned_abs() as u8;
+            let db = (a.data[ai+2] as i16 - b.data[bi+2] as i16).unsigned_abs() as u8;
+            if dr > threshold || dg > threshold || db > threshold {
+                diff_count += 1;
+            }
+        }
+    }
+    diff_count
 }
 
 /// Consolidated render-time state for CPU rendering.
