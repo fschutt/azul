@@ -173,7 +173,7 @@ build-dll = [
     "icu_windows",
     # Fluent localization support
     "fluent",
-    # HTTP client support
+    # HTTP client support (pulls in ring via rustls — requires C compiler for cross-compilation)
     "http",
     # ZIP file manipulation
     "zip_support",

@@ -21,7 +21,7 @@ pub mod accessibility;
 pub mod clipboard;
 pub mod dlopen;
 mod dpi;
-pub mod event;
+pub mod win_event;
 mod gl;
 pub mod menu;
 pub mod registry;
@@ -68,7 +68,7 @@ use self::{
 };
 use crate::desktop::{
     shell2::common::{
-        event::{self, PlatformWindow},
+        event::{self, HitTestNode, PlatformWindow},
         Compositor, WindowError,
     },
     wr_translate2::{
@@ -77,22 +77,37 @@ use crate::desktop::{
     },
 };
 
+/// Rendering mode for the window (GPU via WebRender or CPU fallback)
+enum RenderMode {
+    /// GPU rendering via WebRender + OpenGL
+    Gpu {
+        gl_context: HGLRC,
+        hdc: *mut std::ffi::c_void,
+    },
+    /// CPU software rendering via cpurender + StretchDIBits
+    Cpu,
+}
+
 /// Win32 window implementation using LayoutWindow API
 pub struct Win32Window {
     /// Win32 window handle
     pub hwnd: HWND,
     /// Application instance handle
     pub hinstance: HINSTANCE,
-    /// Device context for OpenGL (must stay valid for the lifetime of the GL context)
-    pub hdc: *mut std::ffi::c_void,
 
     // Rendering infrastructure
-    /// OpenGL context (None if running in software mode)
-    pub gl_context: Option<HGLRC>,
-    /// OpenGL function loader
+    /// Rendering mode (GPU or CPU)
+    render_mode: RenderMode,
+    /// OpenGL function loader (kept for WebRender even in CPU mode for fallback)
     pub gl_functions: GlFunctions,
     /// Signal from WebRender that a new frame is ready
     pub new_frame_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
+    /// Glyph cache for CPU rendering (persists across frames)
+    #[cfg(feature = "cpurender")]
+    glyph_cache: azul_layout::glyph_cache::GlyphCache,
+    /// Damage rects for incremental rendering (CPU and GPU)
+    /// When non-empty, only these regions need redrawing
+    gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
     /// Common window state (layout, resources, WebRender, etc.)
     pub common: event::CommonWindowState,
@@ -240,10 +255,8 @@ impl Win32Window {
         let mut options = options;
         options.window_state.size.dpi = dpi;
 
-        // Initialize OpenGL context (if hardware rendering requested)
-        let mut gl_context: Option<HGLRC> = None;
+        // Initialize OpenGL context + WebRender (if hardware rendering requested)
         let mut gl_functions = GlFunctions::initialize();
-        let mut gl_context_ptr: OptionGlContextPtr = None.into();
 
         // Determine renderer type from options
         let should_use_hardware = match options.renderer.into_option() {
@@ -255,95 +268,102 @@ impl Win32Window {
             None => true, // Default to hardware
         };
 
-        // We need to keep the HDC alive for the GL context - store it for later
-        let mut active_hdc: *mut std::ffi::c_void = ptr::null_mut();
-
-        if should_use_hardware {
-            let vsync = options.window_state.renderer_options.vsync;
-            match wcreate::create_gl_context(hwnd, hinstance, &win32, vsync) {
-                Ok(hglrc) => {
-                    gl_context = Some(hglrc);
-                    let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
-                    if !hdc.is_null() {
-                        log_trace!(
-                            LogCategory::Rendering,
-                            "[Win32] activating GL context for WebRender init"
-                        );
-                        #[cfg(target_os = "windows")]
-                        unsafe {
-                            use winapi::um::wingdi::wglMakeCurrent;
-                            wglMakeCurrent(
-                                hdc as winapi::shared::windef::HDC,
-                                hglrc as winapi::shared::windef::HGLRC,
-                            );
-                        }
-                        gl_functions.load();
-                        gl_context_ptr =
-                            OptionGlContextPtr::Some(azul_core::gl::GlContextPtr::new(
-                                RendererType::Hardware,
-                                gl_functions.functions.clone(),
-                            ));
-                        // IMPORTANT: Keep the GL context ACTIVE and HDC valid for WebRender initialization!
-                        // We do NOT call wglMakeCurrent(null, null) or ReleaseDC here.
-                        // The context must be current when webrender::create_webrender_instance is called.
-                        active_hdc = hdc;
-                    }
-                }
-                Err(e) => {
-                    // Fall back to software rendering
-                    log_warn!(
-                        LogCategory::Rendering,
-                        "[Win32] GL context creation failed: {:?}, falling back to software",
-                        e
-                    );
-                    gl_context_ptr = OptionGlContextPtr::None;
-                }
-            }
-        }
-        timing_log!("Create GL context");
-
-        // Initialize WebRender (GL context must be active!)
-        let new_frame_ready =
-            std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
-        let (mut renderer, sender) = webrender::create_webrender_instance(
-            gl_functions.functions.clone(),
-            Box::new(Notifier {
-                new_frame_ready: new_frame_ready.clone(),
-            }),
-            default_renderer_options(&options, create_program_cache(&gl_functions.functions)),
-            None, // shader cache
-        )
-        .map_err(|e| WindowError::PlatformError(format!("WebRender error: {:?}", e)))?;
-        timing_log!("Create WebRender instance");
-
-        // Set up external image handler (Compositor)
-        renderer.set_external_image_handler(Box::new(
-            crate::desktop::wr_translate2::Compositor::default(),
-        ));
-
-        let mut render_api = sender.create_api();
-
         // Get window size
         let (width, height) = wcreate::get_client_rect(hwnd, &win32)?;
         let physical_size = azul_core::geom::PhysicalSize::new(width, height);
 
-        // Create WebRender document
-        let framebuffer_size =
-            webrender::api::units::DeviceIntSize::new(width as i32, height as i32);
-        let wr_doc_id = render_api.add_document(framebuffer_size);
-        let document_id = translate_document_id_wr(wr_doc_id);
-        let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+        let new_frame_ready =
+            std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
 
-        // Request initial hit-tester
-        let hit_tester_request =
-            render_api.request_hit_tester(wr_translate_document_id(document_id));
-        let hit_tester = AsyncHitTester::Requested(hit_tester_request);
+        // Try GPU path: GL context + WebRender; fall back to CPU if anything fails
+        let (render_mode, renderer, render_api, hit_tester, document_id, id_namespace, gl_context_ptr) =
+            if should_use_hardware {
+                let gpu_result: Result<_, WindowError> = (|| {
+                    let vsync = options.window_state.renderer_options.vsync;
+                    let hglrc = wcreate::create_gl_context(hwnd, hinstance, &win32, vsync)?;
+                    let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
+                    if hdc.is_null() {
+                        return Err(WindowError::PlatformError("Failed to get HDC".into()));
+                    }
+                    #[cfg(target_os = "windows")]
+                    unsafe {
+                        use winapi::um::wingdi::wglMakeCurrent;
+                        wglMakeCurrent(
+                            hdc as winapi::shared::windef::HDC,
+                            hglrc as winapi::shared::windef::HGLRC,
+                        );
+                    }
+                    gl_functions.load();
+                    let gl_context_ptr = OptionGlContextPtr::Some(azul_core::gl::GlContextPtr::new(
+                        RendererType::Hardware,
+                        gl_functions.functions.clone(),
+                    ));
+
+                    let (mut renderer, sender) = webrender::create_webrender_instance(
+                        gl_functions.functions.clone(),
+                        Box::new(Notifier {
+                            new_frame_ready: new_frame_ready.clone(),
+                        }),
+                        default_renderer_options(&options, create_program_cache(&gl_functions.functions)),
+                        None,
+                    )
+                    .map_err(|e| WindowError::PlatformError(format!("WebRender error: {:?}", e)))?;
+
+                    renderer.set_external_image_handler(Box::new(
+                        crate::desktop::wr_translate2::Compositor::default(),
+                    ));
+
+                    let render_api = sender.create_api();
+                    let framebuffer_size =
+                        webrender::api::units::DeviceIntSize::new(width as i32, height as i32);
+                    let wr_doc_id = render_api.add_document(framebuffer_size);
+                    let document_id = translate_document_id_wr(wr_doc_id);
+                    let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+                    let hit_tester_request =
+                        render_api.request_hit_tester(wr_translate_document_id(document_id));
+
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[Win32] GPU rendering initialized ({}x{})",
+                        width, height
+                    );
+
+                    Ok((
+                        RenderMode::Gpu { gl_context: hglrc, hdc },
+                        Some(renderer),
+                        Some(render_api),
+                        Some(AsyncHitTester::Requested(hit_tester_request)),
+                        Some(document_id),
+                        Some(id_namespace),
+                        gl_context_ptr,
+                    ))
+                })();
+
+                match gpu_result {
+                    Ok(tuple) => tuple,
+                    Err(e) => {
+                        log_warn!(
+                            LogCategory::Rendering,
+                            "[Win32] GPU init failed: {:?}, falling back to CPU rendering",
+                            e
+                        );
+                        (RenderMode::Cpu, None, None, None, None, None, OptionGlContextPtr::None)
+                    }
+                }
+            } else {
+                log_info!(
+                    LogCategory::Rendering,
+                    "[Win32] Hardware acceleration disabled, using CPU rendering"
+                );
+                (RenderMode::Cpu, None, None, None, None, None, OptionGlContextPtr::None)
+            };
+        timing_log!("Create rendering context");
 
         // Update options size with actual window size
         options.window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         // Determine renderer type
-        let renderer_type = if gl_context.is_some() {
+        let renderer_type = if matches!(render_mode, RenderMode::Gpu { .. }) {
             RendererType::Hardware
         } else {
             RendererType::Software
@@ -383,8 +403,12 @@ impl Win32Window {
         };
 
         // Set document_id and id_namespace for this window
-        layout_window.document_id = document_id;
-        layout_window.id_namespace = id_namespace;
+        if let Some(doc_id) = document_id {
+            layout_window.document_id = doc_id;
+        }
+        if let Some(ns_id) = id_namespace {
+            layout_window.id_namespace = ns_id;
+        }
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
 
@@ -463,21 +487,29 @@ impl Win32Window {
         };
 
         // Build window structure
+        let is_cpu_mode = matches!(render_mode, RenderMode::Cpu);
         let mut result = Win32Window {
             hwnd,
             hinstance,
-            hdc: active_hdc, // Keep HDC alive for OpenGL rendering
-            gl_context,
+            render_mode,
             gl_functions,
             new_frame_ready,
+            #[cfg(feature = "cpurender")]
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            gpu_damage_rects: Vec::new(),
             common: event::CommonWindowState {
                 layout_window: Some(layout_window),
                 gl_context_ptr,
-                renderer: Some(renderer),
-                render_api: Some(render_api),
-                hit_tester: Some(hit_tester),
-                document_id: Some(document_id),
-                id_namespace: Some(id_namespace),
+                renderer,
+                render_api,
+                hit_tester,
+                cpu_hit_tester: if is_cpu_mode {
+                    Some(azul_layout::headless::CpuHitTester::new())
+                } else {
+                    None
+                },
+                document_id,
+                id_namespace,
                 frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
                 display_list_initialized: false,
                 display_list_dirty: false,
@@ -574,6 +606,7 @@ impl Win32Window {
 
             // Get mutable references needed for invoke_single_callback
             let layout_window = result
+                .common
                 .layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
@@ -669,18 +702,190 @@ impl Win32Window {
     /// we send a lightweight transaction with just scroll offsets, GPU values and image
     /// callback re-invocations — no display list rebuild.
     pub fn render_and_present(&mut self, layout_was_regenerated: bool) -> Result<(), WindowError> {
+
+        // CPU rendering path: skip WebRender, render directly via cpurender + StretchDIBits
+        if let RenderMode::Cpu = &self.render_mode {
+            #[cfg(feature = "cpurender")]
+            {
+                use azul_core::dom::DomId;
+                use azul_layout::cpurender::{
+                    render_with_font_manager_and_scroll, CpuRenderState, RenderOptions,
+                };
+
+                // Synchronize window state to layout_window before rendering
+                if let Some(ref mut layout_window) = self.common.layout_window {
+                    layout_window.current_window_state =
+                        self.common.current_window_state.clone();
+
+                    // Advance easing-based scroll animations
+                    {
+                        #[cfg(feature = "std")]
+                        let now = azul_core::task::Instant::System(
+                            std::time::Instant::now().into(),
+                        );
+                        #[cfg(not(feature = "std"))]
+                        let now = azul_core::task::Instant::Tick(
+                            azul_core::task::SystemTick { tick_counter: 0 },
+                        );
+                        let tick_result = layout_window.scroll_manager.tick(now);
+                        if tick_result.needs_repaint {
+                            layout_window.scroll_manager.calculate_scrollbar_states();
+                        }
+                    }
+                }
+
+                let mut rendered = false;
+
+                if let Some(ref layout_window) = self.common.layout_window {
+                    let dom_id = DomId { inner: 0 };
+                    if let Some(result) = layout_window.layout_results.get(&dom_id) {
+                        let ws = &layout_window.current_window_state;
+                        let width = ws.size.dimensions.width;
+                        let height = ws.size.dimensions.height;
+                        let dpi = ws.size.dpi as f32 / 96.0;
+
+                        if width > 0.0 && height > 0.0 {
+                            let scroll_offsets = layout_window
+                                .scroll_manager
+                                .build_scroll_offset_map(dom_id, &result.scroll_ids);
+                            let gpu_cache =
+                                layout_window.gpu_state_manager.get_cache(dom_id);
+                            let render_state = CpuRenderState::from_gpu_cache(
+                                gpu_cache,
+                                dom_id,
+                                &scroll_offsets,
+                            );
+                            let opts = RenderOptions {
+                                width,
+                                height,
+                                dpi_factor: dpi,
+                            };
+                            match render_with_font_manager_and_scroll(
+                                &result.display_list,
+                                &layout_window.renderer_resources,
+                                &layout_window.font_manager,
+                                opts,
+                                &mut self.glyph_cache,
+                                &render_state,
+                            ) {
+                                Ok(pixmap) => {
+                                    // Blit RGBA pixmap to window via StretchDIBits
+                                    // Windows expects BGRA in bottom-up DIB format
+                                    let pw = pixmap.width() as i32;
+                                    let ph = pixmap.height() as i32;
+                                    let mut bgra_data: Vec<u8> =
+                                        Vec::with_capacity(pixmap.data().len());
+                                    for chunk in pixmap.data().chunks_exact(4) {
+                                        bgra_data.push(chunk[2]); // B
+                                        bgra_data.push(chunk[1]); // G
+                                        bgra_data.push(chunk[0]); // R
+                                        bgra_data.push(chunk[3]); // A
+                                    }
+
+                                    let bmi = dlopen::BitmapInfoHeader {
+                                        biSize: core::mem::size_of::<dlopen::BitmapInfoHeader>() as u32,
+                                        biWidth: pw,
+                                        biHeight: -ph, // negative = top-down
+                                        biPlanes: 1,
+                                        biBitCount: 32,
+                                        biCompression: 0, // BI_RGB
+                                        biSizeImage: 0,
+                                        biXPelsPerMeter: 0,
+                                        biYPelsPerMeter: 0,
+                                        biClrUsed: 0,
+                                        biClrImportant: 0,
+                                    };
+
+                                    unsafe {
+                                        let hdc = (self.win32.user32.GetDC)(self.hwnd);
+                                        if !hdc.is_null() {
+                                            (self.win32.gdi32.StretchDIBits)(
+                                                hdc,
+                                                0, 0, pw, ph, // dest rect
+                                                0, 0, pw, ph, // src rect
+                                                bgra_data.as_ptr() as *const c_void,
+                                                &bmi,
+                                                dlopen::DIB_RGB_COLORS,
+                                                dlopen::SRCCOPY,
+                                            );
+                                            (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
+                                        }
+                                    }
+                                    rendered = true;
+                                }
+                                Err(e) => {
+                                    log_error!(
+                                        LogCategory::Rendering,
+                                        "[Win32 CPU] render failed: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !rendered {
+                    // Fallback: fill window with white if CPU rendering not yet available
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[Win32 CPU] layout not ready, skipping render"
+                    );
+                }
+            }
+
+            self.common.display_list_initialized = true;
+
+            // Show window after first CPU render
+            if !self.first_frame_shown {
+                if self.common.current_window_state.flags.is_visible {
+                    use azul_core::window::WindowFrame;
+                    use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
+                    let show_cmd = match self.common.current_window_state.flags.frame {
+                        WindowFrame::Normal => SW_SHOWNORMAL,
+                        WindowFrame::Minimized => SW_MINIMIZE,
+                        WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
+                    };
+                    unsafe {
+                        (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
+                        (self.win32.user32.UpdateWindow)(self.hwnd);
+                    }
+                }
+                self.first_frame_shown = true;
+            }
+
+            // Scrollbar fade animation
+            let needs_fade_frame = self.common.layout_window.as_ref()
+                .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                .unwrap_or(false);
+            if needs_fade_frame {
+                self.request_redraw();
+            }
+
+            // CI testing
+            if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+                std::process::exit(0);
+            }
+
+            return Ok(());
+        }
+
+        // GPU rendering path (WebRender)
+        let RenderMode::Gpu { gl_context, hdc: stored_hdc } = &self.render_mode else {
+            return Err(WindowError::PlatformError("Invalid render mode".into()));
+        };
+        let hglrc = *gl_context;
+        let stored_hdc = *stored_hdc;
+
         let renderer = self
+            .common
             .renderer
             .as_mut()
             .ok_or_else(|| WindowError::PlatformError("No renderer available".into()))?;
 
-        // Use the stored HDC that was used to create the GL context
-        // IMPORTANT: The GL context is bound to a specific HDC, so we must use the same one!
         unsafe {
-            // If we have a stored HDC (from GL context creation), use it
-            // Otherwise get a new one (software rendering path)
-            let hdc = if !self.hdc.is_null() {
-                self.hdc
+            let hdc = if !stored_hdc.is_null() {
+                stored_hdc
             } else {
                 let new_hdc = (self.win32.user32.GetDC)(self.hwnd);
                 if new_hdc.is_null() {
@@ -689,26 +894,18 @@ impl Win32Window {
                 new_hdc
             };
 
-            // Make OpenGL context current if we have one
-            if let Some(hglrc) = self.gl_context {
-                #[cfg(target_os = "windows")]
-                unsafe {
-                    use winapi::um::wingdi::wglMakeCurrent;
-                    wglMakeCurrent(
-                        hdc as winapi::shared::windef::HDC,
-                        hglrc as winapi::shared::windef::HGLRC,
-                    );
-                }
+            // Make OpenGL context current
+            #[cfg(target_os = "windows")]
+            {
+                use winapi::um::wingdi::wglMakeCurrent;
+                wglMakeCurrent(
+                    hdc as winapi::shared::windef::HDC,
+                    hglrc as winapi::shared::windef::HGLRC,
+                );
             }
 
-            // If layout was NOT regenerated, we still need to send a lightweight
-            // transaction so scroll offsets and GPU values reach WebRender.
-            // When layout WAS regenerated, regenerate_layout() already sent the
-            // full transaction via common::layout::generate_frame().
             if !layout_was_regenerated {
-                // Early-return optimization: if the display list is already initialized
-                // and layout wasn't regenerated, check if there's any visual change.
-                // If not, skip the entire WebRender render cycle to save GPU work.
+                // Early-return optimization
                 if self.common.display_list_initialized {
                     let scroll_active = self.common.layout_window.as_ref()
                         .map(|lw| lw.scroll_manager.has_active_animations())
@@ -724,8 +921,7 @@ impl Win32Window {
                             LogCategory::Rendering,
                             "[Win32] No visual changes — skipping GPU render"
                         );
-                        // Only release DC if we obtained a new one
-                        if self.hdc.is_null() {
+                        if stored_hdc.is_null() {
                             (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
                         }
                         return Ok(());
@@ -736,7 +932,6 @@ impl Win32Window {
                     self.common.layout_window.as_mut(),
                     self.common.render_api.as_mut(),
                 ) {
-                    // Advance easing-based scroll animations
                     {
                         #[cfg(feature = "std")]
                         let now = azul_core::task::Instant::System(std::time::Instant::now().into());
@@ -748,8 +943,6 @@ impl Win32Window {
                         }
                     }
 
-                    // Process pending VirtualView updates (queued by ScrollTo → check_and_queue_virtual_view_reinvoke).
-                    // If present, we need a full display list rebuild rather than lightweight.
                     let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
                     if has_virtual_view_updates {
                         if let Some(document_id) = self.common.document_id {
@@ -787,15 +980,14 @@ impl Win32Window {
                 }
             }
 
-            // Update WebRender
-            // NOTE: renderer was moved into unsafe block scope, re-borrow
+            // Update and render WebRender
             let renderer = self
+                .common
                 .renderer
                 .as_mut()
                 .ok_or_else(|| WindowError::PlatformError("No renderer available".into()))?;
             renderer.update();
 
-            // Render frame
             let (width, height) = wcreate::get_client_rect(self.hwnd, &self.win32)?;
             let framebuffer_size =
                 webrender::api::units::DeviceIntSize::new(width as i32, height as i32);
@@ -806,41 +998,22 @@ impl Win32Window {
 
             self.common.display_list_initialized = true;
 
-            // Swap buffers if we have OpenGL context
-            if self.gl_context.is_some() {
-                #[cfg(target_os = "windows")]
-                unsafe {
-                    // glFinish() ensures all GPU commands complete before SwapBuffers
-                    // This is crucial for the first frame to avoid black flash
-                    if let Some(gl) = self.common.gl_context_ptr.as_ref() {
-                        gl.finish();
-                    }
-
-                    use winapi::um::wingdi::SwapBuffers;
-                    SwapBuffers(hdc as winapi::shared::windef::HDC);
+            // Swap buffers
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(gl) = self.common.gl_context_ptr.as_ref() {
+                    gl.finish();
                 }
+                use winapi::um::wingdi::SwapBuffers;
+                SwapBuffers(hdc as winapi::shared::windef::HDC);
             }
 
-            // Show window after FIRST successful render + SwapBuffers
-            // renderer.render() is synchronous, so if we get here, the frame was rendered.
-            // We trust that after SwapBuffers, pixels are on screen.
+            // Show window after first successful render
             if !self.first_frame_shown {
-                // Check if user wants the window visible
                 if self.common.current_window_state.flags.is_visible {
-                    log_trace!(
-                        LogCategory::Rendering,
-                        "[Win32] First frame rendered + SwapBuffers done - showing window NOW"
-                    );
-
-                    // Force DWM to latch the new frame buffer before making the window visible.
-                    // This prevents the "Black Frame" flash by blocking until DWM composition is done.
                     if let Some(ref dwmapi) = self.win32.dwmapi_funcs {
                         (dwmapi.DwmFlush)();
-                        log_trace!(LogCategory::Rendering, "[Win32] DwmFlush completed");
                     }
-
-                    // Use correct show command for initial window frame state
-                    // (e.g. SW_MAXIMIZE if user wants to start maximized)
                     use azul_core::window::WindowFrame;
                     use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
                     let show_cmd = match self.common.current_window_state.flags.frame {
@@ -850,23 +1023,15 @@ impl Win32Window {
                     };
                     (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
                     (self.win32.user32.UpdateWindow)(self.hwnd);
-                    log_trace!(
-                        LogCategory::Rendering,
-                        "[Win32] Window shown after first real frame (frame: {:?})",
-                        self.common.current_window_state.flags.frame
-                    );
                 }
                 self.first_frame_shown = true;
             }
 
-            // Only release DC if we obtained a new one (not using stored HDC)
-            // The stored HDC must stay valid for the lifetime of the GL context!
-            if self.hdc.is_null() {
+            if stored_hdc.is_null() {
                 (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
             }
 
-            // Clean up old textures from previous epochs to prevent memory leak
-            // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+            // Clean up old textures
             if let Some(ref layout_window) = self.common.layout_window {
                 crate::desktop::gl_texture_integration::remove_old_gl_textures(
                     &layout_window.document_id,
@@ -874,8 +1039,7 @@ impl Win32Window {
                 );
             }
 
-            // If any scrollbar is actively fading (0 < opacity < 1), schedule
-            // another frame so the fade-out animation runs to completion.
+            // Scrollbar fade animation
             let needs_fade_frame = self.common.layout_window.as_ref()
                 .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
                 .unwrap_or(false);
@@ -883,12 +1047,8 @@ impl Win32Window {
                 self.request_redraw();
             }
 
-            // CI testing: Exit successfully after first frame render if env var is set
+            // CI testing
             if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-                log_info!(
-                    LogCategory::General,
-                    "AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
-                );
                 std::process::exit(0);
             }
 
@@ -943,34 +1103,37 @@ impl Win32Window {
             }
         }
 
-        // Send frame immediately (Windows doesn't batch like macOS/X11)
-        // CRITICAL: Make OpenGL context current BEFORE generate_frame
-        // The image callbacks (RenderImageCallback) need the GL context to be current
-        // to allocate textures and draw to them
-        if let Some(hglrc) = self.gl_context {
+        // Send frame to WebRender (GPU mode only - CPU mode reads display list directly)
+        if let RenderMode::Gpu { gl_context: hglrc, hdc: stored_hdc } = &self.render_mode {
+            // Make OpenGL context current BEFORE generate_frame
             #[cfg(target_os = "windows")]
             unsafe {
                 use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !self.hdc.is_null() {
-                    self.hdc
+                let hdc = if !stored_hdc.is_null() {
+                    *stored_hdc
                 } else {
                     (self.win32.user32.GetDC)(self.hwnd)
                 };
                 wglMakeCurrent(
                     hdc as winapi::shared::windef::HDC,
-                    hglrc as winapi::shared::windef::HGLRC,
+                    *hglrc as winapi::shared::windef::HGLRC,
                 );
             }
+
+            if let (Some(layout_window), Some(render_api), Some(document_id)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+                self.common.document_id,
+            ) {
+                crate::desktop::shell2::common::layout::generate_frame(
+                    layout_window,
+                    render_api,
+                    document_id,
+                    &self.common.gl_context_ptr,
+                );
+                render_api.flush_scene_builder();
+            }
         }
-        
-        let layout_window = self.common.layout_window.as_mut().unwrap();
-        crate::desktop::shell2::common::layout::generate_frame(
-            layout_window,
-            self.common.render_api.as_mut().unwrap(),
-            self.common.document_id.unwrap(),
-            &self.common.gl_context_ptr,
-        );
-        self.common.render_api.as_mut().unwrap().flush_scene_builder();
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
@@ -1544,6 +1707,7 @@ impl Win32Window {
     fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
         // Get the topmost hovered node from hit test
         let hit_test = self
+            .common
             .layout_window
             .as_ref()
             .and_then(|lw| lw.hover_manager.get_current(&InputPointId::Mouse))
@@ -2058,7 +2222,7 @@ unsafe extern "system" fn window_proc(
 
             // Handle active scrollbar drag (special case - not part of normal event system)
             if window.common.scrollbar_drag_state.is_some() {
-                PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
+                let _ = PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
                 return 0;
             }
 
@@ -2112,7 +2276,7 @@ unsafe extern "system" fn window_proc(
                 // Update cursor type if changed
                 if window.common.current_window_state.mouse_state.mouse_cursor_type != new {
                     window.common.current_window_state.mouse_state.mouse_cursor_type = new;
-                    event::set_cursor(new_cursor_type, &window.win32);
+                    win_event::set_cursor(new_cursor_type, &window.win32);
                 }
             }
 
@@ -2184,7 +2348,7 @@ unsafe extern "system" fn window_proc(
             if let Some(scrollbar_hit_id) =
                 PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
             {
-                PlatformWindow::handle_scrollbar_click(
+                let _ = PlatformWindow::handle_scrollbar_click(
                     &mut *window,
                     scrollbar_hit_id,
                     logical_pos,
@@ -2596,22 +2760,25 @@ unsafe extern "system" fn window_proc(
             let _repeat_count = (lparam & 0xFFFF) as u16;
 
             // Translate virtual key to azul key
-            if let Some(virtual_key) = event::vkey_to_winit_vkey(vk_code as i32) {
+            if let Some(virtual_key) = win_event::vkey_to_winit_vkey(vk_code as i32) {
                 // Save previous state
                 window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                 // Update keyboard state
                 window
+                    .common
                     .current_window_state
                     .keyboard_state
                     .current_virtual_keycode =
                     azul_core::window::OptionVirtualKeyCode::Some(virtual_key);
                 window
+                    .common
                     .current_window_state
                     .keyboard_state
                     .pressed_virtual_keycodes
                     .insert_hm_item(virtual_key);
                 window
+                    .common
                     .current_window_state
                     .keyboard_state
                     .pressed_scancodes
@@ -2634,21 +2801,24 @@ unsafe extern "system" fn window_proc(
             let scan_code = ((lparam >> 16) & 0xFF) as u32;
 
             // Translate virtual key
-            if let Some(virtual_key) = event::vkey_to_winit_vkey(vk_code as i32) {
+            if let Some(virtual_key) = win_event::vkey_to_winit_vkey(vk_code as i32) {
                 // Save previous state
                 window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                 // Update keyboard state
                 window
+                    .common
                     .current_window_state
                     .keyboard_state
                     .current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
                 window
+                    .common
                     .current_window_state
                     .keyboard_state
                     .pressed_virtual_keycodes
                     .remove_hm_item(&virtual_key);
                 window
+                    .common
                     .current_window_state
                     .keyboard_state
                     .pressed_scancodes
@@ -2701,7 +2871,7 @@ unsafe extern "system" fn window_proc(
                 // Record text input in the TextInputManager
                 if let Some(ref mut layout_window) = window.common.layout_window {
                     let text_str = chr.to_string();
-                    layout_window.record_text_input(&text_str);
+                    let _ = layout_window.record_text_input(&text_str);
                 }
 
                 // V2 system will detect TextInput event
@@ -2810,7 +2980,7 @@ unsafe extern "system" fn window_proc(
                     // Record text input in the TextInputManager
                     if let Some(ref mut layout_window) = window.common.layout_window {
                         let text_str = chr.to_string();
-                        layout_window.record_text_input(&text_str);
+                        let _ = layout_window.record_text_input(&text_str);
                     }
 
                     // V2 system will detect TextInput event
@@ -3072,7 +3242,7 @@ unsafe extern "system" fn window_proc(
                         }
 
                         // Process window events to trigger FileDrop callbacks
-                        window.process_window_events(0);
+                        let _ = window.process_window_events(0);
 
                         // Clear dropped file after processing
                         if let Some(ref mut layout_window) = window.common.layout_window {
@@ -3223,10 +3393,26 @@ impl Win32Window {
     }
 
     pub fn request_redraw(&mut self) {
-        // Post WM_PAINT message to trigger redraw
+        // Use per-rect damage when available (reduces compositor work)
+        if !self.gpu_damage_rects.is_empty() {
+            let dpi = self.common.current_window_state.size.dpi as f32 / 96.0;
+            let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
+            for dr in &rects {
+                let rect = dlopen::RECT {
+                    left: (dr.origin.x * dpi) as i32,
+                    top: (dr.origin.y * dpi) as i32,
+                    right: ((dr.origin.x + dr.size.width) * dpi) as i32 + 1,
+                    bottom: ((dr.origin.y + dr.size.height) * dpi) as i32 + 1,
+                };
+                unsafe {
+                    (self.win32.user32.InvalidateRect)(self.hwnd, &rect as *const _ as *const _, 0);
+                }
+            }
+            return;
+        }
+        // Full-surface redraw fallback
         unsafe {
-            use self::dlopen::constants::WM_PAINT;
-            (self.win32.user32.PostMessageW)(self.hwnd, WM_PAINT, 0, 0);
+            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
         }
     }
 }
@@ -3474,6 +3660,7 @@ impl PlatformWindow for Win32Window {
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
         let layout_window = self
+            .common
             .layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");

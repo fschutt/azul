@@ -401,7 +401,7 @@ pub struct User32Functions {
     pub KillTimer: unsafe extern "system" fn(HWND, usize) -> BOOL,
 }
 
-/// Win32 gdi32.dll function pointers for brushes and regions
+/// Win32 gdi32.dll function pointers for brushes, regions, and pixel blitting
 #[derive(Copy, Clone)]
 pub struct Gdi32Functions {
     pub CreateSolidBrush: unsafe extern "system" fn(u32) -> HBRUSH,
@@ -409,7 +409,35 @@ pub struct Gdi32Functions {
     /// Create a rectangular region - used for DwmEnableBlurBehindWindow
     /// CreateRectRgn(0, 0, -1, -1) creates a minimal region for transparent backgrounds
     pub CreateRectRgn: unsafe extern "system" fn(i32, i32, i32, i32) -> HRGN,
+    /// StretchDIBits - blit pixel data from memory to device context (for CPU rendering)
+    /// (hdc, xDest, yDest, wDest, hDest, xSrc, ySrc, wSrc, hSrc, lpBits, lpBmi, iUsage, dwRop)
+    pub StretchDIBits: unsafe extern "system" fn(
+        HDC, i32, i32, i32, i32, i32, i32, i32, i32,
+        *const core::ffi::c_void, *const BitmapInfoHeader, u32, u32,
+    ) -> i32,
 }
+
+/// BITMAPINFOHEADER for StretchDIBits - describes pixel format of source data
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct BitmapInfoHeader {
+    pub biSize: u32,
+    pub biWidth: i32,
+    pub biHeight: i32,       // negative = top-down DIB
+    pub biPlanes: u16,
+    pub biBitCount: u16,
+    pub biCompression: u32,  // BI_RGB = 0
+    pub biSizeImage: u32,
+    pub biXPelsPerMeter: i32,
+    pub biYPelsPerMeter: i32,
+    pub biClrUsed: u32,
+    pub biClrImportant: u32,
+}
+
+/// DIB_RGB_COLORS - color table contains literal RGB values
+pub const DIB_RGB_COLORS: u32 = 0;
+/// SRCCOPY raster operation - copy source to destination
+pub const SRCCOPY: u32 = 0x00CC0020;
 
 /// HRGN type for region handles
 pub type HRGN = *mut core::ffi::c_void;
@@ -713,6 +741,9 @@ impl Win32Libraries {
                 CreateRectRgn: gdi32_dll
                     .get_symbol("CreateRectRgn")
                     .ok_or_else(|| "CreateRectRgn not found".to_string())?,
+                StretchDIBits: gdi32_dll
+                    .get_symbol("StretchDIBits")
+                    .ok_or_else(|| "StretchDIBits not found".to_string())?,
             }
         };
 
