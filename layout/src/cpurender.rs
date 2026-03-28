@@ -897,6 +897,28 @@ impl AzulPixmap {
         }
     }
 
+    /// Fill a rectangular region with a single color (pixel coordinates).
+    pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8) {
+        let pw = self.width as i32;
+        let ph = self.height as i32;
+        let x0 = x.max(0).min(pw);
+        let y0 = y.max(0).min(ph);
+        let x1 = (x + w).max(0).min(pw);
+        let y1 = (y + h).max(0).min(ph);
+        for row in y0..y1 {
+            let start = (row * pw + x0) as usize * 4;
+            let end = (row * pw + x1) as usize * 4;
+            if end <= self.data.len() {
+                for chunk in self.data[start..end].chunks_exact_mut(4) {
+                    chunk[0] = r;
+                    chunk[1] = g;
+                    chunk[2] = b;
+                    chunk[3] = a;
+                }
+            }
+        }
+    }
+
     /// Raw RGBA pixel data.
     pub fn data(&self) -> &[u8] {
         &self.data
@@ -2163,6 +2185,79 @@ fn render_display_list_with_state(
             &mut scroll_offset_stack,
             render_state,
         )?;
+    }
+
+    Ok(())
+}
+
+/// Render only the damaged regions of a display list into a retained pixmap.
+///
+/// For each damage rect:
+/// 1. Clear that region in the pixmap (fill with background color).
+/// 2. Iterate all display list items, skip those entirely outside the damage rect.
+/// 3. Render intersecting items clipped to the damage rect.
+///
+/// Push/Pop state commands are always processed (they maintain clip/scroll stacks).
+pub fn render_display_list_damaged(
+    display_list: &DisplayList,
+    pixmap: &mut AzulPixmap,
+    dpi_factor: f32,
+    renderer_resources: &RendererResources,
+    font_manager: Option<&FontManager<FontRef>>,
+    glyph_cache: &mut GlyphCache,
+    render_state: &CpuRenderState,
+    damage_rects: &[LogicalRect],
+) -> Result<(), String> {
+    if damage_rects.is_empty() {
+        return Ok(()); // nothing changed
+    }
+
+    // Clear damaged regions to white
+    for dr in damage_rects {
+        let px = (dr.origin.x * dpi_factor) as i32;
+        let py = (dr.origin.y * dpi_factor) as i32;
+        let pw = (dr.size.width * dpi_factor) as i32;
+        let ph = (dr.size.height * dpi_factor) as i32;
+        pixmap.fill_rect(px, py, pw, ph, 255, 255, 255, 255);
+    }
+
+    // Render each damage rect
+    for dr in damage_rects {
+        let clip = AzRect {
+            x: dr.origin.x * dpi_factor,
+            y: dr.origin.y * dpi_factor,
+            width: dr.size.width * dpi_factor,
+            height: dr.size.height * dpi_factor,
+        };
+
+        let mut transform_stack = vec![TransAffine::new()];
+        let mut clip_stack: Vec<Option<AzRect>> = vec![Some(clip)]; // start with damage clip
+        let mut mask_stack: Vec<MaskEntry> = Vec::new();
+        let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+
+        for (idx, item) in display_list.items.iter().enumerate() {
+            // Skip drawing items whose bounds don't intersect the damage rect
+            if let Some(item_bounds) = item.bounds() {
+                if !rects_overlap_or_adjacent(&item_bounds, dr, 0.0) {
+                    continue;
+                }
+            }
+            // Always process push/pop (they affect state stacks) and drawing items that intersect
+
+            render_single_item(
+                item,
+                pixmap,
+                dpi_factor,
+                renderer_resources,
+                font_manager,
+                glyph_cache,
+                &mut transform_stack,
+                &mut clip_stack,
+                &mut mask_stack,
+                &mut scroll_offset_stack,
+                render_state,
+            )?;
+        }
     }
 
     Ok(())
