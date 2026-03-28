@@ -1,7 +1,7 @@
 # Reftest Status Report & Next Session Plan
 
 **Date**: 2026-03-28 (updated session 5)
-**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3-5: 22/44 with diff reductions)
+**Score**: 23/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3-4: 22/44, session 5: 23/44)
 **Branch**: layout-debug-clean
 
 ---
@@ -26,10 +26,11 @@
 - **Fix**: Implemented proper table intrinsic sizing: walk table structure (row groups → rows → cells), measure cell content via IFC intrinsic sizing, aggregate per-column min/max widths, sum for table totals.
 - **Result**: cascade-ua-defaults-001: 43430→43371 (-59). TABLE text now renders horizontally instead of vertically (one char per line). Small diff reduction because main diff is from heading font metrics.
 
-### INVESTIGATED: block-positioning-complex-001
-- BFC layout positions ARE correct (verified by debug logging: child=6 gets final_pos=(20,220))
-- The bug is in the cache path at cache.rs:1766-1795: when applying cached child positions during Pass 2, `child_abs_pos` is computed correctly but the recursive call to `calculate_layout_for_subtree` may use wrong `box_props` (parent's instead of child's)
-- Needs deeper investigation of the two-pass layout cache interaction
+### FIXED: Vec::insert corruption in position_out_of_flow_elements
+**File**: `layout/src/solver3/positioning.rs` (line ~594)
+- **Root cause**: `calculated_positions.insert(node_index, final_pos)` used `Vec::insert()` which SHIFT-INSERTS, pushing all subsequent positions to the right. This corrupted positions of all nodes after the first absolute/fixed element. For example, node 6 (second static-box) was written correctly to (40,240) but then shifted to index 7, while index 6 became (20,140) from the shifted data.
+- **Fix**: Replace `calculated_positions.insert(node_index, final_pos)` with `super::pos_set(calculated_positions, node_index, final_pos)` which correctly indexes into the vec.
+- **Result**: block-positioning-complex-001: 32800→0 (new PASS! 22→23/44)
 
 ---
 
