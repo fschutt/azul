@@ -77,6 +77,14 @@ pub struct CursorManager {
     pub last_input_time: Option<Instant>,
     /// Whether the cursor blink timer is currently active
     pub blink_timer_active: bool,
+    /// IME preedit (composition) text currently being composed.
+    /// When `Some`, this text should be rendered inline at the cursor position
+    /// with an underline decoration to indicate it is unconfirmed.
+    pub preedit_text: Option<String>,
+    /// Byte offset of cursor within preedit text (from IME), or -1 if unset
+    pub preedit_cursor_begin: i32,
+    /// Byte offset of cursor end within preedit text (from IME), or -1 if unset
+    pub preedit_cursor_end: i32,
 }
 
 /// Location of a cursor within the DOM
@@ -133,7 +141,25 @@ impl CursorManager {
             is_visible: false,
             last_input_time: None,
             blink_timer_active: false,
+            preedit_text: None,
+            preedit_cursor_begin: -1,
+            preedit_cursor_end: -1,
         }
+    }
+
+    /// Set the IME preedit (composition) text.
+    /// Called from platform IME handlers when composition is in progress.
+    pub fn set_preedit(&mut self, text: String, cursor_begin: i32, cursor_end: i32) {
+        self.preedit_text = if text.is_empty() { None } else { Some(text) };
+        self.preedit_cursor_begin = cursor_begin;
+        self.preedit_cursor_end = cursor_end;
+    }
+
+    /// Clear the IME preedit text (composition ended or cancelled).
+    pub fn clear_preedit(&mut self) {
+        self.preedit_text = None;
+        self.preedit_cursor_begin = -1;
+        self.preedit_cursor_end = -1;
     }
 
     /// Get the current cursor position

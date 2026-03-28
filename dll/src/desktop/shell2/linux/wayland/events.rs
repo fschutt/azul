@@ -13,9 +13,10 @@ use azul_core::{
     window::{CursorPosition, VirtualKeyCode, WindowFrame},
 };
 
-use super::{defines::*, WaylandWindow};
+use super::{defines, defines::*, WaylandWindow};
 
 use super::super::super::common::debug_server::LogCategory;
+use super::super::super::common::event::PlatformWindow;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // -- State for input devices --
@@ -298,6 +299,79 @@ pub(super) extern "C" fn registry_global_handler(
                 scale: wl_output_scale_handler,
             };
             unsafe { (window.wayland.wl_output_add_listener)(output, &listener, data) };
+        }
+        "zwp_text_input_manager_v3" => {
+            // Bind text-input v3 manager using the same raw approach as KDE blur
+            let manager_interface = defines::get_text_input_manager_v3_interface();
+            let text_input_interface = defines::get_text_input_v3_interface();
+
+            type WlRegistryBindFn = unsafe extern "C" fn(
+                *mut wl_proxy,
+                u32,
+                *const wl_interface,
+                u32,
+            ) -> *mut wl_proxy;
+            let bind_fn: WlRegistryBindFn =
+                unsafe { std::mem::transmute(window.wayland.wl_proxy_marshal_constructor) };
+            let manager = unsafe {
+                bind_fn(
+                    registry as *mut wl_proxy,
+                    0, // wl_registry.bind opcode
+                    manager_interface,
+                    name,
+                ) as *mut zwp_text_input_manager_v3
+            };
+
+            if !manager.is_null() {
+                window.text_input_manager = Some(manager);
+
+                // Create text_input instance via get_text_input(seat)
+                // Opcode 1 = get_text_input, args: new_id + seat
+                if !window.seat.is_null() {
+                    type GetTextInputFn = unsafe extern "C" fn(
+                        *mut wl_proxy,
+                        u32,
+                        *const wl_interface,
+                        *mut wl_seat,
+                    ) -> *mut wl_proxy;
+                    let get_fn: GetTextInputFn = unsafe {
+                        std::mem::transmute(window.wayland.wl_proxy_marshal_constructor)
+                    };
+                    let text_input = unsafe {
+                        get_fn(
+                            manager as *mut wl_proxy,
+                            defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+                            text_input_interface,
+                            window.seat,
+                        ) as *mut zwp_text_input_v3
+                    };
+
+                    if !text_input.is_null() {
+                        // Register event listener for text-input events
+                        let listener = defines::zwp_text_input_v3_listener {
+                            enter: text_input_enter_handler,
+                            leave: text_input_leave_handler,
+                            preedit_string: text_input_preedit_string_handler,
+                            commit_string: text_input_commit_string_handler,
+                            delete_surrounding_text: text_input_delete_surrounding_text_handler,
+                            done: text_input_done_handler,
+                        };
+                        unsafe {
+                            (window.wayland.wl_proxy_add_listener)(
+                                text_input as *mut wl_proxy,
+                                &listener as *const _ as *const c_void,
+                                data,
+                            )
+                        };
+
+                        window.text_input = Some(text_input);
+                        crate::log_debug!(
+                            LogCategory::Platform,
+                            "[Wayland] Bound zwp_text_input_v3 - native IME available"
+                        );
+                    }
+                }
+            }
         }
         "org_kde_kwin_blur_manager" => {
             // KDE Plasma blur protocol - allows client-requested blur effects
@@ -696,4 +770,164 @@ pub(super) fn keysym_to_virtual_keycode(keysym: xkb_keysym_t) -> Option<VirtualK
     // Re-use the X11 keysym mapping as they are identical
     use super::super::x11::events::keysym_to_virtual_keycode as x11_map;
     x11_map(keysym as u64)
+}
+
+// ============================================================
+// zwp_text_input_v3 event handlers
+// ============================================================
+
+/// Pending text-input state accumulated between preedit_string/commit_string and done events.
+/// The text-input v3 protocol batches: preedit_string and/or commit_string arrive first,
+/// then `done` signals that the batch is complete and should be applied.
+pub(super) struct TextInputPendingState {
+    pub preedit_text: Option<String>,
+    pub preedit_cursor_begin: i32,
+    pub preedit_cursor_end: i32,
+    pub commit_text: Option<String>,
+}
+
+impl Default for TextInputPendingState {
+    fn default() -> Self {
+        Self {
+            preedit_text: None,
+            preedit_cursor_begin: -1,
+            preedit_cursor_end: -1,
+            commit_text: None,
+        }
+    }
+}
+
+pub(super) extern "C" fn text_input_enter_handler(
+    data: *mut c_void,
+    _text_input: *mut zwp_text_input_v3,
+    _surface: *mut wl_surface,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] text_input_v3: enter - IME activated for surface"
+    );
+    // The compositor tells us IME is available for this surface.
+    // We'll call enable() when a contenteditable gains focus.
+    window.text_input_active = true;
+}
+
+pub(super) extern "C" fn text_input_leave_handler(
+    data: *mut c_void,
+    _text_input: *mut zwp_text_input_v3,
+    _surface: *mut wl_surface,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] text_input_v3: leave - IME deactivated"
+    );
+    window.text_input_active = false;
+    // Clear any pending preedit
+    if let Some(ref mut lw) = window.common.layout_window {
+        lw.cursor_manager.clear_preedit();
+    }
+}
+
+pub(super) extern "C" fn text_input_preedit_string_handler(
+    data: *mut c_void,
+    _text_input: *mut zwp_text_input_v3,
+    text: *const std::ffi::c_char,
+    cursor_begin: i32,
+    cursor_end: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let preedit = if text.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(text) }.to_str().ok().map(|s| s.to_string())
+    };
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] text_input_v3: preedit_string text={:?} cursor={}..{}",
+        preedit,
+        cursor_begin,
+        cursor_end
+    );
+    window.text_input_pending.preedit_text = preedit;
+    window.text_input_pending.preedit_cursor_begin = cursor_begin;
+    window.text_input_pending.preedit_cursor_end = cursor_end;
+}
+
+pub(super) extern "C" fn text_input_commit_string_handler(
+    data: *mut c_void,
+    _text_input: *mut zwp_text_input_v3,
+    text: *const std::ffi::c_char,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let commit = if text.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(text) }.to_str().ok().map(|s| s.to_string())
+    };
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] text_input_v3: commit_string text={:?}",
+        commit
+    );
+    window.text_input_pending.commit_text = commit;
+}
+
+pub(super) extern "C" fn text_input_delete_surrounding_text_handler(
+    _data: *mut c_void,
+    _text_input: *mut zwp_text_input_v3,
+    before_length: u32,
+    after_length: u32,
+) {
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] text_input_v3: delete_surrounding_text before={} after={}",
+        before_length,
+        after_length
+    );
+    // TODO: implement surrounding text deletion for advanced IME features
+}
+
+pub(super) extern "C" fn text_input_done_handler(
+    data: *mut c_void,
+    _text_input: *mut zwp_text_input_v3,
+    serial: u32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] text_input_v3: done serial={}",
+        serial
+    );
+
+    // Apply pending state: committed text goes to record_text_input,
+    // preedit goes to cursor_manager for inline display
+    let commit_text = window.text_input_pending.commit_text.take();
+    let preedit_text = window.text_input_pending.preedit_text.take();
+    let preedit_begin = window.text_input_pending.preedit_cursor_begin;
+    let preedit_end = window.text_input_pending.preedit_cursor_end;
+
+    // Reset pending state
+    window.text_input_pending = TextInputPendingState::default();
+
+    if let Some(text) = commit_text {
+        if !text.is_empty() {
+            // Clear preedit before committing
+            if let Some(ref mut lw) = window.common.layout_window {
+                lw.cursor_manager.clear_preedit();
+                let _ = lw.record_text_input(&text);
+            }
+            // Process events after text input
+            let _ = window.process_window_events(0);
+        }
+    }
+
+    // Update preedit display
+    if let Some(ref mut lw) = window.common.layout_window {
+        if let Some(ref preedit) = preedit_text {
+            lw.cursor_manager.set_preedit(preedit.clone(), preedit_begin, preedit_end);
+        } else {
+            lw.cursor_manager.clear_preedit();
+        }
+    }
 }

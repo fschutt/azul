@@ -542,16 +542,23 @@ define_class!(
 
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
-            // For now, we don't track marked text ranges
-            false
+            let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                let w = &*(ptr as *const MacOSWindow);
+                w.common.layout_window.as_ref().map(|lw| lw.cursor_manager.preedit_text.is_some())
+            }).unwrap_or(false);
+            has
         }
 
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
-            // Return NSNotFound to indicate no marked text
-            NSRange {
-                location: usize::MAX,
-                length: 0,
+            let preedit_len = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                let w = &*(ptr as *const MacOSWindow);
+                w.common.layout_window.as_ref()
+                    .and_then(|lw| lw.cursor_manager.preedit_text.as_ref().map(|p| p.len()))
+            });
+            match preedit_len {
+                Some(len) => NSRange { location: 0, length: len },
+                None => NSRange { location: usize::MAX, length: 0 },
             }
         }
 
@@ -569,15 +576,25 @@ define_class!(
         #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
         fn set_marked_text(
             &self,
-            _string: &NSObject,
-            _selected_range: NSRange,
+            string: &NSObject,
+            selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
-            println!("[GLView::setMarkedText] Called");
-            // Phase 2: OnCompositionStart callback - sync IME position
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                        ns_string.to_string()
+                    } else {
+                        String::new()
+                    };
+                    if let Some(ref mut lw) = macos_window.common.layout_window {
+                        lw.cursor_manager.set_preedit(
+                            preedit,
+                            selected_range.location as i32,
+                            (selected_range.location + selected_range.length) as i32,
+                        );
+                    }
                     macos_window.sync_ime_position_to_os();
                 }
             }
@@ -585,13 +602,18 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
-            println!("[GLView::unmarkText] Called");
-            // Called when IME composition is finished
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    if let Some(ref mut lw) = macos_window.common.layout_window {
+                        lw.cursor_manager.clear_preedit();
+                    }
+                }
+            }
         }
 
         #[unsafe(method_id(validAttributesForMarkedText))]
         fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
-            // Return empty array - no special attributes needed
             unsafe { objc2_foundation::NSArray::new() }
         }
 
@@ -606,26 +628,20 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
-            println!("[GLView::insert_text] Called!");
-            
-            // Get the back-pointer to our MacOSWindow
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
-                None => {
-                    println!("[GLView::insert_text] ERROR: No window pointer!");
-                    return;
-                }
+                None => return,
             };
 
-            // SAFETY: We trust that the window pointer is valid.
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                // Clear preedit - text is being confirmed
+                if let Some(ref mut lw) = macos_window.common.layout_window {
+                    lw.cursor_manager.clear_preedit();
+                }
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
-                    println!("[GLView::insert_text] Inserting text: '{}'", text);
                     macos_window.handle_text_input(&text);
-                } else {
-                    println!("[GLView::insert_text] ERROR: Could not downcast to NSString");
                 }
             }
         }
@@ -1114,22 +1130,28 @@ define_class!(
 
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
-            false
+            let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                let w = &*(ptr as *const MacOSWindow);
+                w.common.layout_window.as_ref().map(|lw| lw.cursor_manager.preedit_text.is_some())
+            }).unwrap_or(false);
+            has
         }
 
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
-            NSRange {
-                location: usize::MAX,
-                length: 0,
+            let preedit_len = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                let w = &*(ptr as *const MacOSWindow);
+                w.common.layout_window.as_ref()
+                    .and_then(|lw| lw.cursor_manager.preedit_text.as_ref().map(|p| p.len()))
+            });
+            match preedit_len {
+                Some(len) => NSRange { location: 0, length: len },
+                None => NSRange { location: usize::MAX, length: 0 },
             }
         }
 
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
-            // CRITICAL: Return a valid cursor position (location 0, length 0 = cursor at position 0)
-            // Returning NSNotFound (usize::MAX) tells macOS there's no insertion point,
-            // and it will NOT call insertText:replacementRange:
             NSRange {
                 location: 0,
                 length: 0,
@@ -1139,14 +1161,25 @@ define_class!(
         #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
         fn set_marked_text(
             &self,
-            _string: &NSObject,
-            _selected_range: NSRange,
+            string: &NSObject,
+            selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
-            // Phase 2: OnCompositionStart callback - sync IME position
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                        ns_string.to_string()
+                    } else {
+                        String::new()
+                    };
+                    if let Some(ref mut lw) = macos_window.common.layout_window {
+                        lw.cursor_manager.set_preedit(
+                            preedit,
+                            selected_range.location as i32,
+                            (selected_range.location + selected_range.length) as i32,
+                        );
+                    }
                     macos_window.sync_ime_position_to_os();
                 }
             }
@@ -1154,6 +1187,14 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    if let Some(ref mut lw) = macos_window.common.layout_window {
+                        lw.cursor_manager.clear_preedit();
+                    }
+                }
+            }
         }
 
         #[unsafe(method_id(validAttributesForMarkedText))]
@@ -1172,26 +1213,19 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
-            println!("[CPUView::insert_text] Called!");
-            
-            // Get the back-pointer to our MacOSWindow
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
-                None => {
-                    println!("[CPUView::insert_text] ERROR: No window pointer!");
-                    return;
-                }
+                None => return,
             };
 
-            // SAFETY: We trust that the window pointer is valid.
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                if let Some(ref mut lw) = macos_window.common.layout_window {
+                    lw.cursor_manager.clear_preedit();
+                }
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
-                    println!("[CPUView::insert_text] Inserting text: '{}'", text);
                     macos_window.handle_text_input(&text);
-                } else {
-                    println!("[CPUView::insert_text] ERROR: Could not downcast to NSString");
                 }
             }
         }
@@ -5636,6 +5670,16 @@ impl MacOSWindow {
         // Generate tree update from current layout, with current focus
         let focused_node = layout_window.focus_manager.get_focused_node().copied();
         let hidpi_factor = self.common.current_window_state.size.get_hidpi_factor().inner.get();
+        let cursor_a11y_info = layout_window.cursor_manager.cursor_location.as_ref().map(|loc| {
+            let offset = layout_window.cursor_manager.cursor.as_ref()
+                .map(|c| c.cluster_id.start_byte_in_run as usize)
+                .unwrap_or(0);
+            azul_layout::managers::a11y::CursorA11yInfo {
+                dom_id: loc.dom_id,
+                node_id: loc.node_id,
+                cursor_offset: offset,
+            }
+        });
         let tree_update = azul_layout::managers::a11y::A11yManager::update_tree(
             layout_window.a11y_manager.root_id,
             &layout_window.layout_results,
@@ -5643,6 +5687,7 @@ impl MacOSWindow {
             self.common.current_window_state.size.dimensions,
             focused_node,
             hidpi_factor,
+            cursor_a11y_info,
         );
 
         // Submit to OS

@@ -434,6 +434,240 @@ pub struct zwp_text_input_v3 {
     _private: [u8; 0],
 }
 
+// zwp_text_input_v3 event listener
+// Events: enter, leave, preedit_string, commit_string, delete_surrounding_text, done
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_text_input_v3_listener {
+    pub enter: extern "C" fn(
+        data: *mut c_void,
+        text_input: *mut zwp_text_input_v3,
+        surface: *mut wl_surface,
+    ),
+    pub leave: extern "C" fn(
+        data: *mut c_void,
+        text_input: *mut zwp_text_input_v3,
+        surface: *mut wl_surface,
+    ),
+    pub preedit_string: extern "C" fn(
+        data: *mut c_void,
+        text_input: *mut zwp_text_input_v3,
+        text: *const c_char,
+        cursor_begin: i32,
+        cursor_end: i32,
+    ),
+    pub commit_string: extern "C" fn(
+        data: *mut c_void,
+        text_input: *mut zwp_text_input_v3,
+        text: *const c_char,
+    ),
+    pub delete_surrounding_text: extern "C" fn(
+        data: *mut c_void,
+        text_input: *mut zwp_text_input_v3,
+        before_length: u32,
+        after_length: u32,
+    ),
+    pub done: extern "C" fn(
+        data: *mut c_void,
+        text_input: *mut zwp_text_input_v3,
+        serial: u32,
+    ),
+}
+
+// zwp_text_input_v3 content type hint flags
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE: u32 = 0x0;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION: u32 = 0x1;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_SPELLCHECK: u32 = 0x2;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_AUTO_CAPITALIZATION: u32 = 0x4;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_LOWERCASE: u32 = 0x8;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_UPPERCASE: u32 = 0x10;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_TITLECASE: u32 = 0x20;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_HIDDEN_TEXT: u32 = 0x40;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_SENSITIVE_DATA: u32 = 0x80;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_LATIN: u32 = 0x100;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_HINT_MULTILINE: u32 = 0x200;
+
+// zwp_text_input_v3 content purpose
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL: u32 = 0;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_ALPHA: u32 = 1;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_DIGITS: u32 = 2;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NUMBER: u32 = 3;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_PHONE: u32 = 4;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_URL: u32 = 5;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL: u32 = 6;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NAME: u32 = 7;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_PASSWORD: u32 = 8;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_PIN: u32 = 9;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_DATE: u32 = 10;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_TIME: u32 = 11;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_DATETIME: u32 = 12;
+pub const ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_TERMINAL: u32 = 13;
+
+// zwp_text_input_v3 change cause
+pub const ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD: u32 = 0;
+pub const ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER: u32 = 1;
+
+// zwp_text_input_v3 protocol opcodes
+pub const ZWP_TEXT_INPUT_V3_DESTROY: u32 = 0;
+pub const ZWP_TEXT_INPUT_V3_ENABLE: u32 = 1;
+pub const ZWP_TEXT_INPUT_V3_DISABLE: u32 = 2;
+pub const ZWP_TEXT_INPUT_V3_SET_SURROUNDING_TEXT: u32 = 3;
+pub const ZWP_TEXT_INPUT_V3_SET_TEXT_CHANGE_CAUSE: u32 = 4;
+pub const ZWP_TEXT_INPUT_V3_SET_CONTENT_TYPE: u32 = 5;
+pub const ZWP_TEXT_INPUT_V3_SET_CURSOR_RECTANGLE: u32 = 6;
+pub const ZWP_TEXT_INPUT_V3_COMMIT: u32 = 7;
+
+// zwp_text_input_manager_v3 protocol opcodes
+pub const ZWP_TEXT_INPUT_MANAGER_V3_DESTROY: u32 = 0;
+pub const ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT: u32 = 1;
+
+/// Create the wl_interface for zwp_text_input_v3 at runtime.
+///
+/// The interface is leaked (Box::leak) because Wayland stores the pointer
+/// on the proxy and expects it to live as long as the proxy. This is a
+/// one-time ~300 byte allocation per process.
+pub fn get_text_input_v3_interface() -> &'static wl_interface {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    static mut INTERFACE_PTR: *const wl_interface = std::ptr::null();
+
+    unsafe {
+        ONCE.call_once(|| {
+            let null_types: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            ]));
+
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"enter\0".as_ptr() as _,
+                    signature: b"o\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"leave\0".as_ptr() as _,
+                    signature: b"o\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"preedit_string\0".as_ptr() as _,
+                    signature: b"?sii\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"commit_string\0".as_ptr() as _,
+                    signature: b"?s\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"delete_surrounding_text\0".as_ptr() as _,
+                    signature: b"uu\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"done\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+            ]));
+
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"enable\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"disable\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"set_surrounding_text\0".as_ptr() as _,
+                    signature: b"sii\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"set_text_change_cause\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"set_content_type\0".as_ptr() as _,
+                    signature: b"uu\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"set_cursor_rectangle\0".as_ptr() as _,
+                    signature: b"iiii\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"commit\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+            ]));
+
+            INTERFACE_PTR = Box::leak(Box::new(wl_interface {
+                name: b"zwp_text_input_v3\0".as_ptr() as _,
+                version: 1,
+                method_count: 8,
+                methods: requests.as_ptr(),
+                event_count: 6,
+                events: events.as_ptr(),
+            }));
+        });
+        &*INTERFACE_PTR
+    }
+}
+
+/// Create the wl_interface for zwp_text_input_manager_v3 at runtime.
+pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    static mut INTERFACE_PTR: *const wl_interface = std::ptr::null();
+
+    unsafe {
+        ONCE.call_once(|| {
+            let null_types: &'static [*const wl_interface; 2] = Box::leak(Box::new([
+                std::ptr::null(),
+                std::ptr::null(),
+            ]));
+
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+                wl_message {
+                    name: b"get_text_input\0".as_ptr() as _,
+                    signature: b"no\0".as_ptr() as _,
+                    types: null_types.as_ptr(),
+                },
+            ]));
+
+            INTERFACE_PTR = Box::leak(Box::new(wl_interface {
+                name: b"zwp_text_input_manager_v3\0".as_ptr() as _,
+                version: 1,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 0,
+                events: std::ptr::null(),
+            }));
+        });
+        &*INTERFACE_PTR
+    }
+}
+
 // XKB Constants
 pub const XKB_CONTEXT_NO_FLAGS: u32 = 0;
 pub const XKB_KEYMAP_FORMAT_TEXT_V1: u32 = 1;

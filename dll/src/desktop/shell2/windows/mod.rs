@@ -2906,6 +2906,10 @@ unsafe extern "system" fn window_proc(
             if lparam & GCS_RESULTSTR != 0 {
                 // Final composed string is ready - clear composition preview
                 window.ime_composition = None;
+                // Clear preedit in cursor manager
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.cursor_manager.clear_preedit();
+                }
 
                 // Let default processing handle it which will generate WM_IME_CHAR messages
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
@@ -2939,7 +2943,16 @@ unsafe extern "system" fn window_proc(
 
                                 if result > 0 {
                                     // Convert to String and store
-                                    window.ime_composition = String::from_utf16(&buffer).ok();
+                                    let comp_str = String::from_utf16(&buffer).ok();
+                                    window.ime_composition = comp_str.clone();
+                                    // Store preedit in cursor manager for inline rendering
+                                    if let Some(ref mut lw) = window.common.layout_window {
+                                        if let Some(ref text) = comp_str {
+                                            lw.cursor_manager.set_preedit(
+                                                text.clone(), 0, text.len() as i32,
+                                            );
+                                        }
+                                    }
                                     log_trace!(
                                         LogCategory::Input,
                                         "IME Composition: {:?}",
@@ -2964,6 +2977,10 @@ unsafe extern "system" fn window_proc(
         WM_IME_ENDCOMPOSITION => {
             // IME composition ended - clear composition preview
             window.ime_composition = None;
+            // Clear preedit in cursor manager
+            if let Some(ref mut lw) = window.common.layout_window {
+                lw.cursor_manager.clear_preedit();
+            }
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
 

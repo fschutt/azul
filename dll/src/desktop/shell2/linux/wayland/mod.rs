@@ -132,6 +132,9 @@ pub struct WaylandWindow {
     text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>, /* Wayland text-input
                                  * v3 manager */
     text_input: Option<*mut defines::zwp_text_input_v3>, // Wayland text-input v3 instance
+    text_input_active: bool, // Whether compositor has activated text input for our surface
+    text_input_enabled: bool, // Whether we've called enable() for current focus
+    text_input_pending: events::TextInputPendingState, // Pending IME state between events
     pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
     compositor: *mut defines::wl_compositor,
@@ -828,6 +831,9 @@ impl WaylandWindow {
             gtk_im_context,
             text_input_manager: None, // Will be populated if compositor supports text-input v3
             text_input: None,
+            text_input_active: false,
+            text_input_enabled: false,
+            text_input_pending: events::TextInputPendingState::default(),
             display,
             event_queue,
             registry,
@@ -3699,25 +3705,39 @@ impl WaylandWindow {
         use azul_core::window::ImePosition;
 
         if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
-            // Try text-input v3 protocol first (preferred, but requires compositor support)
+            // Use text-input v3 protocol if available (native Wayland IME)
             if let Some(text_input) = self.text_input {
-                // zwp_text_input_v3_set_cursor_rectangle would be called here
-                // However, this requires proper protocol bindings which are complex
-                // For now, we note that this is where native Wayland IME would go
-                log_debug!(
-                    LogCategory::Platform,
-                    "[Wayland] text-input v3 available but not yet implemented"
-                );
-
-                // The proper implementation would be:
-                // zwp_text_input_v3_set_cursor_rectangle(
-                //     text_input,
-                //     rect.origin.x as i32,
-                //     rect.origin.y as i32,
-                //     rect.size.width as i32,
-                //     rect.size.height as i32,
-                // );
-                // wl_display_flush(self.display);
+                if self.text_input_enabled {
+                    // set_cursor_rectangle: opcode 6, args (x, y, width, height)
+                    type MarshalFn = unsafe extern "C" fn(
+                        *mut defines::wl_proxy,
+                        u32, // opcode
+                        i32, i32, i32, i32,
+                    );
+                    let marshal: MarshalFn =
+                        unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+                    unsafe {
+                        marshal(
+                            text_input as *mut defines::wl_proxy,
+                            defines::ZWP_TEXT_INPUT_V3_SET_CURSOR_RECTANGLE,
+                            rect.origin.x as i32,
+                            rect.origin.y as i32,
+                            rect.size.width.max(1.0) as i32,
+                            rect.size.height.max(1.0) as i32,
+                        );
+                    }
+                    // commit the pending state
+                    type CommitFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+                    let commit: CommitFn =
+                        unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+                    unsafe {
+                        commit(
+                            text_input as *mut defines::wl_proxy,
+                            defines::ZWP_TEXT_INPUT_V3_COMMIT,
+                        );
+                        (self.wayland.wl_display_flush)(self.display);
+                    }
+                }
             }
 
             // Fallback to GTK IM context (works across X11 and Wayland)
@@ -3733,6 +3753,82 @@ impl WaylandWindow {
                     (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
                 }
             }
+        }
+    }
+
+    /// Enable text-input v3 for IME input (call when contenteditable gains focus)
+    pub fn text_input_v3_enable(&mut self) {
+        if let Some(text_input) = self.text_input {
+            if self.text_input_enabled {
+                return;
+            }
+            type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+            let marshal: MarshalFn =
+                unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+            unsafe {
+                // enable (opcode 1)
+                marshal(
+                    text_input as *mut defines::wl_proxy,
+                    defines::ZWP_TEXT_INPUT_V3_ENABLE,
+                );
+                // set_content_type (opcode 5): hint=COMPLETION|SPELLCHECK, purpose=NORMAL
+                type ContentTypeFn =
+                    unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32, u32);
+                let content_type: ContentTypeFn =
+                    std::mem::transmute(self.wayland.wl_proxy_marshal);
+                content_type(
+                    text_input as *mut defines::wl_proxy,
+                    defines::ZWP_TEXT_INPUT_V3_SET_CONTENT_TYPE,
+                    defines::ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION
+                        | defines::ZWP_TEXT_INPUT_V3_CONTENT_HINT_SPELLCHECK,
+                    defines::ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL,
+                );
+                // commit (opcode 7)
+                marshal(
+                    text_input as *mut defines::wl_proxy,
+                    defines::ZWP_TEXT_INPUT_V3_COMMIT,
+                );
+                (self.wayland.wl_display_flush)(self.display);
+            }
+            self.text_input_enabled = true;
+            log_debug!(
+                LogCategory::Platform,
+                "[Wayland] text_input_v3: enabled for contenteditable focus"
+            );
+        }
+    }
+
+    /// Disable text-input v3 (call when contenteditable loses focus)
+    pub fn text_input_v3_disable(&mut self) {
+        if let Some(text_input) = self.text_input {
+            if !self.text_input_enabled {
+                return;
+            }
+            type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+            let marshal: MarshalFn =
+                unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+            unsafe {
+                // disable (opcode 2)
+                marshal(
+                    text_input as *mut defines::wl_proxy,
+                    defines::ZWP_TEXT_INPUT_V3_DISABLE,
+                );
+                // commit (opcode 7)
+                marshal(
+                    text_input as *mut defines::wl_proxy,
+                    defines::ZWP_TEXT_INPUT_V3_COMMIT,
+                );
+                (self.wayland.wl_display_flush)(self.display);
+            }
+            self.text_input_enabled = false;
+            // Clear preedit state
+            if let Some(ref mut lw) = self.common.layout_window {
+                lw.cursor_manager.clear_preedit();
+            }
+            log_debug!(
+                LogCategory::Platform,
+                "[Wayland] text_input_v3: disabled on blur"
+            );
         }
     }
 

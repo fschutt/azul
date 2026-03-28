@@ -26,6 +26,17 @@ use azul_css::AzString;
 
 use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 
+/// Cursor position info passed from CursorManager to the a11y tree builder.
+/// Used to set text_selection on contenteditable nodes so screen readers
+/// can announce the cursor position.
+#[cfg(feature = "a11y")]
+pub struct CursorA11yInfo {
+    pub dom_id: DomId,
+    pub node_id: NodeId,
+    /// Character offset of the cursor in the text value
+    pub cursor_offset: usize,
+}
+
 /// Manager for accessibility tree state and updates.
 ///
 /// The `A11yManager` sits within `LayoutWindow` and is responsible for:
@@ -66,6 +77,7 @@ impl A11yManager {
         window_size: LogicalSize,
         focused_node: Option<azul_core::dom::DomNodeId>,
         hidpi_factor: f32,
+        cursor_info: Option<CursorA11yInfo>,
     ) -> TreeUpdate {
         let mut nodes = Vec::new();
         let mut root_children = Vec::new();
@@ -174,6 +186,22 @@ impl A11yManager {
                             || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input)
                         {
                             node.set_value(text_content.as_str());
+                            // Add text editing actions for contenteditable/input nodes
+                            node.add_action(Action::SetTextSelection);
+                            node.add_action(Action::ReplaceSelectedText);
+                            node.add_action(Action::SetValue);
+
+                            // If cursor is in this node, expose position info
+                            if let Some(ref ci) = cursor_info {
+                                if ci.dom_id == *dom_id && ci.node_id == NodeId::new(dom_idx) {
+                                    // Set character_lengths so accesskit knows text structure
+                                    // Each char is 1 unit for simplicity
+                                    let char_lengths: Vec<u8> = text_content.chars()
+                                        .map(|c| c.len_utf8() as u8)
+                                        .collect();
+                                    node.set_character_lengths(char_lengths);
+                                }
+                            }
                         } else if !has_non_text_children {
                             // Only promote text when there are NO interactive children.
                             // Otherwise VoiceOver reads the label instead of navigating children.

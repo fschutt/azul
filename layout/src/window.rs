@@ -706,6 +706,18 @@ impl LayoutWindow {
         #[cfg(feature = "a11y")]
         if result.is_ok() {
             // Use catch_unwind to prevent a11y panics from crashing the main application
+            // Build cursor info for a11y if we have a cursor in a contenteditable
+            let cursor_a11y_info = self.cursor_manager.cursor_location.as_ref().map(|loc| {
+                let offset = self.cursor_manager.cursor.as_ref()
+                    .map(|c| c.cluster_id.start_byte_in_run as usize)
+                    .unwrap_or(0);
+                crate::managers::a11y::CursorA11yInfo {
+                    dom_id: loc.dom_id,
+                    node_id: loc.node_id,
+                    cursor_offset: offset,
+                }
+            });
+
             let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 crate::managers::a11y::A11yManager::update_tree(
                     self.a11y_manager.root_id,
@@ -714,6 +726,7 @@ impl LayoutWindow {
                     self.current_window_state.size.dimensions,
                     self.focus_manager.get_focused_node().copied(),
                     self.current_window_state.size.get_hidpi_factor().inner.get(),
+                    cursor_a11y_info,
                 )
             }));
 
