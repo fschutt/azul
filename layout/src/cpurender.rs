@@ -2992,6 +2992,26 @@ fn render_text(
     let h = pixmap.height;
     let stride = (w * 4) as i32;
 
+    // Create renderer infrastructure once, reuse for all glyphs in this text run.
+    // Batches all glyph cells into a single rasterizer pass when possible.
+    let mut ra = unsafe {
+        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
+    };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(FillingRule::NonZero);
+
+    // Accumulate all glyph cells into one rasterizer, then render once.
+    // This amortizes sort_cells cost across all glyphs in the run.
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -3000,7 +3020,6 @@ fn render_text(
             None => continue,
         };
 
-        // Ensure the path is in the cache (needed for cell building)
         let is_hinted = glyph_cache.get_or_build(
             font_hash.font_hash, glyph_index, glyph_data, parsed_font, ppem,
         ).map(|c| c.is_hinted).unwrap_or(false);
@@ -3008,7 +3027,6 @@ fn render_text(
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
-        // Look up or build cached rasterizer cells for this glyph
         let (cells, int_x, int_y) = match glyph_cache.get_or_build_cells(
             font_hash.font_hash, glyph_index, ppem,
             glyph_x, glyph_baseline_y, scale, is_hinted,
@@ -3017,26 +3035,12 @@ fn render_text(
             None => continue,
         };
 
-        // Replay cached cells with integer pixel offset — no path→cell conversion
-        let mut ra = unsafe {
-            RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
-        };
-        let mut pf = PixfmtRgba32::new(&mut ra);
-        let mut rb = RendererBase::new(pf);
-        if let Some(c) = clip {
-            rb.clip_box_i(
-                c.x as i32,
-                c.y as i32,
-                (c.x + c.width) as i32 - 1,
-                (c.y + c.height) as i32 - 1,
-            );
-        }
-        let mut ras = RasterizerScanlineAa::new();
-        ras.filling_rule(FillingRule::NonZero);
         ras.add_cells_offset(cells, int_x, int_y);
-        let mut sl = ScanlineU8::new();
-        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     }
+
+    // Single render pass for all glyphs in this text run
+    let mut sl = ScanlineU8::new();
+    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
 
     Ok(())
 }
