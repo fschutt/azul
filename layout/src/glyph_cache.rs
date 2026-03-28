@@ -1,13 +1,16 @@
-//! Glyph path cache for CPU rendering.
+//! Glyph path and cell cache for CPU rendering.
 //!
-//! Caches built agg-rust PathStorage objects keyed by (font_hash, glyph_id, ppem) so that
-//! repeated rendering of the same glyph avoids redundant path construction.
-//! When ppem > 0 and the font has hinting data, the path is hinted (grid-fitted)
-//! and in pixel coordinates. Otherwise the path is in font units.
+//! Two-level cache:
+//! 1. **Path cache**: `PathStorage` objects keyed by (font, glyph, ppem).
+//!    Avoids redundant path construction from font outlines.
+//! 2. **Cell cache**: Rasterizer cells keyed by (font, glyph, ppem, scale, sub-pixel).
+//!    Avoids the expensive path→cells conversion on every frame.
+//!    Cells are computed at position (0,0) and offset at render time.
 
 use std::collections::HashMap;
 
 use agg_rust::path_storage::PathStorage;
+use agg_rust::rasterizer_cells_aa::CellAa;
 
 use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
 
@@ -20,21 +23,53 @@ pub struct GlyphPathKey {
     pub ppem: u16,
 }
 
+/// Cache key for pre-rasterized glyph cells.
+/// Includes sub-pixel x/y fractional position quantized to 1/4 pixel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GlyphCellKey {
+    pub font_hash: u64,
+    pub glyph_id: u16,
+    pub ppem: u16,
+    /// Scale factor encoded as fixed-point (scale * 65536) for unhinted glyphs.
+    /// 0 for hinted glyphs (already in pixel coords).
+    pub scale_fixed: u32,
+    /// Sub-pixel x position quantized to 1/4 pixel (0..3).
+    pub subpx_x: u8,
+    /// Sub-pixel y position quantized to 1/4 pixel (0..3).
+    pub subpx_y: u8,
+}
+
 /// Result of a cache lookup: the path plus whether it's hinted (pixel coords) or not.
 pub struct CachedGlyph<'a> {
     pub path: &'a PathStorage,
     pub is_hinted: bool,
 }
 
-/// Cache of built glyph paths.
+/// Pre-rasterized glyph cells at a canonical position.
+/// Contains the rasterizer's cell output for a glyph at sub-pixel position (subpx_x, subpx_y).
+/// To render at actual position (x, y), add integer pixel offset to each cell.
+pub struct CachedCells {
+    pub cells: Vec<CellAa>,
+}
+
+/// Cache of built glyph paths and pre-rasterized cells.
 pub struct GlyphCache {
     paths: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
+    cells: HashMap<GlyphCellKey, Option<CachedCells>>,
+}
+
+/// Quantize a fractional pixel position to 1/4 pixel (0..3).
+#[inline]
+fn quantize_subpx(frac: f32) -> u8 {
+    let f = frac - frac.floor();
+    (f * 4.0).min(3.0) as u8
 }
 
 impl GlyphCache {
     pub fn new() -> Self {
         Self {
             paths: HashMap::new(),
+            cells: HashMap::new(),
         }
     }
 
@@ -68,14 +103,85 @@ impl GlyphCache {
         })
     }
 
-    /// Evict all cached paths.
-    pub fn clear(&mut self) {
-        self.paths.clear();
+    /// Get cached rasterizer cells for a glyph, or build them from the path.
+    ///
+    /// - `glyph_x`, `glyph_y`: final pixel position (used for sub-pixel quantization)
+    /// - `scale`: font-unit→pixel scale (0.0 for hinted glyphs)
+    /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
+    ///
+    /// Returns the cached cells and the integer pixel offset to apply.
+    pub fn get_or_build_cells(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+    ) -> Option<(&[CellAa], i32, i32)> {
+        let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
+        let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
+        let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
+
+        let cell_key = GlyphCellKey {
+            font_hash, glyph_id, ppem, scale_fixed, subpx_x, subpx_y,
+        };
+
+        // Integer pixel offset — the cells are at sub-pixel origin, offset by int part
+        let int_x = if is_hinted { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
+        let int_y = if is_hinted { glyph_y.round() as i32 } else { glyph_y.floor() as i32 };
+
+        if !self.cells.contains_key(&cell_key) {
+            // Build cells from cached path
+            let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
+            let path_entry = self.paths.get(&path_key);
+            let cached_cells = path_entry.and_then(|entry| {
+                let (path, _) = entry.as_ref()?;
+                let frac_x = (subpx_x as f64) * 0.25;
+                let frac_y = (subpx_y as f64) * 0.25;
+
+                use agg_rust::trans_affine::TransAffine;
+                use agg_rust::basics::FillingRule;
+                use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
+
+                let mut ras = RasterizerScanlineAa::new();
+                ras.filling_rule(FillingRule::NonZero);
+
+                let transform = if is_hinted {
+                    TransAffine::new_translation(frac_x, frac_y)
+                } else {
+                    let mut t = TransAffine::new_scaling_uniform(scale as f64);
+                    t.multiply(&TransAffine::new_translation(frac_x, frac_y));
+                    t
+                };
+
+                let verts = path.vertices();
+                ras.add_path_vertices_transformed(verts, &transform);
+                let cells = ras.outline_cells();
+                if cells.is_empty() { None } else { Some(CachedCells { cells }) }
+            });
+            self.cells.insert(cell_key, cached_cells);
+        }
+
+        let entry = self.cells.get(&cell_key)?;
+        entry.as_ref().map(|cc| (cc.cells.as_slice(), int_x, int_y))
     }
 
-    /// Number of cached entries.
+    /// Evict all cached paths and cells.
+    pub fn clear(&mut self) {
+        self.paths.clear();
+        self.cells.clear();
+    }
+
+    /// Number of cached path entries.
     pub fn len(&self) -> usize {
         self.paths.len()
+    }
+
+    /// Number of cached cell entries.
+    pub fn cell_cache_len(&self) -> usize {
+        self.cells.len()
     }
 }
 

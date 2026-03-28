@@ -1573,7 +1573,7 @@ fn position_bfc_child_descendants(
         );
 
         super::pos_set(calculated_positions, child_index, child_abs_pos);
-        
+
         // Calculate child's content-box position for recursion
         let cbp = child_node.box_props.unpack();
         let child_content_box_pos = LogicalPosition::new(

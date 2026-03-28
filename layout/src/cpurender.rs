@@ -1195,6 +1195,44 @@ fn agg_fill_transformed_path_clipped(
     }
 }
 
+/// Fill a cached glyph path without cloning. Uses `PathStorage::vertices()`
+/// and `add_path_vertices_transformed` to avoid the per-glyph clone.
+fn agg_fill_glyph_path(
+    pixmap: &mut AzulPixmap,
+    path: &PathStorage,
+    color: &Rgba8,
+    rule: FillingRule,
+    transform: &TransAffine,
+    clip: Option<AzRect>,
+) {
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe {
+        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
+    };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(rule);
+    let verts = path.vertices();
+    if transform.is_identity(0.0001) {
+        ras.add_path_vertices(verts);
+    } else {
+        ras.add_path_vertices_transformed(verts, transform);
+    }
+    let mut sl = ScanlineU8::new();
+    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
+}
+
 // ============================================================================
 // AGG helper: fill a path with a gradient into an AzulPixmap
 // ============================================================================
@@ -2634,9 +2672,35 @@ fn render_rect(
     let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
 
     if border_radius.is_zero() {
-        let mut path = build_rect_path(&rect);
-        agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
+        // Fast path: axis-aligned rectangle — use direct RendererBase::blend_bar
+        // instead of the full rasterizer pipeline. This avoids path construction,
+        // cell generation, sorting, and scanline rendering for simple rectangles.
+        let w = pixmap.width;
+        let h = pixmap.height;
+        let stride = (w * 4) as i32;
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
+        };
+        let mut pf = PixfmtRgba32::new(&mut ra);
+        let mut rb = RendererBase::new(pf);
+        if let Some(c) = clip {
+            rb.clip_box_i(
+                c.x as i32,
+                c.y as i32,
+                (c.x + c.width) as i32 - 1,
+                (c.y + c.height) as i32 - 1,
+            );
+        }
+        rb.blend_bar(
+            rect.x as i32,
+            rect.y as i32,
+            (rect.x + rect.width) as i32 - 1,
+            (rect.y + rect.height) as i32 - 1,
+            &agg_color,
+            255, // cover=255: alpha is already in the color
+        );
     } else {
+        // Rounded rect: needs the full rasterizer for curved corners
         let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
         agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     }
@@ -2722,7 +2786,11 @@ fn render_text(
     let scale = (font_size_px * dpi_factor) / units_per_em;
     let ppem = (font_size_px * dpi_factor).round() as u16;
 
-    // Draw each glyph using cached paths
+    // Set up the rasterizer pipeline once, reuse for all glyphs
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -2731,35 +2799,42 @@ fn render_text(
             None => continue,
         };
 
-        let cached = match glyph_cache.get_or_build(
+        // Ensure the path is in the cache (needed for cell building)
+        let is_hinted = glyph_cache.get_or_build(
             font_hash.font_hash, glyph_index, glyph_data, parsed_font, ppem,
+        ).map(|c| c.is_hinted).unwrap_or(false);
+
+        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
+
+        // Look up or build cached rasterizer cells for this glyph
+        let (cells, int_x, int_y) = match glyph_cache.get_or_build_cells(
+            font_hash.font_hash, glyph_index, ppem,
+            glyph_x, glyph_baseline_y, scale, is_hinted,
         ) {
             Some(c) => c,
             None => continue,
         };
 
-        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
-        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
-
-        let glyph_transform = if cached.is_hinted {
-            // Hinted path is in pixel coordinates — snap to pixel grid
-            TransAffine::new_translation(glyph_x.round() as f64, glyph_baseline_y.round() as f64)
-        } else {
-            // Unhinted path is in font units — apply scale + translate
-            let mut t = TransAffine::new_scaling_uniform(scale as f64);
-            t.multiply(&TransAffine::new_translation(glyph_x as f64, glyph_baseline_y as f64));
-            t
+        // Replay cached cells with integer pixel offset — no path→cell conversion
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
         };
-
-        let mut path_clone = cached.path.clone();
-        agg_fill_transformed_path_clipped(
-            pixmap,
-            &mut path_clone,
-            &agg_color,
-            FillingRule::NonZero,
-            &glyph_transform,
-            clip,
-        );
+        let mut pf = PixfmtRgba32::new(&mut ra);
+        let mut rb = RendererBase::new(pf);
+        if let Some(c) = clip {
+            rb.clip_box_i(
+                c.x as i32,
+                c.y as i32,
+                (c.x + c.width) as i32 - 1,
+                (c.y + c.height) as i32 - 1,
+            );
+        }
+        let mut ras = RasterizerScanlineAa::new();
+        ras.filling_rule(FillingRule::NonZero);
+        ras.add_cells_offset(cells, int_x, int_y);
+        let mut sl = ScanlineU8::new();
+        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     }
 
     Ok(())
