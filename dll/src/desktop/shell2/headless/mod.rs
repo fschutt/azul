@@ -137,6 +137,9 @@ pub struct CpuBackend {
     /// Glyph cache — persists across frames for text rendering.
     #[cfg(feature = "cpurender")]
     pub glyph_cache: azul_layout::glyph_cache::GlyphCache,
+    /// Previous display list for damage rect computation.
+    #[cfg(feature = "cpurender")]
+    pub previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
 }
 
 impl CpuBackend {
@@ -149,6 +152,8 @@ impl CpuBackend {
             compositor: None,
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            #[cfg(feature = "cpurender")]
+            previous_display_list: None,
         }
     }
 
