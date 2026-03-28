@@ -27137,41 +27137,6 @@
                             }
                         ],
                         "constructors": {
-                            "from_xml": {
-                                "doc": [
-                                    "Returns a DOM loaded from an XML string"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "xml_string": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::extra::styled_dom_from_str(xml_string.as_str())"
-                            },
-                            "from_file": {
-                                "doc": [
-                                    "Same as `from_xml`, but loads the file relative to the current directory"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "xml_file_path": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::extra::styled_dom_from_file(xml_file_path.as_str())"
-                            },
-                            "from_parsed_xml": {
-                                "doc": [
-                                    "Creates a StyledDom from an already-parsed Xml structure.",
-                                    "This avoids re-parsing the XML string and is more efficient",
-                                    "when you already have a parsed Xml object."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "xml": "Xml"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::extra::styled_dom_from_parsed_xml(xml)"
-                            }
                         },
                         "functions": {
                             "append_child": {
