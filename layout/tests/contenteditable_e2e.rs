@@ -261,6 +261,22 @@ impl ContentEditableHarness {
         dl.items.iter().any(|item| matches!(item, DisplayListItem::CursorRect { .. }))
     }
 
+    /// Debug: dump layout tree nodes to trace paint_cursor traversal
+    fn dump_layout_tree(&self) {
+        let lw = self.layout_window.as_ref().unwrap();
+        let dom_id = DomId { inner: 0 };
+        let result = lw.layout_results.get(&dom_id).unwrap();
+        let tree = &result.layout_tree;
+        for idx in 0..tree.nodes.len() {
+            let node = tree.get(idx).unwrap();
+            let children = tree.children(idx);
+            let has_ifc = tree.warm(idx).and_then(|w| w.ifc_membership.as_ref()).is_some();
+            let has_inline = tree.warm(idx).and_then(|w| w.inline_layout_result.as_ref()).is_some();
+            eprintln!("  [layout_tree] idx={} dom_node_id={:?} children={:?} ifc_member={} has_inline={}",
+                idx, node.dom_node_id, children, has_ifc, has_inline);
+        }
+    }
+
     /// Get cursor byte offset from cursor manager (start_byte_in_run)
     fn get_cursor_byte_offset(&self) -> Option<u32> {
         let lw = self.layout_window.as_ref().unwrap();
@@ -456,9 +472,11 @@ fn contenteditable_text_input_changes_output() {
     let cursor_loc = lw.cursor_manager.get_cursor_location();
     eprintln!("  [verify] should_draw_cursor={}, cursor_location={:?}, has CursorRect: {}",
         draw_cursor, cursor_loc, has_cursor);
-    // Note: CursorRect may not appear if the display list regeneration doesn't
-    // pick up the cursor state. This is a known gap — the cursor is rendered
-    // during display list generation which reads from CursorManager.
+    if !has_cursor {
+        eprintln!("  [DEBUG] Dumping layout tree:");
+        h.dump_layout_tree();
+    }
+    assert!(has_cursor, "CursorRect must appear in display list after focus + text input (should_draw_cursor={}, cursor_location={:?})", draw_cursor, cursor_loc);
 
     // Verify 6: rendered frames differ visually
     let frame2 = h.render();
@@ -469,12 +487,16 @@ fn contenteditable_text_input_changes_output() {
     eprintln!("  [verify] {} pixels differ ({:.1}%)", diff, diff as f64 / total as f64 * 100.0);
 
     // Verify 6: damage computation detects the change
+    // Note: damage may return None if DL structure changed (e.g. CursorRect added),
+    // which is fine — it means a full repaint is needed.
     let dl_after = h.clone_display_list();
     let damage = cpurender::compute_display_list_damage(&dl_before, &dl_after);
-    assert!(damage.is_some(), "Damage computation should succeed (same structure)");
-    let rects = damage.unwrap();
-    assert!(!rects.is_empty(), "Damage should produce at least one rect for text change");
-    eprintln!("  [verify] {} damage rect(s)", rects.len());
+    if let Some(rects) = &damage {
+        assert!(!rects.is_empty(), "Damage should produce at least one rect for text change");
+        eprintln!("  [verify] {} damage rect(s)", rects.len());
+    } else {
+        eprintln!("  [verify] Damage computation returned None (DL structure changed — full repaint)");
+    }
 }
 
 // =========================================================================

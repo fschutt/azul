@@ -4406,10 +4406,15 @@ impl LayoutWindow {
         let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
 
         // Update the cursor/selection in cursor manager
-        // This happens lazily, only when we actually apply the changes
+        // Preserve the existing cursor_location node_id (text child) — the focused
+        // node is the contenteditable DIV, but paint_cursor matches the text child.
         if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
+            let cursor_node = self.cursor_manager
+                .get_cursor_location()
+                .map(|loc| loc.node_id)
+                .unwrap_or(node_id);
             self.cursor_manager
-                .move_cursor_to(new_cursor.clone(), dom_id, node_id);
+                .move_cursor_to(new_cursor.clone(), dom_id, cursor_node);
         }
 
         // Clear selection state after text edit — typing always collapses selection

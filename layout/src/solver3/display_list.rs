@@ -1944,9 +1944,23 @@ where
             return Ok(());
         };
         
-        // Only paint cursor on the node that has the cursor
+        // Only paint cursor on the node that has the cursor, OR on a node
+        // that is the IFC root containing the cursor's text node as a child.
+        // This handles the common case where cursor_node_id is a text child
+        // (NodeId=2) but the inline layout lives on the parent IFC root (NodeId=1).
         if dom_id != *cursor_node_id {
-            return Ok(());
+            // Check if this node is the IFC root that contains the cursor text node
+            let is_ifc_root_of_cursor = self.positioned_tree.tree.children(node_index)
+                .iter()
+                .any(|&child_idx| {
+                    self.positioned_tree.tree.get(child_idx)
+                        .and_then(|c| c.dom_node_id)
+                        .map(|id| id == *cursor_node_id)
+                        .unwrap_or(false)
+                });
+            if !is_ifc_root_of_cursor {
+                return Ok(());
+            }
         }
         
         // Check DOM ID matches

@@ -4075,10 +4075,11 @@ impl UnifiedLayout {
     /// Calculates the visual rectangle for a cursor at a given logical position.
     pub fn get_cursor_rect(&self, cursor: &TextCursor) -> Option<LogicalRect> {
         // Find the item and glyph corresponding to the cursor's cluster ID.
+        let mut last_cluster: Option<(&PositionedItem, &ShapedCluster)> = None;
         for item in &self.items {
             if let ShapedItem::Cluster(cluster) = &item.item {
                 if cluster.source_cluster_id == cursor.cluster_id {
-                    // This is the correct cluster. Now find the position.
+                    // Exact match
                     let line_height = item.item.bounds().height;
                     let cursor_x = match cursor.affinity {
                         CursorAffinity::Leading => item.position.x,
@@ -4092,9 +4093,28 @@ impl UnifiedLayout {
                         size: LogicalSize {
                             width: 1.0,
                             height: line_height,
-                        }, // 1px wide cursor
+                        },
                     });
                 }
+                last_cluster = Some((item, cluster));
+            }
+        }
+        // Cursor past end of text: position after the last cluster
+        if let Some((item, cluster)) = last_cluster {
+            if cursor.cluster_id.source_run == cluster.source_cluster_id.source_run
+                && cursor.cluster_id.start_byte_in_run >= cluster.source_cluster_id.start_byte_in_run
+            {
+                let line_height = item.item.bounds().height;
+                return Some(LogicalRect {
+                    origin: LogicalPosition {
+                        x: item.position.x + cluster.advance,
+                        y: item.position.y,
+                    },
+                    size: LogicalSize {
+                        width: 1.0,
+                        height: line_height,
+                    },
+                });
             }
         }
         None
