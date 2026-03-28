@@ -21,7 +21,7 @@ use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
-const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
+const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
@@ -914,6 +914,13 @@ impl DropDown {
     }
 
     pub fn dom(self) -> Dom {
+        // Get the selected item text (or empty string if out of bounds)
+        let selected_text = self.choices
+            .as_slice()
+            .get(self.selected)
+            .cloned()
+            .unwrap_or_else(|| AzString::from_const_str(""));
+
         let refany = RefAny::new(self);
 
         Dom::create_div()
@@ -953,7 +960,7 @@ impl DropDown {
                             IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11862789041977911489)
                         })
                         .with_children(DomVec::from_vec(vec![Dom::create_text(
-                            AzString::from_const_str("Checkbox"),
+                            selected_text,
                         )
                         .with_css_props(CSS_MATCH_16432538576103237591)])),
                     Dom::create_div()
