@@ -157,9 +157,9 @@ pub struct Xlib {
     pub XMatchVisualInfo: XMatchVisualInfo,
     pub XFreeColormap: XFreeColormap,
     // XImage functions for CPU rendering
-    pub XCreateImage: unsafe extern "C" fn(*mut Display, *mut c_void, c_uint, c_int, c_int, *mut c_char, c_uint, c_uint, c_int, c_int) -> *mut defines::XImage,
-    pub XPutImage: unsafe extern "C" fn(*mut Display, Drawable, GC, *mut defines::XImage, c_int, c_int, c_int, c_int, c_uint, c_uint) -> c_int,
-    pub XDestroyImage: unsafe extern "C" fn(*mut defines::XImage) -> c_int,
+    pub XCreateImage: unsafe extern "C" fn(*mut Display, *mut c_void, c_uint, c_int, c_int, *mut c_char, c_uint, c_uint, c_int, c_int) -> *mut XImage,
+    pub XPutImage: unsafe extern "C" fn(*mut Display, Drawable, GC, *mut XImage, c_int, c_int, c_int, c_int, c_uint, c_uint) -> c_int,
+    pub XDestroyImage: unsafe extern "C" fn(*mut XImage) -> c_int,
 }
 
 impl Xlib {

@@ -51,10 +51,10 @@ use super::common::gl::GlFunctions;
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
-        event::{self, PlatformWindow},
+        event::{self, HitTestNode, PlatformWindow},
         WindowError,
     },
-    wr_translate2::{self, AsyncHitTester, Notifier},
+    wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
 };
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
@@ -303,6 +303,9 @@ pub struct X11Window {
     #[cfg(feature = "cpurender")]
     glyph_cache: azul_layout::glyph_cache::GlyphCache,
 
+    /// Damage rects for incremental rendering (CPU and GPU)
+    gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
+
     // Accessibility
     /// Linux accessibility adapter
     #[cfg(feature = "a11y")]
@@ -531,6 +534,28 @@ impl X11Window {
     }
 
     pub fn request_redraw(&mut self) {
+        // Use per-rect Expose events when damage rects available
+        if !self.gpu_damage_rects.is_empty() {
+            let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
+            for dr in &rects {
+                let mut event: XEvent = unsafe { std::mem::zeroed() };
+                let expose = unsafe { &mut event.expose };
+                expose.type_ = Expose;
+                expose.display = self.display;
+                expose.window = self.window;
+                expose.x = dr.origin.x as i32;
+                expose.y = dr.origin.y as i32;
+                expose.width = dr.size.width as i32 + 1;
+                expose.height = dr.size.height as i32 + 1;
+                unsafe {
+                    (self.xlib.XSendEvent)(self.display, self.window, 0, ExposureMask, &mut event);
+                }
+            }
+            unsafe { (self.xlib.XFlush)(self.display) };
+            return;
+        }
+
+        // Full-surface redraw fallback
         let mut event: XEvent = unsafe { std::mem::zeroed() };
         let expose = unsafe { &mut event.expose };
         expose.type_ = Expose;
@@ -797,6 +822,7 @@ impl X11Window {
             }
         };
 
+        let is_cpu_mode = matches!(render_mode, RenderMode::Cpu(_));
         let mut window = Self {
             xlib,
             egl,
@@ -841,6 +867,11 @@ impl X11Window {
                 renderer,
                 render_api,
                 hit_tester,
+                cpu_hit_tester: if is_cpu_mode {
+                    Some(azul_layout::headless::CpuHitTester::new())
+                } else {
+                    None
+                },
                 document_id,
                 id_namespace,
                 image_cache: ImageCache::default(),
@@ -876,6 +907,7 @@ impl X11Window {
             },
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            gpu_damage_rects: Vec::new(),
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
@@ -967,7 +999,7 @@ impl X11Window {
             });
 
             // Initialize LayoutWindow if not already done
-            if window.layout_window.is_none() {
+            if window.common.layout_window.is_none() {
                 let mut layout_window =
                     azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
                         .map_err(|e| {
@@ -977,24 +1009,24 @@ impl X11Window {
                             ))
                         })?;
 
-                if let Some(doc_id) = window.document_id {
+                if let Some(doc_id) = window.common.document_id {
                     layout_window.document_id = doc_id;
                 }
-                if let Some(ns_id) = window.id_namespace {
+                if let Some(ns_id) = window.common.id_namespace {
                     layout_window.id_namespace = ns_id;
                 }
-                layout_window.current_window_state = window.current_window_state.clone();
+                layout_window.current_window_state = window.common.current_window_state.clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
                     *guard = crate::desktop::display::get_monitors();
                 }
-                window.layout_window = Some(layout_window);
+                window.common.layout_window = Some(layout_window);
             }
 
             // Get mutable references needed for invoke_single_callback
             let layout_window = window
-                .layout_window
+                .common.layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
             // Get app_data for callback
@@ -1004,12 +1036,12 @@ impl X11Window {
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
-                &window.gl_context_ptr,
+                &window.common.gl_context_ptr,
                 window.resources.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &window.previous_window_state,
-                &window.current_window_state,
-                &window.renderer_resources,
+                &window.common.previous_window_state,
+                &window.common.current_window_state,
+                &window.common.renderer_resources,
             );
 
             drop(app_data_ref);
@@ -1017,14 +1049,14 @@ impl X11Window {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.frame_needs_regeneration = true;
+                    window.common.frame_needs_regeneration = true;
                 }
             }
         }
 
         // CRITICAL: Always initialize LayoutWindow if not already done
         // This is needed for rendering even without callbacks or debug mode
-        if window.layout_window.is_none() {
+        if window.common.layout_window.is_none() {
             let mut layout_window =
                 azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
                     .map_err(|e| {
@@ -1034,19 +1066,19 @@ impl X11Window {
                         ))
                     })?;
 
-            if let Some(doc_id) = window.document_id {
+            if let Some(doc_id) = window.common.document_id {
                 layout_window.document_id = doc_id;
             }
-            if let Some(ns_id) = window.id_namespace {
+            if let Some(ns_id) = window.common.id_namespace {
                 layout_window.id_namespace = ns_id;
             }
-            layout_window.current_window_state = window.current_window_state.clone();
+            layout_window.current_window_state = window.common.current_window_state.clone();
             layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
             // Initialize monitor cache once at window creation
             if let Ok(mut guard) = layout_window.monitors.lock() {
                 *guard = crate::desktop::display::get_monitors();
             }
-            window.layout_window = Some(layout_window);
+            window.common.layout_window = Some(layout_window);
         }
 
         // Register debug timer is now done from run() with explicit channel + component map
@@ -1054,7 +1086,7 @@ impl X11Window {
         // Apply initial background material if not Opaque
         {
             use azul_core::window::WindowBackgroundMaterial;
-            let initial_material = window.current_window_state.flags.background_material;
+            let initial_material = window.common.current_window_state.flags.background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
                     LogCategory::Window,
@@ -1440,23 +1472,23 @@ impl X11Window {
             }
         }
 
-        // CRITICAL: Make OpenGL context current BEFORE generate_frame
-        // The image callbacks (RenderImageCallback) need the GL context to be current
-        // to allocate textures and draw to them
+        // Send frame to WebRender (GPU mode only - CPU mode reads display list directly)
         if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
             gl_context.make_current();
-        }
 
-        // Send frame immediately (like Windows - ensures WebRender transaction is sent)
-        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
-        crate::desktop::shell2::common::layout::generate_frame(
-            layout_window,
-            self.common.render_api.as_mut().ok_or("No render API")?,
-            self.common.document_id.ok_or("No document ID")?,
-            &self.common.gl_context_ptr,
-        );
-        if let Some(render_api) = self.common.render_api.as_mut() {
-            render_api.flush_scene_builder();
+            if let (Some(layout_window), Some(render_api), Some(document_id)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+                self.common.document_id,
+            ) {
+                crate::desktop::shell2::common::layout::generate_frame(
+                    layout_window,
+                    render_api,
+                    document_id,
+                    &self.common.gl_context_ptr,
+                );
+                render_api.flush_scene_builder();
+            }
         }
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)

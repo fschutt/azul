@@ -59,10 +59,10 @@ use super::{
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
-        event::{self, PlatformWindow},
+        event::{self, HitTestNode, PlatformWindow},
         WindowError,
     },
-    wr_translate2::{self, AsyncHitTester, Notifier},
+    wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
 };
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
@@ -275,13 +275,6 @@ pub struct WaylandPopup {
 }
 
 // Event Handler Types
-
-/// Hit test node structure for event routing.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-struct HitTestNode {
-    dom_id: u64,
-    node_id: u64,
-}
 
 // XKB Keyboard Translation
 
@@ -879,6 +872,7 @@ impl WaylandWindow {
                 render_api: None,
                 renderer: None,
                 hit_tester: None,
+                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
                 document_id: None,
                 image_cache: ImageCache::default(),
                 renderer_resources: RendererResources::default(),
@@ -1128,7 +1122,7 @@ impl WaylandWindow {
 
             // Get mutable references needed for invoke_single_callback
             let layout_window = window
-                .layout_window
+                .common.layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
             // Get app_data for callback
@@ -1923,7 +1917,7 @@ impl WaylandWindow {
                 hit_tester.hit_test(wr_translate2::translate_world_point(physical_pos));
             // Get focused node from FocusManager
             let focused_node = self
-                .layout_window
+                .common.layout_window
                 .as_ref()
                 .and_then(|lw| lw.focus_manager.get_focused_node().copied());
             let hit_test = wr_translate2::translate_hit_test_result(hit_test_result, focused_node);
@@ -2028,7 +2022,7 @@ impl WaylandWindow {
 
     /// Process window events (V2 wrapper for external use)
     pub fn process_window_events_v2(&mut self) -> ProcessEventResult {
-        self.process_events();
+        let _ = self.process_events();
         ProcessEventResult::DoNothing
     }
 
@@ -3558,23 +3552,23 @@ impl WaylandPopup {
         let current_window_state = FullWindowState {
             title: "Popup".to_string().into(),
             size: options.window_state.size,
-            position: parent.current_window_state.position,
-            flags: parent.current_window_state.flags,
-            theme: parent.current_window_state.theme,
-            debug_state: parent.current_window_state.debug_state,
-            keyboard_state: parent.current_window_state.keyboard_state.clone(),
-            mouse_state: parent.current_window_state.mouse_state.clone(),
-            touch_state: parent.current_window_state.touch_state.clone(),
-            ime_position: parent.current_window_state.ime_position,
+            position: parent.common.current_window_state.position,
+            flags: parent.common.current_window_state.flags,
+            theme: parent.common.current_window_state.theme,
+            debug_state: parent.common.current_window_state.debug_state,
+            keyboard_state: parent.common.current_window_state.keyboard_state.clone(),
+            mouse_state: parent.common.current_window_state.mouse_state.clone(),
+            touch_state: parent.common.current_window_state.touch_state.clone(),
+            ime_position: parent.common.current_window_state.ime_position,
             platform_specific_options: parent
-                .current_window_state
+                .common.current_window_state
                 .platform_specific_options
                 .clone(),
-            renderer_options: parent.current_window_state.renderer_options,
-            background_color: parent.current_window_state.background_color,
+            renderer_options: parent.common.current_window_state.renderer_options,
+            background_color: parent.common.current_window_state.background_color,
             layout_callback: options.window_state.layout_callback.clone(),
             close_callback: options.window_state.close_callback.clone(),
-            monitor_id: parent.current_window_state.monitor_id,
+            monitor_id: parent.common.current_window_state.monitor_id,
             window_id: options.window_state.window_id.clone(),
             window_focused: false,
         };
@@ -3614,12 +3608,11 @@ impl WaylandPopup {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: true,
-            display_list_initialized: false,
             frame_callback_pending: false,
 
             resources: parent.resources.clone(),
-            fc_cache: parent.fc_cache.clone(),
-            app_data: parent.app_data.clone(),
+            fc_cache: parent.common.fc_cache.clone(),
+            app_data: parent.common.app_data.clone(),
         })
     }
 
