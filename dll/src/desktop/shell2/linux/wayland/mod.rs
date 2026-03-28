@@ -83,6 +83,9 @@ struct CpuFallbackState {
     height: i32,
     stride: i32,
     fd: i32, // Keep fd open until drop
+    /// Damage rects from the last render pass. Used to call
+    /// wl_surface_damage per-rect instead of full surface.
+    damage_rects: Vec<azul_core::geom::LogicalRect>,
 }
 
 /// Monitor state tracking for multi-monitor support
@@ -482,13 +485,23 @@ impl WaylandWindow {
                 cpu_state.draw_blue();
                 unsafe {
                     (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
-                    (self.wayland.wl_surface_damage)(
-                        self.surface,
-                        0,
-                        0,
-                        cpu_state.width,
-                        cpu_state.height,
-                    );
+                    // Use per-rect damage if available, otherwise full surface
+                    if cpu_state.damage_rects.is_empty() {
+                        (self.wayland.wl_surface_damage)(
+                            self.surface, 0, 0,
+                            cpu_state.width, cpu_state.height,
+                        );
+                    } else {
+                        for dr in &cpu_state.damage_rects {
+                            (self.wayland.wl_surface_damage)(
+                                self.surface,
+                                dr.origin.x as i32,
+                                dr.origin.y as i32,
+                                dr.size.width as i32,
+                                dr.size.height as i32,
+                            );
+                        }
+                    }
                     (self.wayland.wl_surface_commit)(self.surface);
                 }
                 Ok(())
@@ -3037,6 +3050,7 @@ impl CpuFallbackState {
             height,
             stride,
             fd, // Keep fd open - will be closed in Drop
+            damage_rects: Vec::new(),
         })
     }
 
