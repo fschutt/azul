@@ -222,6 +222,10 @@ pub struct CachedInlineLayout {
     /// - Use `can_break` + `line_index` for the nowrap fast path
     /// - Use `x_offset` for shifting subsequent items without full line-breaking
     pub item_metrics: Vec<InlineItemMetrics>,
+    /// Cached line break boundaries for incremental relayout.
+    /// Enables checking if a width change fits on the same line without
+    /// re-running the full line-breaking algorithm.
+    pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
 }
 
 impl CachedInlineLayout {
@@ -238,6 +242,7 @@ impl CachedInlineLayout {
             has_floats,
             constraints: None,
             item_metrics,
+            line_breaks: None,
         }
     }
 
@@ -249,12 +254,20 @@ impl CachedInlineLayout {
         constraints: UnifiedConstraints,
     ) -> Self {
         let item_metrics = Self::extract_item_metrics(&layout);
+        let available_width_px = match available_width {
+            AvailableSpace::Definite(w) => w,
+            _ => f32::MAX,
+        };
+        let line_breaks = Some(crate::text3::cache::extract_line_breaks(
+            &layout.items, available_width_px,
+        ));
         Self {
             layout,
             available_width,
             has_floats,
             constraints: Some(constraints),
             item_metrics,
+            line_breaks,
         }
     }
 

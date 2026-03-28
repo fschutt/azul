@@ -4902,6 +4902,135 @@ pub struct FlowLayout {
     pub remaining_items: Vec<ShapedItem>,
 }
 
+/// Cached line break boundaries from a previous layout pass.
+/// Enables incremental relayout: when a word changes width,
+/// we can check if it still fits on the same line without
+/// re-running the full line-breaking algorithm.
+#[derive(Clone, Debug)]
+pub struct CachedLineBreaks {
+    /// Per-line: (first_item_idx, last_item_idx_exclusive) into positioned items.
+    pub line_ranges: Vec<(usize, usize)>,
+    /// Per-line total width (sum of item advances on that line).
+    pub line_widths: Vec<f32>,
+    /// The available width constraint used when these breaks were computed.
+    pub available_width: f32,
+}
+
+/// Result of an incremental relayout attempt.
+#[derive(Debug)]
+pub enum IncrementalRelayoutResult {
+    /// Glyphs changed but advance widths identical — swap in place, no repositioning.
+    GlyphSwap,
+    /// Width changed but still fits on same line — shift x_offsets of subsequent items.
+    LineShift {
+        /// Index of the first affected item.
+        affected_item: usize,
+        /// Width delta (new_advance - old_advance).
+        delta: f32,
+    },
+    /// Line breaks changed — need to reflow from this line onward.
+    PartialReflow {
+        /// The line index from which to start reflowing.
+        reflow_from_line: usize,
+    },
+    /// Cannot do incremental — fall back to full relayout.
+    FullRelayout,
+}
+
+/// Extract line break boundaries from a positioned items list.
+pub fn extract_line_breaks(
+    items: &[PositionedItem],
+    available_width: f32,
+) -> CachedLineBreaks {
+    let mut line_ranges = Vec::new();
+    let mut line_widths = Vec::new();
+
+    if items.is_empty() {
+        return CachedLineBreaks { line_ranges, line_widths, available_width };
+    }
+
+    let mut line_start = 0usize;
+    let mut current_line = items[0].line_index;
+    let mut line_width = 0.0f32;
+
+    for (i, item) in items.iter().enumerate() {
+        if item.line_index != current_line {
+            line_ranges.push((line_start, i));
+            line_widths.push(line_width);
+            line_start = i;
+            current_line = item.line_index;
+            line_width = 0.0;
+        }
+        line_width += get_item_measure(&item.item, false);
+    }
+
+    // Final line
+    line_ranges.push((line_start, items.len()));
+    line_widths.push(line_width);
+
+    CachedLineBreaks { line_ranges, line_widths, available_width }
+}
+
+/// Attempt incremental relayout given old metrics and new per-item advance widths.
+///
+/// `dirty_item_indices`: which items in the shaped list changed.
+/// `old_advances`: per-item advance widths from the previous layout.
+/// `new_advances`: per-item advance widths after reshaping.
+/// `line_breaks`: cached line boundaries from previous layout.
+pub fn try_incremental_relayout(
+    dirty_item_indices: &[usize],
+    old_advances: &[f32],
+    new_advances: &[f32],
+    line_breaks: &CachedLineBreaks,
+) -> IncrementalRelayoutResult {
+    if dirty_item_indices.is_empty() {
+        return IncrementalRelayoutResult::GlyphSwap;
+    }
+
+    // Check each dirty item
+    for &dirty_idx in dirty_item_indices {
+        if dirty_idx >= old_advances.len() || dirty_idx >= new_advances.len() {
+            return IncrementalRelayoutResult::FullRelayout;
+        }
+
+        let old_adv = old_advances[dirty_idx];
+        let new_adv = new_advances[dirty_idx];
+        let delta = new_adv - old_adv;
+
+        if delta.abs() < 0.001 {
+            // Same width — just swap glyphs (GlyphSwap for this item)
+            continue;
+        }
+
+        // Width changed — find which line this item is on
+        let line_idx = line_breaks.line_ranges.iter()
+            .position(|&(start, end)| dirty_idx >= start && dirty_idx < end);
+
+        let Some(line_idx) = line_idx else {
+            return IncrementalRelayoutResult::FullRelayout;
+        };
+
+        let old_line_width = line_breaks.line_widths[line_idx];
+        let new_line_width = old_line_width + delta;
+
+        if new_line_width <= line_breaks.available_width {
+            // Still fits on same line — shift subsequent items
+            return IncrementalRelayoutResult::LineShift {
+                affected_item: dirty_idx,
+                delta,
+            };
+        } else {
+            // Overflows line — need to reflow from this line
+            return IncrementalRelayoutResult::PartialReflow {
+                reflow_from_line: line_idx as usize,
+            };
+        }
+    }
+
+    // All dirty items had same width
+    IncrementalRelayoutResult::GlyphSwap
+}
+
 /// Cached shaped result for a single visual item (or coalesced group).
 /// Enables per-item cache hits when only one word changes in a paragraph.
 pub struct PerItemShapedEntry {
