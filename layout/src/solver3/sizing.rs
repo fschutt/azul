@@ -433,25 +433,11 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 };
 
                 if has_inline_children || has_direct_text {
-                    // InlineBlock with inline children - measure as IFC root
-                    let mut intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
-
-                    // +spec:box-model:d16d01 - intrinsic size contributions use outer size; auto margins as zero
-                    // +spec:positioning:f4f01d - intrinsic size contributions based on outer size; auto margins treated as zero
-                    // are based on the outer size of the box. Add margin, padding, and border
-                    // to the content intrinsic size. Auto margins are treated as zero.
-                    let nbp = node.box_props.unpack();
-                    let h_extras = nbp.margin.left + nbp.margin.right
-                                 + nbp.padding.left + nbp.padding.right
-                                 + nbp.border.left + nbp.border.right;
-                    let v_extras = nbp.margin.top + nbp.margin.bottom
-                                 + nbp.padding.top + nbp.padding.bottom
-                                 + nbp.border.top + nbp.border.bottom;
-
-                    intrinsic.min_content_width += h_extras;
-                    intrinsic.max_content_width += h_extras;
-                    intrinsic.min_content_height += v_extras;
-                    intrinsic.max_content_height += v_extras;
+                    // InlineBlock with inline children - measure as IFC root.
+                    // Returns content-level intrinsic sizes (no margin/padding/border).
+                    // The parent adds box-model extras via calculate_block_intrinsic_sizes,
+                    // and calculate_used_size_for_node adds padding+border for border-box.
+                    let intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
 
                     Ok(intrinsic)
                 } else {
@@ -931,13 +917,92 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         })
     }
 
+    /// Calculate intrinsic sizes for a table element by aggregating cell content
+    /// widths per column and row heights.
+    /// +spec:table-layout:93b13c - shrink-to-fit for tables uses intrinsic sizing
     fn calculate_table_intrinsic_sizes(
-        &self,
-        _tree: &LayoutTree,
-        _node_index: usize,
-        _child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+        &mut self,
+        tree: &LayoutTree,
+        node_index: usize,
+        child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
-        Ok(IntrinsicSizes::default())
+        // Collect per-column min/max widths and total row heights.
+        // Table structure: table > row-group? > row > cell
+        let mut col_min: Vec<f32> = Vec::new();
+        let mut col_max: Vec<f32> = Vec::new();
+        let mut total_height = 0.0f32;
+
+        // Iterate rows — children may be row groups (thead/tbody/tfoot) or direct rows
+        let mut rows: Vec<usize> = Vec::new();
+        for &child_idx in tree.children(node_index) {
+            let child = match tree.get(child_idx) { Some(c) => c, None => continue };
+            match child.formatting_context {
+                FormattingContext::TableRow => rows.push(child_idx),
+                FormattingContext::TableRowGroup => {
+                    // Row group contains rows
+                    for &row_idx in tree.children(child_idx) {
+                        if let Some(row) = tree.get(row_idx) {
+                            if matches!(row.formatting_context, FormattingContext::TableRow) {
+                                rows.push(row_idx);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for &row_idx in &rows {
+            let mut row_height = 0.0f32;
+            let mut col = 0usize;
+            for &cell_idx in tree.children(row_idx) {
+                let cell_intrinsic = child_intrinsics.get(&cell_idx).copied()
+                    .unwrap_or_default();
+                // Also check if cell has IFC content we can measure
+                let cell_is = if cell_intrinsic.max_content_width > 0.0 {
+                    cell_intrinsic
+                } else {
+                    // Try to measure cell content via IFC
+                    self.calculate_ifc_root_intrinsic_sizes(tree, cell_idx)
+                        .unwrap_or_default()
+                };
+
+                // Add cell box-model extras
+                let cell_node = tree.get(cell_idx);
+                let (h_extras, v_extras) = if let Some(cn) = cell_node {
+                    let bp = cn.box_props.unpack();
+                    (bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
+                     bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom)
+                } else { (0.0, 0.0) };
+
+                let cell_min = cell_is.min_content_width + h_extras;
+                let cell_max = cell_is.max_content_width + h_extras;
+                let cell_h = cell_is.max_content_height + v_extras;
+
+                if col >= col_min.len() {
+                    col_min.push(cell_min);
+                    col_max.push(cell_max);
+                } else {
+                    col_min[col] = col_min[col].max(cell_min);
+                    col_max[col] = col_max[col].max(cell_max);
+                }
+                row_height = row_height.max(cell_h);
+                col += 1;
+            }
+            total_height += row_height;
+        }
+
+        let min_width: f32 = col_min.iter().sum();
+        let max_width: f32 = col_max.iter().sum();
+
+        Ok(IntrinsicSizes {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            min_content_height: total_height,
+            max_content_height: total_height,
+            preferred_width: None,
+            preferred_height: None,
+        })
     }
 }
 

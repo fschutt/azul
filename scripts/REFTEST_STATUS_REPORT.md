@@ -1,8 +1,133 @@
 # Reftest Status Report & Next Session Plan
 
-**Date**: 2026-03-28 (updated session 4)
-**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3-4: 22/44 with diff reductions)
+**Date**: 2026-03-28 (updated session 5)
+**Score**: 22/44 passing (started at 17/44, session 1: 21/44, session 2: 22/44, session 3-5: 22/44 with diff reductions)
 **Branch**: layout-debug-clean
+
+---
+
+## Session 5 Fixes
+
+### FIXED: white-space:nowrap not enforced in break_one_line()
+**File**: `layout/src/text3/cache.rs` (line ~7299)
+- **Root cause**: `break_one_line()` received `white_space_mode` but NEVER checked for `Nowrap`/`Pre` to prevent line breaking. All content was always broken at soft wrap opportunities.
+- **Fix**: Added a `no_wrap` check at the top of `break_one_line()`. When `white_space_mode` is `Nowrap` or `Pre`, all items are consumed onto a single line without breaking (only explicit `<br>` breaks honored).
+- **Result**: text-overflow-001: 56730→13171 (-43559). Both nowrap boxes now render as single-line clipped text.
+
+### FIXED: inline-block intrinsic sizes double-counted box-model extras
+**File**: `layout/src/solver3/sizing.rs` (line ~435)
+- **Root cause**: InlineBlock intrinsic sizing added margin+padding+border to min/max content widths (`h_extras`). But `calculate_used_size_for_node` also adds padding+border when converting to border-box, and the parent's `calculate_block_intrinsic_sizes` adds margin+padding+border as `cross_extras`. This caused triple-counting of box-model dimensions.
+- **Fix**: Removed the h_extras/v_extras addition from InlineBlock intrinsic sizing. The content-level intrinsic sizes are now correct, and callers add box-model extras as needed.
+- **Result**: inline-block-text-001: 23485→19128 (-4357). "Auto A/B/C" boxes now match Chrome's compact sizing.
+
+### FIXED: table intrinsic sizing was a stub returning zeros
+**File**: `layout/src/solver3/sizing.rs` (line ~920)
+- **Root cause**: `calculate_table_intrinsic_sizes()` was a stub returning `IntrinsicSizes::default()` (all zeros). This caused table elements with `width: auto` to get zero width, which made column width distribution compute zero-width columns.
+- **Fix**: Implemented proper table intrinsic sizing: walk table structure (row groups → rows → cells), measure cell content via IFC intrinsic sizing, aggregate per-column min/max widths, sum for table totals.
+- **Result**: cascade-ua-defaults-001: 43430→43371 (-59). TABLE text now renders horizontally instead of vertically (one char per line). Small diff reduction because main diff is from heading font metrics.
+
+### INVESTIGATED: block-positioning-complex-001
+- BFC layout positions ARE correct (verified by debug logging: child=6 gets final_pos=(20,220))
+- The bug is in the cache path at cache.rs:1766-1795: when applying cached child positions during Pass 2, `child_abs_pos` is computed correctly but the recursive call to `calculate_layout_for_subtree` may use wrong `box_props` (parent's instead of child's)
+- Needs deeper investigation of the two-pass layout cache interaction
+
+---
+
+## Session 5 — Bug Analysis & Fix Plan
+
+### Current Failing Tests (all 22, sorted by diff)
+
+| Diff | Test | Root Cause |
+|-----:|------|------------|
+| 90182 | block-margin-collapse-complex-001 | margin collapse height overshoot |
+| 67254 | cascade-display-block-001 | font metrics / cascade |
+| 56730 | text-overflow-001 | **white-space:nowrap not enforced in break_one_line()** |
+| 49045 | cascade-multiple-classes-001 | font metrics |
+| 46300 | cascade-font-weight-inherit-001 | font metrics |
+| 45519 | cascade-specificity-001 | font metrics |
+| 43430 | cascade-ua-defaults-001 | **table column widths = 0 (vertical text)** |
+| 42760 | cascade-nested-selectors-001 | font metrics |
+| 41659 | cascade-inheritance-001 | font metrics |
+| 40946 | block-padding-border-001 | block padding/border |
+| 40691 | absolute-non-replaced-height-001 | abs-pos height |
+| 37919 | cascade-inline-style-001 | font metrics |
+| 37385 | cascade-global-star-001 | font metrics (color fixed s4) |
+| 32800 | block-positioning-complex-001 | **paint coordinate offset in stacking ctx** |
+| 23485 | inline-block-text-001 | **shrink-to-fit uses wrong containing block** |
+| 22739 | font-properties-001 | font weight / remaining metrics |
+| 16080 | text-basic-001 | font metrics |
+| 15607 | table-basic-001 | **table cell height / text position** |
+| 15132 | inline-background-001 | inline padding (partially fixed s4) |
+| 13238 | display-none-visibility-001 | font metrics only |
+| 12856 | inline-elements-001 | **minor inline spacing** |
+| 10386 | inline-block-text-002 | font metrics |
+
+### Bug S5-A: white-space:nowrap not enforced (text-overflow-001, diff=56730)
+
+**Visual**: All 3 boxes show multi-line wrapped text. Chrome shows boxes 1+2 as single-line
+(clipped/ellipsis) because they have `white-space: nowrap; overflow: hidden`.
+
+**Root cause**: `break_one_line()` in `text3/cache.rs:7263` receives `white_space_mode` but
+NEVER checks for `WhiteSpaceMode::Nowrap` to prevent line breaks. The code always tries to
+break/hyphenate when text overflows. The `text_wrap` parameter isn't passed at all.
+
+**Fix**: In `break_one_line()`, when `white_space_mode == Nowrap|Pre`, accumulate all items
+on a single line without breaking. Also need overflow:hidden clipping in display list.
+
+### Bug S5-B: inline-block shrink-to-fit uses wrong containing block (inline-block-text-001, diff=23485)
+
+**Visual**: "Auto A/B/C" boxes are wider than Chrome. Should shrink-wrap to text content.
+
+**Root cause**: In `fc.rs:6643`, `collect_and_measure_inline_content` passes
+`constraints.containing_block_size` (the IFC root's parent's content-box) instead of the
+IFC root's own content-box width. This makes `available_width` too large for shrink-to-fit,
+so the result is `max_content` width (too wide).
+
+**Fix**: Compute the IFC root's content-box width and pass that as containing block for
+inline-block children.
+
+### Bug S5-C: table column widths = 0 (cascade-ua-defaults-001, diff=43430)
+
+**Visual**: TABLE text renders vertically (one char per line) = zero-width cells.
+
+**Root cause**: UA CSS correctly sets `display:table/table-row/table-cell`. The table layout
+IS triggered. But `calculate_column_widths_auto_with_width()` or `calculate_column_widths_fixed()`
+may not set `computed_width` on columns, resulting in zero-width cells.
+
+**Fix**: Debug column width calculation in `fc.rs:5055+`.
+
+### Bug S5-D: block-positioning paint offset (block-positioning-complex-001, diff=32800)
+
+**Visual**: Red static-box shifted left (x≈0 instead of x≈20). Green relative-box overlaps wrong.
+
+**Root cause**: Layout calculated_positions are correct (verified s4). Bug is in display list
+coordinate space — possibly double-offset when stacking context bounds are applied, or
+position:relative offsets not reflected in paint coordinates.
+
+**Fix**: Investigate `generate_for_stacking_context()` coordinate handling.
+
+### Bug S5-E: table cell height/text positioning (table-basic-001, diff=15607)
+
+**Visual**: Table rows slightly taller in azul. Text position within cells slightly different.
+
+**Root cause**: Cell padding or row height calculation gives slightly different metrics.
+Table structure and colors are correct.
+
+### Bug S5-F: inline element spacing (inline-elements-001, diff=12856)
+
+**Visual**: Very close to Chrome. Minor spacing differences in inline spans. Down from 16309
+after s4 inline padding fix.
+
+**Root cause**: Remaining differences likely from font metrics or minor padding calculation.
+
+### Session 5 Fix Priority
+
+1. **S5-A white-space:nowrap** — clear bug, high diff (56730), single code location
+2. **S5-B inline-block sizing** — clear bug, single line fix at fc.rs:6643
+3. **S5-C table column widths** — high diff (43430), needs debugging
+4. **S5-D block-positioning paint** — medium diff, complex coordinate issue
+5. **S5-E table cell height** — lower diff, incremental
+6. **S5-F inline spacing** — lowest diff, may improve from other fixes
 
 ---
 

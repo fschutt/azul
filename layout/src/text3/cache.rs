@@ -7296,6 +7296,29 @@ pub fn break_one_line<T: ParsedFontTrait>(
         }
     }
 
+    // +spec:line-breaking:35817b - white-space: nowrap/pre prevent soft wrap opportunities
+    // CSS Text Level 3 § 3: For nowrap and pre, wrapping is suppressed. All content
+    // stays on a single line, overflowing if necessary.
+    let no_wrap = matches!(white_space_mode, WhiteSpaceMode::Nowrap | WhiteSpaceMode::Pre);
+
+    if no_wrap {
+        // No soft wrapping — consume everything onto one line.
+        // Only explicit <br>/newline breaks are honored.
+        loop {
+            let next_unit = cursor.peek_next_unit();
+            if next_unit.is_empty() {
+                break;
+            }
+            if let Some(ShapedItem::Break { .. }) = next_unit.first() {
+                line_items.push(next_unit[0].clone());
+                cursor.consume(1);
+                return (line_items, false);
+            }
+            line_items.extend_from_slice(&next_unit);
+            cursor.consume(next_unit.len());
+        }
+    } else {
+
     loop {
         // typographic character unit as a soft wrap opportunity; hyphenation is not applied
         let next_unit = if line_break == LineBreakStrictness::Anywhere {
@@ -7382,6 +7405,8 @@ pub fn break_one_line<T: ParsedFontTrait>(
             break;
         }
     }
+
+    } // end !no_wrap
 
     // +spec:white-space-processing:fef250 - Phase II: trailing collapsible spaces and U+1680 removed at line end
     // as well as any trailing U+1680 OGHAM SPACE MARK whose white-space is normal/nowrap/pre-line.
