@@ -787,8 +787,8 @@ pub fn run(
                     let window = &mut *window_ptr_from_registry;
 
                     // Save previous state if not already done
-                    if window.previous_window_state.is_none() {
-                        window.previous_window_state = Some(window.current_window_state.clone());
+                    if window.common.previous_window_state.is_none() {
+                        window.common.previous_window_state = Some(window.common.current_window_state.clone());
                     }
 
                     // Process pending window creates (for popup menus, dialogs, etc.)
@@ -802,9 +802,9 @@ pub fn run(
                         match Win32Window::new(
                             pending_create,
                             config.clone(),
-                            window.fc_cache.clone(),
+                            window.common.fc_cache.clone(),
                             window.font_registry.clone(),
-                            window.app_data.clone(),
+                            window.common.app_data.clone(),
                         ) {
                             Ok(new_window) => {
                                 // Box and leak for stable pointer
@@ -846,7 +846,7 @@ pub fn run(
                 unsafe {
                     let window = &mut *window_ptr_from_registry;
 
-                    if window.frame_needs_regeneration {
+                    if window.common.frame_needs_regeneration {
                         if let Err(e) = window.regenerate_layout() {
                             log_error!(
                                 debug_server::LogCategory::Layout,
@@ -854,7 +854,7 @@ pub fn run(
                                 e
                             );
                         }
-                        window.frame_needs_regeneration = false;
+                        window.common.frame_needs_regeneration = false;
 
                         // Request WM_PAINT
                         use std::ptr;

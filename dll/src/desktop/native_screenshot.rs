@@ -10,11 +10,13 @@ use azul_layout::callbacks::CallbackInfo;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn encode_rgba_png(pixels: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
-    let mut encoder = png::Encoder::new(&mut buf, width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(|e| format!("PNG header error: {}", e))?;
-    writer.write_image_data(&pixels).map_err(|e| format!("PNG write error: {}", e))?;
+    {
+        let mut encoder = png::Encoder::new(&mut buf, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|e| format!("PNG header error: {}", e))?;
+        writer.write_image_data(&pixels).map_err(|e| format!("PNG write error: {}", e))?;
+    }
     Ok(buf)
 }
 

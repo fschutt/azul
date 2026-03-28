@@ -155,7 +155,7 @@ fn from_wide_n(buf: &[u16], n: i32) -> String {
         return String::new();
     }
     let len = (n as usize).saturating_sub(1); // exclude null
-    String::from_utf16_lossy(&buf[..len]).into_owned()
+    String::from_utf16_lossy(&buf[..len]).to_string()
 }
 
 /// Call an NLS formatting function that fills a buffer.
