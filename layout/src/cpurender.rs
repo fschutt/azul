@@ -2968,11 +2968,9 @@ fn render_border(
     match border_style {
         BorderStyle::Dashed | BorderStyle::Dotted => {
             // For dashed/dotted: stroke the border path with dash pattern
-            // instead of filling the double-path with EvenOdd
             use agg_rust::conv_stroke::ConvStroke;
             use agg_rust::conv_dash::ConvDash;
 
-            // Build a single center-line path (midpoint of the border width)
             let half = sw / 2.0;
             let mut stroke_path = PathStorage::new();
             let (cx, cy, cw, ch) = (x + half, y + half, w - sw, h - sw);
@@ -2982,22 +2980,46 @@ fn render_border(
             stroke_path.line_to(cx, cy + ch);
             stroke_path.close_polygon(PATH_FLAGS_NONE);
 
-            // Apply dash pattern
             let mut dashed = ConvDash::new(stroke_path);
             if border_style == BorderStyle::Dashed {
-                dashed.add_dash(sw * 3.0, sw); // CSS spec: 3:1 ratio
+                dashed.add_dash(sw * 3.0, sw);
             } else {
-                dashed.add_dash(sw, sw); // dotted: 1:1 ratio
+                dashed.add_dash(sw, sw);
             }
 
-            // Stroke the dashed path
             let mut stroked = ConvStroke::new(dashed);
             stroked.set_width(sw);
 
             agg_fill_path_clipped(pixmap, &mut stroked, &agg_color, FillingRule::NonZero, clip);
         }
+        _ if border_radius.is_zero() => {
+            // Fast path: solid border without rounding — use blend_bar strips
+            let pw = pixmap.width;
+            let ph = pixmap.height;
+            let stride = (pw * 4) as i32;
+            let mut ra = unsafe {
+                RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), pw, ph, stride)
+            };
+            let mut pf = PixfmtRgba32::new(&mut ra);
+            let mut rb = RendererBase::new(pf);
+            if let Some(c) = clip {
+                rb.clip_box_i(c.x as i32, c.y as i32,
+                    (c.x + c.width) as i32 - 1, (c.y + c.height) as i32 - 1);
+            }
+            let (xi, yi) = (x as i32, y as i32);
+            let (x2i, y2i) = ((x + w) as i32 - 1, (y + h) as i32 - 1);
+            let swi = sw as i32;
+            // Top strip
+            rb.blend_bar(xi, yi, x2i, yi + swi - 1, &agg_color, 255);
+            // Bottom strip
+            rb.blend_bar(xi, y2i - swi + 1, x2i, y2i, &agg_color, 255);
+            // Left strip (between top and bottom)
+            rb.blend_bar(xi, yi + swi, xi + swi - 1, y2i - swi, &agg_color, 255);
+            // Right strip
+            rb.blend_bar(x2i - swi + 1, yi + swi, x2i, y2i - swi, &agg_color, 255);
+        }
         _ => {
-            // Solid (and other unsupported styles): fill double-path with EvenOdd
+            // Rounded solid border: fill double-path with EvenOdd
             agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::EvenOdd, clip);
         }
     }
@@ -3056,20 +3078,61 @@ fn render_border_sides(
         (ox, oy+oh, ox, oy, ix, iy, ix, iy+ih, colors[3], widths[3]),
     ];
 
-    for &(x0, y0, x1, y1, x2, y2, x3, y3, color, width) in &sides {
-        if width <= 0.0 || color.a == 0 {
-            continue;
+    if _border_radius.is_zero() {
+        // Fast path: axis-aligned border strips — no rasterizer needed
+        let pw = pixmap.width;
+        let ph = pixmap.height;
+        let stride = (pw * 4) as i32;
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), pw, ph, stride)
+        };
+        let mut pf = PixfmtRgba32::new(&mut ra);
+        let mut rb = RendererBase::new(pf);
+        if let Some(c) = clip {
+            rb.clip_box_i(c.x as i32, c.y as i32,
+                (c.x + c.width) as i32 - 1, (c.y + c.height) as i32 - 1);
         }
+        // Top: full width, height = wt
+        if widths[0] > 0.0 && colors[0].a > 0 {
+            let c = colors[0];
+            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            rb.blend_bar(ox as i32, oy as i32, (ox+ow) as i32 - 1, iy as i32 - 1, &ac, 255);
+        }
+        // Bottom
+        if widths[2] > 0.0 && colors[2].a > 0 {
+            let c = colors[2];
+            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            rb.blend_bar(ox as i32, (iy+ih) as i32, (ox+ow) as i32 - 1, (oy+oh) as i32 - 1, &ac, 255);
+        }
+        // Left: between top and bottom
+        if widths[3] > 0.0 && colors[3].a > 0 {
+            let c = colors[3];
+            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            rb.blend_bar(ox as i32, iy as i32, ix as i32 - 1, (iy+ih) as i32 - 1, &ac, 255);
+        }
+        // Right
+        if widths[1] > 0.0 && colors[1].a > 0 {
+            let c = colors[1];
+            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            rb.blend_bar((ix+iw) as i32, iy as i32, (ox+ow) as i32 - 1, (iy+ih) as i32 - 1, &ac, 255);
+        }
+    } else {
+        // Rounded borders: use trapezoid rasterizer
+        for &(x0, y0, x1, y1, x2, y2, x3, y3, color, width) in &sides {
+            if width <= 0.0 || color.a == 0 {
+                continue;
+            }
 
-        let mut path = PathStorage::new();
-        path.move_to(x0, y0);
-        path.line_to(x1, y1);
-        path.line_to(x2, y2);
-        path.line_to(x3, y3);
-        path.close_polygon(PATH_FLAGS_NONE);
+            let mut path = PathStorage::new();
+            path.move_to(x0, y0);
+            path.line_to(x1, y1);
+            path.line_to(x2, y2);
+            path.line_to(x3, y3);
+            path.close_polygon(PATH_FLAGS_NONE);
 
-        let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
-        agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
+            let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+            agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
+        }
     }
 
     Ok(())
