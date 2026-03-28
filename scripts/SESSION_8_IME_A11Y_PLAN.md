@@ -152,53 +152,45 @@ Azul uses [AccessKit](https://github.com/AccessKit/accesskit) which provides:
 
 ### 4.2 A11y Tree Construction
 
-The a11y tree is built from the DOM/layout tree. Key code:
-- `layout/src/window.rs:706`: `a11y_manager` field on LayoutWindow
-- `layout/src/window.rs:4990-5035`: `process_accessibility_action()` handles a11y events
-- `layout/src/window.rs:5326`: `edit_text_node()` for a11y-driven text editing
-- Each platform's `accessibility.rs` bridges AccessKit ↔ platform API
+Built in `layout/src/managers/a11y.rs` via `A11yManager::update_tree()`:
+1. **Creation**: Iterate DOM nodes, skip metadata, create a11y node for semantic/focusable/contenteditable
+2. **Relationships**: Walk hierarchy, find nearest accessible parent, build tree
+3. **Population**: Set children, root window contains top-level nodes
+4. **Focus**: Get focused node from FocusManager, set as tree focus
+5. **Update**: After every layout pass, generate fresh `TreeUpdate`, submit to OS
 
-### 4.3 Widget Role Mapping
+### 4.3 Widget Role Mapping (Verified)
 
-| Widget | Expected A11y Role | Current Status |
-|--------|-------------------|----------------|
-| `<div>` | `Role::GenericContainer` | ⚠️ Need to verify |
-| `<button>` / OnClick | `Role::Button` | ⚠️ Need to verify |
-| `<p>` / Text | `Role::StaticText` | ⚠️ Need to verify |
-| `contenteditable` | `Role::TextInput` or `Role::MultilineTextInput` | ⚠️ Need to verify |
-| `<input type="text">` | `Role::TextInput` | ⚠️ Need to verify |
-| `<label>` | `Role::Label` | ⚠️ Need to verify |
-| `<img>` / Image | `Role::Image` | ⚠️ Need to verify |
-| Checkbox | `Role::CheckBox` | ⚠️ Need to verify |
-| Scrollable container | `Role::ScrollView` | ⚠️ Need to verify |
+| Widget | A11y Role | Name/Label | Value | Status |
+|--------|-----------|------------|-------|--------|
+| Button | `Role::PushButton` | ✅ | N/A | ✅ Full |
+| TextInput | `Role::TextInput` | ✅ | ✅ text content | ⚠️ No cursor pos |
+| TextArea | `Role::MultilineTextInput` | ✅ | ✅ text content | ⚠️ No cursor pos |
+| ContentEditable | `Role::MultilineTextInput` | ✅ | ✅ child text | ⚠️ No cursor pos |
+| Checkbox | `Role::CheckBox` | ✅ | ✅ checked state | ✅ Full |
+| RadioButton | `Role::RadioButton` | ✅ | ✅ selected state | ✅ Full |
+| Link | `Role::Link` | ✅ | N/A | ✅ Full |
+| Heading (H1-H6) | `Role::Heading` | ✅ level set | N/A | ✅ Full |
+| StaticText | `Role::Label` | ✅ | N/A | ✅ Full |
+| List/ListItem | `Role::List`/`Role::ListItem` | ✅ | N/A | ✅ Full |
 
-### 4.4 ContentEditable + A11y Gap Analysis
+### 4.4 ContentEditable + A11y Critical Gaps
 
-For a blind user to type Japanese in a contenteditable:
+**What works:**
+- ✅ Tab navigation to contenteditable (TabIndex::Auto)
+- ✅ Focus change fires a11y focus event (via `update_tree()`)
+- ✅ ContentEditable gets `Role::MultilineTextInput` (a11y.rs:278)
+- ✅ Text content exposed via `set_value()` (a11y.rs:172-176)
+- ✅ AT actions handled: `SetTextSelection`, `ReplaceSelectedText`, `SetValue`
+- ✅ Placeholder text exposed via `set_placeholder()` (a11y.rs:313)
+- ✅ Bounds/position exposed for VoiceOver highlight (a11y.rs:400-419)
 
-1. **Tab navigation to contenteditable** → Focus system already handles Tab
-   - `TabIndex::Auto` on contenteditable enables tab-focus ✅
-   - Focus change fires a11y focus event ✅ (via `update_tree()`)
-
-2. **Screen reader announces "editable text"** → Needs correct Role
-   - ContentEditable nodes need `Role::TextInput` or `Role::MultilineTextInput`
-   - The `value` property must contain the current text
-   - **VERIFY**: Does the a11y tree builder check `is_contenteditable()` and
-     set the correct role?
-
-3. **IME activation** → Platform-specific (see §2)
-   - macOS: VoiceOver + IME works if NSTextInputClient is correct ✅
-   - Windows: NVDA/JAWS + IME works if UIA role is `Edit` ✅
-   - Linux: Orca + IBus works if AT-SPI role is correct ⚠️
-
-4. **Text input feedback** → A11y tree must be updated after text changes
-   - After `apply_text_changeset()`, the a11y tree node's `value` must update
-   - **VERIFY**: Is `a11y_dirty` set after text changes?
-   - The `text_selection` property must reflect cursor position for
-     screen reader cursor tracking
-
-5. **Selection announcement** → Selection changes should be reported
-   - A11y `text_selection` property tracks cursor/selection for screen readers
+**What's missing (CRITICAL for blind users):**
+- ❌ **Cursor position NOT exposed** — no `set_caret_index()` call in build_node()
+- ❌ **Text selection NOT exposed** — no `set_text_selection()` call
+- ❌ **IME composition invisible** to screen readers — no live announcement
+- ❌ **A11y tree only updates after layout** — not on every keystroke
+- ❌ **No live region support** — no `set_live(Polite)` for real-time readback
 
 ---
 
