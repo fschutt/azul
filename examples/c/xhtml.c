@@ -10,8 +10,12 @@
 static const char* XHTML_CONTENT = "<html><body><h1>Test XHTML</h1><p>This is a test spreadsheet.</p></body></html>";
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    AzDom dom = AzDom_fromXml(AzString_copyFromBytes((uint8_t*)XHTML_CONTENT, 0, strlen(XHTML_CONTENT)));
-    return dom;
+    AzString xml_str = AzString_copyFromBytes((const uint8_t*)XHTML_CONTENT, 0, strlen(XHTML_CONTENT));
+    AzResultXmlXmlError result = AzXml_fromStr(xml_str);
+    if (result.Ok.tag == 0) { // Ok variant
+        return AzDom_fromParsedXml(result.Ok.payload);
+    }
+    return AzDom_createBody();
 }
 
 int main() {

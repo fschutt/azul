@@ -365,6 +365,7 @@ fn make_agent(timeout_secs: u64) -> ureq::Agent {
         .unversioned_rustls_crypto_provider(
             std::sync::Arc::new(rustls_rustcrypto::provider())
         )
+        .root_certs(ureq::tls::RootCerts::WebPki)
         .build();
 
     ureq::Agent::config_builder()

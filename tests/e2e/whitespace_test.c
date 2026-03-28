@@ -27,7 +27,7 @@ void AppData_destructor(void* data) {}
 
 AZ_REFLECT(AppData, AppData_destructor)
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Container
     AzDom body = AzDom_createBody();
     
@@ -113,7 +113,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {

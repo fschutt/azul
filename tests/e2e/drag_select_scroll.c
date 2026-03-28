@@ -96,10 +96,10 @@ AzDom create_paragraph(int index) {
     return p;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     DragSelectScrollDataRef ref = DragSelectScrollDataRef_create(&data);
     if (!DragSelectScrollData_downcastRef(&data, &ref)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     // Status bar
@@ -200,7 +200,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {

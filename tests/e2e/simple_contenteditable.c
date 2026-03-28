@@ -45,7 +45,7 @@ const char* CSS_STYLE =
     "    caret-color: #00ff00;\n"
     "}\n";
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom root = AzDom_createBody();
     
     // Single contenteditable div with text
@@ -63,7 +63,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString css_string = AZ_STR(CSS_STYLE);
     AzCss css = AzCss_fromString(css_string);
     
-    return AzDom_style(&root, css);
+    return AzDom_style(root, css);
 }
 
 int main() {

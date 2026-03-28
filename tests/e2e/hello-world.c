@@ -7,10 +7,10 @@ AZ_REFLECT(MyDataModel, MyDataModel_destructor);
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef d = MyDataModelRef_create(&data);
     if (!MyDataModel_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
 
     char buffer[20];
@@ -25,7 +25,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addCssProperty(&label, font_size_prop);
 
     AzDom button = AzDom_createDiv();
-    AzCssProperty flex_grow = AzCssProperty_flexGrow(AzLayoutFlexGrow_new(1.0));
+    AzCssProperty flex_grow = AzCssProperty_flexGrow(AzLayoutFlexGrow_create(1.0));
     AzCssPropertyWithConditions flex_grow_prop = AzCssPropertyWithConditions_simple(flex_grow);
     AzDom_addCssProperty(&button, flex_grow_prop);
     AzString button_text = AzString_copyFromBytes("Increase counter", 0, 16);
@@ -40,7 +40,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, button);
 
     AzCss css = AzCss_empty();
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

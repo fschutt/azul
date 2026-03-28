@@ -107,10 +107,10 @@ AzDom create_button(const char* label, int button_num, AzCallbackType click_call
     return button;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     FocusTestDataRef d = FocusTestDataRef_create(&data);
     if (!FocusTestData_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     int click1 = d.ptr->click_count_button1;
@@ -195,7 +195,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString css_str = AzString_copyFromBytes((const uint8_t*)focus_css, 0, strlen(focus_css));
     AzCss css = AzCss_fromString(css_str);
     
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main(int argc, char** argv) {

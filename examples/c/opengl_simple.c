@@ -229,7 +229,7 @@ AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
     }
     OpenGlStateRefMut_delete(&d);
     
-    return AzTimerCallbackReturn_continueAndUpdate();
+    return AzTimerCallbackReturn_continueAndRefreshDom();
 }
 
 int main(void) {

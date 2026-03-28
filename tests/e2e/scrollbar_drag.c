@@ -85,10 +85,10 @@ AzDom create_item(int index) {
     return item;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ScrollbarDragDataRef ref = ScrollbarDragDataRef_create(&data);
     if (!ScrollbarDragData_downcastRef(&data, &ref)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     // Status bar
@@ -178,7 +178,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {

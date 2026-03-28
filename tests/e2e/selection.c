@@ -44,7 +44,7 @@ AzUpdate on_p1_text_click(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_DoNothing;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create header with instructions (compact)
     // Paragraph 1: Selectable
     AzString p1_text = AzString_copyFromBytes(
@@ -100,7 +100,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setInlineStyle(&body, body_style);
     
     AzCss css = AzCss_empty();
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main(int argc, char** argv) {

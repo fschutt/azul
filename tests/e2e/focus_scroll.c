@@ -134,10 +134,10 @@ AzDom create_item(int item_num, AzRefAny data) {
     return item;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ScrollTestDataRef d = ScrollTestDataRef_create(&data);
     if (!ScrollTestData_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     ScrollTestDataRef_delete(&d);
     
@@ -205,7 +205,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {

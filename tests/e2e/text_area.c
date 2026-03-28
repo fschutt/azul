@@ -105,10 +105,10 @@ AzUpdate on_scroll(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_DoNothing;  // Don't refresh DOM on scroll
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     TextAreaDataRef ref = TextAreaDataRef_create(&data);
     if (!TextAreaData_downcastRef(&data, &ref)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     // Count lines for status
@@ -204,7 +204,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {

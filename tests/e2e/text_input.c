@@ -88,10 +88,10 @@ AzUpdate on_text_input(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_RefreshDom;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     TextInputDataRef ref = TextInputDataRef_create(&data);
     if (!TextInputData_downcastRef(&data, &ref)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     
     // Create input field
@@ -172,7 +172,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "} ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {

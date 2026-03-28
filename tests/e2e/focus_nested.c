@@ -226,10 +226,10 @@ AzDom create_focusable_group(const char* class_name, int tab_index, AzCallbackTy
     return group;
 }
 
-AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     NestedTestDataRef d = NestedTestDataRef_create(&data);
     if (!NestedTestData_downcastRef(&data, &d)) {
-        return AzStyledDom_default();
+        return AzDom_createBody();
     }
     NestedTestDataRef_delete(&d);
     
@@ -323,7 +323,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ".box-7:focus { background-color: #bb8fce; } ";
     
     AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(&body, css);
+    return AzDom_style(body, css);
 }
 
 int main() {
