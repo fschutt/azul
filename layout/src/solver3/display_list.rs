@@ -753,6 +753,52 @@ pub enum DisplayListItem {
     PopTextShadow,
 }
 
+impl DisplayListItem {
+    /// Return the bounding rect of this item, or None for push/pop commands
+    /// that don't have their own visual bounds.
+    pub fn bounds(&self) -> Option<LogicalRect> {
+        match self {
+            Self::Rect { bounds, .. }
+            | Self::SelectionRect { bounds, .. }
+            | Self::CursorRect { bounds, .. }
+            | Self::Border { bounds, .. }
+            | Self::Text { clip_rect: bounds, .. }
+            | Self::TextLayout { bounds, .. }
+            | Self::Underline { bounds, .. }
+            | Self::Strikethrough { bounds, .. }
+            | Self::Overline { bounds, .. }
+            | Self::Image { bounds, .. }
+            | Self::ScrollBar { bounds, .. }
+            | Self::LinearGradient { bounds, .. }
+            | Self::RadialGradient { bounds, .. }
+            | Self::ConicGradient { bounds, .. }
+            | Self::BoxShadow { bounds, .. }
+            | Self::VirtualView { bounds, .. }
+            | Self::VirtualViewPlaceholder { bounds, .. }
+            | Self::HitTestArea { bounds, .. }
+            | Self::PushClip { bounds, .. }
+            | Self::PushImageMaskClip { bounds, .. }
+            | Self::PushScrollFrame { clip_bounds: bounds, .. }
+            | Self::PushStackingContext { bounds, .. }
+            | Self::PushReferenceFrame { bounds, .. }
+            | Self::PushFilter { bounds, .. }
+            | Self::PushBackdropFilter { bounds, .. }
+            | Self::PushOpacity { bounds, .. } => Some(*bounds.inner()),
+            Self::ScrollBarStyled { info, .. } => Some(*info.bounds.inner()),
+            Self::PushTextShadow { .. } => None, // text shadow has no bounds, affects following text
+            Self::PopClip
+            | Self::PopImageMaskClip
+            | Self::PopScrollFrame
+            | Self::PopStackingContext
+            | Self::PopReferenceFrame
+            | Self::PopFilter
+            | Self::PopBackdropFilter
+            | Self::PopOpacity
+            | Self::PopTextShadow => None,
+        }
+    }
+}
+
 // Helper structs for the DisplayList
 #[derive(Debug, Copy, Clone, Default)]
 pub struct BorderRadius {
