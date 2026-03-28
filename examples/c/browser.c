@@ -557,19 +557,15 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     
     // If still loading or error, show status
     if (data->error_message != NULL) {
-        // Show error message
-        AzDom error_dom = AzDom_createDiv();
-        AzDom text = AzDom_createText(az_str(data->error_message));
-        AzDom_addChild(&error_dom, text);
-        return AzDom_createBody();
+        AzDom body = AzDom_createBody();
+        AzDom_addChild(&body, AzDom_createText(az_str(data->error_message)));
+        return body;
     }
-    
+
     if (!data->has_xml) {
-        // Show loading status
-        AzDom loading_dom = AzDom_createDiv();
-        AzDom text = AzDom_createText(az_str(data->status_message ? data->status_message : "Loading..."));
-        AzDom_addChild(&loading_dom, text);
-        return AzDom_createBody();
+        AzDom body = AzDom_createBody();
+        AzDom_addChild(&body, AzDom_createText(az_str(data->status_message ? data->status_message : "Loading...")));
+        return body;
     }
     
     // Convert parsed XML to DOM with CSS from <style> tags attached.
