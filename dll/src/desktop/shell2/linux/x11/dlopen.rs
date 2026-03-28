@@ -156,6 +156,10 @@ pub struct Xlib {
     pub XDefaultDepth: XDefaultDepth,
     pub XMatchVisualInfo: XMatchVisualInfo,
     pub XFreeColormap: XFreeColormap,
+    // XImage functions for CPU rendering
+    pub XCreateImage: unsafe extern "C" fn(*mut Display, *mut c_void, c_uint, c_int, c_int, *mut c_char, c_uint, c_uint, c_int, c_int) -> *mut defines::XImage,
+    pub XPutImage: unsafe extern "C" fn(*mut Display, Drawable, GC, *mut defines::XImage, c_int, c_int, c_int, c_int, c_uint, c_uint) -> c_int,
+    pub XDestroyImage: unsafe extern "C" fn(*mut defines::XImage) -> c_int,
 }
 
 impl Xlib {
@@ -222,6 +226,10 @@ impl Xlib {
             XDefaultDepth: load_symbol!(lib, _, "XDefaultDepth"),
             XMatchVisualInfo: load_symbol!(lib, _, "XMatchVisualInfo"),
             XFreeColormap: load_symbol!(lib, _, "XFreeColormap"),
+            // XImage functions for CPU rendering
+            XCreateImage: load_symbol!(lib, _, "XCreateImage"),
+            XPutImage: load_symbol!(lib, _, "XPutImage"),
+            XDestroyImage: load_symbol!(lib, _, "XDestroyImage"),
             _lib: lib,
         }))
     }

@@ -1183,6 +1183,7 @@ pub fn translate_displaylist_to_wr(
                 font_hash,
                 color,
                 clip_rect,
+                source_node_index: _,
             } => {
                 log_debug!(LogCategory::DisplayList,
                     "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}, dpi={}",

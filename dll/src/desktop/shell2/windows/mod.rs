@@ -706,6 +706,32 @@ impl Win32Window {
             // When layout WAS regenerated, regenerate_layout() already sent the
             // full transaction via common::layout::generate_frame().
             if !layout_was_regenerated {
+                // Early-return optimization: if the display list is already initialized
+                // and layout wasn't regenerated, check if there's any visual change.
+                // If not, skip the entire WebRender render cycle to save GPU work.
+                if self.common.display_list_initialized {
+                    let scroll_active = self.common.layout_window.as_ref()
+                        .map(|lw| lw.scroll_manager.has_active_animations())
+                        .unwrap_or(false);
+                    let scrollbar_fade = self.common.layout_window.as_ref()
+                        .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                        .unwrap_or(false);
+                    let virtual_view_pending = self.common.layout_window.as_ref()
+                        .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+                        .unwrap_or(false);
+                    if !scroll_active && !scrollbar_fade && !virtual_view_pending {
+                        log_trace!(
+                            LogCategory::Rendering,
+                            "[Win32] No visual changes — skipping GPU render"
+                        );
+                        // Only release DC if we obtained a new one
+                        if self.hdc.is_null() {
+                            (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
+                        }
+                        return Ok(());
+                    }
+                }
+
                 if let (Some(layout_window), Some(render_api)) = (
                     self.common.layout_window.as_mut(),
                     self.common.render_api.as_mut(),
@@ -777,6 +803,8 @@ impl Win32Window {
             renderer
                 .render(framebuffer_size, 0)
                 .map_err(|e| WindowError::PlatformError(format!("Render error: {:?}", e)))?;
+
+            self.common.display_list_initialized = true;
 
             // Swap buffers if we have OpenGL context
             if self.gl_context.is_some() {

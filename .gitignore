@@ -3,6 +3,7 @@ target/
 reftest_output/
 output/
 /api/
+duplicates.txt
 vendor/
 *.h
 *.hpp
@@ -52,4 +53,5 @@ profraw/
 coverage.txt
 coverage.json
 *.profraw
+test_output/
 .claude-agents/

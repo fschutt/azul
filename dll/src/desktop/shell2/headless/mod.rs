@@ -255,14 +255,14 @@ impl CpuBackend {
             }
         }
 
-        // Acquire output pixmap
+        // Acquire output pixmap — reuse buffer for both grow and shrink
         let mut output = match self.last_frame.take() {
             Some(p) if p.width() == pixel_w && p.height() == pixel_h => p,
-            Some(mut p) if pixel_w >= p.width() && pixel_h >= p.height() => {
-                let _ = p.resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
+            Some(mut p) => {
+                p.resize_reuse(pixel_w, pixel_h, 255, 255, 255, 255);
                 p
             }
-            _ => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+            None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
                 Some(mut p) => { p.fill(255, 255, 255, 255); p }
                 None => return Vec::new(),
             },

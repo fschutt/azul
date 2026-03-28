@@ -2488,6 +2488,23 @@ fn layout_ifc<T: ParsedFontTrait>(
                     crate::text3::cache::IncrementalRelayoutResult::GlyphSwap => {
                         // No items changed — return cached layout directly
                         debug_info!(ctx, "[layout_ifc] Phase 2d: GlyphSwap — reusing cached layout");
+                        let main_frag = &cached.layout;
+                        let frag_bounds = main_frag.bounds();
+                        let mut output = LayoutOutput::default();
+                        output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
+                        output.baseline = main_frag.last_baseline();
+                        // Re-position inline-block children from cached layout
+                        for positioned_item in &main_frag.items {
+                            if let ShapedItem::Object { source, .. } = &positioned_item.item {
+                                if let Some(&child_node_index) = child_map.get(source) {
+                                    output.positions.insert(child_node_index, LogicalPosition {
+                                        x: positioned_item.position.x,
+                                        y: positioned_item.position.y,
+                                    });
+                                }
+                            }
+                        }
+                        return Ok(output);
                     }
                     _ => {
                         // Fall through to full layout_flow

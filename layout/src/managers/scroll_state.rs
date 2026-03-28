@@ -527,6 +527,14 @@ impl ScrollManager {
         result
     }
 
+    /// Returns `true` if any scroll node has an active easing animation.
+    ///
+    /// Used by GPU render paths to skip rendering when the UI is completely
+    /// static (no scroll animations, no layout changes).
+    pub fn has_active_animations(&self) -> bool {
+        self.states.values().any(|s| s.animation.is_some())
+    }
+
     /// Finds the closest scroll-container ancestor for a given node.
     ///
     /// Walks up the node hierarchy to find a node that is registered as a

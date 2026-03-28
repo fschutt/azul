@@ -3,7 +3,7 @@ use std::{
     cmp::Ordering,
     collections::{
         hash_map::{DefaultHasher, Entry, HashMap},
-        BTreeSet,
+        BTreeSet, HashSet,
     },
     hash::{Hash, Hasher},
     mem::discriminant,
@@ -5050,6 +5050,10 @@ pub struct LayoutCache {
     // Stage 3b Cache: Per-item/coalesce-group shaped results
     // Key: hash(text, bidi_level, script, style.layout_hash())
     per_item_shaped: HashMap<u64, Arc<PerItemShapedEntry>>,
+    /// Tracks which per_item_shaped keys were accessed in the current generation.
+    per_item_accessed: HashSet<u64>,
+    /// Current generation counter, incremented each layout pass.
+    generation: u64,
     // Stage 4 Cache: ShapedItems + Constraints -> Final Layout (now strongly typed)
     layouts: HashMap<CacheId, Arc<UnifiedLayout>>,
 }
@@ -5061,8 +5065,22 @@ impl LayoutCache {
             visual_items: HashMap::new(),
             shaped_items: HashMap::new(),
             per_item_shaped: HashMap::new(),
+            per_item_accessed: HashSet::new(),
+            generation: 0,
             layouts: HashMap::new(),
         }
+    }
+
+    /// Call at the start of each layout pass. Evicts per-item shaped entries
+    /// not accessed in the previous generation to prevent unbounded growth.
+    pub fn begin_generation(&mut self) {
+        if self.generation > 0 && !self.per_item_accessed.is_empty() {
+            // Evict entries not accessed in this generation
+            let accessed = &self.per_item_accessed;
+            self.per_item_shaped.retain(|k, _| accessed.contains(k));
+        }
+        self.per_item_accessed.clear();
+        self.generation += 1;
     }
 
     /// Get a layout from the cache by its ID
@@ -5303,6 +5321,13 @@ impl LayoutCache {
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
 
+        // Cap per-item shaped cache to prevent unbounded growth.
+        // When threshold is exceeded, evict entries not accessed this generation.
+        const PER_ITEM_CACHE_MAX: usize = 4096;
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX {
+            self.begin_generation();
+        }
+
         // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
         let logical_items_id = calculate_id(&content);
         let logical_items = self
@@ -5387,6 +5412,7 @@ impl LayoutCache {
                 let items = Arc::new(shape_visual_items_with_per_item_cache(
                     &visual_items,
                     &mut self.per_item_shaped,
+                    &mut self.per_item_accessed,
                     font_chain_cache,
                     fc_cache,
                     loaded_fonts,
@@ -5914,6 +5940,7 @@ pub fn reorder_logical_items(
 pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
+    per_item_accessed: &mut HashSet<u64>,
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
@@ -5951,8 +5978,14 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         let mut coalesce_end = idx + 1;
         while coalesce_end < visual_items.len() {
             let next = &visual_items[coalesce_end];
-            if let LogicalItem::Text { style: next_style, .. } = &next.logical_source {
-                if next_style.layout_hash() == layout_hash
+            let next_layout_hash = match &next.logical_source {
+                LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
+                    Some(style.layout_hash())
+                }
+                _ => None,
+            };
+            if let Some(nlh) = next_layout_hash {
+                if nlh == layout_hash
                     && next.bidi_level == bidi_level
                     && next.script == script
                 {
@@ -5977,6 +6010,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         let group_key = hasher.finish();
 
         // Check per-item cache
+        per_item_accessed.insert(group_key);
         if let Some(cached) = per_item_cache.get(&group_key) {
             shaped.extend(cached.clusters.iter().cloned());
         } else {

@@ -287,7 +287,7 @@ impl ContentBoxRect {
 ///
 /// This is a flat list of drawing and state-management commands, already sorted
 /// according to the CSS paint order. A renderer can consume this list directly.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DisplayList {
     pub items: Vec<DisplayListItem>,
     /// Optional mapping from item index to the DOM NodeId that generated it.
@@ -844,6 +844,91 @@ pub enum DisplayListItem {
 }
 
 impl DisplayListItem {
+    /// Compare two display list items for visual equality (same appearance when rendered).
+    /// Used by damage computation to detect content changes within the same bounds.
+    /// Conservative: returns `false` (assumes different) for complex types like Arc<dyn Any>.
+    pub fn is_visually_equal(&self, other: &Self) -> bool {
+        if std::mem::discriminant(self) != std::mem::discriminant(other) {
+            return false;
+        }
+        match (self, other) {
+            (Self::Rect { bounds: b1, color: c1, border_radius: br1 },
+             Self::Rect { bounds: b2, color: c2, border_radius: br2 }) => {
+                b1 == b2 && c1 == c2 && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
+            (Self::SelectionRect { bounds: b1, border_radius: br1, color: c1 },
+             Self::SelectionRect { bounds: b2, border_radius: br2, color: c2 }) => {
+                b1 == b2 && c1 == c2 && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
+            (Self::CursorRect { bounds: b1, color: c1 },
+             Self::CursorRect { bounds: b2, color: c2 }) => b1 == b2 && c1 == c2,
+            (Self::Text { glyphs: g1, font_hash: fh1, font_size_px: fs1, color: c1, clip_rect: cr1, .. },
+             Self::Text { glyphs: g2, font_hash: fh2, font_size_px: fs2, color: c2, clip_rect: cr2, .. }) => {
+                cr1 == cr2 && c1 == c2 && fh1 == fh2 && fs1 == fs2 && g1.len() == g2.len()
+                    && g1.iter().zip(g2.iter()).all(|(a, b)| {
+                        a.index == b.index
+                            && a.point.x == b.point.x
+                            && a.point.y == b.point.y
+                    })
+            }
+            (Self::Underline { bounds: b1, color: c1, thickness: t1 },
+             Self::Underline { bounds: b2, color: c2, thickness: t2 }) => b1 == b2 && c1 == c2 && t1 == t2,
+            (Self::Strikethrough { bounds: b1, color: c1, thickness: t1 },
+             Self::Strikethrough { bounds: b2, color: c2, thickness: t2 }) => b1 == b2 && c1 == c2 && t1 == t2,
+            (Self::Overline { bounds: b1, color: c1, thickness: t1 },
+             Self::Overline { bounds: b2, color: c2, thickness: t2 }) => b1 == b2 && c1 == c2 && t1 == t2,
+            (Self::ScrollBar { bounds: b1, color: c1, .. },
+             Self::ScrollBar { bounds: b2, color: c2, .. }) => b1 == b2 && c1 == c2,
+            (Self::PushClip { bounds: b1, .. }, Self::PushClip { bounds: b2, .. }) => b1 == b2,
+            (Self::PushScrollFrame { clip_bounds: b1, scroll_id: s1, .. },
+             Self::PushScrollFrame { clip_bounds: b2, scroll_id: s2, .. }) => b1 == b2 && s1 == s2,
+            (Self::PushStackingContext { z_index: z1, bounds: b1 },
+             Self::PushStackingContext { z_index: z2, bounds: b2 }) => z1 == z2 && b1 == b2,
+            (Self::PushOpacity { bounds: b1, opacity: o1 },
+             Self::PushOpacity { bounds: b2, opacity: o2 }) => b1 == b2 && o1 == o2,
+            // Pop items with no fields are always equal (discriminant already matched)
+            (Self::PopClip, Self::PopClip)
+            | (Self::PopImageMaskClip, Self::PopImageMaskClip)
+            | (Self::PopScrollFrame, Self::PopScrollFrame)
+            | (Self::PopStackingContext, Self::PopStackingContext)
+            | (Self::PopReferenceFrame, Self::PopReferenceFrame)
+            | (Self::PopFilter, Self::PopFilter)
+            | (Self::PopBackdropFilter, Self::PopBackdropFilter)
+            | (Self::PopOpacity, Self::PopOpacity)
+            | (Self::PopTextShadow, Self::PopTextShadow) => true,
+            // For complex types (TextLayout with Arc, Image, gradients, etc.),
+            // conservatively assume different
+            _ => false,
+        }
+    }
+
+    /// Returns true if this item is a state-management command (Push/Pop)
+    /// that must always be processed to maintain correct stacks.
+    pub fn is_state_management(&self) -> bool {
+        matches!(self,
+            Self::PushClip { .. }
+            | Self::PopClip
+            | Self::PushImageMaskClip { .. }
+            | Self::PopImageMaskClip
+            | Self::PushScrollFrame { .. }
+            | Self::PopScrollFrame
+            | Self::PushStackingContext { .. }
+            | Self::PopStackingContext
+            | Self::PushReferenceFrame { .. }
+            | Self::PopReferenceFrame
+            | Self::PushFilter { .. }
+            | Self::PopFilter
+            | Self::PushBackdropFilter { .. }
+            | Self::PopBackdropFilter
+            | Self::PushOpacity { .. }
+            | Self::PopOpacity
+            | Self::PushTextShadow { .. }
+            | Self::PopTextShadow
+        )
+    }
+
     /// Return the bounding rect of this item, or None for push/pop commands
     /// that don't have their own visual bounds.
     pub fn bounds(&self) -> Option<LogicalRect> {
@@ -1404,6 +1489,7 @@ impl DisplayListBuilder {
         font_size_px: f32,
         color: ColorU,
         clip_rect: LogicalRect,
+        source_node_index: Option<usize>,
     ) {
         self.debug_log(format!(
             "[push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
@@ -1423,7 +1509,7 @@ impl DisplayListBuilder {
                 font_size_px,
                 color,
                 clip_rect: clip_rect.into(),
-                source_node_index: None,
+                source_node_index,
             });
         } else {
             self.debug_log(format!(
@@ -3427,7 +3513,7 @@ where
                 }
             }
 
-            self.paint_inline_content(builder, content_box_rect, inline_layout)?;
+            self.paint_inline_content(builder, content_box_rect, inline_layout, node_index)?;
 
             if pushed_text_shadow {
                 builder.push_item(DisplayListItem::PopTextShadow);
@@ -3842,6 +3928,7 @@ where
         builder: &mut DisplayListBuilder,
         container_rect: LogicalRect,
         layout: &UnifiedLayout,
+        source_node_index: usize,
     ) -> Result<()> {
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
@@ -3971,6 +4058,7 @@ where
                 glyph_run.font_size_px,
                 glyph_run.color,
                 clip_rect,
+                Some(source_node_index),
             );
 
             // Render text decorations if present OR if this is IME composition preview

@@ -167,6 +167,15 @@ pub struct WaylandWindow {
 
     render_mode: RenderMode,
 
+    /// GPU damage rects from the last layout pass. Used to call
+    /// wl_surface_damage per-rect instead of full surface in GPU mode,
+    /// so the Wayland compositor can skip recompositing unchanged regions.
+    gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
+
+    // CPU rendering glyph cache (persisted across frames)
+    #[cfg(feature = "cpurender")]
+    glyph_cache: azul_layout::glyph_cache::GlyphCache,
+
     // Monitor tracking for multi-monitor support
     pub known_outputs: Vec<MonitorState>,
     pub current_outputs: Vec<*mut defines::wl_output>,
@@ -479,10 +488,10 @@ impl WaylandWindow {
     }
 
     pub fn present(&mut self) -> Result<(), WindowError> {
-        let result = match &self.render_mode {
+        let result = match &mut self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
             RenderMode::Cpu(Some(cpu_state)) => {
-                cpu_state.draw_blue();
+                // Buffer already rendered by render_frame_if_ready — just submit
                 unsafe {
                     (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
                     // Use per-rect damage if available, otherwise full surface
@@ -501,6 +510,8 @@ impl WaylandWindow {
                                 dr.size.height as i32,
                             );
                         }
+                        // Clear damage rects after submitting to compositor
+                        cpu_state.damage_rects.clear();
                     }
                     (self.wayland.wl_surface_commit)(self.surface);
                 }
@@ -888,11 +899,14 @@ impl WaylandWindow {
             pointer_state: events::PointerState::new(),
             frame_callback_pending: false,
             needs_redraw: false,
+            gpu_damage_rects: Vec::new(),
             timer_fds: std::collections::BTreeMap::new(),
             #[cfg(feature = "a11y")]
             accessibility_adapter: LinuxAccessibilityAdapter::new(),
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
+            #[cfg(feature = "cpurender")]
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
@@ -2670,6 +2684,38 @@ impl WaylandWindow {
                         return;
                     }
 
+                    // 3.5. Inform Wayland compositor which regions changed (GPU damage hints).
+                    // EGL handles buffer attachment via eglSwapBuffers, but explicit
+                    // wl_surface_damage calls let the compositor skip recompositing
+                    // unchanged regions.
+                    if !self.gpu_damage_rects.is_empty() {
+                        for dr in &self.gpu_damage_rects {
+                            unsafe {
+                                (self.wayland.wl_surface_damage)(
+                                    self.surface,
+                                    dr.origin.x as i32,
+                                    dr.origin.y as i32,
+                                    dr.size.width as i32,
+                                    dr.size.height as i32,
+                                );
+                            }
+                        }
+                        self.gpu_damage_rects.clear();
+                    } else if self.common.display_list_initialized {
+                        // No damage rects computed — full surface damage as fallback
+                        let physical_size = self.common.current_window_state.size.get_physical_size();
+                        unsafe {
+                            (self.wayland.wl_surface_damage)(
+                                self.surface,
+                                0, 0,
+                                physical_size.width as i32,
+                                physical_size.height as i32,
+                            );
+                        }
+                    }
+
+                    self.common.display_list_initialized = true;
+
                     // Clean up old textures from previous epochs to prevent memory leak
                     if let Some(ref layout_window) = self.common.layout_window {
                         crate::desktop::gl_texture_integration::remove_old_gl_textures(
@@ -2680,8 +2726,74 @@ impl WaylandWindow {
                 }
             }
             RenderMode::Cpu(Some(cpu_state)) => {
-                // CPU rendering - draw to shared memory buffer
+                // CPU rendering - render display list into shared memory buffer
+                #[cfg(feature = "cpurender")]
+                {
+                    use azul_core::dom::DomId;
+                    use azul_layout::cpurender::{
+                        render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap,
+                    };
+
+                    let rendered = if let Some(ref layout_window) = self.common.layout_window {
+                        let dom_id = DomId { inner: 0 };
+                        if let Some(result) = layout_window.layout_results.get(&dom_id) {
+                            let ws = &layout_window.current_window_state;
+                            let width = ws.size.dimensions.width;
+                            let height = ws.size.dimensions.height;
+                            let dpi = ws.size.dpi as f32 / 96.0;
+
+                            if width > 0.0 && height > 0.0 {
+                                let scroll_offsets = layout_window.scroll_manager
+                                    .build_scroll_offset_map(dom_id, &result.scroll_ids);
+                                let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
+                                let render_state = CpuRenderState::from_gpu_cache(
+                                    gpu_cache, dom_id, &scroll_offsets,
+                                );
+                                let opts = RenderOptions { width, height, dpi_factor: dpi };
+                                match render_with_font_manager_and_scroll(
+                                    &result.display_list,
+                                    &layout_window.renderer_resources,
+                                    &layout_window.font_manager,
+                                    opts,
+                                    &mut self.glyph_cache,
+                                    &render_state,
+                                ) {
+                                    Ok(pixmap) => {
+                                        // Copy RGBA pixmap into Wayland ARGB8888 shm buffer
+                                        let buf = cpu_state.pixel_buffer_mut();
+                                        let src = pixmap.data();
+                                        let copy_len = buf.len().min(src.len());
+                                        // RGBA → ARGB: swap R and B channels for Wayland's ARGB8888
+                                        for i in (0..copy_len).step_by(4) {
+                                            if i + 3 < copy_len {
+                                                buf[i]     = src[i + 2]; // B
+                                                buf[i + 1] = src[i + 1]; // G
+                                                buf[i + 2] = src[i];     // R
+                                                buf[i + 3] = src[i + 3]; // A
+                                            }
+                                        }
+                                        true
+                                    }
+                                    Err(e) => {
+                                        log_error!(
+                                            LogCategory::Rendering,
+                                            "[Wayland CPU] render failed: {}", e
+                                        );
+                                        false
+                                    }
+                                }
+                            } else { false }
+                        } else { false }
+                    } else { false };
+
+                    if !rendered {
+                        cpu_state.draw_blue();
+                    }
+                }
+
+                #[cfg(not(feature = "cpurender"))]
                 cpu_state.draw_blue();
+
                 unsafe {
                     (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
                     (self.wayland.wl_surface_damage)(
@@ -3052,6 +3164,17 @@ impl CpuFallbackState {
             fd, // Keep fd open - will be closed in Drop
             damage_rects: Vec::new(),
         })
+    }
+
+    /// Set damage rects from the last render pass for per-rect Wayland surface damage.
+    fn set_damage_rects(&mut self, rects: Vec<azul_core::geom::LogicalRect>) {
+        self.damage_rects = rects;
+    }
+
+    /// Get a mutable slice of the shared memory buffer as ARGB8888 pixels.
+    fn pixel_buffer_mut(&mut self) -> &mut [u8] {
+        let size = (self.stride * self.height) as usize;
+        unsafe { std::slice::from_raw_parts_mut(self.data, size) }
     }
 
     fn draw_blue(&self) {

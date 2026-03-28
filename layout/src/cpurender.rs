@@ -994,6 +994,50 @@ impl AzulPixmap {
         Some(())
     }
 
+    /// Resize the pixmap, reusing existing content for the overlapping region.
+    /// Works for both growing and shrinking. New areas are filled with the given color.
+    pub fn resize_reuse(
+        &mut self,
+        new_width: u32,
+        new_height: u32,
+        fill_r: u8, fill_g: u8, fill_b: u8, fill_a: u8,
+    ) {
+        if new_width == self.width && new_height == self.height {
+            return;
+        }
+
+        let old_w = self.width as usize;
+        let old_h = self.height as usize;
+        let new_w = new_width as usize;
+        let new_h = new_height as usize;
+        let new_stride = new_w * 4;
+        let old_stride = old_w * 4;
+
+        let mut new_data = vec![0u8; new_w * new_h * 4];
+
+        // Fill entire buffer with fill color
+        for chunk in new_data.chunks_exact_mut(4) {
+            chunk[0] = fill_r;
+            chunk[1] = fill_g;
+            chunk[2] = fill_b;
+            chunk[3] = fill_a;
+        }
+
+        // Copy overlapping region from old to new
+        let copy_rows = old_h.min(new_h);
+        let copy_cols_bytes = old_stride.min(new_stride);
+        for row in 0..copy_rows {
+            let src = row * old_stride;
+            let dst = row * new_stride;
+            new_data[dst..dst + copy_cols_bytes]
+                .copy_from_slice(&self.data[src..src + copy_cols_bytes]);
+        }
+
+        self.data = new_data;
+        self.width = new_width;
+        self.height = new_height;
+    }
+
     /// Encode to PNG using the `png` crate.
     pub fn encode_png(&self) -> Result<Vec<u8>, String> {
         let mut buf = Vec::new();
@@ -1261,44 +1305,6 @@ fn agg_fill_transformed_path_clipped(
         let mut transformed = ConvTransform::new(path, transform.clone());
         agg_fill_path_clipped(pixmap, &mut transformed, color, rule, clip);
     }
-}
-
-/// Fill a cached glyph path without cloning. Uses `PathStorage::vertices()`
-/// and `add_path_vertices_transformed` to avoid the per-glyph clone.
-fn agg_fill_glyph_path(
-    pixmap: &mut AzulPixmap,
-    path: &PathStorage,
-    color: &Rgba8,
-    rule: FillingRule,
-    transform: &TransAffine,
-    clip: Option<AzRect>,
-) {
-    let w = pixmap.width;
-    let h = pixmap.height;
-    let stride = (w * 4) as i32;
-    let mut ra = unsafe {
-        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
-    };
-    let mut pf = PixfmtRgba32::new(&mut ra);
-    let mut rb = RendererBase::new(pf);
-    if let Some(c) = clip {
-        rb.clip_box_i(
-            c.x as i32,
-            c.y as i32,
-            (c.x + c.width) as i32 - 1,
-            (c.y + c.height) as i32 - 1,
-        );
-    }
-    let mut ras = RasterizerScanlineAa::new();
-    ras.filling_rule(rule);
-    let verts = path.vertices();
-    if transform.is_identity(0.0001) {
-        ras.add_path_vertices(verts);
-    } else {
-        ras.add_path_vertices_transformed(verts, transform);
-    }
-    let mut sl = ScanlineU8::new();
-    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
 
 // ============================================================================
@@ -2043,11 +2049,11 @@ pub fn compute_display_list_damage(
             return None; // structural change
         }
 
-        let old_bounds = old_item.bounds();
-        let new_bounds = new_item.bounds();
-
-        // If bounds changed, add both old and new to damage
-        if old_bounds != new_bounds {
+        // Compare full visual content, not just bounds — a color or text
+        // change within the same bounds must still produce a damage rect.
+        if !old_item.is_visually_equal(new_item) {
+            let old_bounds = old_item.bounds();
+            let new_bounds = new_item.bounds();
             if let Some(ob) = old_bounds { damage.push(ob); }
             if let Some(nb) = new_bounds { damage.push(nb); }
         }
@@ -2134,8 +2140,8 @@ pub fn compare_region(
     threshold: u8,
 ) -> usize {
     let mut diff_count = 0;
-    for row in y..y.min(a.height).min(b.height).min(y + h) {
-        for col in x..x.min(a.width).min(b.width).min(x + w) {
+    for row in y..(y + h).min(a.height).min(b.height) {
+        for col in x..(x + w).min(a.width).min(b.width) {
             let ai = (row * a.width + col) as usize * 4;
             let bi = (row * b.width + col) as usize * 4;
             if ai + 3 >= a.data.len() || bi + 3 >= b.data.len() { continue; }
@@ -2331,13 +2337,15 @@ pub fn render_display_list_damaged(
         let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
         for (idx, item) in display_list.items.iter().enumerate() {
-            // Skip drawing items whose bounds don't intersect the damage rect
-            if let Some(item_bounds) = item.bounds() {
-                if !rects_overlap_or_adjacent(&item_bounds, dr, 0.0) {
-                    continue;
+            // Always process state-management items (Push/Pop) regardless of bounds,
+            // because skipping a Push while processing its matching Pop corrupts stacks.
+            if !item.is_state_management() {
+                if let Some(item_bounds) = item.bounds() {
+                    if !rects_overlap_or_adjacent(&item_bounds, dr, 0.0) {
+                        continue;
+                    }
                 }
             }
-            // Always process push/pop (they affect state stacks) and drawing items that intersect
 
             render_single_item(
                 item,

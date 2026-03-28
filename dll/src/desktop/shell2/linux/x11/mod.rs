@@ -299,6 +299,10 @@ pub struct X11Window {
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
 
+    // CPU rendering glyph cache
+    #[cfg(feature = "cpurender")]
+    glyph_cache: azul_layout::glyph_cache::GlyphCache,
+
     // Accessibility
     /// Linux accessibility adapter
     #[cfg(feature = "a11y")]
@@ -507,22 +511,8 @@ impl X11Window {
     pub fn present(&mut self) -> Result<(), WindowError> {
         match &self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
-            RenderMode::Cpu(gc) => {
-                if let Some(gc) = gc {
-                    // Simple blue fallback for CPU rendering
-                    unsafe {
-                        (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
-                        (self.xlib.XFillRectangle)(
-                            self.display,
-                            self.window,
-                            *gc,
-                            0,
-                            0,
-                            self.common.current_window_state.size.dimensions.width as u32,
-                            self.common.current_window_state.size.dimensions.height as u32,
-                        );
-                    }
-                }
+            RenderMode::Cpu(_gc) => {
+                // CPU rendering is handled by render_and_present(); just flush here
                 unsafe { (self.xlib.XFlush)(self.display) };
                 Ok(())
             }
@@ -884,6 +874,8 @@ impl X11Window {
                 };
                 ctx
             },
+            #[cfg(feature = "cpurender")]
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
@@ -1535,6 +1527,193 @@ impl X11Window {
             false
         };
 
+        // CPU rendering path: skip WebRender steps, render directly via cpurender
+        if let RenderMode::Cpu(gc) = &self.render_mode {
+            if let Some(gc) = gc {
+                #[cfg(feature = "cpurender")]
+                {
+                    use azul_core::dom::DomId;
+                    use azul_layout::cpurender::{
+                        render_with_font_manager_and_scroll, CpuRenderState, RenderOptions,
+                    };
+                    use std::ffi::{c_char, c_uint};
+
+                    let mut rendered = false;
+
+                    // Synchronize window state to layout_window before rendering
+                    if let Some(ref mut layout_window) = self.common.layout_window {
+                        layout_window.current_window_state =
+                            self.common.current_window_state.clone();
+
+                        // Advance easing-based scroll animations
+                        {
+                            #[cfg(feature = "std")]
+                            let now = azul_core::task::Instant::System(
+                                std::time::Instant::now().into(),
+                            );
+                            #[cfg(not(feature = "std"))]
+                            let now = azul_core::task::Instant::Tick(
+                                azul_core::task::SystemTick { tick_counter: 0 },
+                            );
+                            let tick_result = layout_window.scroll_manager.tick(now);
+                            if tick_result.needs_repaint {
+                                layout_window.scroll_manager.calculate_scrollbar_states();
+                            }
+                        }
+                    }
+
+                    if let Some(ref layout_window) = self.common.layout_window {
+                        let dom_id = DomId { inner: 0 };
+                        if let Some(result) = layout_window.layout_results.get(&dom_id) {
+                            let ws = &layout_window.current_window_state;
+                            let width = ws.size.dimensions.width;
+                            let height = ws.size.dimensions.height;
+                            let dpi = ws.size.dpi as f32 / 96.0;
+
+                            if width > 0.0 && height > 0.0 {
+                                let scroll_offsets = layout_window
+                                    .scroll_manager
+                                    .build_scroll_offset_map(dom_id, &result.scroll_ids);
+                                let gpu_cache =
+                                    layout_window.gpu_state_manager.get_cache(dom_id);
+                                let render_state = CpuRenderState::from_gpu_cache(
+                                    gpu_cache,
+                                    dom_id,
+                                    &scroll_offsets,
+                                );
+                                let opts = RenderOptions {
+                                    width,
+                                    height,
+                                    dpi_factor: dpi,
+                                };
+                                match render_with_font_manager_and_scroll(
+                                    &result.display_list,
+                                    &layout_window.renderer_resources,
+                                    &layout_window.font_manager,
+                                    opts,
+                                    &mut self.glyph_cache,
+                                    &render_state,
+                                ) {
+                                    Ok(pixmap) => {
+                                        // Convert RGBA to BGRA for X11 (ZPixmap format)
+                                        let pw = pixmap.width() as c_uint;
+                                        let ph = pixmap.height() as c_uint;
+                                        let mut bgra_data: Vec<u8> =
+                                            Vec::with_capacity(pixmap.data().len());
+                                        for chunk in pixmap.data().chunks_exact(4) {
+                                            bgra_data.push(chunk[2]); // B
+                                            bgra_data.push(chunk[1]); // G
+                                            bgra_data.push(chunk[0]); // R
+                                            bgra_data.push(chunk[3]); // A
+                                        }
+
+                                        unsafe {
+                                            let screen =
+                                                (self.xlib.XDefaultScreen)(self.display);
+                                            let visual =
+                                                (self.xlib.XDefaultVisual)(self.display, screen);
+                                            let depth =
+                                                (self.xlib.XDefaultDepth)(self.display, screen);
+
+                                            let ximage = (self.xlib.XCreateImage)(
+                                                self.display,
+                                                visual as *mut c_void,
+                                                depth as c_uint,
+                                                2, // ZPixmap
+                                                0,
+                                                bgra_data.as_mut_ptr() as *mut c_char,
+                                                pw,
+                                                ph,
+                                                32, // bitmap_pad
+                                                0,  // bytes_per_line (0 = auto)
+                                            );
+
+                                            if !ximage.is_null() {
+                                                (self.xlib.XPutImage)(
+                                                    self.display,
+                                                    self.window,
+                                                    *gc,
+                                                    ximage,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    pw,
+                                                    ph,
+                                                );
+                                                // Set data to null before destroy so
+                                                // XDestroyImage doesn't free our Vec's memory
+                                                (*ximage).data = std::ptr::null_mut();
+                                                (self.xlib.XDestroyImage)(ximage);
+                                            }
+                                        }
+                                        rendered = true;
+                                    }
+                                    Err(e) => {
+                                        log_error!(
+                                            LogCategory::Rendering,
+                                            "[X11 CPU] render failed: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !rendered {
+                        // Fallback to blue rectangle if CPU rendering not yet available
+                        unsafe {
+                            (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
+                            let physical_size =
+                                self.common.current_window_state.size.get_physical_size();
+                            (self.xlib.XFillRectangle)(
+                                self.display,
+                                self.window,
+                                *gc,
+                                0,
+                                0,
+                                physical_size.width,
+                                physical_size.height,
+                            );
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "cpurender"))]
+                unsafe {
+                    let physical_size =
+                        self.common.current_window_state.size.get_physical_size();
+                    (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
+                    (self.xlib.XFillRectangle)(
+                        self.display,
+                        self.window,
+                        *gc,
+                        0,
+                        0,
+                        physical_size.width,
+                        physical_size.height,
+                    );
+                }
+            }
+            unsafe { (self.xlib.XFlush)(self.display) };
+
+            self.common.display_list_initialized = true;
+
+            // CI testing: Exit successfully after first frame render if env var is set
+            if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+                log_debug!(
+                    LogCategory::General,
+                    "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+                );
+                std::process::exit(0);
+            }
+
+            return Ok(());
+        }
+
+        // GPU rendering path: Steps 2-6 use WebRender
+
         // Step 2: Make sure we have required components
         let renderer = match self.common.renderer.as_mut() {
             Some(r) => r,
@@ -1553,6 +1732,28 @@ impl X11Window {
         // When layout WAS regenerated, regenerate_layout() already sent the full
         // transaction via common::layout::generate_frame().
         if !layout_was_regenerated {
+            // Early-return optimization: if the display list is already initialized
+            // and layout wasn't regenerated, check if there's any visual change at all.
+            // If not, skip the entire WebRender render cycle to save GPU work.
+            if self.common.display_list_initialized {
+                let scroll_active = self.common.layout_window.as_ref()
+                    .map(|lw| lw.scroll_manager.has_active_animations())
+                    .unwrap_or(false);
+                let scrollbar_fade = self.common.layout_window.as_ref()
+                    .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                    .unwrap_or(false);
+                let virtual_view_pending = self.common.layout_window.as_ref()
+                    .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+                    .unwrap_or(false);
+                if !scroll_active && !scrollbar_fade && !virtual_view_pending {
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[X11] No visual changes — skipping GPU render"
+                    );
+                    return Ok(());
+                }
+            }
+
             if let (Some(layout_window), Some(render_api)) = (
                 self.common.layout_window.as_mut(),
                 self.common.render_api.as_mut(),
@@ -1569,7 +1770,7 @@ impl X11Window {
                     }
                 }
 
-                // Process pending VirtualView updates (queued by ScrollTo → check_and_queue_virtual_view_reinvoke).
+                // Process pending VirtualView updates (queued by ScrollTo -> check_and_queue_virtual_view_reinvoke).
                 // If present, we need a full display list rebuild rather than lightweight.
                 let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
                 if has_virtual_view_updates {
@@ -1635,29 +1836,12 @@ impl X11Window {
             }
         }
 
+        self.common.display_list_initialized = true;
+
         // Step 6: Swap buffers
-        match &self.render_mode {
-            RenderMode::Gpu(gl_context, _) => {
-                if let Err(e) = gl_context.swap_buffers() {
-                    return Err(e);
-                }
-            }
-            RenderMode::Cpu(gc) => {
-                if let Some(gc) = gc {
-                    unsafe {
-                        (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
-                        (self.xlib.XFillRectangle)(
-                            self.display,
-                            self.window,
-                            *gc,
-                            0,
-                            0,
-                            physical_size.width,
-                            physical_size.height,
-                        );
-                    }
-                }
-                unsafe { (self.xlib.XFlush)(self.display) };
+        if let RenderMode::Gpu(gl_context, _) = &self.render_mode {
+            if let Err(e) = gl_context.swap_buffers() {
+                return Err(e);
             }
         }
 

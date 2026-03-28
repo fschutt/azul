@@ -1734,6 +1734,11 @@ pub struct MacOSWindow {
     /// Tooltip panel (for programmatic tooltip display)
     tooltip: Option<tooltip::TooltipWindow>,
 
+    /// GPU damage rects from the last layout pass. When available,
+    /// `request_redraw_in_rect` uses `setNeedsDisplayInRect:` instead of
+    /// `setNeedsDisplay:` so macOS only redraws the changed regions.
+    gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
+
     // Power Management
     /// IOPMAssertion ID for preventing system sleep (video playback)
     pm_assertion_id: Option<IOPMAssertionID>,
@@ -2847,6 +2852,7 @@ impl MacOSWindow {
             accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
             tooltip: None,         // Created lazily when first needed
+            gpu_damage_rects: Vec::new(),
             pm_assertion_id: None, // No sleep prevention by default
             timers: std::collections::HashMap::new(),
             thread_timer_running: None,
@@ -4767,13 +4773,15 @@ impl MacOSWindow {
         layout_window.current_window_state = self.common.current_window_state.clone();
 
         // Advance easing-based scroll animations
+        let scroll_needs_repaint;
         {
             #[cfg(feature = "std")]
             let now = azul_core::task::Instant::System(std::time::Instant::now().into());
             #[cfg(not(feature = "std"))]
             let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
             let tick_result = layout_window.scroll_manager.tick(now);
-            if tick_result.needs_repaint {
+            scroll_needs_repaint = tick_result.needs_repaint;
+            if scroll_needs_repaint {
                 log_trace!(
                     LogCategory::Rendering,
                     "[build_atomic_txn] Scroll animation active, repaint needed"
@@ -4782,6 +4790,26 @@ impl MacOSWindow {
                 // so that perform_scrollbar_hit_test returns correct thumb positions.
                 layout_window.scroll_manager.calculate_scrollbar_states();
             }
+        }
+
+        // Early-return optimization: if the display list is already initialized,
+        // no rebuild is needed, no scroll animation is active, no scrollbar
+        // is fading, and no VirtualView updates are pending, skip the entire
+        // WebRender render cycle. This avoids GPU work when the CVDisplayLink
+        // fires but the UI is completely static.
+        let scrollbar_fade_active = layout_window.gpu_state_manager.scrollbar_fade_active;
+        let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
+        if self.common.display_list_initialized
+            && !display_list_needs_rebuild
+            && !scroll_needs_repaint
+            && !scrollbar_fade_active
+            && !has_virtual_view_updates
+        {
+            log_trace!(
+                LogCategory::Rendering,
+                "[render_and_present] No visual changes — skipping GPU render"
+            );
+            return Ok(());
         }
 
         log_trace!(
@@ -4793,7 +4821,7 @@ impl MacOSWindow {
         // This re-invokes VirtualView callbacks whose scroll position crossed an edge threshold,
         // producing new child DOMs in layout_results. Must happen BEFORE building the
         // display list so the new child content is included.
-        let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
+        // NOTE: has_virtual_view_updates was already computed above for the early-return check.
         if has_virtual_view_updates {
             log_trace!(
                 LogCategory::Rendering,
@@ -5199,6 +5227,10 @@ impl MacOSWindow {
     /// on the content view, which tells macOS to schedule a drawRect: call on the next
     /// display refresh cycle.
     ///
+    /// When GPU damage rects are available, uses `setNeedsDisplayInRect:` to only
+    /// invalidate the changed regions, allowing macOS to skip recompositing unchanged
+    /// areas. Falls back to full `setNeedsDisplay:` when no damage info is available.
+    ///
     /// This decouples our asynchronous rendering backend (WebRender) from the synchronous
     /// OS drawing model.
     pub fn request_redraw(&mut self) {
@@ -5207,7 +5239,35 @@ impl MacOSWindow {
             "[request_redraw] Marking view as needing display"
         );
 
-        // Tell macOS to schedule a drawRect: call
+        // If we have damage rects, use setNeedsDisplayInRect: for each one
+        // so macOS only redraws the changed regions.
+        if !self.gpu_damage_rects.is_empty() {
+            let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
+            for dr in &rects {
+                let ns_rect = NSRect::new(
+                    NSPoint::new(dr.origin.x as f64, dr.origin.y as f64),
+                    NSSize::new(dr.size.width as f64, dr.size.height as f64),
+                );
+                if let Some(ref gl_view) = self.gl_view {
+                    unsafe {
+                        let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
+                        let _: () = objc2::msg_send![&*view_ptr, setNeedsDisplayInRect: ns_rect];
+                    }
+                } else if let Some(ref cpu_view) = self.cpu_view {
+                    unsafe {
+                        let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
+                        let _: () = objc2::msg_send![&*view_ptr, setNeedsDisplayInRect: ns_rect];
+                    }
+                } else if let Some(view) = unsafe { self.window.contentView() } {
+                    unsafe {
+                        let _: () = objc2::msg_send![&*view, setNeedsDisplayInRect: ns_rect];
+                    }
+                }
+            }
+            return;
+        }
+
+        // Tell macOS to schedule a drawRect: call (full surface)
         // Use the GL view directly if available (when using materials, contentView is the effect view)
         if let Some(ref gl_view) = self.gl_view {
             unsafe {
