@@ -1951,6 +1951,88 @@ pub fn render_with_font_manager_and_scroll_retained(
 /// for each PushScrollFrame without embedding it in the display list.
 pub type ScrollOffsetMap = HashMap<LocalScrollId, (f32, f32)>;
 
+/// Compute damage rects by comparing two display lists item by item.
+///
+/// Returns a list of bounding rects that need repainting, or `None` if a
+/// full repaint is required (structural change, different item count, etc.).
+///
+/// The comparison is conservative: any item whose bounds or content changed
+/// produces a damage rect covering both the old and new bounds.
+pub fn compute_display_list_damage(
+    old: &DisplayList,
+    new: &DisplayList,
+) -> Option<Vec<LogicalRect>> {
+    // Different item counts → structural change → full repaint
+    if old.items.len() != new.items.len() {
+        return None;
+    }
+
+    let mut damage = Vec::new();
+
+    for (old_item, new_item) in old.items.iter().zip(new.items.iter()) {
+        // Compare discriminant first (cheap)
+        if std::mem::discriminant(old_item) != std::mem::discriminant(new_item) {
+            return None; // structural change
+        }
+
+        let old_bounds = old_item.bounds();
+        let new_bounds = new_item.bounds();
+
+        // If bounds changed, add both old and new to damage
+        if old_bounds != new_bounds {
+            if let Some(ob) = old_bounds { damage.push(ob); }
+            if let Some(nb) = new_bounds { damage.push(nb); }
+        }
+    }
+
+    // Coalesce overlapping rects
+    coalesce_damage_rects(&mut damage);
+    Some(damage)
+}
+
+/// Merge overlapping or adjacent damage rects to reduce overdraw.
+fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
+    if rects.len() <= 1 { return; }
+
+    // Simple O(n^2) merge — fine for typical damage counts (<20 rects)
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut i = 0;
+        while i < rects.len() {
+            let mut j = i + 1;
+            while j < rects.len() {
+                if rects_overlap_or_adjacent(&rects[i], &rects[j], 8.0) {
+                    rects[i] = union_rect(&rects[i], &rects[j]);
+                    rects.swap_remove(j);
+                    changed = true;
+                } else {
+                    j += 1;
+                }
+            }
+            i += 1;
+        }
+    }
+}
+
+fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
+    a.origin.x - gap <= b.origin.x + b.size.width
+        && b.origin.x - gap <= a.origin.x + a.size.width
+        && a.origin.y - gap <= b.origin.y + b.size.height
+        && b.origin.y - gap <= a.origin.y + a.size.height
+}
+
+fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
+    let x = a.origin.x.min(b.origin.x);
+    let y = a.origin.y.min(b.origin.y);
+    let right = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
+    let bottom = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
+    LogicalRect {
+        origin: LogicalPosition { x, y },
+        size: LogicalSize { width: right - x, height: bottom - y },
+    }
+}
+
 /// Consolidated render-time state for CPU rendering.
 ///
 /// Bundles scroll offsets and GPU-animated values (transforms, opacities)
