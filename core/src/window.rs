@@ -103,7 +103,7 @@ impl Default for RendererOptions {
         Self {
             vsync: Vsync::Enabled,
             srgb: Srgb::Disabled,
-            hw_accel: HwAcceleration::Enabled,
+            hw_accel: HwAcceleration::Disabled,
         }
     }
 }
