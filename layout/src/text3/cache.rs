@@ -4902,13 +4902,25 @@ pub struct FlowLayout {
     pub remaining_items: Vec<ShapedItem>,
 }
 
+/// Cached shaped result for a single visual item (or coalesced group).
+/// Enables per-item cache hits when only one word changes in a paragraph.
+pub struct PerItemShapedEntry {
+    /// The shaped clusters for this single item/group.
+    pub clusters: Vec<ShapedItem>,
+    /// Sum of advance widths — for fast same-width detection during incremental relayout.
+    pub total_advance: f32,
+}
+
 pub struct LayoutCache {
     // Stage 1 Cache: InlineContent -> LogicalItems
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
     // Stage 2 Cache: LogicalItems -> VisualItems
     visual_items: HashMap<CacheId, Arc<Vec<VisualItem>>>,
-    // Stage 3 Cache: VisualItems -> ShapedItems (now strongly typed)
+    // Stage 3 Cache: VisualItems -> ShapedItems (monolithic, for backward compat)
     shaped_items: HashMap<CacheId, Arc<Vec<ShapedItem>>>,
+    // Stage 3b Cache: Per-item/coalesce-group shaped results
+    // Key: hash(text, bidi_level, script, style.layout_hash())
+    per_item_shaped: HashMap<u64, Arc<PerItemShapedEntry>>,
     // Stage 4 Cache: ShapedItems + Constraints -> Final Layout (now strongly typed)
     layouts: HashMap<CacheId, Arc<UnifiedLayout>>,
 }
@@ -4919,6 +4931,7 @@ impl LayoutCache {
             logical_items: HashMap::new(),
             visual_items: HashMap::new(),
             shaped_items: HashMap::new(),
+            per_item_shaped: HashMap::new(),
             layouts: HashMap::new(),
         }
     }
@@ -5231,15 +5244,20 @@ impl LayoutCache {
             .clone();
 
         // Stage 3: Shaping (VisualItem -> ShapedItem)
+        // Two-level cache: monolithic (fast path) + per-item (incremental path).
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
             Some(cached) => {
+                // Monolithic cache hit — all visual items unchanged
                 cached.clone()
             }
             None => {
-                let items = Arc::new(shape_visual_items(
+                // Monolithic miss — use per-item cache for incremental reshaping.
+                // Items not in per-item cache are shaped; cached items are reused.
+                let items = Arc::new(shape_visual_items_with_per_item_cache(
                     &visual_items,
+                    &mut self.per_item_shaped,
                     font_chain_cache,
                     fc_cache,
                     loaded_fonts,
@@ -5758,6 +5776,105 @@ pub fn reorder_logical_items(
 /// code where hundreds of `<span>` elements use the same monospace font but
 /// different colors. After shaping, the original per-span styles are restored
 /// to each `ShapedCluster` based on byte-range mapping.
+/// Shape visual items with per-item caching. For each item (or coalesced group),
+/// compute a cache key from (text, bidi_level, script, style_layout_hash). On cache
+/// hit, reuse the previously shaped clusters. On miss, shape and store.
+///
+/// This is the incremental shaping path: when one word changes in a paragraph,
+/// only that word's item misses the per-item cache; all other items hit.
+pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
+    visual_items: &[VisualItem],
+    per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
+    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> Result<Vec<ShapedItem>, LayoutError> {
+    // Delegate to the existing shaping logic, but for each coalesce group,
+    // check the per-item cache first.
+    //
+    // Strategy: Identify coalesce groups (adjacent items with same layout_hash,
+    // bidi_level, script). For each group, compute a key from the concatenated
+    // text + shared properties. Check cache. On miss, shape the group and cache it.
+    let mut shaped = Vec::new();
+    let mut idx = 0;
+
+    while idx < visual_items.len() {
+        let item = &visual_items[idx];
+
+        // Determine coalesce group boundaries (same logic as shape_visual_items)
+        let (layout_hash, bidi_level, script) = match &item.logical_source {
+            LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
+                (style.layout_hash(), item.bidi_level, item.script)
+            }
+            _ => {
+                // Non-text items: shape individually (no coalescing)
+                let single = shape_visual_items(
+                    &visual_items[idx..idx+1],
+                    font_chain_cache, fc_cache, loaded_fonts, debug_messages,
+                )?;
+                shaped.extend(single);
+                idx += 1;
+                continue;
+            }
+        };
+
+        let mut coalesce_end = idx + 1;
+        while coalesce_end < visual_items.len() {
+            let next = &visual_items[coalesce_end];
+            if let LogicalItem::Text { style: next_style, .. } = &next.logical_source {
+                if next_style.layout_hash() == layout_hash
+                    && next.bidi_level == bidi_level
+                    && next.script == script
+                {
+                    coalesce_end += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Compute per-group cache key
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        for j in idx..coalesce_end {
+            visual_items[j].text.hash(&mut hasher);
+        }
+        layout_hash.hash(&mut hasher);
+        bidi_level.hash(&mut hasher);
+        (script as u32).hash(&mut hasher);
+        let group_key = hasher.finish();
+
+        // Check per-item cache
+        if let Some(cached) = per_item_cache.get(&group_key) {
+            shaped.extend(cached.clusters.iter().cloned());
+        } else {
+            // Cache miss — shape this group
+            let group_items = shape_visual_items(
+                &visual_items[idx..coalesce_end],
+                font_chain_cache, fc_cache, loaded_fonts, debug_messages,
+            )?;
+            let total_advance: f32 = group_items.iter().map(|item| {
+                match item {
+                    ShapedItem::Cluster(c) => c.advance,
+                    _ => 0.0,
+                }
+            }).sum();
+            per_item_cache.insert(group_key, Arc::new(PerItemShapedEntry {
+                clusters: group_items.clone(),
+                total_advance,
+            }));
+            shaped.extend(group_items);
+        }
+
+        idx = coalesce_end;
+    }
+
+    Ok(shaped)
+}
+
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
