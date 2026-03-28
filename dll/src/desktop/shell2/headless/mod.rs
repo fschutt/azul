@@ -213,10 +213,13 @@ impl CpuBackend {
             eprintln!("[CpuBackend] render_layers error: {}", e);
         }
 
-        // Composite layers into final output
-        let mut output = match azul_layout::cpurender::AzulPixmap::new(pixel_w, pixel_h) {
-            Some(p) => p,
-            None => return,
+        // Composite layers into final output — reuse last_frame if dimensions match
+        let mut output = match self.last_frame.take() {
+            Some(p) if p.width() == pixel_w && p.height() == pixel_h => p,
+            _ => match azul_layout::cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+                Some(p) => p,
+                None => return,
+            },
         };
         output.fill(255, 255, 255, 255);
         compositor.composite_frame(&mut output, dpi_factor);

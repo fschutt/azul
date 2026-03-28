@@ -1861,6 +1861,16 @@ pub struct RenderOptions {
     pub dpi_factor: f32,
 }
 
+/// Reuse `retained` pixmap if it matches the target dimensions, otherwise allocate new.
+fn acquire_pixmap(retained: Option<AzulPixmap>, w: u32, h: u32) -> Result<AzulPixmap, String> {
+    if let Some(p) = retained {
+        if p.width == w && p.height == h {
+            return Ok(p);
+        }
+    }
+    AzulPixmap::new(w, h).ok_or_else(|| "cannot create pixmap".to_string())
+}
+
 pub fn render(
     dl: &DisplayList,
     res: &RendererResources,
@@ -1873,9 +1883,7 @@ pub fn render(
         dpi_factor,
     } = opts;
 
-    let mut pixmap = AzulPixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
-        .ok_or_else(|| "cannot create pixmap".to_string())?;
-
+    let mut pixmap = acquire_pixmap(None, (width * dpi_factor) as u32, (height * dpi_factor) as u32)?;
     pixmap.fill(255, 255, 255, 255);
 
     render_display_list(dl, &mut pixmap, dpi_factor, res, None, glyph_cache)?;
@@ -1906,21 +1914,37 @@ pub fn render_with_font_manager_and_scroll(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
 ) -> Result<AzulPixmap, String> {
+    render_with_font_manager_and_scroll_retained(dl, res, font_manager, opts, glyph_cache, render_state, None)
+}
+
+/// Render with optional retained pixmap. If `retained` is Some and matches
+/// the target dimensions, it is reused (cleared to white) instead of
+/// allocating a fresh buffer. The pixmap is returned regardless.
+pub fn render_with_font_manager_and_scroll_retained(
+    dl: &DisplayList,
+    res: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    opts: RenderOptions,
+    glyph_cache: &mut GlyphCache,
+    render_state: &CpuRenderState,
+    retained: Option<AzulPixmap>,
+) -> Result<AzulPixmap, String> {
     let RenderOptions {
         width,
         height,
         dpi_factor,
     } = opts;
 
-    let mut pixmap = AzulPixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
-        .ok_or_else(|| "cannot create pixmap".to_string())?;
-
+    let pw = (width * dpi_factor) as u32;
+    let ph = (height * dpi_factor) as u32;
+    let mut pixmap = acquire_pixmap(retained, pw, ph)?;
     pixmap.fill(255, 255, 255, 255);
 
     render_display_list_with_state(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache, render_state)?;
 
     Ok(pixmap)
 }
+
 
 /// Scroll offsets keyed by scroll_id (LocalScrollId).
 /// Passed to the renderer so it can look up the current scroll position
