@@ -3841,6 +3841,7 @@ pub fn render_component_preview(
         dom_id,
         false,
         None,
+        None, // preedit_text: not needed for headless preview rendering
         &azul_core::resources::ImageCache::default(),
         system_style,
         get_system_time_fn,

@@ -200,24 +200,15 @@ impl TreeView {
     }
 
     pub fn dom(self) -> Dom {
-        let on_node_click = self.on_node_click.clone();
-        let mut refany = RefAny::new(self);
+        let on_node_click = self.on_node_click;
+        let root = self.root;
 
         const TREE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-tree-view"))];
 
         let mut children = Vec::new();
-        let tree_ref = match refany.downcast_ref::<TreeView>() {
-            Some(t) => t,
-            None => {
-                return Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TREE_CONTAINER_STYLE))
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(TREE_CLASS));
-            }
-        };
-
         let mut index: usize = 0;
-        render_node(&tree_ref.root, &on_node_click, &mut index, &mut children);
+        render_node(&root, &on_node_click, &mut index, &mut children);
 
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TREE_CONTAINER_STYLE))

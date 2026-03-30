@@ -180,6 +180,7 @@ fn main() {
             DomId::ROOT_ID,
             false,
             None,
+            None, // preedit_text
             &ImageCache::default(),
             None,
             get_system_time_fn,

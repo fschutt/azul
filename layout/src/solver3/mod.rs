@@ -420,6 +420,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     dom_id: azul_core::dom::DomId,
     cursor_is_visible: bool,
     cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
@@ -452,7 +453,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
-        preedit_text: None,
+        preedit_text: preedit_text.clone(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         image_cache,
         system_style: system_style.clone(),
@@ -499,7 +500,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location,
-        preedit_text: None,
+        preedit_text,
         cache_map, // Moved from LayoutCache; will be moved back after layout
         image_cache,
         system_style,

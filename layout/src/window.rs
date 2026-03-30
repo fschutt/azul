@@ -926,6 +926,7 @@ impl LayoutWindow {
             dom_id,
             cursor_is_visible,
             cursor_location,
+            self.cursor_manager.preedit_text.clone(),
             &self.image_cache,
             self.system_style.clone(),
             system_callbacks.get_system_time_fn,
