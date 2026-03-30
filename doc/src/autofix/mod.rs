@@ -64,6 +64,63 @@ pub fn should_suppress_type_not_found(type_name: &str) -> bool {
         || (trimmed.len() < 10 && trimmed.chars().all(|c| c.is_lowercase() || c == '_'))
 }
 
+/// Preflight check: verify all workspace .rs files can be tokenized by syn.
+/// Catches syntax errors (e.g., stray braces) that would cause silent parse
+/// failures in the type index, leading to missing types.
+fn preflight_syntax_check(project_root: &Path) -> Result<()> {
+    let crate_dirs = ["core/src", "css/src", "layout/src", "dll/src"];
+    let mut errors = Vec::new();
+
+    for src_path in &crate_dirs {
+        let src_dir = project_root.join(src_path);
+        if !src_dir.exists() {
+            continue;
+        }
+        let mut files = Vec::new();
+        collect_rs_files(&src_dir, &mut files);
+        for file_path in &files {
+            let content = match fs::read_to_string(file_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    errors.push(format!("{}: read error: {}", file_path.display(), e));
+                    continue;
+                }
+            };
+            if let Err(e) = content.parse::<proc_macro2::TokenStream>() {
+                let rel = file_path.strip_prefix(project_root).unwrap_or(file_path);
+                errors.push(format!("{}: {}", rel.display(), e));
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        eprintln!("\n{}", "Preflight syntax check FAILED:".red().bold());
+        for e in &errors {
+            eprintln!("  {} {}", "ERROR".red(), e);
+        }
+        anyhow::bail!(
+            "{} file(s) have syntax errors — fix them before running autofix",
+            errors.len()
+        );
+    }
+    Ok(())
+}
+
+fn collect_rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs_files(&path, out);
+        } else if path.extension().map_or(false, |e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
 // main entry point
 /// Main autofix implementation
 ///
@@ -87,6 +144,9 @@ pub fn autofix_api(
     let start_time = Instant::now();
 
     println!("\n{}\n", "Autofix: Starting analysis...".cyan().bold());
+
+    // Preflight: verify all workspace .rs files are syntactically valid
+    preflight_syntax_check(project_root)?;
 
     // Run the full diff analysis (returns diff, type index, and type resolver warnings)
     let (diff, index, type_warnings) = analyze_api_diff(project_root, api_data, verbose)?;

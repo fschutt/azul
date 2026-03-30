@@ -691,11 +691,24 @@ impl AutofixPatch {
                         dependency_kind,
                         element_type,
                     } = change {
+                        // Look up the element type's external path from existing API
+                        let element_external = existing_api.and_then(|api| {
+                            for (_ver, ver_data) in api.0.iter() {
+                                for (_mod_name, mod_data) in &ver_data.api {
+                                    if let Some(class) = mod_data.classes.get(element_type.as_str()) {
+                                        return class.external.as_deref();
+                                    }
+                                }
+                            }
+                            None
+                        });
+
                         // Generate the appropriate type (Option or Slice)
                         let class_patch = generate_dependency_type_patch(
                             dependency_type,
                             dependency_kind,
                             element_type,
+                            element_external,
                         );
                         
                         // Determine the module for the new type
@@ -1420,6 +1433,9 @@ mod tests {
 /// * `dependency_type` - The type name to generate (e.g., "OptionMenuItem" or "MenuItemVecSlice")
 /// * `dependency_kind` - Either "option" or "slice"
 /// * `element_type` - The element type this depends on (e.g., "MenuItem")
+/// * `element_external_path` - The external path of the element type (e.g., "azul_layout::widgets::ribbon::RibbonSection"),
+///   used to derive the correct module path for the generated Option/Slice type.
+///   If None, falls back to `azul_core::option::` for options and `azul_css::` for slices.
 ///
 /// # Returns
 /// A ClassPatch that can be applied to add the type to api.json
@@ -1427,15 +1443,21 @@ fn generate_dependency_type_patch(
     dependency_type: &str,
     dependency_kind: &str,
     element_type: &str,
+    element_external_path: Option<&str>,
 ) -> ClassPatch {
     use crate::api::{FieldData, RefKind};
-    
+
+    // Derive the module prefix from the element type's external path.
+    // e.g. "azul_layout::widgets::ribbon::RibbonSection" → "azul_layout::widgets::ribbon::"
+    let module_prefix = element_external_path
+        .and_then(|p| p.rsplit_once("::").map(|(prefix, _)| format!("{}::", prefix)));
+
     match dependency_kind {
         "option" => {
-            // Generate Option type: enum with None and Some(element_type) variants
-            // External path points to where the type is defined via impl_option! macro
-            // We need to determine the external path from the element type
-            let external_path = format!("azul_core::option::Option{}", element_type);
+            let external_path = match &module_prefix {
+                Some(prefix) => format!("{}{}", prefix, dependency_type),
+                None => format!("azul_core::option::{}", dependency_type),
+            };
             
             let mut enum_variants = IndexMap::new();
             enum_variants.insert(
@@ -1470,7 +1492,10 @@ fn generate_dependency_type_patch(
             // Generate Slice type: struct with ptr and len fields
             // External path points to where the type is defined via impl_vec! macro
             let vec_type_name = dependency_type.trim_end_matches("Slice");
-            let external_path = format!("azul_css::{}", dependency_type);
+            let external_path = match &module_prefix {
+                Some(prefix) => format!("{}{}", prefix, dependency_type),
+                None => format!("azul_css::{}", dependency_type),
+            };
             
             let mut struct_fields = IndexMap::new();
             struct_fields.insert(
