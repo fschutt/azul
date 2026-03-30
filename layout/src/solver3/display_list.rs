@@ -3524,6 +3524,11 @@ where
             let mut content_box_rect =
                 border_box.to_content_box(&nbp.padding, &nbp.border).rect();
 
+            // Save the viewport-sized content box for clipping BEFORE expanding
+            // to full scroll content size. Text must be clipped to the viewport
+            // when overflow is hidden/scroll/auto, not to the full content size.
+            let viewport_clip_rect = content_box_rect;
+
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
             // what fits in the viewport. Otherwise glyphs beyond the viewport are not rendered.
@@ -3552,7 +3557,7 @@ where
                 }
             }
 
-            self.paint_inline_content(builder, content_box_rect, inline_layout, node_index)?;
+            self.paint_inline_content(builder, content_box_rect, viewport_clip_rect, inline_layout, node_index)?;
 
             if pushed_text_shadow {
                 builder.push_item(DisplayListItem::PopTextShadow);
@@ -3966,6 +3971,7 @@ where
         &self,
         builder: &mut DisplayListBuilder,
         container_rect: LogicalRect,
+        viewport_clip_rect: LogicalRect,
         layout: &UnifiedLayout,
         source_node_index: usize,
     ) -> Result<()> {
@@ -4075,7 +4081,10 @@ where
 
         // SECOND PASS: Render text runs
         for (_idx, glyph_run) in glyph_runs.iter().enumerate() {
-            let clip_rect = container_rect; // Clip to the container rect
+            // Clip text to the viewport-sized content box, not the full scroll
+            // content area. This prevents text from overflowing outside the
+            // container when overflow is hidden/scroll/auto.
+            let clip_rect = viewport_clip_rect;
 
             // Fix: Offset glyph positions by the container origin.
             // Text layout is relative to (0,0) of the IFC, but we need absolute coordinates.
