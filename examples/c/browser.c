@@ -411,19 +411,21 @@ bool load_page(BrowserData* data) {
     
     // Fetch the HTML page
     AzResultHttpResponseHttpError http_result = AzHttpRequestConfig_httpGetDefault(az_str(data->url));
-    
-    printf("[BROWSER] HTTP result tag: %d (Ok=%d, Err=%d)\n", 
-           http_result.Ok.tag, 
-           AzResultHttpResponseHttpError_Tag_Ok,
-           AzResultHttpResponseHttpError_Tag_Err);
-    
-    if (http_result.Ok.tag == AzResultHttpResponseHttpError_Tag_Err) {
-        printf("[BROWSER] HTTP error occurred\n");
-        browser_data_set_error(data, "Failed to fetch page");
+
+    if (http_result.Err.tag == AzResultHttpResponseHttpError_Tag_Err) {
+        AzString err_dbg = AzHttpError_toDbgString(&http_result.Err.payload);
+        CStr err_cstr = cstr_new_ref(&err_dbg);
+        printf("[BROWSER] HTTP error: %s\n", cstr_ptr(&err_cstr));
+        cstr_free(&err_cstr);
+
+        char err_buf[256];
+        snprintf(err_buf, sizeof(err_buf), "HTTP error: see console for details");
+        browser_data_set_error(data, err_buf);
+        AzString_delete(&err_dbg);
         AzHttpError_delete(&http_result.Err.payload);
         return false;
     }
-    
+
     AzHttpResponse response = http_result.Ok.payload;
     
     printf("[BROWSER] Response status: %u, body len: %zu\n", response.status_code, (size_t)response.body.len);
