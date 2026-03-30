@@ -3161,6 +3161,25 @@
                             }
                         }
                     },
+                    "DropDownOnChoiceChangeCallbackType": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOnChoiceChangeCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
                     "NumberInputOnValueChangeCallbackType": {
                         "external": "azul_layout::widgets::number_input::NumberInputOnValueChangeCallbackType",
                         "callback_typedef": {
@@ -12253,6 +12272,38 @@
                             {
                                 "cb": {
                                     "type": "CheckBoxOnToggleCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DropDownOnChoiceChangeCallback": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOnChoiceChangeCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "DropDownOnChoiceChangeCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -34876,6 +34927,118 @@
                             {
                                 "checked": {
                                     "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DropDown": {
+                        "external": "azul_layout::widgets::drop_down::DropDown",
+                        "derive": [
+                            "Debug",
+                            "PartialEq",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "choices": {
+                                    "type": "StringVec"
+                                },
+                                "selected": {
+                                    "type": "usize"
+                                },
+                                "on_choice_change": {
+                                    "type": "OptionDropDownOnChoiceChange"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates a new dropdown with the given choices.",
+                                    "Opens a native popup menu on click."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "choices": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::drop_down::DropDown::new(choices)"
+                            }
+                        },
+                        "functions": {
+                            "set_on_choice_change": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "DropDownOnChoiceChangeCallbackType"
+                                    }
+                                ],
+                                "fn_body": "dropdown.set_on_choice_change(data, callback);"
+                            },
+                            "with_on_choice_change": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "DropDownOnChoiceChangeCallbackType"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDown"
+                                },
+                                "fn_body": "dropdown.with_on_choice_change(data, callback)"
+                            },
+                            "dom": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "dropdown.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DropDownOnChoiceChange": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOnChoiceChange",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "DropDownOnChoiceChangeCallback"
                                 }
                             }
                         ],
@@ -72108,6 +72271,38 @@
                             {
                                 "Some": {
                                     "type": "CheckBoxOnToggle"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDropDownOnChoiceChange": {
+                        "external": "azul_layout::widgets::drop_down::OptionDropDownOnChoiceChange",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {}
+                            },
+                            {
+                                "Some": {
+                                    "type": "DropDownOnChoiceChange"
                                 }
                             }
                         ],

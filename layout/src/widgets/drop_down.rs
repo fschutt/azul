@@ -204,6 +204,7 @@ static DROPDOWN_ARROW_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
 // Widget struct and API
 // ============================================================================
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct DropDown {
     pub choices: StringVec,
     pub selected: usize,
