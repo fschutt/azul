@@ -1,0 +1,104 @@
+[
+  {
+    "name": "native_initial_render",
+    "description": "Verify initial native-rendered widget showcase",
+    "steps": [
+      { "op": "wait", "ms": 500 },
+      {
+        "op": "get_state"
+      },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_01_initial.png"
+      }
+    ]
+  },
+  {
+    "name": "native_button_hover",
+    "description": "Hover over button — should show hover state with native rendering",
+    "steps": [
+      {
+        "op": "find_node_by_text",
+        "text": "Increase counter"
+      },
+      {
+        "op": "mouse_move",
+        "text": "Increase counter"
+      },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_02_button_hover.png"
+      }
+    ]
+  },
+  {
+    "name": "native_button_click",
+    "description": "Click button — counter should increment, visible in native render",
+    "steps": [
+      {
+        "op": "click",
+        "text": "Increase counter"
+      },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_03_button_clicked.png"
+      }
+    ]
+  },
+  {
+    "name": "native_text_input_focus",
+    "description": "Focus text input — cursor should be visible in native render",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "get_focus_state"
+      },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_04_text_focused.png"
+      }
+    ]
+  },
+  {
+    "name": "native_text_input_typing",
+    "description": "Type text — characters should appear with native rendering",
+    "steps": [
+      { "op": "text_input", "text": "Native test" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_05_text_typed.png"
+      }
+    ]
+  },
+  {
+    "name": "native_checkbox_toggle",
+    "description": "Toggle checkbox — visual state should change",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 100 },
+      { "op": "key_down", "key": "Space" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_06_checkbox_toggled.png"
+      }
+    ]
+  },
+  {
+    "name": "native_dropdown_open",
+    "description": "Focus dropdown — popup menu should appear in native render",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 500 },
+      {
+        "op": "take_native_screenshot",
+        "save_actual": "/tmp/azul_e2e/native_07_dropdown_open.png"
+      }
+    ]
+  }
+]

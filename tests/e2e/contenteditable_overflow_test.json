@@ -1,0 +1,245 @@
+[
+  {
+    "name": "ce_initial_render",
+    "description": "Verify initial render — two text inputs and a textarea visible",
+    "steps": [
+      {
+        "op": "get_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/01_initial.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02,
+        "save_actual": "/tmp/azul_e2e/ce_01_initial.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_focus_first_input",
+    "description": "Tab to focus first single-line text input — cursor should appear",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_focus_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/02_focused.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02,
+        "save_actual": "/tmp/azul_e2e/ce_02_focused.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_type_short_text",
+    "description": "Type short text — should fit inside input, no overflow",
+    "steps": [
+      { "op": "text_input", "text": "Hello" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/03_short_text.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_03_short_text.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_type_overflow_text",
+    "description": "Type long text that overflows — text MUST be clipped at input boundary",
+    "steps": [
+      { "op": "text_input", "text": " World this is a very long text that should overflow the single-line input" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/04_overflow_clipped.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_04_overflow_clipped.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_tab_to_textarea",
+    "description": "Tab to multi-line textarea",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_focus_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/05_textarea_focused.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02,
+        "save_actual": "/tmp/azul_e2e/ce_05_textarea_focused.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_type_multiline",
+    "description": "Type multi-line text in textarea — lines should wrap or scroll",
+    "steps": [
+      { "op": "text_input", "text": "Line 1 of text\nLine 2 of text\nLine 3 of text\nLine 4 of text\nLine 5 of text\nLine 6 of text\nLine 7 of text\nLine 8 of text" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/06_multiline_text.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_06_multiline_text.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_scroll_textarea",
+    "description": "Scroll the textarea — content should update DURING scroll, not after",
+    "steps": [
+      { "op": "scroll_node_by", "selector": "[contenteditable]", "delta_x": 0, "delta_y": 50 },
+      { "op": "wait", "ms": 100 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/07_scrolled.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_07_scrolled.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_backspace",
+    "description": "Press backspace — text should update and stay clipped",
+    "steps": [
+      { "op": "key_down", "key": "Back" },
+      { "op": "key_down", "key": "Back" },
+      { "op": "key_down", "key": "Back" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/08_after_backspace.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_08_after_backspace.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_select_with_shift_arrow",
+    "description": "Shift+Left to select text — highlight should be visible",
+    "steps": [
+      { "op": "key_down", "key": "LShift" },
+      { "op": "key_down", "key": "Left" },
+      { "op": "key_down", "key": "Left" },
+      { "op": "key_down", "key": "Left" },
+      { "op": "key_down", "key": "Left" },
+      { "op": "key_down", "key": "Left" },
+      { "op": "key_up", "key": "LShift" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_selection_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/09_shift_select.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_09_shift_select.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_type_replaces_selection",
+    "description": "Type while text is selected — selected text should be replaced",
+    "steps": [
+      { "op": "text_input", "text": "NEW" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/10_replaced_selection.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_10_replaced_selection.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_mouse_click_repositions_cursor",
+    "description": "Click in the middle of text — cursor should move to click position",
+    "steps": [
+      { "op": "click", "x": 200, "y": 50 },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_cursor_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/11_click_reposition.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_11_click_reposition.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_mouse_drag_select",
+    "description": "Click-drag to select text — selection highlight must be visible",
+    "steps": [
+      { "op": "mouse_down", "x": 100, "y": 50, "button": "left" },
+      { "op": "mouse_move", "x": 300, "y": 50 },
+      { "op": "wait", "ms": 100 },
+      { "op": "mouse_up", "x": 300, "y": 50, "button": "left" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_selection_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/12_drag_select.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_12_drag_select.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_type_over_drag_selection",
+    "description": "Type after drag-select — selected text replaced, damage rects correct",
+    "steps": [
+      { "op": "text_input", "text": "REPLACED" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/13_replaced_drag.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_13_replaced_drag.png"
+      }
+    ]
+  },
+  {
+    "name": "ce_select_all_ctrl_a",
+    "description": "Ctrl+A should select all text in the focused input",
+    "steps": [
+      { "op": "key_down", "key": "LControl" },
+      { "op": "key_down", "key": "A" },
+      { "op": "key_up", "key": "A" },
+      { "op": "key_up", "key": "LControl" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_selection_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/contenteditable_overflow/14_select_all.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/ce_14_select_all.png"
+      }
+    ]
+  }
+]

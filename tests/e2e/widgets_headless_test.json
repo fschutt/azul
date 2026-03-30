@@ -1,0 +1,129 @@
+[
+  {
+    "name": "widgets_initial_render",
+    "description": "Verify initial headless render of widget showcase",
+    "steps": [
+      {
+        "op": "get_state"
+      },
+      {
+        "op": "get_dom_tree"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/01_initial.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02,
+        "save_actual": "/tmp/azul_e2e/widgets_01_initial.png"
+      }
+    ]
+  },
+  {
+    "name": "widgets_tab_to_first_widget",
+    "description": "Tab to first interactive widget — should show focus ring",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "get_focus_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/02_first_focus.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/widgets_02_first_focus.png"
+      }
+    ]
+  },
+  {
+    "name": "widgets_click_button",
+    "description": "Click the increment button — counter should update",
+    "steps": [
+      {
+        "op": "find_node_by_text",
+        "text": "Increase counter"
+      },
+      {
+        "op": "click",
+        "text": "Increase counter"
+      },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/03_after_click.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/widgets_03_after_click.png"
+      }
+    ]
+  },
+  {
+    "name": "widgets_text_input",
+    "description": "Tab to text input and type text",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 100 },
+      { "op": "text_input", "text": "Hello E2E Test" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "get_focus_state"
+      },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/04_text_input.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/widgets_04_text_input.png"
+      }
+    ]
+  },
+  {
+    "name": "widgets_checkbox_toggle",
+    "description": "Tab to checkbox and toggle it with space",
+    "steps": [
+      { "op": "key_down", "key": "Tab" },
+      { "op": "wait", "ms": 100 },
+      { "op": "key_down", "key": "Space" },
+      { "op": "wait", "ms": 300 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/05_checkbox_toggled.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/widgets_05_checkbox_toggled.png"
+      }
+    ]
+  },
+  {
+    "name": "widgets_resize_small",
+    "description": "Resize to small window — verify responsive layout",
+    "steps": [
+      { "op": "resize", "width": 300, "height": 200 },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/06_small_resize.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.05,
+        "save_actual": "/tmp/azul_e2e/widgets_06_small_resize.png"
+      }
+    ]
+  },
+  {
+    "name": "widgets_resize_back",
+    "description": "Resize back to original — layout should restore",
+    "steps": [
+      { "op": "resize", "width": 800, "height": 600 },
+      { "op": "wait", "ms": 200 },
+      {
+        "op": "assert_screenshot",
+        "reference": "layout/tests/reference_images/widgets_headless/07_resize_back.png",
+        "threshold": 3,
+        "max_diff_ratio": 0.02,
+        "save_actual": "/tmp/azul_e2e/widgets_07_resize_back.png"
+      }
+    ]
+  }
+]
