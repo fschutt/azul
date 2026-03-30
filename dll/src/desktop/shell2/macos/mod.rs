@@ -645,7 +645,7 @@ define_class!(
         fn has_marked_text(&self) -> bool {
             let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
-                w.common.layout_window.as_ref().map(|lw| lw.cursor_manager.preedit_text.is_some())
+                w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.cursor_manager.preedit_text.is_some())
             }).unwrap_or(false);
             has
         }
@@ -655,7 +655,7 @@ define_class!(
             let preedit_len = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
-                    .and_then(|lw| lw.cursor_manager.preedit_text.as_ref().map(|p| p.len()))
+                    .and_then(|lw| lw.text_edit_manager.cursor_manager.preedit_text.as_ref().map(|p| p.len()))
             });
             match preedit_len {
                 Some(len) => NSRange { location: 0, length: len },
@@ -690,7 +690,7 @@ define_class!(
                         String::new()
                     };
                     if let Some(ref mut lw) = macos_window.common.layout_window {
-                        lw.cursor_manager.set_preedit(
+                        lw.text_edit_manager.cursor_manager.set_preedit(
                             preedit,
                             selected_range.location as i32,
                             (selected_range.location + selected_range.length) as i32,
@@ -708,7 +708,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref mut lw) = macos_window.common.layout_window {
-                        lw.cursor_manager.clear_preedit();
+                        lw.text_edit_manager.cursor_manager.clear_preedit();
                     }
                     macos_window.request_redraw();
                 }
@@ -739,7 +739,7 @@ define_class!(
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ref mut lw) = macos_window.common.layout_window {
-                    lw.cursor_manager.clear_preedit();
+                    lw.text_edit_manager.cursor_manager.clear_preedit();
                 }
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
@@ -1348,7 +1348,7 @@ define_class!(
         fn has_marked_text(&self) -> bool {
             let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
-                w.common.layout_window.as_ref().map(|lw| lw.cursor_manager.preedit_text.is_some())
+                w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.cursor_manager.preedit_text.is_some())
             }).unwrap_or(false);
             has
         }
@@ -1358,7 +1358,7 @@ define_class!(
             let preedit_len = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
-                    .and_then(|lw| lw.cursor_manager.preedit_text.as_ref().map(|p| p.len()))
+                    .and_then(|lw| lw.text_edit_manager.cursor_manager.preedit_text.as_ref().map(|p| p.len()))
             });
             match preedit_len {
                 Some(len) => NSRange { location: 0, length: len },
@@ -1390,7 +1390,7 @@ define_class!(
                         String::new()
                     };
                     if let Some(ref mut lw) = macos_window.common.layout_window {
-                        lw.cursor_manager.set_preedit(
+                        lw.text_edit_manager.cursor_manager.set_preedit(
                             preedit,
                             selected_range.location as i32,
                             (selected_range.location + selected_range.length) as i32,
@@ -1408,7 +1408,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref mut lw) = macos_window.common.layout_window {
-                        lw.cursor_manager.clear_preedit();
+                        lw.text_edit_manager.cursor_manager.clear_preedit();
                     }
                     macos_window.request_redraw();
                 }
@@ -1439,7 +1439,7 @@ define_class!(
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ref mut lw) = macos_window.common.layout_window {
-                    lw.cursor_manager.clear_preedit();
+                    lw.text_edit_manager.cursor_manager.clear_preedit();
                 }
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
@@ -5670,7 +5670,7 @@ impl MacOSWindow {
 
                 // Restore cursor position
                 if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
-                    layout_window.cursor_manager.move_cursor_to(
+                    layout_window.text_edit_manager.cursor_manager.move_cursor_to(
                         cursor,
                         target.dom,
                         node_id_internal,
@@ -5890,8 +5890,8 @@ impl MacOSWindow {
         // Generate tree update from current layout, with current focus
         let focused_node = layout_window.focus_manager.get_focused_node().copied();
         let hidpi_factor = self.common.current_window_state.size.get_hidpi_factor().inner.get();
-        let cursor_a11y_info = layout_window.cursor_manager.cursor_location.as_ref().map(|loc| {
-            let offset = layout_window.cursor_manager.cursor.as_ref()
+        let cursor_a11y_info = layout_window.text_edit_manager.cursor_manager.cursor_location.as_ref().map(|loc| {
+            let offset = layout_window.text_edit_manager.cursor_manager.cursor.as_ref()
                 .map(|c| c.cluster_id.start_byte_in_run as usize)
                 .unwrap_or(0);
             azul_layout::managers::a11y::CursorA11yInfo {

@@ -314,12 +314,10 @@ pub struct LayoutWindow {
     pub gesture_drag_manager: crate::managers::gesture::GestureAndDragManager,
     /// Focus manager for keyboard focus and tab navigation
     pub focus_manager: crate::managers::focus_cursor::FocusManager,
-    /// Cursor manager for text cursor position and rendering
-    pub cursor_manager: crate::managers::cursor::CursorManager,
+    /// Unified text editing manager (cursor + selection + dirty flag)
+    pub text_edit_manager: crate::managers::text_edit::TextEditManager,
     /// File drop manager for cursor state and file drag-drop
     pub file_drop_manager: crate::managers::file_drop::FileDropManager,
-    /// Selection manager for text selections across all DOMs
-    pub selection_manager: crate::managers::selection::SelectionManager,
     /// Clipboard manager for system clipboard integration
     pub clipboard_manager: crate::managers::clipboard::ClipboardManager,
     /// Drag-drop manager for node and file dragging operations
@@ -446,9 +444,8 @@ impl LayoutWindow {
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
-            cursor_manager: crate::managers::cursor::CursorManager::new(),
+            text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
-            selection_manager: crate::managers::selection::SelectionManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
@@ -522,9 +519,8 @@ impl LayoutWindow {
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
-            cursor_manager: crate::managers::cursor::CursorManager::new(),
+            text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
-            selection_manager: crate::managers::selection::SelectionManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
@@ -597,9 +593,8 @@ impl LayoutWindow {
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
-            cursor_manager: crate::managers::cursor::CursorManager::new(),
+            text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
-            selection_manager: crate::managers::selection::SelectionManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
@@ -707,8 +702,8 @@ impl LayoutWindow {
         if result.is_ok() {
             // Use catch_unwind to prevent a11y panics from crashing the main application
             // Build cursor info for a11y if we have a cursor in a contenteditable
-            let cursor_a11y_info = self.cursor_manager.cursor_location.as_ref().map(|loc| {
-                let offset = self.cursor_manager.cursor.as_ref()
+            let cursor_a11y_info = self.text_edit_manager.cursor_manager.cursor_location.as_ref().map(|loc| {
+                let offset = self.text_edit_manager.cursor_manager.cursor.as_ref()
                     .map(|c| c.cluster_id.start_byte_in_run as usize)
                     .unwrap_or(0);
                 crate::managers::a11y::CursorA11yInfo {
@@ -901,11 +896,11 @@ impl LayoutWindow {
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
         // Get cursor visibility from cursor manager for display list generation
-        let cursor_is_visible = self.cursor_manager.should_draw_cursor();
+        let cursor_is_visible = self.text_edit_manager.cursor_manager.should_draw_cursor();
 
         // Get cursor location from cursor manager for independent cursor rendering
-        let cursor_location = self.cursor_manager.get_cursor_location().and_then(|loc| {
-            self.cursor_manager.get_cursor().map(|cursor| {
+        let cursor_location = self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
+            self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
                 (loc.dom_id, loc.node_id, cursor.clone())
             })
         });
@@ -917,8 +912,8 @@ impl LayoutWindow {
             viewport,
             &self.font_manager,
             &scroll_offsets,
-            &self.selection_manager.selections,
-            &self.selection_manager.text_selections,
+            &self.text_edit_manager.selection_manager.selections,
+            &self.text_edit_manager.selection_manager.text_selections,
             debug_messages,
             Some(&gpu_cache),
             &self.renderer_resources,
@@ -926,7 +921,7 @@ impl LayoutWindow {
             dom_id,
             cursor_is_visible,
             cursor_location,
-            self.cursor_manager.preedit_text.clone(),
+            self.text_edit_manager.cursor_manager.preedit_text.clone(),
             &self.image_cache,
             self.system_style.clone(),
             system_callbacks.get_system_time_fn,
@@ -1167,7 +1162,7 @@ impl LayoutWindow {
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
         self.scroll_manager = ScrollManager::new();
-        self.selection_manager.clear_all();
+        self.text_edit_manager.selection_manager.clear_all();
     }
 
     /// Set scroll position for a node
@@ -1197,12 +1192,12 @@ impl LayoutWindow {
 
     /// Set selection state for a DOM
     pub fn set_selection(&mut self, dom_id: DomId, selection: SelectionState) {
-        self.selection_manager.set_selection(dom_id, selection);
+        self.text_edit_manager.selection_manager.set_selection(dom_id, selection);
     }
 
     /// Get selection state for a DOM
     pub fn get_selection(&self, dom_id: DomId) -> Option<&SelectionState> {
-        self.selection_manager.get_selection(&dom_id)
+        self.text_edit_manager.selection_manager.get_selection(&dom_id)
     }
 
     /// Invoke a VirtualView callback and perform layout on the returned DOM.
@@ -1894,7 +1889,7 @@ impl LayoutWindow {
         };
 
         // Determine the action based on current state and new focus
-        let timer_was_active = self.cursor_manager.is_blink_timer_active();
+        let timer_was_active = self.text_edit_manager.cursor_manager.is_blink_timer_active();
 
         if let Some((dom_id, container_node_id, text_node_id)) = contenteditable_info {
 
@@ -1908,8 +1903,8 @@ impl LayoutWindow {
 
             // Make cursor visible and record current time (even before actual initialization)
             let now = azul_core::task::Instant::now();
-            self.cursor_manager.reset_blink_on_input(now);
-            self.cursor_manager.set_blink_timer_active(true);
+            self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
+            self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
 
             if !timer_was_active {
                 // Need to start the timer
@@ -1923,12 +1918,12 @@ impl LayoutWindow {
             // Focus is moving away from contenteditable or being cleared
 
             // Clear the cursor AND the pending focus flag
-            self.cursor_manager.clear();
+            self.text_edit_manager.cursor_manager.clear();
             self.focus_manager.clear_pending_contenteditable_focus();
 
             if timer_was_active {
                 // Need to stop the timer
-                self.cursor_manager.set_blink_timer_active(false);
+                self.text_edit_manager.cursor_manager.set_blink_timer_active(false);
                 return CursorBlinkTimerAction::Stop;
             } else {
                 return CursorBlinkTimerAction::NoChange;
@@ -1964,11 +1959,19 @@ impl LayoutWindow {
             None => return false,
         };
 
+        // Bug B+H fix: If process_mouse_click_for_selection already positioned
+        // the cursor in this node during the same event cycle, don't override it
+        // with initialize_cursor_at_end. The click handler sets the cursor to the
+        // clicked position; we should only initialize at end for tab/programmatic focus.
+        if self.text_edit_manager.cursor_manager.is_cursor_in_node(pending.dom_id, pending.text_node_id) {
+            return true;
+        }
+
         // Now we can safely get the text layout (layout pass has completed)
         let text_layout = self.get_inline_layout_for_node(pending.dom_id, pending.text_node_id).cloned();
 
         // Initialize cursor at end of text
-        self.cursor_manager.initialize_cursor_at_end(
+        self.text_edit_manager.cursor_manager.initialize_cursor_at_end(
             pending.dom_id,
             pending.text_node_id,
             text_layout.as_ref(),
@@ -2008,7 +2011,7 @@ impl LayoutWindow {
     where
         F: FnOnce(&UnifiedLayout, &TextCursor) -> TextCursor,
     {
-        let current_cursor = self.cursor_manager.get_cursor()?;
+        let current_cursor = self.text_edit_manager.cursor_manager.get_cursor()?;
         let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
 
         let new_cursor = movement_fn(layout, current_cursor);
@@ -2031,7 +2034,7 @@ impl LayoutWindow {
     ) {
         if extend_selection {
             // Get the current cursor as the selection anchor
-            if let Some(old_cursor) = self.cursor_manager.get_cursor() {
+            if let Some(old_cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
                 // Create DomNodeId for the selection
                 let dom_node_id = azul_core::dom::DomNodeId {
                     dom: dom_id,
@@ -2056,21 +2059,26 @@ impl LayoutWindow {
                 };
 
                 // Set the selection range in SelectionManager
-                self.selection_manager
+                self.text_edit_manager.selection_manager
                     .set_range(dom_id, dom_node_id, selection_range);
             }
 
             // Move cursor to new position
-            self.cursor_manager
+            self.text_edit_manager.cursor_manager
                 .move_cursor_to(new_cursor, dom_id, node_id);
         } else {
             // Just move cursor without extending selection
-            self.cursor_manager
+            self.text_edit_manager.cursor_manager
                 .move_cursor_to(new_cursor, dom_id, node_id);
 
             // Clear any existing selection
-            self.selection_manager.clear_selection(&dom_id);
+            self.text_edit_manager.selection_manager.clear_selection(&dom_id);
         }
+
+        // Bug D fix: Regenerate display list so cursor/selection changes are
+        // visible immediately. Without this, arrow keys move the cursor in
+        // memory but the OLD display list gets sent to WebRender.
+        self.regenerate_display_list_for_dom(dom_id);
     }
 
     // Gpu Value Cache Management
@@ -2487,7 +2495,7 @@ impl LayoutWindow {
         let focused_node = self.focus_manager.focused_node?;
 
         // Get the text cursor
-        let cursor = self.cursor_manager.get_cursor()?;
+        let cursor = self.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
@@ -2691,7 +2699,7 @@ impl LayoutWindow {
                     None => return false, // No selection to scroll
                 }
                 // TODO: Implement calculate_selection_bounding_rect
-                // let ranges = self.selection_manager.get_selection();
+                // let ranges = self.text_edit_manager.selection_manager.get_selection();
                 // if ranges.is_empty() {
                 //     return false;
                 // }
@@ -3780,7 +3788,7 @@ impl LayoutWindow {
                             // Clone the Arc to avoid borrow conflict
                             let inline_layout = self.get_inline_layout_for_node(dom_id, node_id).cloned();
                             if inline_layout.is_some() {
-                                self.cursor_manager.initialize_cursor_at_end(
+                                self.text_edit_manager.cursor_manager.initialize_cursor_at_end(
                                     dom_id,
                                     node_id,
                                     inline_layout.as_ref(),
@@ -3791,7 +3799,7 @@ impl LayoutWindow {
                             }
                         } else {
                             // Not editable - clear cursor
-                            self.cursor_manager.clear();
+                            self.text_edit_manager.cursor_manager.clear();
                         }
                     }
                 }
@@ -3801,7 +3809,7 @@ impl LayoutWindow {
             }
             AccessibilityAction::Blur => {
                 self.focus_manager.clear_focus();
-                self.cursor_manager.clear();
+                self.text_edit_manager.cursor_manager.clear();
             }
             AccessibilityAction::SetSequentialFocusNavigationStartingPoint => {
                 let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -3811,7 +3819,7 @@ impl LayoutWindow {
                 };
                 self.focus_manager.set_focused_node(Some(dom_node_id));
                 // Clear cursor for focus navigation
-                self.cursor_manager.clear();
+                self.text_edit_manager.cursor_manager.clear();
             }
 
             // Scroll actions
@@ -4181,10 +4189,10 @@ impl LayoutWindow {
 
                         if start == end {
                             // Same position - just set cursor
-                            self.cursor_manager.move_cursor_to(start, dom_id, node_id);
+                            self.text_edit_manager.cursor_manager.move_cursor_to(start, dom_id, node_id);
 
                             // Clear any existing selections
-                            self.selection_manager.clear_selection(&dom_id);
+                            self.text_edit_manager.selection_manager.clear_selection(&dom_id);
                         } else {
                             // Different positions - create selection range
                             let selection = Selection::Range(SelectionRange { start, end });
@@ -4195,11 +4203,11 @@ impl LayoutWindow {
                             };
 
                             // Set selection in SelectionManager
-                            self.selection_manager
+                            self.text_edit_manager.selection_manager
                                 .set_selection(dom_id, selection_state);
 
                             // Also set cursor to start of selection
-                            self.cursor_manager.move_cursor_to(start, dom_id, node_id);
+                            self.text_edit_manager.cursor_manager.move_cursor_to(start, dom_id, node_id);
                         }
                     } else {
                         // Could not convert byte offsets to cursors - silently ignore
@@ -4368,11 +4376,11 @@ impl LayoutWindow {
         // Get current cursor/selection from cursor manager AND selection manager
         // If there's an active selection range, use it so that typing replaces selected text
         let current_selection = {
-            let ranges = self.selection_manager.get_ranges(&dom_id);
+            let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
             if let Some(range) = ranges.first() {
                 // Active selection range - typing should replace the selected text
                 vec![Selection::Range(range.clone())]
-            } else if let Some(cursor) = self.cursor_manager.get_cursor() {
+            } else if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
                 vec![Selection::Cursor(cursor.clone())]
             } else {
                 // No cursor - create one at start of text
@@ -4423,17 +4431,17 @@ impl LayoutWindow {
         // Preserve the existing cursor_location node_id (text child) — the focused
         // node is the contenteditable DIV, but paint_cursor matches the text child.
         if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
-            let cursor_node = self.cursor_manager
+            let cursor_node = self.text_edit_manager.cursor_manager
                 .get_cursor_location()
                 .map(|loc| loc.node_id)
                 .unwrap_or(node_id);
-            self.cursor_manager
+            self.text_edit_manager.cursor_manager
                 .move_cursor_to(new_cursor.clone(), dom_id, cursor_node);
         }
 
         // Clear selection state after text edit — typing always collapses selection
-        self.selection_manager.clear_selection(&dom_id);
-        self.selection_manager.clear_text_selection(&dom_id);
+        self.text_edit_manager.selection_manager.clear_selection(&dom_id);
+        self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
 
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
@@ -4734,7 +4742,7 @@ impl LayoutWindow {
         use crate::solver3::layout_tree::CachedInlineLayout;
 
         // 1. Store the new content in dirty_text_nodes for tracking
-        let cursor = self.cursor_manager.get_cursor().cloned();
+        let cursor = self.text_edit_manager.cursor_manager.get_cursor().cloned();
         self.dirty_text_nodes.insert(
             (dom_id, node_id),
             DirtyTextNode {
@@ -4889,9 +4897,9 @@ impl LayoutWindow {
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
         // Get cursor state for display list generation
-        let cursor_is_visible = self.cursor_manager.should_draw_cursor();
-        let cursor_location = self.cursor_manager.get_cursor_location().and_then(|loc| {
-            self.cursor_manager.get_cursor().map(|cursor| {
+        let cursor_is_visible = self.text_edit_manager.cursor_manager.should_draw_cursor();
+        let cursor_location = self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
+            self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
                 (loc.dom_id, loc.node_id, cursor.clone())
             })
         });
@@ -4904,15 +4912,15 @@ impl LayoutWindow {
         let mut ctx = LayoutContext {
             styled_dom,
             font_manager: &self.font_manager,
-            selections: &self.selection_manager.selections,
-            text_selections: &self.selection_manager.text_selections,
+            selections: &self.text_edit_manager.selection_manager.selections,
+            text_selections: &self.text_edit_manager.selection_manager.text_selections,
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
             fragmentation_context: None,
             cursor_is_visible,
             cursor_location,
-            preedit_text: self.cursor_manager.preedit_text.clone(),
+            preedit_text: self.text_edit_manager.cursor_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,
             system_style: self.system_style.clone(),
@@ -5092,7 +5100,7 @@ impl LayoutWindow {
         now: std::time::Instant,
     ) {
         // Get the cursor from CursorManager
-        let Some(cursor) = self.cursor_manager.get_cursor() else {
+        let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() else {
             return;
         };
 
@@ -5295,8 +5303,8 @@ impl LayoutWindow {
     ///
     /// This should be called whenever the cursor changes.
     pub fn sync_cursor_to_selection_manager(&mut self) {
-        if let Some(cursor) = self.cursor_manager.get_cursor() {
-            if let Some(location) = self.cursor_manager.get_cursor_location() {
+        if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
+            if let Some(location) = self.text_edit_manager.cursor_manager.get_cursor_location() {
                 // Convert cursor to Selection
                 let selection = Selection::Cursor(cursor.clone());
 
@@ -5313,7 +5321,7 @@ impl LayoutWindow {
                 };
 
                 // Set selection in SelectionManager
-                self.selection_manager
+                self.text_edit_manager.selection_manager
                     .set_selection(location.dom_id, selection_state);
             }
         }
@@ -5606,7 +5614,7 @@ impl LayoutWindow {
 
         // Update click count to determine selection type
         let click_count = self
-            .selection_manager
+            .text_edit_manager.selection_manager
             .update_click_count(dom_node_id, position, time_ms);
 
         // Get the text layout again for word/paragraph selection
@@ -5646,10 +5654,10 @@ impl LayoutWindow {
         };
 
         // Clear any existing text selection for this DOM
-        self.selection_manager.clear_text_selection(&dom_id);
+        self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
 
         // Start a new selection with the anchor at the clicked position
-        self.selection_manager.start_selection(
+        self.text_edit_manager.selection_manager.start_selection(
             dom_id,
             ifc_root_node_id,
             final_range.start,
@@ -5658,14 +5666,14 @@ impl LayoutWindow {
         );
 
         // Also update the legacy selection state for backward compatibility with rendering
-        self.selection_manager.clear_selection(&dom_id);
+        self.text_edit_manager.selection_manager.clear_selection(&dom_id);
 
         let state = SelectionState {
             selections: vec![Selection::Range(final_range)].into(),
             node_id: dom_node_id,
         };
 
-        self.selection_manager.set_selection(dom_id, state);
+        self.text_edit_manager.selection_manager.set_selection(dom_id, state);
 
         // CRITICAL FIX 1: Set focus on the clicked node
         // Without this, clicking on a contenteditable element shows a cursor but
@@ -5714,14 +5722,14 @@ impl LayoutWindow {
         // Without this, clicking on a contenteditable element sets focus (blue outline)
         // but the text cursor doesn't appear because CursorManager is never told where to draw it.
         let now = azul_core::task::Instant::now();
-        self.cursor_manager.move_cursor_to(
+        self.text_edit_manager.cursor_manager.move_cursor_to(
             final_range.start.clone(),
             dom_id,
             ifc_root_node_id,
         );
         // Reset the blink timer so the cursor is immediately visible
-        self.cursor_manager.reset_blink_on_input(now);
-        self.cursor_manager.set_blink_timer_active(true);
+        self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
+        self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
 
         // Return the affected node for dirty tracking
         Some(vec![dom_node_id])
@@ -5751,14 +5759,14 @@ impl LayoutWindow {
         use crate::managers::hover::InputPointId;
 
         // Find which DOM has an active text selection with an anchor
-        let dom_id = self.selection_manager.get_all_text_selections()
+        let dom_id = self.text_edit_manager.selection_manager.get_all_text_selections()
             .keys()
             .next()
             .copied()?;
 
         // Get the existing anchor from the text selection
         let anchor = {
-            let text_selection = self.selection_manager.get_text_selection(&dom_id)?;
+            let text_selection = self.text_edit_manager.selection_manager.get_text_selection(&dom_id)?;
             text_selection.anchor.clone()
         };
 
@@ -5904,7 +5912,7 @@ impl LayoutWindow {
 
         // Update the text selection with new focus and affected nodes
         // This does NOT clear the anchor!
-        self.selection_manager.update_selection_focus(
+        self.text_edit_manager.selection_manager.update_selection_focus(
             &dom_id,
             focus_ifc_root,
             focus_cursor,
@@ -5926,7 +5934,7 @@ impl LayoutWindow {
                 selections: vec![Selection::Range(*anchor_range)].into(),
                 node_id: dom_node_id,
             };
-            self.selection_manager.set_selection(dom_id, state);
+            self.text_edit_manager.selection_manager.set_selection(dom_id, state);
         }
 
         // Return affected nodes for dirty tracking
@@ -5944,36 +5952,51 @@ impl LayoutWindow {
         }
     }
 
-    /// Delete the currently selected text
+    /// Delete the currently selected text or one character at the cursor
     ///
-    /// Handles Backspace/Delete key when a selection exists. The selection is deleted
-    /// and replaced with a single cursor at the deletion point.
+    /// Handles Backspace/Delete key. If a range selection exists, the selected
+    /// text is deleted. If only a cursor exists (no range), one character is
+    /// deleted before (Backspace) or after (Delete) the cursor.
     ///
     /// ## Arguments
     /// * `target` - The target node (focused contenteditable element)
     /// * `forward` - true for Delete key (forward), false for Backspace (backward)
     ///
     /// ## Returns
-    /// * `Some(Vec<DomNodeId>)` - Affected nodes if selection was deleted
-    /// * `None` - If no selection exists or deletion failed
+    /// * `Some(Vec<DomNodeId>)` - Affected nodes if deletion occurred
+    /// * `None` - If no cursor/selection exists or deletion failed
     pub fn delete_selection(
         &mut self,
         target: azul_core::dom::DomNodeId,
         forward: bool,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
         let dom_id = target.dom;
+        let node_id = target.node.into_crate_internal()?;
 
         // Get current selection ranges
-        let ranges = self.selection_manager.get_ranges(&dom_id);
+        let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
+
         if ranges.is_empty() {
-            return None; // No selection to delete
+            // Bug E fix: No range selection, but we may have a cursor.
+            // Delete one character before (Backspace) or after (Delete) the cursor.
+            let cursor = self.text_edit_manager.cursor_manager.get_cursor().cloned()?;
+            let content = self.get_text_before_textinput(dom_id, node_id);
+            let mut new_content = content.clone();
+
+            let (updated_content, new_cursor) = if forward {
+                crate::text3::edit::delete_forward(&mut new_content, &cursor)
+            } else {
+                crate::text3::edit::delete_backward(&mut new_content, &cursor)
+            };
+
+            self.text_edit_manager.cursor_manager.move_cursor_to(new_cursor, dom_id, node_id);
+            self.update_text_cache_after_edit(dom_id, node_id, updated_content);
+            self.regenerate_display_list_for_dom(dom_id);
+
+            return Some(vec![target]);
         }
 
-        // For each selection range, delete the selected text
-        // Note: For now, we just clear the selection and place cursor at start
-        // Full implementation would need to modify the underlying text content
-        // via the changeset system
-
+        // Range selection exists - delete the selected text
         // Find the earliest cursor position from all ranges
         let mut earliest_cursor = None;
         for range in &ranges {
@@ -5983,8 +6006,6 @@ impl LayoutWindow {
             if earliest_cursor.is_none() {
                 earliest_cursor = Some(cursor);
             } else if let Some(current) = earliest_cursor {
-                // Compare cursor positions using cluster_id ordering
-                // Earlier cluster_id means earlier position in text
                 if cursor < current {
                     earliest_cursor = Some(cursor);
                 }
@@ -5992,11 +6013,10 @@ impl LayoutWindow {
         }
 
         // Clear selection and place cursor at deletion point
-        self.selection_manager.clear_selection(&dom_id);
-        self.selection_manager.clear_text_selection(&dom_id);
+        self.text_edit_manager.selection_manager.clear_selection(&dom_id);
+        self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
 
         if let Some(cursor) = earliest_cursor {
-            // Set cursor at deletion point
             let state = SelectionState {
                 selections: vec![Selection::Range(SelectionRange {
                     start: cursor.clone(),
@@ -6005,10 +6025,9 @@ impl LayoutWindow {
                 .into(),
                 node_id: target,
             };
-            self.selection_manager.set_selection(dom_id, state);
+            self.text_edit_manager.selection_manager.set_selection(dom_id, state);
         }
 
-        // Return affected nodes for dirty tracking
         Some(vec![target])
     }
 
@@ -6037,7 +6056,7 @@ impl LayoutWindow {
         };
 
         // Get selection ranges for this DOM
-        let ranges = self.selection_manager.get_ranges(dom_id);
+        let ranges = self.text_edit_manager.selection_manager.get_ranges(dom_id);
         if ranges.is_empty() {
             return None;
         }

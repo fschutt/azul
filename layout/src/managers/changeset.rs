@@ -299,7 +299,7 @@ pub fn create_copy_changeset(
     let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
 
     // Get selection range for changeset
-    let ranges = layout_window.selection_manager.get_ranges(dom_id);
+    let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
     let range = ranges.first()?;
 
     Some(TextChangeset::new(
@@ -327,7 +327,7 @@ pub fn create_cut_changeset(
     let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
 
     // Get selection range for changeset
-    let ranges = layout_window.selection_manager.get_ranges(dom_id);
+    let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
     let range = ranges.first()?;
 
     // The logical cursor will be at the start of the deleted range
@@ -377,7 +377,7 @@ pub fn create_select_all_changeset(
 
     // Get current selection (if any) for undo
     let old_range = layout_window
-        .selection_manager
+        .text_edit_manager.selection_manager
         .get_ranges(dom_id)
         .first()
         .copied();
@@ -438,8 +438,8 @@ pub fn create_delete_selection_changeset(
     let node_id = target.node.into_crate_internal()?;
 
     // Get current selection/cursor
-    let ranges = layout_window.selection_manager.get_ranges(dom_id);
-    let cursor = layout_window.cursor_manager.get_cursor();
+    let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
+    let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor();
 
     // Determine what to delete
     let (delete_range, deleted_text) = if let Some(range) = ranges.first() {

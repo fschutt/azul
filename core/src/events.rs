@@ -2782,11 +2782,9 @@ fn handle_key_down<SM: SelectionManagerQuery>(
         ));
     }
 
-    // Check delete keys (only when selection exists)
-    if !selection_manager.has_selection() {
-        return None;
-    }
-
+    // Bug E fix: Always generate DeleteTextSelection for Backspace/Delete
+    // when a node is focused, not just when has_selection() is true.
+    // A cursor without a visual selection still needs to delete one character.
     let forward = match vk {
         VirtualKeyCode::Back => Some(false),
         VirtualKeyCode::Delete => Some(true),

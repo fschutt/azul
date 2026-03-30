@@ -831,7 +831,7 @@ pub(super) extern "C" fn text_input_leave_handler(
     window.text_input_active = false;
     // Clear any pending preedit
     if let Some(ref mut lw) = window.common.layout_window {
-        lw.cursor_manager.clear_preedit();
+        lw.text_edit_manager.cursor_manager.clear_preedit();
     }
 }
 
@@ -944,7 +944,7 @@ pub(super) extern "C" fn text_input_done_handler(
     if let Some(text) = commit_text {
         if !text.is_empty() {
             if let Some(ref mut lw) = window.common.layout_window {
-                lw.cursor_manager.clear_preedit();
+                lw.text_edit_manager.cursor_manager.clear_preedit();
                 let _ = lw.record_text_input(&text);
             }
             needs_process = true;
@@ -958,9 +958,9 @@ pub(super) extern "C" fn text_input_done_handler(
     // Step 3: Update preedit display + request redraw
     if let Some(ref mut lw) = window.common.layout_window {
         if let Some(ref preedit) = preedit_text {
-            lw.cursor_manager.set_preedit(preedit.clone(), preedit_begin, preedit_end);
+            lw.text_edit_manager.cursor_manager.set_preedit(preedit.clone(), preedit_begin, preedit_end);
         } else {
-            lw.cursor_manager.clear_preedit();
+            lw.text_edit_manager.cursor_manager.clear_preedit();
         }
     }
     // Preedit changes (set or clear) need a redraw

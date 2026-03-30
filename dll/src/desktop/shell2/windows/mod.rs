@@ -2908,7 +2908,7 @@ unsafe extern "system" fn window_proc(
                 window.ime_composition = None;
                 // Clear preedit in cursor manager
                 if let Some(ref mut lw) = window.common.layout_window {
-                    lw.cursor_manager.clear_preedit();
+                    lw.text_edit_manager.cursor_manager.clear_preedit();
                 }
                 // Redraw to clear preedit underline
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2950,7 +2950,7 @@ unsafe extern "system" fn window_proc(
                                     // Store preedit in cursor manager for inline rendering
                                     if let Some(ref mut lw) = window.common.layout_window {
                                         if let Some(ref text) = comp_str {
-                                            lw.cursor_manager.set_preedit(
+                                            lw.text_edit_manager.cursor_manager.set_preedit(
                                                 text.clone(), 0, text.len() as i32,
                                             );
                                         }
@@ -2983,7 +2983,7 @@ unsafe extern "system" fn window_proc(
             window.ime_composition = None;
             // Clear preedit in cursor manager
             if let Some(ref mut lw) = window.common.layout_window {
-                lw.cursor_manager.clear_preedit();
+                lw.text_edit_manager.cursor_manager.clear_preedit();
             }
             // Redraw to clear preedit underline
             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);

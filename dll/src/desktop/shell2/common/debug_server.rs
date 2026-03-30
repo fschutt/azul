@@ -8123,7 +8123,7 @@ fn process_debug_event(
         DebugEvent::GetSelectionState => {
             // Get the selection manager from layout window
             let layout_window = callback_info.get_layout_window();
-            let selection_manager = &layout_window.selection_manager;
+            let selection_manager = &layout_window.text_edit_manager.selection_manager;
             let all_selections = selection_manager.get_all_selections();
             
             for (dom_id, sel_state) in all_selections.iter() {
@@ -8191,7 +8191,7 @@ fn process_debug_event(
         DebugEvent::DumpSelectionManager => {
             // Dump entire selection manager state for debugging
             let layout_window = callback_info.get_layout_window();
-            let selection_manager = &layout_window.selection_manager;
+            let selection_manager = &layout_window.text_edit_manager.selection_manager;
             let all_selections = selection_manager.get_all_selections();
             
             let mut selections = Vec::new();
@@ -8709,7 +8709,7 @@ fn process_debug_event(
 
         DebugEvent::GetCursorState => {
             let layout_window = callback_info.get_layout_window();
-            let cursor_manager = &layout_window.cursor_manager;
+            let cursor_manager = &layout_window.text_edit_manager.cursor_manager;
             
             let response = if let (Some(cursor), Some(location)) = (&cursor_manager.cursor, &cursor_manager.cursor_location) {
                 let position = cursor.cluster_id.start_byte_in_run as usize;

@@ -1515,12 +1515,12 @@ pub trait PlatformWindow {
 
             CallbackChange::DeleteBackward { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(cursor) = lw.cursor_manager.get_cursor().cloned() {
+                    if let Some(cursor) = lw.text_edit_manager.cursor_manager.get_cursor().cloned() {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_backward;
                         let mut new_content = content.clone();
                         let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
-                        lw.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
+                        lw.text_edit_manager.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     } else {
                     }
@@ -1531,12 +1531,12 @@ pub trait PlatformWindow {
 
             CallbackChange::DeleteForward { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(cursor) = lw.cursor_manager.get_cursor().cloned() {
+                    if let Some(cursor) = lw.text_edit_manager.cursor_manager.get_cursor().cloned() {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_forward;
                         let mut new_content = content.clone();
                         let (updated_content, new_cursor) = delete_forward(&mut new_content, &cursor);
-                        lw.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
+                        lw.text_edit_manager.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     }
                 }
@@ -1545,7 +1545,7 @@ pub trait PlatformWindow {
 
             CallbackChange::MoveCursor { dom_id, node_id, cursor } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
+                    lw.text_edit_manager.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -1554,14 +1554,14 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     match selection {
                         azul_core::selection::Selection::Cursor(cursor) => {
-                            lw.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
-                            lw.selection_manager.clear_all();
+                            lw.text_edit_manager.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
+                            lw.text_edit_manager.selection_manager.clear_all();
                         }
                         azul_core::selection::Selection::Range(range) => {
-                            lw.cursor_manager.move_cursor_to(range.start, *dom_id, *node_id);
+                            lw.text_edit_manager.cursor_manager.move_cursor_to(range.start, *dom_id, *node_id);
                             let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(*node_id));
                             let dom_node_id = azul_core::dom::DomNodeId { dom: *dom_id, node: hierarchy_id };
-                            lw.selection_manager.add_selection(*dom_id, dom_node_id, selection.clone());
+                            lw.text_edit_manager.selection_manager.add_selection(*dom_id, dom_node_id, selection.clone());
                         }
                     }
                 }
@@ -1691,7 +1691,7 @@ pub trait PlatformWindow {
 
             CallbackChange::SetSelectAllRange { target, range } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.selection_manager.set_range(target.dom, *target, range.clone());
+                    lw.text_edit_manager.selection_manager.set_range(target.dom, *target, range.clone());
                 }
                 ProcessEventResult::DoNothing
             }
@@ -1715,10 +1715,10 @@ pub trait PlatformWindow {
             CallbackChange::SetCursorVisibility { visible: _ } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
-                    if lw.cursor_manager.should_blink(&now) {
-                        lw.cursor_manager.toggle_visibility();
+                    if lw.text_edit_manager.cursor_manager.should_blink(&now) {
+                        lw.text_edit_manager.cursor_manager.toggle_visibility();
                     } else {
-                        lw.cursor_manager.set_visibility(true);
+                        lw.text_edit_manager.cursor_manager.set_visibility(true);
                     }
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
@@ -1727,17 +1727,17 @@ pub trait PlatformWindow {
             CallbackChange::ResetCursorBlink => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
-                    lw.cursor_manager.reset_blink_on_input(now);
+                    lw.text_edit_manager.cursor_manager.reset_blink_on_input(now);
                 }
                 ProcessEventResult::DoNothing
             }
 
             CallbackChange::StartCursorBlinkTimer => {
                 let timer = if let Some(lw) = self.get_layout_window_mut() {
-                    if lw.cursor_manager.is_blink_timer_active() {
+                    if lw.text_edit_manager.cursor_manager.is_blink_timer_active() {
                         None
                     } else {
-                        lw.cursor_manager.set_blink_timer_active(true);
+                        lw.text_edit_manager.cursor_manager.set_blink_timer_active(true);
                         let ws = lw.current_window_state.clone();
                         Some(lw.create_cursor_blink_timer(&ws))
                     }
@@ -1756,8 +1756,8 @@ pub trait PlatformWindow {
 
             CallbackChange::StopCursorBlinkTimer => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if lw.cursor_manager.is_blink_timer_active() {
-                        lw.cursor_manager.set_blink_timer_active(false);
+                    if lw.text_edit_manager.cursor_manager.is_blink_timer_active() {
+                        lw.text_edit_manager.cursor_manager.set_blink_timer_active(false);
                         lw.timers.remove(&azul_core::task::CURSOR_BLINK_TIMER_ID);
                     }
                 }
@@ -2155,11 +2155,11 @@ pub trait PlatformWindow {
                                 });
 
                             if let Some(range) = range {
-                                layout_window.selection_manager.set_range(dom_id, focused_node, range);
+                                layout_window.text_edit_manager.selection_manager.set_range(dom_id, focused_node, range);
                                 // Move cursor to end of selection
                                 if let Some(layout) = layout_window.get_inline_layout_for_node(dom_id, node_id) {
                                     if let Some(end_cursor) = layout.get_last_cluster_cursor() {
-                                        layout_window.cursor_manager.move_cursor_to(end_cursor, dom_id, node_id);
+                                        layout_window.text_edit_manager.cursor_manager.move_cursor_to(end_cursor, dom_id, node_id);
                                     }
                                 }
                                 return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
@@ -2200,7 +2200,7 @@ pub trait PlatformWindow {
                             );
 
                             if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
-                                layout_window.cursor_manager.move_cursor_to(
+                                layout_window.text_edit_manager.cursor_manager.move_cursor_to(
                                     cursor, target.dom, node_id_internal,
                                 );
                             }
@@ -2415,6 +2415,8 @@ pub trait PlatformWindow {
                 let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
                 let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
 
+                let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+
                 let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window.focus_manager.set_focused_node(*new_focus);
 
@@ -2433,11 +2435,13 @@ pub trait PlatformWindow {
                         *new_focus, &window_state,
                     );
 
-                    // Apply CSS restyle (:focus pseudo-class)
+                    // Bug A fix: Use apply_focus_restyle return value so :focus
+                    // styling is applied immediately (not just on next resize)
                     if old_focus_node_id != new_focus_node_id {
-                        let _restyle_result = apply_focus_restyle(
+                        let restyle_result = apply_focus_restyle(
                             layout_window, old_focus_node_id, new_focus_node_id,
                         );
+                        result = result.max(restyle_result);
                     }
 
                     Some(timer_action)
@@ -2458,12 +2462,12 @@ pub trait PlatformWindow {
                     }
                 }
 
-                ProcessEventResult::ShouldReRenderCurrentWindow
+                result
             }
 
             SystemChange::ClearAllSelections => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    layout_window.selection_manager.clear_all();
+                    layout_window.text_edit_manager.selection_manager.clear_all();
                 }
                 ProcessEventResult::DoNothing
             }
@@ -2474,8 +2478,8 @@ pub trait PlatformWindow {
                     if needs_init {
                         let cursor_initialized = layout_window.finalize_pending_focus_changes();
                         if cursor_initialized {
-                            if !layout_window.cursor_manager.is_blink_timer_active() {
-                                layout_window.cursor_manager.set_blink_timer_active(true);
+                            if !layout_window.text_edit_manager.cursor_manager.is_blink_timer_active() {
+                                layout_window.text_edit_manager.cursor_manager.set_blink_timer_active(true);
                                 true
                             } else {
                                 false
@@ -2512,7 +2516,7 @@ pub trait PlatformWindow {
                     use azul_layout::window::{ScrollMode, SelectionScrollType};
 
                     let scroll_type = if let Some(focused_node) = layout_window.focus_manager.focused_node {
-                        if layout_window.selection_manager.get_selection(&focused_node.dom).is_some() {
+                        if layout_window.text_edit_manager.selection_manager.get_selection(&focused_node.dom).is_some() {
                             SelectionScrollType::Selection
                         } else {
                             SelectionScrollType::Cursor
@@ -3363,7 +3367,7 @@ pub trait PlatformWindow {
                 hit_test_for_dispatch.as_ref(),
                 &current_window_state.keyboard_state,
                 &current_window_state.mouse_state,
-                &layout_window.selection_manager,
+                &layout_window.text_edit_manager.selection_manager,
                 &layout_window.focus_manager,
             )
         } else {
@@ -3762,7 +3766,7 @@ pub trait PlatformWindow {
 
             // Clear selections when focus changes (standard UI behavior)
             if let Some(layout_window) = self.get_layout_window_mut() {
-                layout_window.selection_manager.clear_all();
+                layout_window.text_edit_manager.selection_manager.clear_all();
             }
 
             // DISPATCH FOCUS CALLBACKS: FocusLost on old node, FocusReceived on new node

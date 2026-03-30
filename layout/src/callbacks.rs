@@ -2047,28 +2047,28 @@ impl CallbackInfo {
     /// Get the current selection state for a DOM
     pub fn get_selection(&self, dom_id: &DomId) -> Option<&SelectionState> {
         self.get_layout_window()
-            .selection_manager
+            .text_edit_manager.selection_manager
             .get_selection(dom_id)
     }
 
     /// Check if a DOM has any selection
     pub fn has_selection(&self, dom_id: &DomId) -> bool {
         self.get_layout_window()
-            .selection_manager
+            .text_edit_manager.selection_manager
             .has_selection(dom_id)
     }
 
     /// Get the primary cursor for a DOM (first in selection list)
     pub fn get_primary_cursor(&self, dom_id: &DomId) -> Option<TextCursor> {
         self.get_layout_window()
-            .selection_manager
+            .text_edit_manager.selection_manager
             .get_primary_cursor(dom_id)
     }
 
     /// Get all selection ranges (excludes plain cursors)
     pub fn get_selection_ranges(&self, dom_id: &DomId) -> SelectionRangeVec {
         self.get_layout_window()
-            .selection_manager
+            .text_edit_manager.selection_manager
             .get_ranges(dom_id)
             .into()
     }
@@ -2850,7 +2850,7 @@ impl CallbackInfo {
     ///
     /// Use this to query text selections across multiple nodes.
     pub fn get_selection_manager(&self) -> &SelectionManager {
-        &self.get_layout_window().selection_manager
+        &self.get_layout_window().text_edit_manager.selection_manager
     }
 
     /// Check if a specific node is currently focused
@@ -3320,7 +3320,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let dom_id = &target.dom;
         layout_window
-            .selection_manager
+            .text_edit_manager.selection_manager
             .get_ranges(dom_id)
             .first()
             .copied()
@@ -3389,9 +3389,9 @@ impl CallbackInfo {
 
         // Get current selection state
         let selection =
-            if let Some(range) = layout_window.selection_manager.get_ranges(dom_id).first() {
+            if let Some(range) = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id).first() {
                 Selection::Range(*range)
-            } else if let Some(cursor) = layout_window.cursor_manager.get_cursor() {
+            } else if let Some(cursor) = layout_window.text_edit_manager.cursor_manager.get_cursor() {
                 Selection::Cursor(*cursor)
             } else {
                 return None; // No cursor or selection
@@ -3566,7 +3566,7 @@ impl CallbackInfo {
             return None;
         }
 
-        layout_window.cursor_manager.get_cursor().copied()
+        layout_window.text_edit_manager.cursor_manager.get_cursor().copied()
     }
 
     /// Get the current selection ranges in a node
@@ -3575,7 +3575,7 @@ impl CallbackInfo {
     pub fn get_node_selection_ranges(&self, target: DomNodeId) -> SelectionRangeVec {
         let layout_window = self.get_layout_window();
         layout_window
-            .selection_manager
+            .text_edit_manager.selection_manager
             .get_ranges(&target.dom)
             .into()
     }
@@ -3606,7 +3606,7 @@ impl CallbackInfo {
     /// * `target` - The node containing the cursor
     pub fn inspect_move_cursor_left(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3629,7 +3629,7 @@ impl CallbackInfo {
     /// Returns None if the cursor is already at the end of the document.
     pub fn inspect_move_cursor_right(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3652,7 +3652,7 @@ impl CallbackInfo {
     /// Returns None if the cursor is already on the first line.
     pub fn inspect_move_cursor_up(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3676,7 +3676,7 @@ impl CallbackInfo {
     /// Returns None if the cursor is already on the last line.
     pub fn inspect_move_cursor_down(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3699,7 +3699,7 @@ impl CallbackInfo {
     /// Returns the cursor position at the start of the current line.
     pub fn inspect_move_cursor_to_line_start(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3717,7 +3717,7 @@ impl CallbackInfo {
     /// Returns the cursor position at the end of the current line.
     pub fn inspect_move_cursor_to_line_end(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result

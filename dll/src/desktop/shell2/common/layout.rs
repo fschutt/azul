@@ -834,10 +834,10 @@ fn update_managers_with_node_moves(
     layout_window.scroll_manager.remap_node_ids(dom_id, &node_id_map);
     
     // 3. Update CursorManager (text cursor position)
-    layout_window.cursor_manager.remap_node_ids(dom_id, &node_id_map);
+    layout_window.text_edit_manager.cursor_manager.remap_node_ids(dom_id, &node_id_map);
     
     // 4. Update SelectionManager
-    layout_window.selection_manager.remap_node_ids(dom_id, &node_id_map);
+    layout_window.text_edit_manager.selection_manager.remap_node_ids(dom_id, &node_id_map);
 
     // 5. Update HoverManager (BUG-1 fix: hover histories contain NodeIds that must be remapped)
     layout_window.hover_manager.remap_node_ids(dom_id, &node_id_map);
