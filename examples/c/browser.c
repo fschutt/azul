@@ -614,7 +614,7 @@ void browser_data_destructor(void* restrict ptr, BrowserData* restrict data) {
 // ============================================================================
 
 int main(int argc, char** argv) {
-    const char* url = "https://example.com";
+    const char* url = "https://news.ycombinator.com";
     
     if (argc > 1) {
         url = argv[1];
@@ -623,7 +623,7 @@ int main(int argc, char** argv) {
     printf("=== Azul Simple Browser ===\n");
     printf("URL/File: %s\n\n", url);
     printf("Usage: ./browser <url or file.xht>\n");
-    printf("  URL:  ./browser https://example.com\n");
+    printf("  URL:  ./browser https://news.ycombinator.com\n");
     printf("  File: ./browser test.xht\n\n");
     printf("Note: This is a static browser demo without JavaScript support.\n");
     printf("It demonstrates fetching HTML, parsing it, downloading resources,\n");
