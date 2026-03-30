@@ -222,11 +222,23 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
+            let loc = unsafe { event.locationInWindow() };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+            );
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[mouseDown] result={:?}, focused={:?}",
+                        result,
+                        macos_window.common.layout_window.as_ref()
+                            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+                    );
                     if matches!(result, EventProcessResult::RegenerateDisplayList) {
                         macos_window.common.frame_needs_regeneration = true;
                     }
@@ -240,6 +252,11 @@ define_class!(
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
+            let loc = unsafe { event.locationInWindow() };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+            );
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -312,7 +329,11 @@ define_class!(
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for scroll handling
+            let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[scrollWheel] dx={:.2}, dy={:.2}", dx, dy
+            );
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -330,17 +351,25 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // CRITICAL: Call interpretKeyEvents to trigger NSTextInputClient insertText:
-            unsafe {
-                let events = objc2_foundation::NSArray::from_slice(&[event]);
-                self.interpretKeyEvents(&events);
-            }
-            // Forward to MacOSWindow for non-text keys
+            let key_code = unsafe { event.keyCode() };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[keyDown] keyCode={}", key_code
+            );
+            // NOTE: We do NOT call interpretKeyEvents here because objc2's
+            // NSTextInputClient protocol conformance doesn't work — macOS
+            // never calls insertText:replacementRange: and instead beeps.
+            // Text input is handled directly in handle_key_down().
+            // TODO: Fix NSTextInputClient protocol conformance for IME support.
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_down(event);
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[keyDown] result={:?}", result
+                    );
                     if matches!(result, EventProcessResult::RegenerateDisplayList) {
                         macos_window.common.frame_needs_regeneration = true;
                     }
@@ -637,13 +666,25 @@ define_class!(
 
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                // Clear preedit - text is being confirmed
                 if let Some(ref mut lw) = macos_window.common.layout_window {
                     lw.cursor_manager.clear_preedit();
                 }
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[insertText] text='{}', calling handle_text_input", text
+                    );
                     macos_window.handle_text_input(&text);
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[insertText] handle_text_input returned"
+                    );
+                } else {
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[insertText] could not downcast to NSString"
+                    );
                 }
             }
         }
@@ -808,11 +849,23 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
+            let loc = unsafe { event.locationInWindow() };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+            );
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[mouseDown] result={:?}, focused={:?}",
+                        result,
+                        macos_window.common.layout_window.as_ref()
+                            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+                    );
                     if matches!(result, EventProcessResult::RegenerateDisplayList) {
                         macos_window.common.frame_needs_regeneration = true;
                     }
@@ -826,6 +879,11 @@ define_class!(
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
+            let loc = unsafe { event.locationInWindow() };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+            );
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -898,7 +956,11 @@ define_class!(
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for scroll handling
+            let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[scrollWheel] dx={:.2}, dy={:.2}", dx, dy
+            );
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -916,17 +978,25 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // CRITICAL: Call interpretKeyEvents to trigger NSTextInputClient insertText:
-            unsafe {
-                let events = objc2_foundation::NSArray::from_slice(&[event]);
-                self.interpretKeyEvents(&events);
-            }
-            // Forward to MacOSWindow for non-text keys
+            let key_code = unsafe { event.keyCode() };
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[keyDown] keyCode={}", key_code
+            );
+            // NOTE: We do NOT call interpretKeyEvents here because objc2's
+            // NSTextInputClient protocol conformance doesn't work — macOS
+            // never calls insertText:replacementRange: and instead beeps.
+            // Text input is handled directly in handle_key_down().
+            // TODO: Fix NSTextInputClient protocol conformance for IME support.
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_down(event);
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[keyDown] result={:?}", result
+                    );
                     if matches!(result, EventProcessResult::RegenerateDisplayList) {
                         macos_window.common.frame_needs_regeneration = true;
                     }

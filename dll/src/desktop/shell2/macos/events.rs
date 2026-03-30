@@ -60,9 +60,11 @@ impl CallbackExt for azul_layout::callbacks::Callback {
 pub enum EventProcessResult {
     /// No action needed
     DoNothing,
-    /// Request redraw (present() will be called)
+    /// Request redraw with existing display list (scroll offset change, etc.)
     RequestRedraw,
-    /// Layout changed, need full rebuild
+    /// Regenerate display list from existing layout tree (text edit, no DOM rebuild)
+    UpdateDisplayList,
+    /// Full DOM rebuild needed (layout callback will be re-invoked)
     RegenerateDisplayList,
     /// Window should close
     CloseWindow,
@@ -76,9 +78,9 @@ impl MacOSWindow {
         match result {
             PER::DoNothing => EventProcessResult::DoNothing,
             PER::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            PER::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RegenerateDisplayList,
+            PER::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::UpdateDisplayList,
             PER::UpdateHitTesterAndProcessAgain => EventProcessResult::RegenerateDisplayList,
-            PER::ShouldIncrementalRelayout => EventProcessResult::RegenerateDisplayList,
+            PER::ShouldIncrementalRelayout => EventProcessResult::UpdateDisplayList,
             PER::ShouldRegenerateDomCurrentWindow => EventProcessResult::RegenerateDisplayList,
             PER::ShouldRegenerateDomAllWindows => EventProcessResult::RegenerateDisplayList,
         }
@@ -414,31 +416,50 @@ impl MacOSWindow {
             })
         };
 
+        let focused = self.common.layout_window.as_ref()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[handle_key_down] keyCode={}, char={:?}, cmd={}, ctrl={}, focused={:?}",
+            key_code,
+            character,
+            modifiers.contains(objc2_app_kit::NSEventModifierFlags::Command),
+            modifiers.contains(objc2_app_kit::NSEventModifierFlags::Control),
+            focused
+        );
+
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);
 
-        // Handle text input for printable characters
-        // On macOS, interpretKeyEvents SHOULD trigger insertText: via NSTextInputClient,
-        // but there seems to be an issue with protocol conformance in objc2.
-        // So we handle printable characters directly here.
-        // Control characters and modified keys (Cmd+X, Ctrl+C, etc.) are NOT inserted as text.
+        // Handle text input for printable characters directly.
+        // Note: interpretKeyEvents → insertText: does NOT work reliably with objc2's
+        // protocol conformance. The insertText:replacementRange: method may not be called
+        // by the ObjC runtime. So we insert text directly here for printable characters.
+        // Control characters and modified keys (Cmd+X, Ctrl+C) are NOT inserted as text.
         if let Some(ch) = character {
             let is_control_char = ch.is_control();
             let has_cmd = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Command);
             let has_ctrl = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Control);
-            
-            // Only insert text for normal printable characters without Cmd/Ctrl
+
             if !is_control_char && !has_cmd && !has_ctrl {
                 let text_input = ch.to_string();
+                crate::log_debug!(
+                    crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                    "[handle_key_down] inserting text '{}' directly", text_input
+                );
                 self.handle_text_input(&text_input);
             }
         }
 
-        // V2 system will detect VirtualKeyDown and TextInput from state diff
+        // V2 system will detect VirtualKeyDown from state diff
         let result = self.process_window_events(0);
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[handle_key_down] process_window_events result={:?}", result
+        );
         Self::convert_process_result(result)
     }
 
@@ -467,7 +488,17 @@ impl MacOSWindow {
     /// the IME composition system for non-ASCII characters (accents, CJK, etc.)
     pub fn handle_text_input(&mut self, text: &str) {
         use azul_core::events::ProcessEventResult;
-        
+
+        let focused = self.common.layout_window.as_ref()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+        let has_cursor = self.common.layout_window.as_ref()
+            .map(|lw| lw.cursor_manager.cursor_location.is_some())
+            .unwrap_or(false);
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[handle_text_input] text='{}', focused={:?}, has_cursor={}", text, focused, has_cursor
+        );
+
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
@@ -475,8 +506,17 @@ impl MacOSWindow {
         let affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
             layout_window.record_text_input(text)
         } else {
-            return; // No layout window, nothing to do
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[handle_text_input] no layout window!"
+            );
+            return;
         };
+
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[handle_text_input] record_text_input returned {} affected nodes", affected_nodes.len()
+        );
 
         if affected_nodes.is_empty() {
             return;
