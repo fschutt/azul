@@ -2910,6 +2910,8 @@ unsafe extern "system" fn window_proc(
                 if let Some(ref mut lw) = window.common.layout_window {
                     lw.cursor_manager.clear_preedit();
                 }
+                // Redraw to clear preedit underline
+                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
 
                 // Let default processing handle it which will generate WM_IME_CHAR messages
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
@@ -2983,6 +2985,8 @@ unsafe extern "system" fn window_proc(
             if let Some(ref mut lw) = window.common.layout_window {
                 lw.cursor_manager.clear_preedit();
             }
+            // Redraw to clear preedit underline
+            (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
 

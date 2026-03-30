@@ -316,9 +316,9 @@ pub(super) extern "C" fn registry_global_handler(
             let manager = unsafe {
                 bind_fn(
                     registry as *mut wl_proxy,
-                    0, // wl_registry.bind opcode
-                    manager_interface,
                     name,
+                    manager_interface,
+                    version.min(1),
                 ) as *mut zwp_text_input_manager_v3
             };
 
@@ -963,8 +963,6 @@ pub(super) extern "C" fn text_input_done_handler(
             lw.cursor_manager.clear_preedit();
         }
     }
-    // Preedit changes need a redraw even without process_window_events
-    if preedit_text.is_some() {
-        window.request_redraw();
-    }
+    // Preedit changes (set or clear) need a redraw
+    window.request_redraw();
 }

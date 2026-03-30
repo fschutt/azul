@@ -194,10 +194,10 @@ impl A11yManager {
                             // If cursor is in this node, expose position info
                             if let Some(ref ci) = cursor_info {
                                 if ci.dom_id == *dom_id && ci.node_id == NodeId::new(dom_idx) {
-                                    // Set character_lengths so accesskit knows text structure
-                                    // Each char is 1 unit for simplicity
+                                    // Set character_lengths in UTF-16 code units (accesskit spec).
+                                    // BMP chars = 1 code unit, supplementary plane = 2.
                                     let char_lengths: Vec<u8> = text_content.chars()
-                                        .map(|c| c.len_utf8() as u8)
+                                        .map(|c| c.len_utf16() as u8)
                                         .collect();
                                     node.set_character_lengths(char_lengths);
                                 }

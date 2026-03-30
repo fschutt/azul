@@ -27,7 +27,8 @@ static AzString az(const char* s) {
 // Helper: build AzStringVec from C string array
 static AzStringVec make_choices(const char** items, size_t count) {
     AzString buf[16];
-    for (size_t i = 0; i < count && i < 16; i++) {
+    if (count > 16) count = 16;
+    for (size_t i = 0; i < count; i++) {
         buf[i] = az(items[i]);
     }
     return AzStringVec_copyFromPtr(buf, count);

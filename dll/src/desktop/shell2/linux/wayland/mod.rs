@@ -3773,8 +3773,7 @@ impl WaylandWindow {
             .unwrap_or(false);
 
         if has_contenteditable_focus && !self.text_input_enabled {
-            self.text_input_v3_enable();
-            self.send_surrounding_text();
+            self.text_input_v3_enable(); // enable() calls send_surrounding_text() before commit
         } else if !has_contenteditable_focus && self.text_input_enabled {
             self.text_input_v3_disable();
         }
@@ -3793,10 +3792,10 @@ impl WaylandWindow {
                 let cursor_offset = lw.cursor_manager.cursor.as_ref()
                     .map(|c| c.cluster_id.start_byte_in_run as i32)
                     .unwrap_or(0);
-                // Get text from the focused node's value
-                // For now, send empty string with cursor at 0 if we can't extract text
-                // The IME still works without surrounding text, just less intelligently
-                (std::ffi::CString::new("").unwrap(), cursor_offset, cursor_offset)
+                // Send empty string with cursor at 0 — the IME works without
+                // surrounding text context, just less intelligently. The cursor
+                // offset must be 0 for an empty string per the protocol spec.
+                (std::ffi::CString::new("").unwrap(), 0, 0)
             }
             None => return,
         };
@@ -3847,14 +3846,17 @@ impl WaylandWindow {
                         | defines::ZWP_TEXT_INPUT_V3_CONTENT_HINT_SPELLCHECK,
                     defines::ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL,
                 );
-                // commit (opcode 7)
+            }
+            self.text_input_enabled = true;
+            // Send surrounding text BEFORE commit so IME gets context
+            self.send_surrounding_text();
+            unsafe {
                 marshal(
                     text_input as *mut defines::wl_proxy,
                     defines::ZWP_TEXT_INPUT_V3_COMMIT,
                 );
                 (self.wayland.wl_display_flush)(self.display);
             }
-            self.text_input_enabled = true;
             log_debug!(
                 LogCategory::Platform,
                 "[Wayland] text_input_v3: enabled for contenteditable focus"

@@ -609,6 +609,7 @@ define_class!(
                     if let Some(ref mut lw) = macos_window.common.layout_window {
                         lw.cursor_manager.clear_preedit();
                     }
+                    macos_window.request_redraw();
                 }
             }
         }
@@ -1195,6 +1196,7 @@ define_class!(
                     if let Some(ref mut lw) = macos_window.common.layout_window {
                         lw.cursor_manager.clear_preedit();
                     }
+                    macos_window.request_redraw();
                 }
             }
         }
