@@ -53,34 +53,41 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
 
     AzDom body = AzDom_createBody();
 
-    // Title
-    AzDom title = AzDom_createText(az("Dropdown Widget Demo"));
+    // Title — wrapped in <p> for block formatting
+    AzDom title = AzDom_createP();
     AzDom_addCssProperty(&title, AzCssPropertyWithConditions_simple(
         AzCssProperty_fontSize(AzStyleFontSize_px(20.0))));
+    AzDom_addChild(&title, AzDom_createText(az("Dropdown Widget Demo")));
     AzDom_addChild(&body, title);
 
-    // Fruit dropdown
-    AzDom_addChild(&body, AzDom_createText(az("Fruit:")));
+    // Fruit label — wrapped in <p>
+    AzDom fruit_label = AzDom_createP();
+    AzDom_addChild(&fruit_label, AzDom_createText(az("Fruit:")));
+    AzDom_addChild(&body, fruit_label);
 
     AzDropDown fruit_dd = AzDropDown_create(make_choices(FRUITS, NUM_FRUITS));
     fruit_dd.selected = sel_fruit;
     AzDropDown_setOnChoiceChange(&fruit_dd, AzRefAny_clone(&data_ref), on_fruit_change);
     AzDom_addChild(&body, AzDropDown_dom(fruit_dd));
 
-    // Color dropdown
-    AzDom_addChild(&body, AzDom_createText(az("Color:")));
+    // Color label — wrapped in <p>
+    AzDom color_label = AzDom_createP();
+    AzDom_addChild(&color_label, AzDom_createText(az("Color:")));
+    AzDom_addChild(&body, color_label);
 
     AzDropDown color_dd = AzDropDown_create(make_choices(COLORS, NUM_COLORS));
     color_dd.selected = sel_color;
     AzDropDown_setOnChoiceChange(&color_dd, AzRefAny_clone(&data_ref), on_color_change);
     AzDom_addChild(&body, AzDropDown_dom(color_dd));
 
-    // Status
+    // Status — wrapped in <p>
     char status[128];
     int len = snprintf(status, sizeof(status), "Selected: %s, %s",
         FRUITS[sel_fruit], COLORS[sel_color]);
-    AzDom_addChild(&body, AzDom_createText(
+    AzDom status_p = AzDom_createP();
+    AzDom_addChild(&status_p, AzDom_createText(
         AzString_copyFromBytes((const uint8_t*)status, 0, len)));
+    AzDom_addChild(&body, status_p);
 
     return body;
 }

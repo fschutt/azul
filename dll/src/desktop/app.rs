@@ -40,6 +40,9 @@ impl Default for App {
 
 impl App {
     pub fn create(initial_data: RefAny, mut app_config: AppConfig) -> Self {
+        // Initialize AZ_RECORD file logging before anything else
+        debug_server::init_recording();
+
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config.icon_provider.set_resolver(azul_layout::icon::default_icon_resolver);
         

@@ -371,6 +371,7 @@ fn make_agent(timeout_secs: u64) -> ureq::Agent {
     ureq::Agent::config_builder()
         .tls_config(tls_config)
         .timeout_global(Some(Duration::from_secs(timeout_secs)))
+        .http_status_as_error(false)
         .build()
         .new_agent()
 }
@@ -394,9 +395,38 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
         request = request.header(header.name.as_str(), header.value.as_str());
     }
 
-    // Execute request
+    // Execute request — map transport errors to specific HttpError variants
     let response = request.call().map_err(|e| {
-        HttpError::other(e.to_string().into())
+        match &e {
+            ureq::Error::Timeout(_) => HttpError::Timeout,
+            ureq::Error::HostNotFound => HttpError::connection_failed(
+                format!("DNS resolution failed for {}", url).into(),
+            ),
+            ureq::Error::ConnectionFailed => HttpError::connection_failed(
+                format!("Connection failed: {}", url).into(),
+            ),
+            ureq::Error::Io(io_err) => HttpError::io_error(
+                format!("{}", io_err).into(),
+            ),
+            ureq::Error::BadUri(msg) => HttpError::invalid_url(
+                format!("{}: {}", url, msg).into(),
+            ),
+            ureq::Error::Tls(msg) => HttpError::tls_error(
+                format!("TLS error: {}", msg).into(),
+            ),
+            ureq::Error::StatusCode(code) => HttpError::http_status(
+                *code, format!("HTTP {}", code).into(),
+            ),
+            // Catch-all for feature-gated variants (Rustls, Pem, etc.)
+            _ => {
+                let msg = e.to_string();
+                if msg.starts_with("rustls:") || msg.contains("TLS") || msg.contains("certificate") {
+                    HttpError::tls_error(msg.into())
+                } else {
+                    HttpError::other(msg.into())
+                }
+            }
+        }
     })?;
 
     let status_code = response.status().as_u16();

@@ -46,7 +46,6 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 const BORDER_NORMAL: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 };
 const BORDER_HOVER: ColorU = ColorU { r: 126, g: 180, b: 234, a: 255 };
 const BORDER_FOCUS: ColorU = ColorU { r: 86, g: 157, b: 229, a: 255 };
-const ARROW_COLOR: ColorU = ColorU { r: 96, g: 96, b: 96, a: 255 };
 
 const BG_GRADIENT_TOP: ColorU = ColorU { r: 245, g: 245, b: 245, a: 255 };
 const BG_GRADIENT_BOTTOM: ColorU = ColorU { r: 235, g: 235, b: 235, a: 255 };
@@ -172,32 +171,11 @@ static DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(8))),
 ];
 
-// -- Arrow chevron container --
+// -- Arrow icon style --
 
-static DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(16))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-];
-
-// Arrow chevron: 6x6 box with left+bottom 2px solid borders, rotated 315deg
-static DROPDOWN_ARROW_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(6))),
-    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(6))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: ARROW_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: ARROW_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_transform(StyleTransformVec::from_const_slice(&[
-        StyleTransform::Rotate(AngleValue::const_deg(315)),
-        StyleTransform::Translate(StyleTransformTranslate2D {
-            x: PixelValue::const_px(0),
-            y: PixelValue::const_px(-2),
-        }),
-    ]))),
 ];
 
 // ============================================================================
@@ -277,16 +255,15 @@ impl DropDown {
                 .into(),
             )
             .with_children(DomVec::from_vec(vec![
-                // Selected text label
-                Dom::create_text(selected_text)
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE)),
-                // Arrow chevron
-                Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_STYLE))
+                // Selected text label wrapped in <p> for proper block formatting
+                Dom::create_p()
+                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE))
                     .with_children(DomVec::from_vec(vec![
-                        Dom::create_div()
-                            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_CONTENT_STYLE)),
+                        Dom::create_text(selected_text),
                     ])),
+                // Arrow icon (resolved via Material Icons)
+                Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
+                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_ICON_STYLE)),
             ]));
 
         wrapper

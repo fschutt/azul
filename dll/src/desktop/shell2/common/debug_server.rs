@@ -2258,6 +2258,11 @@ static SERVER_START_TIME: OnceLock<std::time::Instant> = OnceLock::new();
 #[cfg(feature = "std")]
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
+/// File handle for AZ_RECORD file-based logging.
+/// When `AZ_RECORD=<filepath>` is set, all log messages are written to this file.
+#[cfg(feature = "std")]
+static RECORD_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
+
 /// Whether E2E test runner mode is active (independent of debug server).
 #[cfg(feature = "std")]
 static E2E_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -2365,6 +2370,25 @@ pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
 #[cfg(feature = "std")]
 pub fn is_debug_enabled() -> bool {
     DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Initialize file-based recording from `AZ_RECORD` environment variable.
+///
+/// When `AZ_RECORD=<filepath>` is set, all log messages are written to the
+/// specified file in addition to the normal debug server log queue. This also
+/// enables debug logging so all `log_trace!` / `log_debug!` / etc. macros fire.
+///
+/// Called once from `App::create()` before any other logging.
+#[cfg(feature = "std")]
+pub fn init_recording() {
+    if let Ok(path) = std::env::var("AZ_RECORD") {
+        if let Ok(file) = std::fs::File::create(&path) {
+            let _ = RECORD_FILE.set(Mutex::new(file));
+            DEBUG_ENABLED.store(true, Ordering::SeqCst);
+            SERVER_START_TIME.get_or_init(std::time::Instant::now);
+            LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
+        }
+    }
 }
 
 /// Push `RunE2eTests` via the spmc channel and return the response
@@ -2624,11 +2648,22 @@ fn log_internal(
         .map(|t| t.elapsed().as_micros() as u64)
         .unwrap_or(0);
 
+    let message: String = message.into();
+
+    // Write to AZ_RECORD file if active
+    if let Some(file) = RECORD_FILE.get() {
+        if let Ok(mut f) = file.lock() {
+            use std::io::Write;
+            let _ = writeln!(f, "[{:>12}us] [{:?}] [{:?}] {}",
+                timestamp_us, level, category, message);
+        }
+    }
+
     let msg = LogMessage {
         timestamp_us,
         level,
         category,
-        message: message.into(),
+        message,
         location: format!("{}:{}", location.file(), location.line()),
         window_id: window_id.map(String::from),
     };
