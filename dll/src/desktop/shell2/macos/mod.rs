@@ -239,11 +239,19 @@ define_class!(
                         macos_window.common.layout_window.as_ref()
                             .and_then(|lw| lw.focus_manager.get_focused_node().copied())
                     );
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -262,11 +270,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -280,11 +296,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_move(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -298,11 +322,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -316,11 +348,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -339,11 +379,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_scroll_wheel(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -370,11 +418,19 @@ define_class!(
                         crate::desktop::shell2::common::debug_server::LogCategory::Input,
                         "[keyDown] result={:?}", result
                     );
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -388,11 +444,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_up(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -406,11 +470,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_flags_changed(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -866,11 +938,19 @@ define_class!(
                         macos_window.common.layout_window.as_ref()
                             .and_then(|lw| lw.focus_manager.get_focused_node().copied())
                     );
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -889,11 +969,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -907,11 +995,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_move(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -925,11 +1021,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -943,11 +1047,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                     macos_window.sync_window_state();
                 }
@@ -966,11 +1078,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_scroll_wheel(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -997,11 +1117,19 @@ define_class!(
                         crate::desktop::shell2::common::debug_server::LogCategory::Input,
                         "[keyDown] result={:?}", result
                     );
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -1015,11 +1143,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_up(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -1033,11 +1169,19 @@ define_class!(
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_flags_changed(event);
-                    if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                        macos_window.common.frame_needs_regeneration = true;
-                    }
-                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.request_redraw();
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {}
                     }
                 }
             }

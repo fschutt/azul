@@ -569,13 +569,24 @@ impl MacOSWindow {
             }
         }
 
-        // Convert result to actual frame/redraw action
+        // Apply the result: text edits go through the incremental path
+        // (display_list_dirty), NOT the full DOM rebuild path (frame_needs_regeneration).
+        // The display list was already regenerated inside apply_text_changeset() →
+        // update_text_cache_after_edit() → regenerate_display_list_for_dom().
         let event_result = Self::convert_process_result(overall_result);
-        if matches!(event_result, EventProcessResult::RegenerateDisplayList) {
-            self.common.frame_needs_regeneration = true;
-        }
-        if matches!(event_result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-            self.request_redraw();
+        match event_result {
+            EventProcessResult::RegenerateDisplayList => {
+                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+            EventProcessResult::UpdateDisplayList => {
+                self.common.display_list_dirty = true;
+                self.request_redraw();
+            }
+            EventProcessResult::RequestRedraw => {
+                self.request_redraw();
+            }
+            _ => {}
         }
     }
 
