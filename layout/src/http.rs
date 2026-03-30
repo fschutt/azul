@@ -164,6 +164,11 @@ pub struct HttpRequestConfig {
     pub user_agent: AzString,
     /// Additional headers
     pub headers: HttpHeaderVec,
+    /// Disable TLS certificate verification (default: false).
+    /// WARNING: This makes HTTPS connections vulnerable to MITM attacks.
+    /// Use only for testing or when connecting to servers with self-signed
+    /// or cross-signed certificates not in the Mozilla root store.
+    pub disable_tls_cert_verification: bool,
 }
 
 impl Default for HttpRequestConfig {
@@ -173,6 +178,7 @@ impl Default for HttpRequestConfig {
             max_response_size: 100 * 1024 * 1024, // 100 MB
             user_agent: AzString::from("azul-http/1.0".to_string()),
             headers: HttpHeaderVec::from_const_slice(&[]),
+            disable_tls_cert_verification: false,
         }
     }
 }
@@ -208,15 +214,16 @@ impl HttpRequestConfig {
     }
 
     /// Simple HTTP GET request with default configuration
-    /// 
+    ///
     /// # Arguments
     /// * `url` - The URL to request
-    /// 
+    ///
     /// # Returns
     /// * `ResultHttpResponseHttpError` - The response or an error
     #[cfg(feature = "http")]
     pub fn http_get_default(url: AzString) -> ResultHttpResponseHttpError {
-        http_get(url.as_str()).into()
+        let config = HttpRequestConfig::default();
+        http_get_with_config(url.as_str(), &config).into()
     }
 
     /// HTTP GET request using this configuration
@@ -337,15 +344,23 @@ impl_result!(
 );
 
 /// Simple HTTP GET request
-/// 
+///
 /// # Arguments
 /// * `url` - The URL to request
-/// 
+///
 /// # Returns
 /// * `HttpResult<HttpResponse>` - The response or an error
 #[cfg(feature = "http")]
 pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
     http_get_with_config(url, &HttpRequestConfig::default())
+}
+
+/// HTTP GET request with TLS verification disabled
+#[cfg(feature = "http")]
+pub fn http_get_no_verify(url: &str) -> HttpResult<HttpResponse> {
+    let mut config = HttpRequestConfig::default();
+    config.disable_tls_cert_verification = true;
+    http_get_with_config(url, &config)
 }
 
 /// HTTP GET request with custom configuration
@@ -357,16 +372,22 @@ pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
 /// # Returns
 /// * `HttpResult<HttpResponse>` - The response or an error
 #[cfg(feature = "http")]
-fn make_agent(timeout_secs: u64) -> ureq::Agent {
+fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::Agent {
     use std::time::Duration;
 
-    let tls_config = ureq::tls::TlsConfig::builder()
+    let mut tls_builder = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .unversioned_rustls_crypto_provider(
             std::sync::Arc::new(rustls_rustcrypto::provider())
-        )
-        .root_certs(ureq::tls::RootCerts::WebPki)
-        .build();
+        );
+
+    if disable_tls_cert_verification {
+        tls_builder = tls_builder.disable_verification(true);
+    } else {
+        tls_builder = tls_builder.root_certs(ureq::tls::RootCerts::WebPki);
+    }
+
+    let tls_config = tls_builder.build();
 
     ureq::Agent::config_builder()
         .tls_config(tls_config)
@@ -380,7 +401,7 @@ fn make_agent(timeout_secs: u64) -> ureq::Agent {
 pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
     use std::io::Read;
 
-    let agent = make_agent(config.timeout_secs);
+    let agent = make_agent(config.timeout_secs, config.disable_tls_cert_verification);
 
     // Build the request
     let mut request = agent.get(url);
@@ -521,7 +542,7 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
 /// * `bool` - True if reachable (2xx status)
 #[cfg(feature = "http")]
 pub fn is_url_reachable(url: &str) -> bool {
-    let agent = make_agent(10);
+    let agent = make_agent(10, false);
     match agent.head(url).call() {
         Ok(resp) => {
             let code = resp.status().as_u16();

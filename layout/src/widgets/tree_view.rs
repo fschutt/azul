@@ -21,6 +21,8 @@ use azul_css::{
     *,
 };
 
+use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut};
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 // -- Callback type via macro --
@@ -127,9 +129,10 @@ static LABEL_STYLE: &[CssPropertyWithConditions] = &[
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct TreeViewNode {
     pub label: AzString,
-    pub children: Vec<TreeViewNode>,
+    pub children: TreeViewNodeVec,
     pub is_expanded: bool,
     pub is_selected: bool,
 }
@@ -138,7 +141,7 @@ impl TreeViewNode {
     pub fn new<S: Into<AzString>>(label: S) -> Self {
         Self {
             label: label.into(),
-            children: Vec::new(),
+            children: TreeViewNodeVec::from_const_slice(&[]),
             is_expanded: false,
             is_selected: false,
         }
@@ -164,7 +167,15 @@ impl TreeViewNode {
     }
 }
 
+impl_option!(TreeViewNode, OptionTreeViewNode, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(TreeViewNode, TreeViewNodeVec, TreeViewNodeVecDestructor, TreeViewNodeVecDestructorType, TreeViewNodeVecSlice, OptionTreeViewNode);
+impl_vec_clone!(TreeViewNode, TreeViewNodeVec, TreeViewNodeVecDestructor);
+impl_vec_debug!(TreeViewNode, TreeViewNodeVec);
+impl_vec_partialeq!(TreeViewNode, TreeViewNodeVec);
+impl_vec_mut!(TreeViewNode, TreeViewNodeVec);
+
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct TreeView {
     pub root: TreeViewNode,
     pub on_node_click: OptionTreeViewOnNodeClick,
@@ -230,7 +241,7 @@ fn render_node(
     let current_index = *index;
     *index += 1;
 
-    let has_children = !node.children.is_empty();
+    let has_children = !node.children.as_slice().is_empty();
 
     // Choose row style based on selection state
     let row_style = if node.is_selected {
@@ -292,7 +303,7 @@ fn render_node(
     // Render children if expanded
     if has_children && node.is_expanded {
         let mut child_doms = Vec::new();
-        for child in &node.children {
+        for child in node.children.as_slice() {
             render_node(child, on_click, index, &mut child_doms);
         }
 
@@ -303,7 +314,7 @@ fn render_node(
         out.push(children_container);
     } else if has_children {
         // Still count collapsed children for correct depth-first indexing
-        count_descendants(&node.children, index);
+        count_descendants(node.children.as_slice(), index);
     }
 }
 
@@ -311,8 +322,8 @@ fn render_node(
 fn count_descendants(nodes: &[TreeViewNode], index: &mut usize) {
     for node in nodes {
         *index += 1;
-        if !node.children.is_empty() {
-            count_descendants(&node.children, index);
+        if !node.children.as_slice().is_empty() {
+            count_descendants(node.children.as_slice(), index);
         }
     }
 }

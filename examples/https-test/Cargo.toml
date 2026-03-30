@@ -1,0 +1,11 @@
+[package]
+name = "https-test"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[dependencies]
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
+rustls-rustcrypto = { version = "0.0.2-alpha" }
+webpki-roots = { version = "1.0" }

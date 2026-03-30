@@ -14,6 +14,8 @@ use azul_css::{
     *,
 };
 
+use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut};
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 // -- Callback --
@@ -114,27 +116,42 @@ static SECTION_TITLE_STYLE: &[Cond] = &[
 ];
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct Ribbon {
-    pub tabs: Vec<RibbonTab>,
+    pub tabs: RibbonTabVec,
     pub active_tab: usize,
     pub on_tab_click: OptionRibbonOnTabClick,
 }
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct RibbonTab {
     pub label: AzString,
-    pub sections: Vec<RibbonSection>,
+    pub sections: RibbonSectionVec,
 }
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct RibbonSection {
     pub title: AzString,
     pub content: Dom,
 }
 
+impl_option!(RibbonSection, OptionRibbonSection, copy = false, [Debug, Clone]);
+impl_vec!(RibbonSection, RibbonSectionVec, RibbonSectionVecDestructor, RibbonSectionVecDestructorType, RibbonSectionVecSlice, OptionRibbonSection);
+impl_vec_clone!(RibbonSection, RibbonSectionVec, RibbonSectionVecDestructor);
+impl_vec_debug!(RibbonSection, RibbonSectionVec);
+impl_vec_mut!(RibbonSection, RibbonSectionVec);
+
+impl_option!(RibbonTab, OptionRibbonTab, copy = false, [Debug, Clone]);
+impl_vec!(RibbonTab, RibbonTabVec, RibbonTabVecDestructor, RibbonTabVecDestructorType, RibbonTabVecSlice, OptionRibbonTab);
+impl_vec_clone!(RibbonTab, RibbonTabVec, RibbonTabVecDestructor);
+impl_vec_debug!(RibbonTab, RibbonTabVec);
+impl_vec_mut!(RibbonTab, RibbonTabVec);
+
 impl RibbonTab {
     pub fn new(label: AzString) -> Self {
-        Self { label, sections: Vec::new() }
+        Self { label, sections: RibbonSectionVec::from_const_slice(&[]) }
     }
 
     pub fn add_section(&mut self, section: RibbonSection) {
@@ -154,7 +171,7 @@ impl RibbonSection {
 }
 
 impl Ribbon {
-    pub fn new(tabs: Vec<RibbonTab>) -> Self {
+    pub fn new(tabs: RibbonTabVec) -> Self {
         Self { tabs, active_tab: 0, on_tab_click: None.into() }
     }
 
@@ -177,7 +194,7 @@ impl Ribbon {
         let active_tab = self.active_tab;
         let has_callback = self.on_tab_click.is_some();
 
-        let tab_items: Vec<Dom> = self.tabs.iter().enumerate().map(|(idx, tab)| {
+        let tab_items: Vec<Dom> = self.tabs.as_slice().iter().enumerate().map(|(idx, tab)| {
             let style = if idx == active_tab { TAB_ACTIVE_STYLE } else { TAB_INACTIVE_STYLE };
             let mut d = Dom::create_text(tab.label.clone())
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(style));
@@ -200,8 +217,8 @@ impl Ribbon {
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TAB_BAR_STYLE))
             .with_children(DomVec::from_vec(tab_items));
 
-        let sections_dom = if let Some(active) = self.tabs.into_iter().nth(active_tab) {
-            let items: Vec<Dom> = active.sections.into_iter().map(|s| {
+        let sections_dom = if let Some(active) = self.tabs.into_library_owned_vec().into_iter().nth(active_tab) {
+            let items: Vec<Dom> = active.sections.into_library_owned_vec().into_iter().map(|s| {
                 let content = Dom::create_div()
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SECTION_CONTENT_STYLE))
                     .with_children(DomVec::from_vec(vec![s.content]));

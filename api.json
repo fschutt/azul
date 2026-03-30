@@ -2821,6 +2821,9 @@
                                 },
                                 "headers": {
                                     "type": "HttpHeaderVec"
+                                },
+                                "disable_tls_cert_verification": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -8106,6 +8109,44 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "RibbonOnTabClickCallbackType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonOnTabClickCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "TreeViewOnNodeClickCallbackType": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewOnNodeClickCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -14842,6 +14883,70 @@
                                 "Auto": {},
                                 "Instant": {},
                                 "Smooth": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonOnTabClickCallback": {
+                        "external": "azul_layout::widgets::ribbon::RibbonOnTabClickCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "RibbonOnTabClickCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TreeViewOnNodeClickCallback": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewOnNodeClickCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "TreeViewOnNodeClickCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -27187,8 +27292,7 @@
                                 }
                             }
                         ],
-                        "constructors": {
-                        },
+                        "constructors": {},
                         "functions": {
                             "append_child": {
                                 "doc": [
@@ -34934,6 +35038,9 @@
                     },
                     "DropDown": {
                         "external": "azul_layout::widgets::drop_down::DropDown",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "PartialEq",
@@ -36789,6 +36896,405 @@
                                     "doc": [
                                         "Buttons are on the right (Windows, most Linux DEs)"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonSection": {
+                        "external": "azul_layout::widgets::ribbon::RibbonSection",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "title": {
+                                    "type": "String"
+                                },
+                                "content": {
+                                    "type": "Dom"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonSection::new(title, content)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonTab": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTab",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "sections": {
+                                    "type": "RibbonSectionVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonTab::new(label)"
+                            }
+                        },
+                        "functions": {
+                            "add_section": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "section": "RibbonSection"
+                                    }
+                                ],
+                                "fn_body": "object.add_section(section)"
+                            },
+                            "with_section": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "section": "RibbonSection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTab"
+                                },
+                                "fn_body": "object.with_section(section)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "Ribbon": {
+                        "external": "azul_layout::widgets::ribbon::Ribbon",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "tabs": {
+                                    "type": "RibbonTabVec"
+                                },
+                                "active_tab": {
+                                    "type": "usize"
+                                },
+                                "on_tab_click": {
+                                    "type": "OptionRibbonOnTabClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "tabs": "RibbonTabVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::Ribbon::new(tabs)"
+                            }
+                        },
+                        "functions": {
+                            "set_active_tab": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_active_tab(index)"
+                            },
+                            "set_on_tab_click": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "cb": "RibbonOnTabClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_tab_click(data, cb)"
+                            },
+                            "with_on_tab_click": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "cb": "RibbonOnTabClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_on_tab_click(data, cb)"
+                            },
+                            "dom": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonOnTabClick": {
+                        "external": "azul_layout::widgets::ribbon::RibbonOnTabClick",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "RibbonOnTabClickCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TreeView": {
+                        "external": "azul_layout::widgets::tree_view::TreeView",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "root": {
+                                    "type": "TreeViewNode"
+                                },
+                                "on_node_click": {
+                                    "type": "OptionTreeViewOnNodeClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "root": "TreeViewNode"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tree_view::TreeView::new(root)"
+                            }
+                        },
+                        "functions": {
+                            "set_on_node_click": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TreeViewOnNodeClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_node_click(data, callback)"
+                            },
+                            "with_on_node_click": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TreeViewOnNodeClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeView"
+                                },
+                                "fn_body": "object.with_on_node_click(data, callback)"
+                            },
+                            "dom": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TreeViewNode": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewNode",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "children": {
+                                    "type": "TreeViewNodeVec"
+                                },
+                                "is_expanded": {
+                                    "type": "bool"
+                                },
+                                "is_selected": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tree_view::TreeViewNode::new(label)"
+                            }
+                        },
+                        "functions": {
+                            "add_child": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "child": "TreeViewNode"
+                                    }
+                                ],
+                                "fn_body": "object.add_child(child)"
+                            },
+                            "with_child": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "child": "TreeViewNode"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNode"
+                                },
+                                "fn_body": "object.with_child(child)"
+                            },
+                            "with_expanded": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "expanded": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNode"
+                                },
+                                "fn_body": "object.with_expanded(expanded)"
+                            },
+                            "with_selected": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "selected": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNode"
+                                },
+                                "fn_body": "object.with_selected(selected)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TreeViewOnNodeClick": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewOnNodeClick",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "TreeViewOnNodeClickCallback"
                                 }
                             }
                         ],
@@ -71920,6 +72426,553 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "RibbonSectionVec": {
+                        "external": "azul_layout::widgets::ribbon::RibbonSectionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonSection",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonSectionVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonSectionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonSectionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonSectionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonSectionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_section_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_section_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_section_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonSectionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonSection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonSectionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonSectionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonSection"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonSectionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonTabVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTabVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonTabVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonSectionVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RibbonSectionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "RibbonTabVec": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTabVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonTab",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonTabVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonTabVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonTabVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonTabVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTabVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_tab_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_tab_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_tab_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonTabVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonTab"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTabVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonTabVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonTab"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTabVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonTabVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTabVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RibbonTabVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "RibbonSectionVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonSectionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TreeViewNodeVec": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewNodeVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TreeViewNode",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TreeViewNodeVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TreeViewNodeVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TreeViewNodeVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TreeViewNodeVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNodeVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tree_view_node_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tree_view_node_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "tree_view_node_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TreeViewNodeVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TreeViewNode"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNodeVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TreeViewNodeVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TreeViewNode"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNodeVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TreeViewNodeVecDestructorType": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewNodeVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "TreeViewNodeVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "TreeViewNodeVecDestructor": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewNodeVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TreeViewNodeVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonSectionVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonSection",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonTabVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTabVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonTab",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TreeViewNodeVecSlice": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewNodeVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TreeViewNode",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -75681,6 +76734,135 @@
                                     "type": "SvgPathElement",
                                     "doc": [
                                         "Some value of type SvgPathElement"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonOnTabClick": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonOnTabClick",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RibbonOnTabClick"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTreeViewOnNodeClick": {
+                        "external": "azul_layout::widgets::tree_view::OptionTreeViewOnNodeClick",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TreeViewOnNodeClick"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonSection": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonSection",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonSection",
+                                    "doc": [
+                                        "Some value of type RibbonSection"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonTab": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonTab",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonTab",
+                                    "doc": [
+                                        "Some value of type RibbonTab"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTreeViewNode": {
+                        "external": "azul_layout::widgets::tree_view::OptionTreeViewNode",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "TreeViewNode",
+                                    "doc": [
+                                        "Some value of type TreeViewNode"
                                     ]
                                 }
                             }

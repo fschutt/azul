@@ -183,6 +183,7 @@ static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct DropDown {
     pub choices: StringVec,
     pub selected: usize,
