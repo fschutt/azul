@@ -93,7 +93,7 @@ impl_widget_callback!(
     ButtonOnClickCallbackType
 );
 
-const SANS_SERIF_STR: &str = "sans-serif";
+const SANS_SERIF_STR: &str = "system:ui";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
 const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =

@@ -16,7 +16,7 @@ use azul_css::{
 
 use crate::callbacks::Callback;
 
-const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
+const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ColorU {
         r: 240,

@@ -4,874 +4,27 @@ use azul_core::{
         Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
         TabIndex,
     },
-    menu::{Menu, MenuItem, MenuItemVec, MenuPopupPosition, StringMenuItem},
+    menu::{Menu, MenuItem, MenuPopupPosition, StringMenuItem},
     refany::RefAny,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
-        basic::*,
+        basic::{
+            color::{ColorU, ColorOrSystem},
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            *,
+        },
         layout::*,
-        property::{CssProperty, *},
+        property::CssProperty,
         style::*,
     },
     *,
 };
-use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
-const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
-const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(
-            LINEAR_COLOR_STOP_8909964754681718371_ITEMS,
-        ),
-    })];
-const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(
-            LINEAR_COLOR_STOP_1400070954008106244_ITEMS,
-        ),
-    })];
-const STYLE_BACKGROUND_CONTENT_16125239329823337131_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(
-            LINEAR_COLOR_STOP_8010235203234495977_ITEMS,
-        ),
-    })];
-const STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 255,
-    })];
-const STYLE_TRANSFORM_9499236770162623295_ITEMS: &[StyleTransform] = &[
-    StyleTransform::Rotate(AngleValue::const_deg(315)),
-    StyleTransform::Translate(StyleTransformTranslate2D {
-        x: PixelValue::const_px(0),
-        y: PixelValue::const_px(-2),
-    }),
-];
-const STYLE_FONT_FAMILY_18001933966972968559_ITEMS: &[StyleFontFamily] =
-    &[StyleFontFamily::System(STRING_16146701490593874959)];
-const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 240,
-            g: 240,
-            b: 240,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 229,
-            g: 229,
-            b: 229,
-            a: 255,
-        }),
-    },
-];
-const LINEAR_COLOR_STOP_8010235203234495977_ITEMS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 218,
-            g: 236,
-            b: 252,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 196,
-            g: 224,
-            b: 252,
-            a: 255,
-        }),
-    },
-];
-const LINEAR_COLOR_STOP_8909964754681718371_ITEMS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 235,
-            g: 244,
-            b: 252,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 220,
-            g: 236,
-            b: 252,
-            a: 255,
-        }),
-    },
-];
-
-const CSS_MATCH_10188117026223137249_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown-wrapper:focus
-    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_16125239329823337131_ITEMS,
-        )),
-    )),
-    // .__azul-native-dropdown-wrapper:active
-    CssPropertyWithConditions::on_active(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 86,
-                g: 157,
-                b: 229,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_16125239329823337131_ITEMS,
-        )),
-    )),
-    // .__azul-native-dropdown-wrapper:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS,
-        )),
-    )),
-    // .__azul-native-dropdown-wrapper
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(2),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(2),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
-        LayoutPaddingBottom {
-            inner: PixelValue::const_px(2),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-        LayoutPaddingTop {
-            inner: PixelValue::const_px(2),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(120),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_18001933966972968559_ITEMS),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Block,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 172,
-                g: 172,
-                b: 172,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 172,
-                g: 172,
-                b: 172,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 172,
-                g: 172,
-                b: 172,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 172,
-                g: 172,
-                b: 172,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
-        )),
-    )),
-];
-const CSS_MATCH_10188117026223137249: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_10188117026223137249_PROPERTIES);
-
-const CSS_MATCH_16432538576103237591_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown-wrapper p
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(8),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Block,
-    ))),
-];
-const CSS_MATCH_16432538576103237591: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_16432538576103237591_PROPERTIES);
-
-const CSS_MATCH_2883986488332352590_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // body
-    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
-        )),
-    )),
-];
-const CSS_MATCH_2883986488332352590: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_2883986488332352590_PROPERTIES);
-
-const CSS_MATCH_4428877324022630014_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
-];
-const CSS_MATCH_4428877324022630014: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4428877324022630014_PROPERTIES);
-
-const CSS_MATCH_4687758758634879229_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown-arrow-wrapper
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
-        LayoutPaddingBottom {
-            inner: PixelValue::const_px(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-        LayoutPaddingTop {
-            inner: PixelValue::const_px(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::JustifyContent(
-        LayoutJustifyContentValue::Exact(LayoutJustifyContent::End),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
-];
-const CSS_MATCH_4687758758634879229: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4687758758634879229_PROPERTIES);
-
-const CSS_MATCH_5369484915686807864_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown-arrow-content
-    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-        LayoutWidth::Px(PixelValue::const_px(6)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
-        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_9499236770162623295_ITEMS),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight::Px(PixelValue::const_px(6)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(2),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 96,
-                g: 96,
-                b: 96,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(2),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 96,
-                g: 96,
-                b: 96,
-                a: 255,
-            },
-        }),
-    )),
-];
-const CSS_MATCH_5369484915686807864: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_5369484915686807864_PROPERTIES);
-
-const CSS_MATCH_6763840958685503000_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown-arrow
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(20),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::JustifyContent(
-        LayoutJustifyContentValue::Exact(LayoutJustifyContent::Center),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Column,
-    ))),
-];
-const CSS_MATCH_6763840958685503000: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6763840958685503000_PROPERTIES);
-
-const CSS_MATCH_7938442083662451131_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-dropdown-focused-text:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Dotted,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Dotted,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Dotted,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Dotted,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        }),
-    )),
-    // .__azul-native-dropdown-focused-text
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(15),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
-        StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
-            inner: PixelValue::const_px(2),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
-        StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
-            inner: PixelValue::const_px(2),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
-        StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
-            inner: PixelValue::const_px(2),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
-        StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
-            inner: PixelValue::const_px(2),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::Center,
-    ))),
-];
-const CSS_MATCH_7938442083662451131: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7938442083662451131_PROPERTIES);
+// -- Callback type via macro --
 
 pub type DropDownOnChoiceChangeCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
@@ -881,7 +34,176 @@ impl_widget_callback!(
     DropDownOnChoiceChangeCallbackType
 );
 
-#[repr(C)]
+// -- Font --
+
+const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
+const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
+
+// -- Colors --
+
+const BORDER_NORMAL: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 };
+const BORDER_HOVER: ColorU = ColorU { r: 126, g: 180, b: 234, a: 255 };
+const BORDER_FOCUS: ColorU = ColorU { r: 86, g: 157, b: 229, a: 255 };
+const ARROW_COLOR: ColorU = ColorU { r: 96, g: 96, b: 96, a: 255 };
+
+const BG_GRADIENT_TOP: ColorU = ColorU { r: 245, g: 245, b: 245, a: 255 };
+const BG_GRADIENT_BOTTOM: ColorU = ColorU { r: 235, g: 235, b: 235, a: 255 };
+const BG_HOVER_TOP: ColorU = ColorU { r: 234, g: 244, b: 252, a: 255 };
+const BG_HOVER_BOTTOM: ColorU = ColorU { r: 218, g: 236, b: 252, a: 255 };
+const BG_ACTIVE_TOP: ColorU = ColorU { r: 218, g: 236, b: 252, a: 255 };
+const BG_ACTIVE_BOTTOM: ColorU = ColorU { r: 202, g: 226, b: 248, a: 255 };
+
+const NORMAL_BG_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(&[
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(0),
+                color: ColorOrSystem::color(BG_GRADIENT_TOP),
+            },
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(100),
+                color: ColorOrSystem::color(BG_GRADIENT_BOTTOM),
+            },
+        ]),
+    })];
+
+const HOVER_BG_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(&[
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(0),
+                color: ColorOrSystem::color(BG_HOVER_TOP),
+            },
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(100),
+                color: ColorOrSystem::color(BG_HOVER_BOTTOM),
+            },
+        ]),
+    })];
+
+const ACTIVE_BG_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(&[
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(0),
+                color: ColorOrSystem::color(BG_ACTIVE_TOP),
+            },
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(100),
+                color: ColorOrSystem::color(BG_ACTIVE_BOTTOM),
+            },
+        ]),
+    })];
+
+// -- Dropdown wrapper styles (the clickable trigger) --
+
+static DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
+    // Layout
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    // Font
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    // Padding
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
+    // Border
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: BORDER_NORMAL })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_NORMAL })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: BORDER_NORMAL })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: BORDER_NORMAL })),
+    // Background
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(NORMAL_BG_ITEMS),
+    )),
+    // Hover
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: BORDER_HOVER })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_HOVER })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: BORDER_HOVER })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(StyleBorderRightColor { inner: BORDER_HOVER })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(HOVER_BG_ITEMS),
+    )),
+    // Active
+    CssPropertyWithConditions::on_active(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(ACTIVE_BG_ITEMS),
+    )),
+    // Focus
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: BORDER_FOCUS })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_FOCUS })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: BORDER_FOCUS })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(StyleBorderRightColor { inner: BORDER_FOCUS })),
+];
+
+// -- Label text style --
+
+static DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(8))),
+];
+
+// -- Arrow chevron container --
+
+static DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+// Arrow chevron: 6x6 box with left+bottom 2px solid borders, rotated 315deg
+static DROPDOWN_ARROW_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(6))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(6))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: ARROW_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: ARROW_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_transform(StyleTransformVec::from_const_slice(&[
+        StyleTransform::Rotate(AngleValue::const_deg(315)),
+        StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::const_px(0),
+            y: PixelValue::const_px(-2),
+        }),
+    ]))),
+];
+
+// ============================================================================
+// Widget struct and API
+// ============================================================================
+
 pub struct DropDown {
     pub choices: StringVec,
     pub selected: usize,
@@ -907,6 +229,18 @@ impl DropDown {
         }
     }
 
+    pub fn set_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_choice_change = Some(DropDownOnChoiceChange {
+            callback: callback.into(),
+            refany: data,
+        }).into();
+    }
+
+    pub fn with_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_choice_change(data, callback);
+        self
+    }
+
     pub fn swap_with_default(&mut self) -> Self {
         let mut m = DropDown::default();
         core::mem::swap(&mut m, self);
@@ -914,7 +248,6 @@ impl DropDown {
     }
 
     pub fn dom(self) -> Dom {
-        // Get the selected item text (or empty string if out of bounds)
         let selected_text = self.choices
             .as_slice()
             .get(self.selected)
@@ -923,90 +256,54 @@ impl DropDown {
 
         let refany = RefAny::new(self);
 
-        Dom::create_div()
-            .with_css_props(CSS_MATCH_4428877324022630014)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_9466018534284317754: &[IdOrClass] =
-                    &[Class(AzString::from_const_str("__azul-native-dropdown"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9466018534284317754)
-            })
-            .with_children(DomVec::from_vec(vec![Dom::create_div()
-                .with_css_props(CSS_MATCH_10188117026223137249)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6395608618544226348: &[IdOrClass] = &[Class(
-                        AzString::from_const_str("__azul-native-dropdown-wrapper"),
-                    )];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6395608618544226348)
-                })
-                .with_tab_index(TabIndex::Auto)
-                .with_callbacks(
-                    vec![CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                        refany: refany.clone(),
-                        callback: CoreCallback {
-                            cb: on_dropdown_click as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    }]
-                    .into(),
-                )
-                .with_children(DomVec::from_vec(vec![
-                    Dom::create_div()
-                        .with_css_props(CSS_MATCH_7938442083662451131)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_11862789041977911489: &[IdOrClass] = &[Class(
-                                AzString::from_const_str("__azul-native-dropdown-focused-text"),
-                            )];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11862789041977911489)
-                        })
-                        .with_children(DomVec::from_vec(vec![Dom::create_text(
-                            selected_text,
-                        )
-                        .with_css_props(CSS_MATCH_16432538576103237591)])),
-                    Dom::create_div()
-                        .with_css_props(CSS_MATCH_6763840958685503000)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_17649077225810153180: &[IdOrClass] = &[Class(
-                                AzString::from_const_str("__azul-native-dropdown-arrow"),
-                            )];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17649077225810153180)
-                        })
-                        .with_children(DomVec::from_vec(vec![Dom::create_div()
-                            .with_css_props(CSS_MATCH_4687758758634879229)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_17777388057004109464: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "__azul-native-dropdown-arrow-wrapper",
-                                    ))];
-                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17777388057004109464)
-                            })
-                            .with_children(DomVec::from_vec(vec![Dom::create_div()
-                                .with_css_props(CSS_MATCH_5369484915686807864)
-                                .with_ids_and_classes({
-                                    const IDS_AND_CLASSES_12603885741328163120: &[IdOrClass] =
-                                        &[Class(AzString::from_const_str(
-                                            "__azul-native-dropdown-arrow-content",
-                                        ))];
-                                    IdOrClassVec::from_const_slice(
-                                        IDS_AND_CLASSES_12603885741328163120,
-                                    )
-                                })]))])),
-                ]))]))
+        const DROPDOWN_CLASS: &[IdOrClass] =
+            &[Class(AzString::from_const_str("__azul-native-dropdown"))];
+
+        // Wrapper: focusable trigger that opens popup on focus
+        let wrapper = Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_WRAPPER_STYLE))
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
+            .with_tab_index(TabIndex::Auto)
+            .with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::FocusReceived),
+                    refany: refany.clone(),
+                    callback: CoreCallback {
+                        cb: on_dropdown_click as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                }]
+                .into(),
+            )
+            .with_children(DomVec::from_vec(vec![
+                // Selected text label
+                Dom::create_text(selected_text)
+                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE)),
+                // Arrow chevron
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_STYLE))
+                    .with_children(DomVec::from_vec(vec![
+                        Dom::create_div()
+                            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_CONTENT_STYLE)),
+                    ])),
+            ]));
+
+        wrapper
     }
 }
 
-// dataset holding the choices
-struct DropDownLocalDataset {
-    choices: StringVec,
-    selected: usize,
-    on_choice_change: OptionDropDownOnChoiceChange,
-}
+// ============================================================================
+// Internal callback data types
+// ============================================================================
 
-// dataset for individual menu item callback
 struct ChoiceCallbackData {
     choice_id: usize,
     on_choice_change: OptionDropDownOnChoiceChange,
 }
+
+// ============================================================================
+// Callbacks
+// ============================================================================
 
 extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let refany = match refany.downcast_ref::<DropDown>() {
@@ -1014,7 +311,6 @@ extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> U
         None => return Update::DoNothing,
     };
 
-    // Build menu items from choices
     let menu_items: Vec<MenuItem> = refany
         .choices
         .iter()
@@ -1036,9 +332,7 @@ extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> U
         ..Default::default()
     };
 
-    // Open native menu positioned below the dropdown
     info.open_menu_for_hit_node(menu);
-
     Update::DoNothing
 }
 

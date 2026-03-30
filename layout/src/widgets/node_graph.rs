@@ -1030,7 +1030,7 @@ fn render_node(
     use azul_css::*;
 
     const STRING_9416190750059025162: AzString = AzString::from_const_str("Material Icons");
-    const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
+    const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
     const STYLE_BACKGROUND_CONTENT_524016094839686509_ITEMS: &[StyleBackgroundContent] =
         &[StyleBackgroundContent::Color(ColorU {
             r: 34,

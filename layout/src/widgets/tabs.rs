@@ -17,7 +17,7 @@ use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
-const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
+const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {

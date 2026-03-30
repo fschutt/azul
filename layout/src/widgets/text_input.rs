@@ -64,7 +64,7 @@ const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
 const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
 
-const SANS_SERIF_STR: &str = "sans-serif";
+const SANS_SERIF_STR: &str = "system:ui";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
 const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =
