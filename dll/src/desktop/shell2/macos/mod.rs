@@ -2025,7 +2025,9 @@ impl MacOSWindow {
     /// then maps `Auto` → try OpenGL, fall back on blacklist/failure.
     fn determine_backend(options: &WindowCreateOptions) -> RenderBackend {
         use crate::desktop::shell2::AzBackend;
-        let hw_accel = options.renderer.as_option().map(|r| r.hw_accel);
+        let hw_accel = options.renderer.as_option()
+            .map(|r| r.hw_accel)
+            .or(Some(options.window_state.renderer_options.hw_accel));
         match AzBackend::resolve(hw_accel) {
             AzBackend::Gpu => RenderBackend::OpenGL,
             AzBackend::Cpu | AzBackend::Headless => RenderBackend::CPU,
