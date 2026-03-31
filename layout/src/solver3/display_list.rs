@@ -1918,8 +1918,9 @@ where
         Ok(())
     }
 
-    /// Emits drawing commands for the text cursor (caret) only.
-    /// This is separate from selections and reads from `ctx.cursor_location`.
+    /// Emits drawing commands for all text cursors (carets).
+    /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
+    /// Preedit underline is only rendered for the primary (last) cursor.
     fn paint_cursor(
         &self,
         builder: &mut DisplayListBuilder,
@@ -1929,11 +1930,11 @@ where
         if !self.ctx.cursor_is_visible {
             return Ok(());
         }
-        
-        // Early exit if no cursor location is set
-        let Some((cursor_dom_id, cursor_node_id, cursor)) = &self.ctx.cursor_location else {
+
+        // Early exit if no cursor locations
+        if self.ctx.cursor_locations.is_empty() {
             return Ok(());
-        };
+        }
 
         let node = self
             .positioned_tree
@@ -1943,45 +1944,13 @@ where
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
-        
-        // Only paint cursor on the node that has the cursor, OR on a node
-        // that is the IFC root containing the cursor's text node as a child.
-        // This handles the common case where cursor_node_id is a text child
-        // (NodeId=2) but the inline layout lives on the parent IFC root (NodeId=1).
-        if dom_id != *cursor_node_id {
-            // Check if this node is the IFC root that contains the cursor text node
-            let is_ifc_root_of_cursor = self.positioned_tree.tree.children(node_index)
-                .iter()
-                .any(|&child_idx| {
-                    self.positioned_tree.tree.get(child_idx)
-                        .and_then(|c| c.dom_node_id)
-                        .map(|id| id == *cursor_node_id)
-                        .unwrap_or(false)
-                });
-            if !is_ifc_root_of_cursor {
-                return Ok(());
-            }
-        }
-        
-        // Check DOM ID matches
-        if self.ctx.styled_dom.dom_id != *cursor_dom_id {
-            return Ok(());
-        }
 
-        // Get inline layout using the unified helper that handles IFC membership
-        // This is critical: text nodes don't have their own inline_layout_result,
-        // but they have ifc_membership pointing to their IFC root
-        let Some(layout) = self.positioned_tree.tree.get_inline_layout_for_node(node_index) else {
-            return Ok(());
-        };
-
-        // Check if this node is contenteditable (or inherits contenteditable from ancestor)
-        // Text nodes don't have contenteditable directly, but inherit it from their container
+        // Check if this node is contenteditable
         let is_contenteditable = super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id);
         if !is_contenteditable {
             return Ok(());
         }
-        
+
         // Check if text is selectable
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
         let is_selectable = super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
@@ -1989,58 +1958,93 @@ where
             return Ok(());
         }
 
-        // Get cursor rect from text layout
-        let Some(mut rect) = layout.get_cursor_rect(cursor) else {
+        // Get inline layout
+        let Some(layout) = self.positioned_tree.tree.get_inline_layout_for_node(node_index) else {
             return Ok(());
         };
 
-        // Get the absolute position of this node (border-box position)
+        // Compute content-box offset once
         let node_pos = self
             .positioned_tree
             .calculated_positions
             .get(node_index)
             .copied()
             .unwrap_or_default();
-
-        // Adjust to content-box coordinates
         let bp = node.box_props.unpack();
         let padding = &bp.padding;
         let border = &bp.border;
         let content_box_offset_x = node_pos.x + padding.left + border.left;
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
-        rect.origin.x += content_box_offset_x;
-        rect.origin.y += content_box_offset_y;
-
         let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
-        
-        // Apply caret width from CSS (default is 2px, get_cursor_rect returns 1px)
-        rect.size.width = style.width;
-        
-        builder.push_cursor_rect(rect, style.color);
 
-        // Render preedit (IME composition) indicator as an underline after the cursor.
-        // The underline tells the user that unconfirmed composition text is pending.
-        if let Some(ref preedit) = self.ctx.preedit_text {
-            if !preedit.is_empty() {
-                // Approximate preedit width: ~8px per character (rough monospace estimate)
-                // This is a visual indicator only; the actual IME candidate window
-                // shows the composition text. Full inline rendering would require
-                // shaping the preedit text through the font pipeline.
-                let char_count = preedit.chars().count() as f32;
-                let approx_char_width = style.width.max(8.0);
-                let preedit_width = char_count * approx_char_width;
-                let underline_bounds = azul_core::geom::LogicalRect {
-                    origin: azul_core::geom::LogicalPosition {
-                        x: rect.origin.x + rect.size.width,
-                        y: rect.origin.y + rect.size.height - 2.0,
-                    },
-                    size: azul_core::geom::LogicalSize {
-                        width: preedit_width,
-                        height: 2.0,
-                    },
-                };
-                builder.push_underline(underline_bounds, style.color, 2.0);
+        // Find the index of the last (primary) cursor that belongs to this DOM/node,
+        // so preedit underline is only drawn on the actual primary cursor.
+        let primary_idx_for_this_node = self.ctx.cursor_locations.iter().enumerate()
+            .rev()
+            .find(|(_, (cd, cn, _))| {
+                *cd == self.ctx.styled_dom.dom_id && (*cn == dom_id || self.positioned_tree.tree.children(node_index).iter().any(|&child_idx| {
+                    self.positioned_tree.tree.get(child_idx)
+                        .and_then(|c| c.dom_node_id)
+                        .map(|id| id == *cn)
+                        .unwrap_or(false)
+                }))
+            })
+            .map(|(i, _)| i);
+
+        for (i, (cursor_dom_id, cursor_node_id, cursor)) in self.ctx.cursor_locations.iter().enumerate() {
+            // Check DOM ID matches
+            if self.ctx.styled_dom.dom_id != *cursor_dom_id {
+                continue;
+            }
+
+            // Check this node contains the cursor
+            if dom_id != *cursor_node_id {
+                let is_ifc_root_of_cursor = self.positioned_tree.tree.children(node_index)
+                    .iter()
+                    .any(|&child_idx| {
+                        self.positioned_tree.tree.get(child_idx)
+                            .and_then(|c| c.dom_node_id)
+                            .map(|id| id == *cursor_node_id)
+                            .unwrap_or(false)
+                    });
+                if !is_ifc_root_of_cursor {
+                    continue;
+                }
+            }
+
+            // Get cursor rect from text layout
+            let Some(mut rect) = layout.get_cursor_rect(cursor) else {
+                continue;
+            };
+
+            rect.origin.x += content_box_offset_x;
+            rect.origin.y += content_box_offset_y;
+            rect.size.width = style.width;
+
+            builder.push_cursor_rect(rect, style.color);
+
+            // Preedit underline only on the primary cursor for this node
+            let is_primary = primary_idx_for_this_node == Some(i);
+            if is_primary {
+                if let Some(ref preedit) = self.ctx.preedit_text {
+                    if !preedit.is_empty() {
+                        let char_count = preedit.chars().count() as f32;
+                        let approx_char_width = style.width.max(8.0);
+                        let preedit_width = char_count * approx_char_width;
+                        let underline_bounds = azul_core::geom::LogicalRect {
+                            origin: azul_core::geom::LogicalPosition {
+                                x: rect.origin.x + rect.size.width,
+                                y: rect.origin.y + rect.size.height - 2.0,
+                            },
+                            size: azul_core::geom::LogicalSize {
+                                width: preedit_width,
+                                height: 2.0,
+                            },
+                        };
+                        builder.push_underline(underline_bounds, style.color, 2.0);
+                    }
+                }
             }
         }
 

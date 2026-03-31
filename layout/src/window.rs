@@ -898,12 +898,28 @@ impl LayoutWindow {
         // Get cursor visibility from cursor manager for display list generation
         let cursor_is_visible = self.text_edit_manager.cursor_manager.should_draw_cursor();
 
-        // Get cursor location from cursor manager for independent cursor rendering
-        let cursor_location = self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
-            self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
-                (loc.dom_id, loc.node_id, cursor.clone())
-            })
-        });
+        // Build cursor locations from multi-cursor state (primary) or single cursor manager
+        let cursor_locations = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
+            // Multi-cursor mode: all cursors from MultiCursorState
+            if let Some(node_id) = mc.node_id.node.into_crate_internal() {
+                mc.selections.iter().map(|s| {
+                    let cursor = match &s.selection {
+                        azul_core::selection::Selection::Cursor(c) => *c,
+                        azul_core::selection::Selection::Range(r) => r.end,
+                    };
+                    (mc.node_id.dom, node_id, cursor)
+                }).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        } else {
+            // Single cursor mode: from CursorManager
+            self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
+                self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
+                    vec![(loc.dom_id, loc.node_id, *cursor)]
+                })
+            }).unwrap_or_default()
+        };
 
         let mut display_list = solver3::layout_document(
             &mut self.layout_cache,
@@ -920,7 +936,7 @@ impl LayoutWindow {
             self.id_namespace,
             dom_id,
             cursor_is_visible,
-            cursor_location,
+            cursor_locations,
             self.text_edit_manager.cursor_manager.preedit_text.clone(),
             &self.image_cache,
             self.system_style.clone(),
@@ -2026,7 +2042,12 @@ impl LayoutWindow {
         }
     }
 
-    /// Helper: Handle cursor movement with optional selection extension
+    /// Helper: Handle cursor movement with optional selection extension.
+    ///
+    /// When multi-cursor is active, `new_cursor` is used as the movement applied
+    /// to the primary cursor; all other cursors are moved by the same `move_fn`
+    /// via `MultiCursorState::move_all_cursors`. For single-cursor mode, falls
+    /// back to the legacy CursorManager + SelectionManager path.
     pub fn handle_cursor_movement(
         &mut self,
         dom_id: DomId,
@@ -2034,52 +2055,62 @@ impl LayoutWindow {
         new_cursor: TextCursor,
         extend_selection: bool,
     ) {
+        // Update legacy cursor manager (always, for compat)
         if extend_selection {
-            // Get the current cursor as the selection anchor
             if let Some(old_cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
-                // Create DomNodeId for the selection
                 let dom_node_id = azul_core::dom::DomNodeId {
                     dom: dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                 };
-
-                // Create a selection range from old cursor to new cursor
                 let selection_range = if new_cursor.cluster_id.start_byte_in_run
                     < old_cursor.cluster_id.start_byte_in_run
                 {
-                    // Moving backwards
-                    SelectionRange {
-                        start: new_cursor,
-                        end: *old_cursor,
-                    }
+                    SelectionRange { start: new_cursor, end: *old_cursor }
                 } else {
-                    // Moving forwards
-                    SelectionRange {
-                        start: *old_cursor,
-                        end: new_cursor,
-                    }
+                    SelectionRange { start: *old_cursor, end: new_cursor }
                 };
-
-                // Set the selection range in SelectionManager
                 self.text_edit_manager.selection_manager
                     .set_range(dom_id, dom_node_id, selection_range);
             }
-
-            // Move cursor to new position
             self.text_edit_manager.cursor_manager
                 .move_cursor_to(new_cursor, dom_id, node_id);
         } else {
-            // Just move cursor without extending selection
             self.text_edit_manager.cursor_manager
                 .move_cursor_to(new_cursor, dom_id, node_id);
-
-            // Clear any existing selection
             self.text_edit_manager.selection_manager.clear_selection(&dom_id);
         }
 
-        // Bug D fix: Regenerate display list so cursor/selection changes are
-        // visible immediately. Without this, arrow keys move the cursor in
-        // memory but the OLD display list gets sent to WebRender.
+        self.regenerate_display_list_for_dom(dom_id);
+    }
+
+    /// Move all cursors in a MultiCursorState using a movement function.
+    /// This is the multi-cursor version of handle_cursor_movement.
+    pub fn handle_multi_cursor_movement(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+        move_fn: impl Fn(&TextCursor) -> TextCursor,
+    ) {
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.move_all_cursors(extend_selection, &move_fn);
+            // Sync primary cursor to legacy cursor manager
+            if let Some(primary) = mc.get_primary_cursor() {
+                self.text_edit_manager.cursor_manager
+                    .move_cursor_to(primary, dom_id, node_id);
+            }
+        } else {
+            // Single cursor fallback
+            if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
+                let new_cursor = move_fn(cursor);
+                self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                return;
+            }
+        }
+
+        if !extend_selection {
+            self.text_edit_manager.selection_manager.clear_selection(&dom_id);
+        }
         self.regenerate_display_list_for_dom(dom_id);
     }
 
@@ -4375,17 +4406,19 @@ impl LayoutWindow {
         // Get the current inline content from cache
         let content = self.get_text_before_textinput(dom_id, node_id);
 
-        // Get current cursor/selection from cursor manager AND selection manager
-        // If there's an active selection range, use it so that typing replaces selected text
-        let current_selection = {
+        // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
+        let mc_selections = self.text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.to_selections())
+            .unwrap_or_default();
+        let current_selection = if !mc_selections.is_empty() {
+            mc_selections
+        } else {
             let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
             if let Some(range) = ranges.first() {
-                // Active selection range - typing should replace the selected text
-                vec![Selection::Range(range.clone())]
+                vec![Selection::Range(*range)]
             } else if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
-                vec![Selection::Cursor(cursor.clone())]
+                vec![Selection::Cursor(*cursor)]
             } else {
-                // No cursor - create one at start of text
                 vec![Selection::Cursor(TextCursor {
                     cluster_id: GraphemeClusterId {
                         source_run: 0,
@@ -4429,16 +4462,18 @@ impl LayoutWindow {
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
         let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
 
-        // Update the cursor/selection in cursor manager
-        // Preserve the existing cursor_location node_id (text child) — the focused
-        // node is the contenteditable DIV, but paint_cursor matches the text child.
+        // Update cursors from edit result
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.update_from_edit_result(&new_selections);
+        }
+        // Also update legacy cursor manager (for single-cursor compatibility)
         if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
             let cursor_node = self.text_edit_manager.cursor_manager
                 .get_cursor_location()
                 .map(|loc| loc.node_id)
                 .unwrap_or(node_id);
             self.text_edit_manager.cursor_manager
-                .move_cursor_to(new_cursor.clone(), dom_id, cursor_node);
+                .move_cursor_to(*new_cursor, dom_id, cursor_node);
         }
 
         // Clear selection state after text edit — typing always collapses selection
@@ -4916,11 +4951,25 @@ impl LayoutWindow {
 
         // Get cursor state for display list generation
         let cursor_is_visible = self.text_edit_manager.cursor_manager.should_draw_cursor();
-        let cursor_location = self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
-            self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
-                (loc.dom_id, loc.node_id, cursor.clone())
-            })
-        });
+        let cursor_locations = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
+            if let Some(node_id) = mc.node_id.node.into_crate_internal() {
+                mc.selections.iter().map(|s| {
+                    let cursor = match &s.selection {
+                        azul_core::selection::Selection::Cursor(c) => *c,
+                        azul_core::selection::Selection::Range(r) => r.end,
+                    };
+                    (mc.node_id.dom, node_id, cursor)
+                }).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
+                self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
+                    vec![(loc.dom_id, loc.node_id, *cursor)]
+                })
+            }).unwrap_or_default()
+        };
 
         // Build a temporary LayoutContext with all the state we need
         let mut counter_values = HashMap::new();
@@ -4937,7 +4986,7 @@ impl LayoutWindow {
             viewport_size: viewport.size,
             fragmentation_context: None,
             cursor_is_visible,
-            cursor_location,
+            cursor_locations,
             preedit_text: self.text_edit_manager.cursor_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,
@@ -5738,18 +5787,25 @@ impl LayoutWindow {
         // Setting focus directly here bypasses that, causing the blue border to not
         // appear until the next full layout (e.g., resize).
 
-        // Initialize the CursorManager with the clicked position
-        // Without this, clicking on a contenteditable element sets focus (blue outline)
-        // but the text cursor doesn't appear because CursorManager is never told where to draw it.
+        // Initialize cursor at the clicked position.
         let now = azul_core::task::Instant::now();
         self.text_edit_manager.cursor_manager.move_cursor_to(
-            final_range.start.clone(),
+            final_range.start,
             dom_id,
             ifc_root_node_id,
         );
-        // Reset the blink timer so the cursor is immediately visible
         self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
         self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
+
+        // Initialize or update MultiCursorState with the clicked cursor.
+        // A plain click (no Ctrl) always resets to a single cursor.
+        // Ctrl+Click for adding cursors is handled in the event layer (Step 7).
+        let mc = azul_core::selection::MultiCursorState::new_with_cursor(
+            final_range.start,
+            dom_node_id,
+            0, // contenteditable_key: computed later if needed
+        );
+        self.text_edit_manager.multi_cursor = Some(mc);
         self.text_edit_manager.mark_dirty();
 
         // Regenerate display list so cursor appears at the clicked position
@@ -5998,60 +6054,44 @@ impl LayoutWindow {
         let dom_id = target.dom;
         let node_id = target.node.into_crate_internal()?;
 
-        // Get current selection ranges
-        let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
-
-        if ranges.is_empty() {
-            // Bug E fix: No range selection, but we may have a cursor.
-            // Delete one character before (Backspace) or after (Delete) the cursor.
-            let cursor = self.text_edit_manager.cursor_manager.get_cursor().cloned()?;
-            let content = self.get_text_before_textinput(dom_id, node_id);
-            let mut new_content = content.clone();
-
-            let (updated_content, new_cursor) = if forward {
-                crate::text3::edit::delete_forward(&mut new_content, &cursor)
+        // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
+        let current_selections = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
+            mc.to_selections()
+        } else {
+            let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
+            if !ranges.is_empty() {
+                ranges.iter().map(|r| Selection::Range(*r)).collect()
+            } else if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
+                vec![Selection::Cursor(*cursor)]
             } else {
-                crate::text3::edit::delete_backward(&mut new_content, &cursor)
-            };
-
-            self.text_edit_manager.cursor_manager.move_cursor_to(new_cursor, dom_id, node_id);
-            self.update_text_cache_after_edit(dom_id, node_id, updated_content);
-            self.regenerate_display_list_for_dom(dom_id);
-
-            return Some(vec![target]);
-        }
-
-        // Range selection exists - delete the selected text
-        // Find the earliest cursor position from all ranges
-        let mut earliest_cursor = None;
-        for range in &ranges {
-            // Use the start position for backward deletion, end for forward
-            let cursor = if forward { range.end } else { range.start };
-
-            if earliest_cursor.is_none() {
-                earliest_cursor = Some(cursor);
-            } else if let Some(current) = earliest_cursor {
-                if cursor < current {
-                    earliest_cursor = Some(cursor);
-                }
+                return None;
             }
+        };
+
+        let content = self.get_text_before_textinput(dom_id, node_id);
+        let edit = if forward {
+            crate::text3::edit::TextEdit::DeleteForward
+        } else {
+            crate::text3::edit::TextEdit::DeleteBackward
+        };
+        let (new_content, new_selections) = crate::text3::edit::edit_text(
+            &content, &current_selections, &edit,
+        );
+
+        // Update multi-cursor state
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.update_from_edit_result(&new_selections);
+        }
+        // Update legacy cursor
+        if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
+            self.text_edit_manager.cursor_manager.move_cursor_to(*new_cursor, dom_id, node_id);
         }
 
-        // Clear selection and place cursor at deletion point
         self.text_edit_manager.selection_manager.clear_selection(&dom_id);
         self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
 
-        if let Some(cursor) = earliest_cursor {
-            let state = SelectionState {
-                selections: vec![Selection::Range(SelectionRange {
-                    start: cursor.clone(),
-                    end: cursor,
-                })]
-                .into(),
-                node_id: target,
-            };
-            self.text_edit_manager.selection_manager.set_selection(dom_id, state);
-        }
+        self.update_text_cache_after_edit(dom_id, node_id, new_content);
+        self.regenerate_display_list_for_dom(dom_id);
 
         Some(vec![target])
     }
