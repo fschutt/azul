@@ -8121,65 +8121,39 @@ fn process_debug_event(
         }
 
         DebugEvent::GetSelectionState => {
-            // Get the selection manager from layout window
             let layout_window = callback_info.get_layout_window();
-            let selection_manager = &layout_window.text_edit_manager.selection_manager;
-            let all_selections = selection_manager.get_all_selections();
-            
-            for (dom_id, sel_state) in all_selections.iter() {
-            }
-
             let mut selections = Vec::new();
-
-            for (dom_id, selection_state) in all_selections.iter() {
-                // Get the node ID from selection state
-                let internal_node_id = selection_state.node_id.node.into_crate_internal();
-                let node_id = internal_node_id.map(|n| n.index() as u64);
-                
-                // Build CSS selector for this node
-                let selector = internal_node_id
-                    .and_then(|nid| build_selector_for_node(&callback_info, *dom_id, nid));
-
-                // Convert selections to range info
+            if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
+                let dom_id = mc.node_id.dom;
+                let node_id = mc.node_id.node.into_crate_internal().map(|n| n.index() as u64);
+                let selector = mc.node_id.node.into_crate_internal()
+                    .and_then(|nid| build_selector_for_node(&callback_info, dom_id, nid));
                 let mut ranges = Vec::new();
-                for selection in selection_state.selections.as_slice() {
+                for s in &mc.selections {
                     use azul_core::selection::Selection;
-                    let range_info = match selection {
+                    let range_info = match &s.selection {
                         Selection::Cursor(cursor) => SelectionRangeInfo {
                             selection_type: "cursor".to_string(),
                             cursor_position: Some(cursor.cluster_id.start_byte_in_run as usize),
-                            start: None,
-                            end: None,
-                            direction: None,
+                            start: None, end: None, direction: None,
                         },
                         Selection::Range(range) => {
-                            let start_pos = range.start.cluster_id.start_byte_in_run as usize;
-                            let end_pos = range.end.cluster_id.start_byte_in_run as usize;
+                            let sp = range.start.cluster_id.start_byte_in_run as usize;
+                            let ep = range.end.cluster_id.start_byte_in_run as usize;
                             SelectionRangeInfo {
                                 selection_type: "range".to_string(),
                                 cursor_position: None,
-                                start: Some(start_pos),
-                                end: Some(end_pos),
-                                direction: Some(if start_pos <= end_pos { "forward" } else { "backward" }.to_string()),
+                                start: Some(sp), end: Some(ep),
+                                direction: Some(if sp <= ep { "forward" } else { "backward" }.to_string()),
                             }
                         },
                     };
                     ranges.push(range_info);
                 }
-
-                // Note: Selection rectangles would require accessing private methods
-                // For now, we just return the selection ranges without visual rectangles
-                let rectangles = Vec::new();
-
                 selections.push(DomSelectionInfo {
-                    dom_id: dom_id.inner as u32,
-                    node_id,
-                    selector,
-                    ranges,
-                    rectangles,
+                    dom_id: dom_id.inner as u32, node_id, selector, ranges, rectangles: Vec::new(),
                 });
             }
-
             let response = SelectionStateResponse {
                 has_selection: !selections.is_empty(),
                 selection_count: selections.len(),
@@ -8189,49 +8163,33 @@ fn process_debug_event(
         }
 
         DebugEvent::DumpSelectionManager => {
-            // Dump entire selection manager state for debugging
             let layout_window = callback_info.get_layout_window();
-            let selection_manager = &layout_window.text_edit_manager.selection_manager;
-            let all_selections = selection_manager.get_all_selections();
-            
             let mut selections = Vec::new();
-            for (dom_id, selection_state) in all_selections.iter() {
-                let internal_node_id = selection_state.node_id.node.into_crate_internal();
-                let node_id = internal_node_id.map(|n| n.index() as u64);
-                let selector = internal_node_id
-                    .and_then(|nid| build_selector_for_node(&callback_info, *dom_id, nid));
-                
+            if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
+                let dom_id = mc.node_id.dom;
+                let node_id = mc.node_id.node.into_crate_internal().map(|n| n.index() as u64);
+                let selector = mc.node_id.node.into_crate_internal()
+                    .and_then(|nid| build_selector_for_node(&callback_info, dom_id, nid));
                 let mut sel_dumps = Vec::new();
-                for sel in selection_state.selections.as_slice() {
+                for s in &mc.selections {
                     use azul_core::selection::Selection;
                     sel_dumps.push(SelectionDump {
-                        selection_type: match sel {
+                        selection_type: match &s.selection {
                             Selection::Cursor(_) => "cursor".to_string(),
                             Selection::Range(_) => "range".to_string(),
                         },
-                        debug: alloc::format!("{:?}", sel),
+                        debug: alloc::format!("{:?}", s.selection),
                     });
                 }
-                
                 selections.push(SelectionDumpEntry {
-                    dom_id: dom_id.inner as u32,
-                    node_id,
-                    selector,
-                    selections: sel_dumps,
+                    dom_id: dom_id.inner as u32, node_id, selector, selections: sel_dumps,
                 });
             }
-            
-            let click_state = &selection_manager.click_state;
             let response = SelectionManagerDump {
                 selections,
                 click_state: ClickStateDump {
-                    last_node: click_state.last_node.map(|n| alloc::format!("{:?}", n)),
-                    last_position: LogicalPositionJson {
-                        x: click_state.last_position.x,
-                        y: click_state.last_position.y,
-                    },
-                    last_time_ms: click_state.last_time_ms,
-                    click_count: click_state.click_count,
+                    last_node: None, last_position: LogicalPositionJson { x: 0.0, y: 0.0 },
+                    last_time_ms: 0, click_count: 0,
                 },
             };
             send_ok(request, None, Some(ResponseData::SelectionManagerDump(response)));

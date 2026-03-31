@@ -62,7 +62,7 @@ use crate::{
         hover::{HoverManager, InputPointId},
         virtual_view::VirtualViewManager,
         scroll_state::{AnimatedScrollState, ScrollManager},
-        selection::{ClipboardContent, SelectionManager},
+        selection::ClipboardContent,
         text_input::{PendingTextEdit, TextInputManager},
         undo_redo::{UndoRedoManager, UndoableOperation},
     },
@@ -2129,33 +2129,37 @@ impl CallbackInfo {
 
     // Text Selection Management
 
-    /// Get the current selection state for a DOM
-    pub fn get_selection(&self, dom_id: &DomId) -> Option<&SelectionState> {
-        self.get_layout_window()
-            .text_edit_manager.selection_manager
-            .get_selection(dom_id)
+    /// Get the current selection state for a DOM (via multi_cursor)
+    pub fn get_selection(&self, _dom_id: &DomId) -> Option<&SelectionState> {
+        // SelectionManager removed; multi_cursor is the source of truth.
+        // SelectionState is a legacy type; return None.
+        None
     }
 
-    /// Check if a DOM has any selection
-    pub fn has_selection(&self, dom_id: &DomId) -> bool {
+    /// Check if a DOM has any selection (via multi_cursor)
+    pub fn has_selection(&self, _dom_id: &DomId) -> bool {
         self.get_layout_window()
-            .text_edit_manager.selection_manager
-            .has_selection(dom_id)
+            .text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, Selection::Range(_))))
+            .unwrap_or(false)
     }
 
-    /// Get the primary cursor for a DOM (first in selection list)
-    pub fn get_primary_cursor(&self, dom_id: &DomId) -> Option<TextCursor> {
+    /// Get the primary cursor for a DOM (via multi_cursor)
+    pub fn get_primary_cursor(&self, _dom_id: &DomId) -> Option<TextCursor> {
         self.get_layout_window()
-            .text_edit_manager.selection_manager
-            .get_primary_cursor(dom_id)
+            .text_edit_manager.multi_cursor.as_ref()
+            .and_then(|mc| mc.get_primary_cursor())
     }
 
-    /// Get all selection ranges (excludes plain cursors)
-    pub fn get_selection_ranges(&self, dom_id: &DomId) -> SelectionRangeVec {
-        self.get_layout_window()
-            .text_edit_manager.selection_manager
-            .get_ranges(dom_id)
-            .into()
+    /// Get all selection ranges (excludes plain cursors, via multi_cursor)
+    pub fn get_selection_ranges(&self, _dom_id: &DomId) -> SelectionRangeVec {
+        let ranges: Vec<SelectionRange> = self.get_layout_window()
+            .text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
+                Selection::Range(r) => Some(*r),
+                _ => None,
+            }).collect()).unwrap_or_default();
+        ranges.into()
     }
 
     /// Get direct access to the text layout cache
@@ -2931,11 +2935,14 @@ impl CallbackInfo {
         &self.get_layout_window().text_input_manager
     }
 
-    /// Get immutable reference to the selection manager
+    /// Check if multi_cursor has any selection ranges.
     ///
-    /// Use this to query text selections across multiple nodes.
-    pub fn get_selection_manager(&self) -> &SelectionManager {
-        &self.get_layout_window().text_edit_manager.selection_manager
+    /// Replaces the removed `get_selection_manager()`.
+    pub fn has_any_selection(&self) -> bool {
+        self.get_layout_window()
+            .text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, Selection::Range(_))))
+            .unwrap_or(false)
     }
 
     /// Check if a specific node is currently focused
@@ -3167,9 +3174,14 @@ impl CallbackInfo {
         &self.get_layout_window().file_drop_manager
     }
 
-    /// Get all selections across all DOMs
-    pub fn get_all_selections(&self) -> &BTreeMap<DomId, SelectionState> {
-        self.get_selection_manager().get_all_selections()
+    /// Get all selection ranges from multi_cursor (replaces legacy get_all_selections)
+    pub fn get_all_selection_ranges(&self) -> Vec<SelectionRange> {
+        self.get_layout_window()
+            .text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
+                Selection::Range(r) => Some(*r),
+                _ => None,
+            }).collect()).unwrap_or_default()
     }
 
     // Drag-Drop Manager Access
@@ -3401,14 +3413,14 @@ impl CallbackInfo {
     ///
     /// Returns the selection range that will be replaced when pasting.
     /// Returns None if no selection exists (paste will insert at cursor).
-    pub fn inspect_paste_target_range(&self, target: DomNodeId) -> Option<SelectionRange> {
+    pub fn inspect_paste_target_range(&self, _target: DomNodeId) -> Option<SelectionRange> {
         let layout_window = self.get_layout_window();
-        let dom_id = &target.dom;
         layout_window
-            .text_edit_manager.selection_manager
-            .get_ranges(dom_id)
-            .first()
-            .copied()
+            .text_edit_manager.multi_cursor.as_ref()
+            .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
+                Selection::Range(r) => Some(*r),
+                _ => None,
+            }))
     }
 
     /// Inspect what text would be selected by Select All operation
@@ -3472,15 +3484,21 @@ impl CallbackInfo {
         // Get the inline content for this node
         let content = layout_window.get_text_before_textinput(target.dom, node_id);
 
-        // Get current selection state
-        let selection =
-            if let Some(range) = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id).first() {
-                Selection::Range(*range)
-            } else if let Some(cursor) = layout_window.text_edit_manager.get_primary_cursor() {
+        // Get current selection state from multi_cursor
+        let selection = if let Some(mc) = layout_window.text_edit_manager.multi_cursor.as_ref() {
+            if let Some(range) = mc.selections.iter().find_map(|s| match &s.selection {
+                Selection::Range(r) => Some(*r),
+                _ => None,
+            }) {
+                Selection::Range(range)
+            } else if let Some(cursor) = mc.get_primary_cursor() {
                 Selection::Cursor(cursor)
             } else {
-                return None; // No cursor or selection
-            };
+                return None;
+            }
+        } else {
+            return None; // No multi_cursor active
+        };
 
         // Use text3::edit::inspect_delete to determine what would be deleted
         crate::text3::edit::inspect_delete(&content, &selection, forward).map(|(range, text)| {
@@ -3657,12 +3675,15 @@ impl CallbackInfo {
     /// Get the current selection ranges in a node
     ///
     /// Returns all active selection ranges for the specified DOM.
-    pub fn get_node_selection_ranges(&self, target: DomNodeId) -> SelectionRangeVec {
+    pub fn get_node_selection_ranges(&self, _target: DomNodeId) -> SelectionRangeVec {
         let layout_window = self.get_layout_window();
-        layout_window
-            .text_edit_manager.selection_manager
-            .get_ranges(&target.dom)
-            .into()
+        let ranges: Vec<SelectionRange> = layout_window
+            .text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
+                Selection::Range(r) => Some(*r),
+                _ => None,
+            }).collect()).unwrap_or_default();
+        ranges.into()
     }
 
     /// Check if a specific node has an active selection

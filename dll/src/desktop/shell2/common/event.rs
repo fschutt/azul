@@ -1555,13 +1555,9 @@ pub trait PlatformWindow {
                     match selection {
                         azul_core::selection::Selection::Cursor(cursor) => {
                             if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(*cursor); }
-                            lw.text_edit_manager.selection_manager.clear_all();
                         }
                         azul_core::selection::Selection::Range(range) => {
-                            if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(range.start); }
-                            let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(*node_id));
-                            let dom_node_id = azul_core::dom::DomNodeId { dom: *dom_id, node: hierarchy_id };
-                            lw.text_edit_manager.selection_manager.add_selection(*dom_id, dom_node_id, selection.clone());
+                            if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_range(*range); }
                         }
                     }
                 }
@@ -1691,7 +1687,9 @@ pub trait PlatformWindow {
 
             CallbackChange::SetSelectAllRange { target, range } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.text_edit_manager.selection_manager.set_range(target.dom, *target, *range);
+                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
+                        mc.set_single_range(*range);
+                    }
                 }
                 ProcessEventResult::DoNothing
             }
@@ -2113,6 +2111,32 @@ pub trait PlatformWindow {
             SystemChange::PasteFromClipboard => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if let Some(clipboard_text) = get_system_clipboard() {
+                        // Smart paste: if N lines == N cursors, paste one line per cursor
+                        let cursor_count = layout_window.text_edit_manager.multi_cursor
+                            .as_ref().map(|mc| mc.len()).unwrap_or(0);
+                        let lines: Vec<&str> = clipboard_text.lines().collect();
+
+                        if cursor_count > 1 && lines.len() == cursor_count {
+                            // N lines → N cursors: use edit_text_multi
+                            if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
+                                let dom_id = mc.node_id.dom;
+                                if let Some(node_id) = mc.node_id.node.into_crate_internal() {
+                                    let content = layout_window.get_text_before_textinput(dom_id, node_id);
+                                    let selections = mc.to_selections();
+                                    let (new_content, new_sels) = azul_layout::text3::edit::edit_text_multi(
+                                        &content, &selections, &lines,
+                                    );
+                                    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                        mc.update_from_edit_result(&new_sels);
+                                    }
+                                    layout_window.update_text_cache_after_edit(dom_id, node_id, new_content);
+                                    layout_window.text_edit_manager.mark_dirty();
+                                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                                }
+                            }
+                        }
+
+                        // Default: broadcast paste text to all cursors
                         let affected = layout_window.process_text_input(&clipboard_text);
                         if !affected.is_empty() {
                             return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
@@ -2136,7 +2160,9 @@ pub trait PlatformWindow {
                                 });
 
                             if let Some(range) = range {
-                                layout_window.text_edit_manager.selection_manager.set_range(dom_id, focused_node, range);
+                                if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                    mc.set_single_range(range);
+                                }
                                 // Move cursor to end of selection
                                 if let Some(layout) = layout_window.get_inline_layout_for_node(dom_id, node_id) {
                                     if let Some(end_cursor) = layout.get_last_cluster_cursor() {
@@ -2503,7 +2529,12 @@ pub trait PlatformWindow {
 
             SystemChange::ClearAllSelections => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    layout_window.text_edit_manager.selection_manager.clear_all();
+                    // Clear all selections by collapsing ranges to cursors
+                    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                        if let Some(cursor) = mc.get_primary_cursor() {
+                            mc.set_single_cursor(cursor);
+                        }
+                    }
                 }
                 ProcessEventResult::DoNothing
             }
@@ -2551,8 +2582,11 @@ pub trait PlatformWindow {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     use azul_layout::window::{ScrollMode, SelectionScrollType};
 
-                    let scroll_type = if let Some(focused_node) = layout_window.focus_manager.focused_node {
-                        if layout_window.text_edit_manager.selection_manager.get_selection(&focused_node.dom).is_some() {
+                    let scroll_type = if let Some(_focused_node) = layout_window.focus_manager.focused_node {
+                        let has_range = layout_window.text_edit_manager.multi_cursor.as_ref()
+                            .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, azul_core::selection::Selection::Range(_))))
+                            .unwrap_or(false);
+                        if has_range {
                             SelectionScrollType::Selection
                         } else {
                             SelectionScrollType::Cursor
@@ -3395,19 +3429,35 @@ pub trait PlatformWindow {
 
         let current_window_state = self.get_current_window_state();
 
-        // Filter events to separate internal system events from user events
-        // Query managers for state-based analysis (no local tracking needed)
+        // Filter events via the configurable input interpreter callback.
+        // Default: standard desktop keybindings (arrows, Ctrl+C/V, etc.)
+        // Can be replaced on LayoutWindow for vim, game controls, etc.
         let pre_filter = if let Some(layout_window) = self.get_layout_window() {
-            azul_core::events::pre_callback_filter_internal_events(
-                &synthetic_events,
-                hit_test_for_dispatch.as_ref(),
-                &current_window_state.keyboard_state,
-                &current_window_state.mouse_state,
-                &layout_window.text_edit_manager.selection_manager,
-                &layout_window.focus_manager,
-            )
+            use azul_core::events::{InputInterpreterInfo, InputInterpreterState};
+            let info = InputInterpreterInfo {
+                events: &synthetic_events,
+                hit_test: hit_test_for_dispatch.as_ref(),
+                keyboard_state: &current_window_state.keyboard_state,
+                mouse_state: &current_window_state.mouse_state,
+                state: InputInterpreterState {
+                    focused_node: layout_window.focus_manager.get_focused_node().copied(),
+                    click_count: 1, // TODO: track click count in TextEditManager or MultiCursorState
+                    drag_start_position: None, // TODO: track drag start in TextEditManager
+                    has_selection: layout_window.text_edit_manager.multi_cursor.as_ref()
+                        .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, azul_core::selection::Selection::Range(_))))
+                        .unwrap_or(false),
+                },
+            };
+            let interpreter = &layout_window.input_interpreter;
+            let mut ctx = interpreter.ctx.as_ref()
+                .map(|r| r.clone())
+                .unwrap_or_else(|| {
+                    #[repr(C)] struct D(u8);
+                    azul_core::refany::RefAny::new(D(0))
+                });
+            let info_ptr = &info as *const InputInterpreterInfo as *const InputInterpreterInfo<'static>;
+            (interpreter.cb)(ctx, info_ptr)
         } else {
-            // No layout window - no internal events possible
             PreCallbackFilterResult {
                 system_changes: Vec::new(),
                 user_events: synthetic_events.clone(),
@@ -3579,12 +3629,34 @@ pub trait PlatformWindow {
             .get_layout_window()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
 
-        let post_filter_changes = azul_core::events::post_callback_filter_system_changes(
-            prevent_default,
-            &pre_filter.system_changes,
-            old_focus,
-            new_focus,
-        );
+        // Post-filter via configurable callback (default: scroll-into-view, auto-scroll)
+        let post_filter_changes = if let Some(layout_window) = self.get_layout_window() {
+            let pf = &layout_window.post_filter;
+            let slice = azul_core::events::SystemChangeVecSlice {
+                ptr: pre_filter.system_changes.as_ptr(),
+                len: pre_filter.system_changes.len(),
+            };
+            let old_dn = old_focus.unwrap_or(azul_core::dom::DomNodeId {
+                dom: DomId { inner: 0 },
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
+            });
+            let new_dn = new_focus.unwrap_or(azul_core::dom::DomNodeId {
+                dom: DomId { inner: 0 },
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
+            });
+            let ctx = pf.ctx.as_ref()
+                .map(|r| r.clone())
+                .unwrap_or_else(|| {
+                    #[repr(C)] struct D(u8);
+                    azul_core::refany::RefAny::new(D(0))
+                });
+            let result_vec: azul_core::events::SystemChangeVec = (pf.cb)(ctx, prevent_default, slice, old_dn, new_dn);
+            result_vec.into_library_owned_vec()
+        } else {
+            azul_core::events::post_callback_filter_system_changes(
+                prevent_default, &pre_filter.system_changes, old_focus, new_focus,
+            )
+        };
         post_system_changes.extend(post_filter_changes);
 
         // Detect if focus changed (for focus event dispatch later)
@@ -3802,7 +3874,11 @@ pub trait PlatformWindow {
 
             // Clear selections when focus changes (standard UI behavior)
             if let Some(layout_window) = self.get_layout_window_mut() {
-                layout_window.text_edit_manager.selection_manager.clear_all();
+                if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                    if let Some(cursor) = mc.get_primary_cursor() {
+                        mc.set_single_cursor(cursor);
+                    }
+                }
             }
 
             // DISPATCH FOCUS CALLBACKS: FocusLost on old node, FocusReceived on new node

@@ -16,7 +16,6 @@ use azul_core::{
     task::Instant,
 };
 
-use super::selection::SelectionManager;
 
 /// Default cursor blink interval in milliseconds
 pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
@@ -114,9 +113,6 @@ pub struct TextEditManager {
     pub preedit_cursor_begin: i32,
     /// Byte offset of cursor end within preedit text (from IME), or -1 if unset
     pub preedit_cursor_end: i32,
-    /// Selection ranges (legacy + anchor/focus model) and click state
-    /// for non-editable text (drag-select in read-only content).
-    pub selection_manager: SelectionManager,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
 }
@@ -130,7 +126,6 @@ impl Default for TextEditManager {
 impl PartialEq for TextEditManager {
     fn eq(&self, other: &Self) -> bool {
         self.multi_cursor == other.multi_cursor
-            && self.selection_manager == other.selection_manager
     }
 }
 
@@ -143,7 +138,6 @@ impl TextEditManager {
             preedit_text: None,
             preedit_cursor_begin: -1,
             preedit_cursor_end: -1,
-            selection_manager: SelectionManager::new(),
             display_list_dirty: false,
         }
     }

@@ -919,8 +919,8 @@ impl LayoutWindow {
             viewport,
             &self.font_manager,
             &scroll_offsets,
-            &self.text_edit_manager.selection_manager.selections,
-            &self.text_edit_manager.selection_manager.text_selections,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
             debug_messages,
             Some(&gpu_cache),
             &self.renderer_resources,
@@ -1169,7 +1169,6 @@ impl LayoutWindow {
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
         self.scroll_manager = ScrollManager::new();
-        self.text_edit_manager.selection_manager.clear_all();
     }
 
     /// Set scroll position for a node
@@ -1197,14 +1196,14 @@ impl LayoutWindow {
         states.get(&node_id).cloned()
     }
 
-    /// Set selection state for a DOM
-    pub fn set_selection(&mut self, dom_id: DomId, selection: SelectionState) {
-        self.text_edit_manager.selection_manager.set_selection(dom_id, selection);
+    /// Set selection state for a DOM (no-op: selection_manager removed, multi_cursor handles this)
+    pub fn set_selection(&mut self, _dom_id: DomId, _selection: SelectionState) {
+        // no-op: selection_manager removed
     }
 
-    /// Get selection state for a DOM
-    pub fn get_selection(&self, dom_id: DomId) -> Option<&SelectionState> {
-        self.text_edit_manager.selection_manager.get_selection(&dom_id)
+    /// Get selection state for a DOM (always None: selection_manager removed)
+    pub fn get_selection(&self, _dom_id: DomId) -> Option<&SelectionState> {
+        None
     }
 
     /// Invoke a VirtualView callback and perform layout on the returned DOM.
@@ -2077,9 +2076,6 @@ impl LayoutWindow {
                         });
                     }
                 }
-                if !extend {
-                    self.text_edit_manager.selection_manager.clear_selection(&dom_id);
-                }
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
@@ -2138,30 +2134,8 @@ impl LayoutWindow {
         extend_selection: bool,
     ) {
         // Update multi_cursor with the new cursor position
-        if extend_selection {
-            if let Some(old_cursor) = self.text_edit_manager.get_primary_cursor() {
-                let dom_node_id = azul_core::dom::DomNodeId {
-                    dom: dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-                };
-                let selection_range = if new_cursor.cluster_id.start_byte_in_run
-                    < old_cursor.cluster_id.start_byte_in_run
-                {
-                    SelectionRange { start: new_cursor, end: old_cursor }
-                } else {
-                    SelectionRange { start: old_cursor, end: new_cursor }
-                };
-                self.text_edit_manager.selection_manager
-                    .set_range(dom_id, dom_node_id, selection_range);
-            }
-            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                mc.set_single_cursor(new_cursor);
-            }
-        } else {
-            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                mc.set_single_cursor(new_cursor);
-            }
-            self.text_edit_manager.selection_manager.clear_selection(&dom_id);
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.set_single_cursor(new_cursor);
         }
 
         self.regenerate_display_list_for_dom(dom_id);
@@ -2187,9 +2161,6 @@ impl LayoutWindow {
             }
         }
 
-        if !extend_selection {
-            self.text_edit_manager.selection_manager.clear_selection(&dom_id);
-        }
         self.regenerate_display_list_for_dom(dom_id);
     }
 
@@ -4311,23 +4282,8 @@ impl LayoutWindow {
                             if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                                 mc.set_single_cursor(start);
                             }
-
-                            // Clear any existing selections
-                            self.text_edit_manager.selection_manager.clear_selection(&dom_id);
                         } else {
-                            // Different positions - create selection range
-                            let selection = Selection::Range(SelectionRange { start, end });
-
-                            let selection_state = SelectionState {
-                                selections: vec![selection].into(),
-                                node_id: dom_node_id,
-                            };
-
-                            // Set selection in SelectionManager
-                            self.text_edit_manager.selection_manager
-                                .set_selection(dom_id, selection_state);
-
-                            // Also set cursor to start of selection
+                            // Different positions - set cursor to start of selection
                             if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                                 mc.set_single_cursor(start);
                             }
@@ -4349,9 +4305,6 @@ impl LayoutWindow {
                 // TODO: Allow custom action handlers
             }
         }
-
-        // Sync cursor to selection manager for rendering
-        self.sync_cursor_to_selection_manager();
 
         affected_nodes
     }
@@ -4502,21 +4455,16 @@ impl LayoutWindow {
             .unwrap_or_default();
         let current_selection = if !mc_selections.is_empty() {
             mc_selections
+        } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
+            vec![Selection::Cursor(cursor)]
         } else {
-            let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
-            if let Some(range) = ranges.first() {
-                vec![Selection::Range(*range)]
-            } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
-                vec![Selection::Cursor(cursor)]
-            } else {
-                vec![Selection::Cursor(TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: 0,
-                        start_byte_in_run: 0,
-                    },
-                    affinity: CursorAffinity::Leading,
-                })]
-            }
+            vec![Selection::Cursor(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                affinity: CursorAffinity::Leading,
+            })]
         };
 
         // Capture pre-state for undo/redo BEFORE mutation
@@ -4557,10 +4505,6 @@ impl LayoutWindow {
             mc.update_from_edit_result(&new_selections);
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
-
-        // Clear selection state after text edit — typing always collapses selection
-        self.text_edit_manager.selection_manager.clear_selection(&dom_id);
-        self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
 
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
@@ -5043,8 +4987,8 @@ impl LayoutWindow {
         let mut ctx = LayoutContext {
             styled_dom,
             font_manager: &self.font_manager,
-            selections: &self.text_edit_manager.selection_manager.selections,
-            text_selections: &self.text_edit_manager.selection_manager.text_selections,
+            selections: &std::collections::BTreeMap::new(),
+            text_selections: &std::collections::BTreeMap::new(),
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
@@ -5427,43 +5371,6 @@ impl LayoutWindow {
             .map(|c| c.clone_layout())
     }
 
-    /// Sync cursor from multi_cursor to SelectionManager for rendering
-    ///
-    /// The renderer expects cursor and selection data from the SelectionManager,
-    /// but we manage the cursor in multi_cursor for better separation
-    /// of concerns. This function syncs the cursor state so it can be rendered.
-    ///
-    /// This should be called whenever the cursor changes.
-    pub fn sync_cursor_to_selection_manager(&mut self) {
-        if let Some(ref mc) = self.text_edit_manager.multi_cursor {
-            if let Some(cursor) = mc.get_primary_cursor() {
-                if let Some(node_id) = mc.node_id.node.into_crate_internal() {
-                    // Convert cursor to Selection
-                    let selection = Selection::Cursor(cursor);
-
-                    // Create SelectionState
-                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-                    let dom_node_id = DomNodeId {
-                        dom: mc.node_id.dom,
-                        node: hierarchy_id,
-                    };
-
-                    let selection_state = SelectionState {
-                        selections: vec![selection].into(),
-                        node_id: dom_node_id,
-                    };
-
-                    // Set selection in SelectionManager
-                    self.text_edit_manager.selection_manager
-                        .set_selection(mc.node_id.dom, selection_state);
-                }
-            }
-        }
-        // NOTE: We intentionally do NOT clear selections when there's no cursor.
-        // Text selections from mouse clicks should persist independently of cursor state.
-        // Only explicit user actions (clicking elsewhere, Escape, etc.) should clear selections.
-    }
-
     /// Edit the text content of a node (used for text input actions)
     ///
     /// This function applies text edits to nodes that contain text content.
@@ -5746,10 +5653,8 @@ impl LayoutWindow {
             node: node_hierarchy_id,
         };
 
-        // Update click count to determine selection type
-        let click_count = self
-            .text_edit_manager.selection_manager
-            .update_click_count(dom_node_id, position, time_ms);
+        // TODO: track click count for double/triple-click word/paragraph selection
+        let click_count = 1u32;
 
         // Get the text layout again for word/paragraph selection
         let final_range = if click_count > 1 {
@@ -5772,42 +5677,6 @@ impl LayoutWindow {
         } else {
             initial_range
         };
-
-        // Clear existing selections and set new one using the NEW anchor/focus model
-        // First, get the cursor bounds for the anchor
-        let char_bounds = {
-            let layout_result = self.layout_results.get(&dom_id)?;
-            let tree = &layout_result.layout_tree;
-            let layout_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
-            let cached_layout = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
-            cached_layout.layout.get_cursor_rect(&final_range.start)
-                .unwrap_or(azul_core::geom::LogicalRect {
-                    origin: position,
-                    size: azul_core::geom::LogicalSize { width: 1.0, height: 16.0 },
-                })
-        };
-
-        // Clear any existing text selection for this DOM
-        self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
-
-        // Start a new selection with the anchor at the clicked position
-        self.text_edit_manager.selection_manager.start_selection(
-            dom_id,
-            ifc_root_node_id,
-            final_range.start,
-            char_bounds,
-            position,
-        );
-
-        // Also update the legacy selection state for backward compatibility with rendering
-        self.text_edit_manager.selection_manager.clear_selection(&dom_id);
-
-        let state = SelectionState {
-            selections: vec![Selection::Range(final_range)].into(),
-            node_id: dom_node_id,
-        };
-
-        self.text_edit_manager.selection_manager.set_selection(dom_id, state);
 
         // CRITICAL FIX 1: Set focus on the clicked node
         // Without this, clicking on a contenteditable element shows a cursor but
@@ -5896,202 +5765,10 @@ impl LayoutWindow {
     pub fn process_mouse_drag_for_selection(
         &mut self,
         _start_position: azul_core::geom::LogicalPosition,
-        current_position: azul_core::geom::LogicalPosition,
+        _current_position: azul_core::geom::LogicalPosition,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
-        use crate::managers::hover::InputPointId;
-
-        // Find which DOM has an active text selection with an anchor
-        let dom_id = self.text_edit_manager.selection_manager.get_all_text_selections()
-            .keys()
-            .next()
-            .copied()?;
-
-        // Get the existing anchor from the text selection
-        let anchor = {
-            let text_selection = self.text_edit_manager.selection_manager.get_text_selection(&dom_id)?;
-            text_selection.anchor.clone()
-        };
-
-        // Get the current hit test from HoverManager
-        let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
-
-        // Find the focus position (current cursor under mouse)
-        let mut focus_info: Option<(NodeId, TextCursor, azul_core::geom::LogicalPosition)> = None;
-
-        for (hit_dom_id, hit) in &hit_test.hovered_nodes {
-            if *hit_dom_id != dom_id {
-                continue;
-            }
-
-            let layout_result = match self.layout_results.get(hit_dom_id) {
-                Some(lr) => lr,
-                None => continue,
-            };
-            let tree = &layout_result.layout_tree;
-
-            for (node_id, hit_item) in &hit.regular_hit_test_nodes {
-                if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
-                    continue;
-                }
-
-                let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
-                let layout_node_idx = match layout_node_idx {
-                    Some(idx) => idx,
-                    None => continue,
-                };
-                let warm_node = match tree.warm(layout_node_idx) {
-                    Some(w) => w,
-                    None => continue,
-                };
-
-                // Get the IFC layout and IFC root NodeId
-                let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = warm_node.inline_layout_result {
-                    (cached, *node_id)
-                } else if let Some(ref membership) = warm_node.ifc_membership {
-                    match tree.warm(membership.ifc_root_layout_index) {
-                        Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(membership.ifc_root_layout_index).and_then(|n| n.dom_node_id)) {
-                            (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
-                            _ => continue,
-                        },
-                        None => continue,
-                    }
-                } else {
-                    continue;
-                };
-
-                let local_pos = hit_item.point_relative_to_item;
-
-                if let Some(cursor) = cached_layout.layout.hittest_cursor(local_pos) {
-                    focus_info = Some((ifc_root_node_id, cursor, current_position));
-                    break;
-                }
-            }
-
-            if focus_info.is_some() {
-                break;
-            }
-        }
-
-        let (focus_ifc_root, focus_cursor, focus_mouse_pos) = focus_info?;
-
-        // Compute affected nodes between anchor and focus
-        let layout_result = self.layout_results.get(&dom_id)?;
-        let hierarchy = &layout_result.styled_dom.node_hierarchy;
-
-        // Determine document order
-        let is_forward = if anchor.ifc_root_node_id == focus_ifc_root {
-            // Same IFC - compare cursors
-            anchor.cursor <= focus_cursor
-        } else {
-            // Different IFCs - use document order
-            is_before_in_document_order(hierarchy, anchor.ifc_root_node_id, focus_ifc_root)
-        };
-
-        let (start_node, end_node) = if is_forward {
-            (anchor.ifc_root_node_id, focus_ifc_root)
-        } else {
-            (focus_ifc_root, anchor.ifc_root_node_id)
-        };
-
-        // Collect all IFC roots between start and end
-        let nodes_in_range = collect_nodes_in_document_order(hierarchy, start_node, end_node);
-
-        // Build the affected_nodes map with SelectionRanges for each IFC root
-        let mut affected_nodes_map = std::collections::BTreeMap::new();
-        let tree = &layout_result.layout_tree;
-
-        for node_id in &nodes_in_range {
-            // Check if this node is an IFC root (has inline_layout_result)
-            let layout_idx = match tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id)) {
-                Some(idx) => idx,
-                None => continue,
-            };
-            let warm = match tree.warm(layout_idx) {
-                Some(w) if w.inline_layout_result.is_some() => w,
-                _ => continue, // Skip non-IFC-root nodes
-            };
-
-            let cached_layout = warm.inline_layout_result.as_ref()?;
-            let layout = &cached_layout.layout;
-
-            let range = if *node_id == anchor.ifc_root_node_id && *node_id == focus_ifc_root {
-                // Both anchor and focus in same IFC
-                SelectionRange {
-                    start: if is_forward { anchor.cursor } else { focus_cursor },
-                    end: if is_forward { focus_cursor } else { anchor.cursor },
-                }
-            } else if *node_id == anchor.ifc_root_node_id {
-                // Anchor node - select from anchor to end (if forward) or start to anchor (if backward)
-                if is_forward {
-                    let end_cursor = layout.get_last_cluster_cursor()
-                        .unwrap_or(anchor.cursor);
-                    SelectionRange { start: anchor.cursor, end: end_cursor }
-                } else {
-                    let start_cursor = layout.get_first_cluster_cursor()
-                        .unwrap_or(anchor.cursor);
-                    SelectionRange { start: start_cursor, end: anchor.cursor }
-                }
-            } else if *node_id == focus_ifc_root {
-                // Focus node - select from start to focus (if forward) or focus to end (if backward)
-                if is_forward {
-                    let start_cursor = layout.get_first_cluster_cursor()
-                        .unwrap_or(focus_cursor);
-                    SelectionRange { start: start_cursor, end: focus_cursor }
-                } else {
-                    let end_cursor = layout.get_last_cluster_cursor()
-                        .unwrap_or(focus_cursor);
-                    SelectionRange { start: focus_cursor, end: end_cursor }
-                }
-            } else {
-                // Middle node - fully selected
-                let start_cursor = layout.get_first_cluster_cursor()?;
-                let end_cursor = layout.get_last_cluster_cursor()?;
-                SelectionRange { start: start_cursor, end: end_cursor }
-            };
-
-            affected_nodes_map.insert(*node_id, range);
-        }
-
-        // Update the text selection with new focus and affected nodes
-        // This does NOT clear the anchor!
-        self.text_edit_manager.selection_manager.update_selection_focus(
-            &dom_id,
-            focus_ifc_root,
-            focus_cursor,
-            focus_mouse_pos,
-            affected_nodes_map.clone(),
-            is_forward,
-        );
-
-        // Also update the legacy selection state for backward compatibility with rendering
-        // For now, we just update the anchor's IFC root with the visible range
-        if let Some(anchor_range) = affected_nodes_map.get(&anchor.ifc_root_node_id) {
-            let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(anchor.ifc_root_node_id));
-            let dom_node_id = azul_core::dom::DomNodeId {
-                dom: dom_id,
-                node: node_hierarchy_id,
-            };
-
-            let state = SelectionState {
-                selections: vec![Selection::Range(*anchor_range)].into(),
-                node_id: dom_node_id,
-            };
-            self.text_edit_manager.selection_manager.set_selection(dom_id, state);
-        }
-
-        // Return affected nodes for dirty tracking
-        let affected_dom_nodes: Vec<azul_core::dom::DomNodeId> = affected_nodes_map.keys()
-            .map(|node_id| azul_core::dom::DomNodeId {
-                dom: dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-            })
-            .collect();
-
-        if affected_dom_nodes.is_empty() {
-            None
-        } else {
-            Some(affected_dom_nodes)
-        }
+        // TODO: redesign drag selection for multi-cursor model
+        None
     }
 
     /// Delete the currently selected text or one character at the cursor
@@ -6118,15 +5795,10 @@ impl LayoutWindow {
         // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
         let current_selections = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
             mc.to_selections()
+        } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
+            vec![Selection::Cursor(cursor)]
         } else {
-            let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
-            if !ranges.is_empty() {
-                ranges.iter().map(|r| Selection::Range(*r)).collect()
-            } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
-                vec![Selection::Cursor(cursor)]
-            } else {
-                return None;
-            }
+            return None;
         };
 
         let content = self.get_text_before_textinput(dom_id, node_id);
@@ -6144,9 +5816,6 @@ impl LayoutWindow {
             mc.update_from_edit_result(&new_selections);
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
-
-        self.text_edit_manager.selection_manager.clear_selection(&dom_id);
-        self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);
 
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
         self.regenerate_display_list_for_dom(dom_id);
@@ -6178,8 +5847,15 @@ impl LayoutWindow {
             text3::cache::ShapedItem,
         };
 
-        // Get selection ranges for this DOM
-        let ranges = self.text_edit_manager.selection_manager.get_ranges(dom_id);
+        // Get selection ranges — prefer multi-cursor ranges, fall back to legacy
+        let ranges = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
+            mc.selections.iter().filter_map(|s| match &s.selection {
+                azul_core::selection::Selection::Range(r) => Some(*r),
+                _ => None,
+            }).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         if ranges.is_empty() {
             return None;
         }

@@ -292,7 +292,11 @@ pub fn create_copy_changeset(
     let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
 
     // Get selection range for changeset
-    let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
+    let ranges: Vec<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
+        .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
+            azul_core::selection::Selection::Range(r) => Some(*r),
+            _ => None,
+        }).collect()).unwrap_or_default();
     let range = ranges.first()?;
 
     Some(TextChangeset::new(
@@ -320,7 +324,11 @@ pub fn create_cut_changeset(
     let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
 
     // Get selection range for changeset
-    let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
+    let ranges: Vec<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
+        .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
+            azul_core::selection::Selection::Range(r) => Some(*r),
+            _ => None,
+        }).collect()).unwrap_or_default();
     let range = ranges.first()?;
 
     // The logical cursor will be at the start of the deleted range
@@ -369,11 +377,11 @@ pub fn create_select_all_changeset(
     let node_id = target.node.into_crate_internal()?;
 
     // Get current selection (if any) for undo
-    let old_range = layout_window
-        .text_edit_manager.selection_manager
-        .get_ranges(dom_id)
-        .first()
-        .copied();
+    let old_range: Option<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
+        .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
+            azul_core::selection::Selection::Range(r) => Some(*r),
+            _ => None,
+        }));
 
     // Get the text content to determine end position
     let content = layout_window.get_text_before_textinput(*dom_id, node_id);
@@ -431,7 +439,11 @@ pub fn create_delete_selection_changeset(
     let node_id = target.node.into_crate_internal()?;
 
     // Get current selection/cursor
-    let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
+    let ranges: Vec<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
+        .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
+            azul_core::selection::Selection::Range(r) => Some(*r),
+            _ => None,
+        }).collect()).unwrap_or_default();
     let cursor = layout_window.text_edit_manager.get_primary_cursor();
 
     // Determine what to delete

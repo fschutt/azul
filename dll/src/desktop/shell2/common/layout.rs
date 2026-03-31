@@ -861,8 +861,7 @@ fn update_managers_with_node_moves(
         mc.remap_node_ids(dom_id, &node_id_map);
     }
     
-    // 4. Update SelectionManager
-    layout_window.text_edit_manager.selection_manager.remap_node_ids(dom_id, &node_id_map);
+    // 4. (SelectionManager removed — multi_cursor remap handled above in step 3)
 
     // 5. Update HoverManager (BUG-1 fix: hover histories contain NodeIds that must be remapped)
     layout_window.hover_manager.remap_node_ids(dom_id, &node_id_map);
