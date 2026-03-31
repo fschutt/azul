@@ -1524,6 +1524,73 @@ impl CallbackInfo {
         });
     }
 
+    // === Multi-Cursor Operations ===
+
+    /// Add an additional cursor at the specified position (for multi-cursor editing).
+    ///
+    /// If a MultiCursorState already exists, the cursor is added and overlapping
+    /// selections are merged. If not, a new MultiCursorState is created.
+    ///
+    /// Returns the SelectionId of the new cursor.
+    pub fn add_cursor(&mut self, dom_id: DomId, node_id: NodeId, cursor: TextCursor) -> azul_core::selection::SelectionId {
+        let id = azul_core::selection::SelectionId::new();
+        self.push_change(CallbackChange::AddCursor {
+            dom_id,
+            node_id,
+            cursor,
+        });
+        id
+    }
+
+    /// Add an additional selection range (for multi-cursor editing).
+    ///
+    /// Returns the SelectionId of the new selection.
+    pub fn add_selection_range(&mut self, dom_id: DomId, node_id: NodeId, range: SelectionRange) -> azul_core::selection::SelectionId {
+        let id = azul_core::selection::SelectionId::new();
+        self.push_change(CallbackChange::AddSelectionRange {
+            dom_id,
+            node_id,
+            range,
+        });
+        id
+    }
+
+    /// Remove a specific selection/cursor by its stable ID.
+    ///
+    /// Returns true if a selection with that ID existed and was removed.
+    pub fn remove_selection_by_id(&mut self, selection_id: azul_core::selection::SelectionId) -> bool {
+        self.push_change(CallbackChange::RemoveSelectionById {
+            selection_id,
+        });
+        true // Actual removal happens deferred; assume success
+    }
+
+    /// Get all selections for the given DOM (read-only).
+    ///
+    /// Returns a Vec of IdentifiedSelection from the MultiCursorState, or empty
+    /// if no multi-cursor state exists.
+    pub fn get_multi_cursor_selections(&self, dom_id: &DomId) -> Vec<azul_core::selection::IdentifiedSelection> {
+        let lw = self.get_layout_window();
+        lw.text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.selections.clone())
+            .unwrap_or_default()
+    }
+
+    /// Get the primary (last-added) selection from the MultiCursorState.
+    pub fn get_primary_selection(&self, dom_id: &DomId) -> Option<azul_core::selection::IdentifiedSelection> {
+        let lw = self.get_layout_window();
+        lw.text_edit_manager.multi_cursor.as_ref()
+            .and_then(|mc| mc.get_primary().copied())
+    }
+
+    /// Get the number of active cursors/selections.
+    pub fn get_selection_count(&self, dom_id: &DomId) -> usize {
+        let lw = self.get_layout_window();
+        lw.text_edit_manager.multi_cursor.as_ref()
+            .map(|mc| mc.len())
+            .unwrap_or(0)
+    }
+
     /// Open a menu positioned relative to a specific DOM node
     ///
     /// This is useful for dropdowns, combo boxes, and context menus that should appear

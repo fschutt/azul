@@ -4629,6 +4629,58 @@
                                 ],
                                 "fn_body": "object.insert_text(dom_id, node_id, text)"
                             },
+                            "add_cursor": {
+                                "doc": [
+                                    "Add an additional cursor at the specified position (multi-cursor editing).",
+                                    "",
+                                    "Returns the SelectionId of the new cursor."
+                                ],
+                                "fn_args": [
+                                    { "self": "refmut" },
+                                    { "dom_id": "DomId" },
+                                    { "node_id": "NodeId" },
+                                    { "cursor": "TextCursor" }
+                                ],
+                                "fn_body": "object.add_cursor(dom_id, node_id, cursor)",
+                                "returns": { "type": "SelectionId" }
+                            },
+                            "add_selection_range": {
+                                "doc": [
+                                    "Add an additional selection range (multi-cursor editing).",
+                                    "",
+                                    "Returns the SelectionId of the new selection."
+                                ],
+                                "fn_args": [
+                                    { "self": "refmut" },
+                                    { "dom_id": "DomId" },
+                                    { "node_id": "NodeId" },
+                                    { "range": "SelectionRange" }
+                                ],
+                                "fn_body": "object.add_selection_range(dom_id, node_id, range)",
+                                "returns": { "type": "SelectionId" }
+                            },
+                            "remove_selection_by_id": {
+                                "doc": [
+                                    "Remove a specific selection/cursor by its stable SelectionId."
+                                ],
+                                "fn_args": [
+                                    { "self": "refmut" },
+                                    { "selection_id": "SelectionId" }
+                                ],
+                                "fn_body": "object.remove_selection_by_id(selection_id)",
+                                "returns": { "type": "bool" }
+                            },
+                            "get_selection_count": {
+                                "doc": [
+                                    "Get the number of active cursors/selections in the MultiCursorState."
+                                ],
+                                "fn_args": [
+                                    { "self": "ref" },
+                                    { "dom_id": "DomId" }
+                                ],
+                                "fn_body": "object.get_selection_count(&dom_id)",
+                                "returns": { "type": "usize" }
+                            },
                             "open_menu_for_node": {
                                 "doc": [
                                     "Open a menu positioned relative to a specific DOM node",
@@ -13465,6 +13517,49 @@
                                 "SelectionColor"
                             ]
                         }
+                    },
+                    "SelectionId": {
+                        "external": "azul_core::selection::SelectionId",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IdentifiedSelection": {
+                        "external": "azul_core::selection::IdentifiedSelection",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "SelectionId"
+                                },
+                                "selection": {
+                                    "type": "Selection"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     },
                     "SelectionRange": {
                         "external": "azul_core::selection::SelectionRange",
