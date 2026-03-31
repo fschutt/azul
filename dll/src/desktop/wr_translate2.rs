@@ -530,6 +530,7 @@ pub fn convert_cpu_hit_test_to_full(
     hits: &[(DomId, NodeId)],
     old_focus_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    cursor_position: azul_core::geom::LogicalPosition,
 ) -> FullHitTest {
     use azul_core::hit_test::{HitTest, HitTestItem};
     use azul_core::dom::OptionDomNodeId;
@@ -542,6 +543,19 @@ pub fn convert_cpu_hit_test_to_full(
     let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
 
     for (depth, (dom_id, node_id)) in hits.iter().enumerate() {
+        // Compute point_relative_to_item from cursor position and node's absolute position
+        let point_relative = layout_results.get(dom_id)
+            .and_then(|lr| {
+                lr.layout_tree.dom_to_layout.get(node_id)
+                    .and_then(|indices| indices.first())
+                    .and_then(|&idx| lr.calculated_positions.get(idx))
+                    .map(|node_pos| azul_core::geom::LogicalPosition::new(
+                        cursor_position.x - node_pos.x,
+                        cursor_position.y - node_pos.y,
+                    ))
+            })
+            .unwrap_or(azul_core::geom::LogicalPosition::zero());
+
         let hit_test = hovered_nodes.entry(*dom_id).or_insert_with(|| HitTest {
             regular_hit_test_nodes: BTreeMap::new(),
             scroll_hit_test_nodes: BTreeMap::new(),
@@ -550,8 +564,8 @@ pub fn convert_cpu_hit_test_to_full(
         });
 
         hit_test.regular_hit_test_nodes.insert(*node_id, HitTestItem {
-            point_in_viewport: azul_core::geom::LogicalPosition::zero(),
-            point_relative_to_item: azul_core::geom::LogicalPosition::zero(),
+            point_in_viewport: cursor_position,
+            point_relative_to_item: point_relative,
             is_focusable: false,
             is_virtual_view_hit: None,
             hit_depth: depth as u32,

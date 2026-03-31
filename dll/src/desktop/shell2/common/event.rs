@@ -612,7 +612,7 @@ impl CommonWindowState {
             let layout_results = unsafe { &(*layout_results_ptr).layout_results };
             let nodes = cpu_ht.hit_test(position);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
-                &nodes, focused_node, layout_results,
+                &nodes, focused_node, layout_results, position,
             );
         }
 
