@@ -3099,6 +3099,37 @@ mod tests {
         assert_eq!(copy_changes.len(), 1, "Ctrl+C should generate CopyToClipboard");
     }
 
+    fn make_hit_test_with_node(node_idx: usize) -> crate::hit_test::FullHitTest {
+        use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
+        use crate::dom::OptionDomNodeId;
+        use std::collections::BTreeMap;
+
+        let node_id = NodeId::new(node_idx);
+        let dom_id = DomId { inner: 0 };
+
+        let mut regular = BTreeMap::new();
+        regular.insert(node_id, HitTestItem {
+            point_in_viewport: LogicalPosition::new(100.0, 200.0),
+            point_relative_to_item: LogicalPosition::new(50.0, 30.0),
+            is_focusable: true,
+            is_virtual_view_hit: None,
+            hit_depth: 0,
+        });
+
+        let mut hovered = BTreeMap::new();
+        hovered.insert(dom_id, HitTest {
+            regular_hit_test_nodes: regular,
+            scroll_hit_test_nodes: BTreeMap::new(),
+            scrollbar_hit_test_nodes: BTreeMap::new(),
+            cursor_hit_test_nodes: BTreeMap::new(),
+        });
+
+        FullHitTest {
+            hovered_nodes: hovered,
+            focused_node: OptionDomNodeId::None,
+        }
+    }
+
     #[test]
     fn mousedown_generates_text_selection_click() {
         let target = focused_node(2);
@@ -3114,23 +3145,20 @@ mod tests {
                 modifiers: KeyModifiers::default(),
             }),
         );
+        let hit_test = make_hit_test_with_node(2);
         let kb = KeyboardState::default();
         let mouse = MouseState::default();
         let sel = MockSelectionManager { click_count: 1, has_sel: false };
         let focus = MockFocusManager(Some(target));
 
         let result = pre_callback_filter_internal_events(
-            &[event], None, &kb, &mouse, &sel, &focus,
+            &[event], Some(&hit_test), &kb, &mouse, &sel, &focus,
         );
 
         let click_changes: Vec<_> = result.system_changes.iter()
             .filter(|c| matches!(c, SystemChange::TextSelectionClick { .. }))
             .collect();
 
-        // TextSelectionClick requires a hit_test (for get_first_hovered_node).
-        // Without a hit_test (None), no TextSelectionClick is generated.
-        // This documents the requirement: mouse events need hit_test data.
-        assert_eq!(click_changes.len(), 0,
-            "TextSelectionClick requires hit_test; None => no click change");
+        assert_eq!(click_changes.len(), 1, "MouseDown with hit_test should generate TextSelectionClick");
     }
 }
