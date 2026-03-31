@@ -179,7 +179,7 @@ fn main() {
             IdNamespace(0xFFFF),
             DomId::ROOT_ID,
             false,
-            None,
+            Vec::new(),
             None, // preedit_text
             &ImageCache::default(),
             None,

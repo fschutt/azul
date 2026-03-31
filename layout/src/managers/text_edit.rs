@@ -8,6 +8,8 @@
 //! another changes (e.g., click updates selection but not cursor, or arrow
 //! keys move cursor but don't regenerate display list).
 
+use azul_core::selection::MultiCursorState;
+
 use super::cursor::CursorManager;
 use super::selection::SelectionManager;
 
@@ -19,7 +21,12 @@ use super::selection::SelectionManager;
 pub struct TextEditManager {
     /// Cursor position, blink state, and IME preedit
     pub cursor_manager: CursorManager,
+    /// Multi-cursor state for contenteditable elements (Sublime Text style).
+    /// When `Some`, this is the active editing state; cursors/selections here
+    /// are the source of truth for `edit_text()` and display list painting.
+    pub multi_cursor: Option<MultiCursorState>,
     /// Selection ranges (legacy + anchor/focus model) and click state
+    /// for non-editable text (drag-select in read-only content).
     pub selection_manager: SelectionManager,
     /// Set to true by any mutation that changes visual output.
     /// The event loop checks this and calls `regenerate_display_list_for_dom()`.
@@ -35,6 +42,7 @@ impl Default for TextEditManager {
 impl PartialEq for TextEditManager {
     fn eq(&self, other: &Self) -> bool {
         self.cursor_manager == other.cursor_manager
+            && self.multi_cursor == other.multi_cursor
             && self.selection_manager == other.selection_manager
     }
 }
@@ -44,6 +52,7 @@ impl TextEditManager {
     pub fn new() -> Self {
         Self {
             cursor_manager: CursorManager::new(),
+            multi_cursor: None,
             selection_manager: SelectionManager::new(),
             display_list_dirty: false,
         }

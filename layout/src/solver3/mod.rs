@@ -215,10 +215,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// When false, the cursor is in the "off" phase of blinking and should not be rendered.
     /// When true (default), the cursor is visible.
     pub cursor_is_visible: bool,
-    /// Current cursor location from CursorManager (dom_id, node_id, cursor)
-    /// This is separate from selections - the cursor represents the text insertion point
-    /// in a contenteditable element and should be painted independently.
-    pub cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    /// All active cursor locations from MultiCursorState / CursorManager.
+    /// Each entry is (dom_id, node_id, cursor). Multiple entries = multi-cursor mode.
+    /// Empty = no active cursor. The last entry is the primary cursor.
+    pub cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
     /// IME preedit (composition) text to render inline at the cursor position.
     /// When Some, the text should be rendered with an underline decoration.
     pub preedit_text: Option<String>,
@@ -424,7 +424,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
     cursor_is_visible: bool,
-    cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
     preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -457,7 +457,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         viewport_size: viewport.size,
         fragmentation_context: None,
         cursor_is_visible,
-        cursor_location: cursor_location.clone(),
+        cursor_locations: cursor_locations.clone(),
         preedit_text: preedit_text.clone(),
         dirty_text_overrides: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
@@ -505,7 +505,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         viewport_size: viewport.size,
         fragmentation_context: None,
         cursor_is_visible,
-        cursor_location,
+        cursor_locations,
         preedit_text,
         dirty_text_overrides: BTreeMap::new(),
         cache_map, // Moved from LayoutCache; will be moved back after layout

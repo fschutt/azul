@@ -361,6 +361,86 @@ pub fn delete_forward(
     (content.to_vec(), *cursor)
 }
 
+/// Edit text with different text per selection (for N-lines-to-N-cursors paste).
+///
+/// Each selection gets its own text inserted. Selections are processed back-to-front
+/// to avoid index invalidation. Returns the new content and updated cursors.
+///
+/// # Panics
+///
+/// Panics if `texts.len() != selections.len()`.
+pub fn edit_text_multi(
+    content: &[InlineContent],
+    selections: &[Selection],
+    texts: &[&str],
+) -> (Vec<InlineContent>, Vec<Selection>) {
+    assert_eq!(
+        selections.len(),
+        texts.len(),
+        "edit_text_multi: selections and texts must have the same length"
+    );
+
+    if selections.is_empty() {
+        return (content.to_vec(), Vec::new());
+    }
+
+    let mut new_content = content.to_vec();
+    let mut new_selections = Vec::new();
+
+    // Pair selections with their text, sort back-to-front
+    let mut pairs: Vec<(Selection, &str)> = selections
+        .iter()
+        .copied()
+        .zip(texts.iter().copied())
+        .collect();
+    pairs.sort_by(|a, b| {
+        let cursor_a = match &a.0 {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => &r.start,
+        };
+        let cursor_b = match &b.0 {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => &r.start,
+        };
+        cursor_b.cluster_id.cmp(&cursor_a.cluster_id) // Reverse sort
+    });
+
+    for (selection, text) in &pairs {
+        let edit = TextEdit::Insert(text.to_string());
+        let (temp_content, new_cursor) =
+            apply_edit_to_selection(&new_content, selection, &edit);
+
+        let edit_run = match selection {
+            Selection::Cursor(c) => c.cluster_id.source_run,
+            Selection::Range(r) => r.start.cluster_id.source_run,
+        };
+        let edit_byte = match selection {
+            Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
+            Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
+        };
+
+        let byte_offset_change = text.len() as i32;
+
+        for prev_selection in new_selections.iter_mut() {
+            if let Selection::Cursor(cursor) = prev_selection {
+                if cursor.cluster_id.source_run == edit_run
+                    && cursor.cluster_id.start_byte_in_run >= edit_byte
+                {
+                    cursor.cluster_id.start_byte_in_run =
+                        (cursor.cluster_id.start_byte_in_run as i32 + byte_offset_change).max(0)
+                            as u32;
+                }
+            }
+        }
+
+        new_content = temp_content;
+        new_selections.push(Selection::Cursor(new_cursor));
+    }
+
+    new_selections.reverse();
+    (new_content, new_selections)
+}
+
 /// Inspect what would be deleted by a delete operation without actually deleting
 ///
 /// Returns (range_that_would_be_deleted, text_that_would_be_deleted).

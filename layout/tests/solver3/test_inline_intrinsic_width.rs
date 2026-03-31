@@ -89,7 +89,7 @@ mod inline_intrinsic_width_tests {
             azul_core::resources::IdNamespace(0),
             DomId::ROOT_ID,
             true,  // cursor_is_visible
-            None,  // cursor_location
+            Vec::new(),  // cursor_locations
             None,  // system_style
         );
 
@@ -202,7 +202,7 @@ mod inline_intrinsic_width_tests {
             azul_core::resources::IdNamespace(0),
             DomId::ROOT_ID,
             true,  // cursor_is_visible
-            None,  // cursor_location
+            Vec::new(),  // cursor_locations
             None,  // system_style
             azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         );
