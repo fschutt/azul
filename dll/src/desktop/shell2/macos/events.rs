@@ -428,8 +428,18 @@ impl MacOSWindow {
             focused
         );
 
-        // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        // Save previous state BEFORE making changes.
+        // For key repeats (holding a key down), macOS sends repeated keyDown events.
+        // To ensure the state-diff system detects each repeat as a new KeyDown,
+        // temporarily clear current_virtual_keycode in the snapshot so the diff
+        // sees None → Some(key) instead of Some(key) → Some(key).
+        let is_repeat = unsafe { event.isARepeat() };
+        let mut prev_snapshot = self.common.current_window_state.clone();
+        if is_repeat {
+            prev_snapshot.keyboard_state.current_virtual_keycode =
+                azul_core::window::OptionVirtualKeyCode::None;
+        }
+        self.common.previous_window_state = Some(prev_snapshot);
 
         // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);

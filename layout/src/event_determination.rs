@@ -1004,4 +1004,34 @@ mod tests {
         let mo: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseOver).collect();
         assert_eq!(mo.len(), 1);
     }
+
+    #[test]
+    fn key_repeat_fires_keydown_when_previous_cleared() {
+        // Simulates what the platform layer does for key repeat:
+        // previous has current_virtual_keycode=None (cleared by platform),
+        // current has Some(Left). This should fire KeyDown even though
+        // the key was already pressed in the previous frame.
+        let mut previous = state_with_key(VirtualKeyCode::Left);
+        // Platform clears this for repeat detection:
+        previous.keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+
+        let current = state_with_key(VirtualKeyCode::Left);
+
+        let events = run_determine(&current, &previous);
+        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        assert_eq!(kd.len(), 1, "Key repeat should fire KeyDown when previous is cleared");
+    }
+
+    #[test]
+    fn key_repeat_skipped_when_previous_not_cleared() {
+        // Without the platform fix: both previous and current have Same(Left).
+        // KeyDown should NOT fire (this documents the limitation that the
+        // platform layer MUST clear previous for repeats).
+        let previous = state_with_key(VirtualKeyCode::Left);
+        let current = state_with_key(VirtualKeyCode::Left);
+
+        let events = run_determine(&current, &previous);
+        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        assert_eq!(kd.len(), 0, "Without platform clearing, repeat is not detected");
+    }
 }

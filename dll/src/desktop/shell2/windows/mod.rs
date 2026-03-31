@@ -2757,12 +2757,19 @@ unsafe extern "system" fn window_proc(
             // Key pressed - similar to macOS handle_key_down
             let vk_code = wparam as u32;
             let scan_code = ((lparam >> 16) & 0xFF) as u32;
-            let _repeat_count = (lparam & 0xFFFF) as u16;
+            let repeat_count = (lparam & 0xFFFF) as u16;
+            let is_repeat = repeat_count > 1 || ((lparam >> 30) & 1) == 1; // bit 30 = previous key state
 
             // Translate virtual key to azul key
             if let Some(virtual_key) = win_event::vkey_to_winit_vkey(vk_code as i32) {
-                // Save previous state
-                window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                // Save previous state. For key repeats, clear current_virtual_keycode
+                // in the snapshot so the state-diff sees None → Some(key).
+                let mut prev_snapshot = window.common.current_window_state.clone();
+                if is_repeat {
+                    prev_snapshot.keyboard_state.current_virtual_keycode =
+                        azul_core::window::OptionVirtualKeyCode::None;
+                }
+                window.common.previous_window_state = Some(prev_snapshot);
 
                 // Update keyboard state
                 window

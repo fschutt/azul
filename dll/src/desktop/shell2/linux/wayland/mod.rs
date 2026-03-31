@@ -1464,8 +1464,22 @@ impl WaylandWindow {
         // Only process key press events (state == 1)
         let is_pressed = state == 1;
 
-        // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        // Save previous state BEFORE making changes.
+        // Detect key repeat: if the key is already in pressed_virtual_keycodes,
+        // clear current_virtual_keycode in the snapshot for state-diff detection.
+        let mut prev_snapshot = self.common.current_window_state.clone();
+        if is_pressed {
+            // We can't resolve the VK here yet (need XKB), but we can check
+            // pressed_scancodes. The evdev keycode maps 1:1 with scan codes.
+            let scan = key;
+            let already_pressed = self.common.current_window_state.keyboard_state
+                .pressed_scancodes.as_ref().iter().any(|s| *s == scan);
+            if already_pressed {
+                prev_snapshot.keyboard_state.current_virtual_keycode =
+                    azul_core::window::OptionVirtualKeyCode::None;
+            }
+        }
+        self.common.previous_window_state = Some(prev_snapshot);
 
         // Phase 2: OnFocus callback (delayed) - if we receive keyboard events, we must have focus
         // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard

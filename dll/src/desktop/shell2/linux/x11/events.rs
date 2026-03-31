@@ -435,8 +435,22 @@ impl X11Window {
             (Some(chars), Some(keysym))
         };
 
-        // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        // Save previous state BEFORE making changes.
+        // Detect key repeat: if the key is already in pressed_virtual_keycodes,
+        // this is a repeat. Clear current_virtual_keycode in the snapshot
+        // so the state-diff system sees None → Some(key).
+        let vk_for_repeat = keysym.and_then(keysym_to_virtual_keycode);
+        let is_repeat = is_down && vk_for_repeat.map(|vk| {
+            self.common.current_window_state.keyboard_state
+                .pressed_virtual_keycodes.as_ref().iter().any(|k| *k == vk)
+        }).unwrap_or(false);
+
+        let mut prev_snapshot = self.common.current_window_state.clone();
+        if is_repeat {
+            prev_snapshot.keyboard_state.current_virtual_keycode =
+                azul_core::window::OptionVirtualKeyCode::None;
+        }
+        self.common.previous_window_state = Some(prev_snapshot);
 
         // Record text input if we have a character and it's a key press
         if is_down {
