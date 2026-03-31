@@ -404,6 +404,22 @@ define_class!(
                 crate::desktop::shell2::common::debug_server::LogCategory::Input,
                 "[keyDown] keyCode={}", key_code
             );
+            // Route through interpretKeyEvents when editing — lets macOS handle
+            // IME composition (Ctrl+Space, dead keys, etc.) via NSTextInputClient.
+            let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                let w = &*(ptr as *const MacOSWindow);
+                w.common.layout_window.as_ref()
+            }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
+            if has_editing {
+                unsafe {
+                    let event_ptr = event as *const NSEvent as *mut NSEvent;
+                    let array = objc2_foundation::NSArray::from_retained_slice(&[
+                        objc2::rc::Retained::retain(event_ptr).unwrap()
+                    ]);
+                    self.interpretKeyEvents(&array);
+                }
+            }
+
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -630,7 +646,7 @@ define_class!(
         }
 
         // NSTextInputClient Protocol
-        // Basic IME support for Unicode composition (e.g., Japanese, Chinese, accented characters)
+        // IME support for Unicode composition (Japanese, Chinese, accented characters)
 
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
@@ -800,6 +816,8 @@ define_class!(
         }
     }
 );
+
+unsafe impl NSTextInputClient for GLView {}
 
 // CPUView - CPU rendering view
 
@@ -1094,6 +1112,22 @@ define_class!(
                 crate::desktop::shell2::common::debug_server::LogCategory::Input,
                 "[keyDown] keyCode={}", key_code
             );
+            // Route through interpretKeyEvents when editing — lets macOS handle
+            // IME composition (Ctrl+Space, dead keys, etc.) via NSTextInputClient.
+            let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                let w = &*(ptr as *const MacOSWindow);
+                w.common.layout_window.as_ref()
+            }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
+            if has_editing {
+                unsafe {
+                    let event_ptr = event as *const NSEvent as *mut NSEvent;
+                    let array = objc2_foundation::NSArray::from_retained_slice(&[
+                        objc2::rc::Retained::retain(event_ptr).unwrap()
+                    ]);
+                    self.interpretKeyEvents(&array);
+                }
+            }
+
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -1476,6 +1510,8 @@ define_class!(
         }
     }
 );
+
+unsafe impl NSTextInputClient for CPUView {}
 
 // GLView Helper Methods (outside define_class!)
 
