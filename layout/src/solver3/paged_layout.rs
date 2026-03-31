@@ -220,6 +220,7 @@ where
             cursor_is_visible: true,
             cursor_location: None,
             preedit_text: None,
+            dirty_text_overrides: BTreeMap::new(),
             cache_map: std::mem::take(&mut cache.cache_map),
             image_cache,
             system_style: None,
@@ -292,6 +293,7 @@ where
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         preedit_text: None,
+        dirty_text_overrides: BTreeMap::new(),
         cache_map: std::mem::take(&mut cache.cache_map),
         image_cache,
         system_style: None,
@@ -428,6 +430,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         preedit_text: None,
+        dirty_text_overrides: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(),
         image_cache,
         system_style: None,
@@ -486,6 +489,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         preedit_text: None,
+        dirty_text_overrides: BTreeMap::new(),
         cache_map,
         image_cache,
         system_style: None,

@@ -4863,6 +4863,22 @@ impl LayoutWindow {
         self.regenerate_display_list_for_dom(dom_id);
     }
 
+    /// Re-apply a dirty text node's content to the layout cache after a full DOM rebuild.
+    ///
+    /// Called by regenerate_layout() after layout_and_generate_display_list().
+    /// The layout just ran on the stale DOM text, so we re-shape the edited text
+    /// from dirty_text_nodes and update the inline layout result + display list.
+    pub fn reapply_dirty_text_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        let content = match self.dirty_text_nodes.get(&(dom_id, node_id)) {
+            Some(dirty) => dirty.content.clone(),
+            None => return,
+        };
+        // Re-run text shaping and update layout cache
+        self.update_text_cache_after_edit(dom_id, node_id, content);
+        // Regenerate display list with updated text
+        self.regenerate_display_list_for_dom(dom_id);
+    }
+
     /// Regenerate the display list for a specific DOM from the current layout tree.
     ///
     /// This is the critical missing piece for text input: after `update_text_cache_after_edit`

@@ -106,6 +106,7 @@ const char* CSS_STYLE =
     "    color: #ffffff;\n"
     "    border: 3px solid #555555;\n"
     "    height: 80px;\n"
+    "    flex-shrink: 0;\n"
     "    overflow: hidden;\n"
     "    white-space: nowrap;\n"
     "    cursor: text;\n"

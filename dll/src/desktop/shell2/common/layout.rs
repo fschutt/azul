@@ -276,6 +276,15 @@ pub fn regenerate_layout(
         );
     }
 
+    // NOTE: dirty_text_nodes is NOT applied to the StyledDom here.
+    // The V3 architecture has two paths:
+    //   - Initial Layout Path: reads from StyledDom (committed state from layout callback)
+    //   - Relayout Path: reads from dirty_text_nodes (optimistic edits in LayoutCache)
+    // The DOM text is intentionally stale. After layout_and_generate_display_list
+    // runs on the new DOM, update_text_cache_after_edit will be called for each
+    // dirty_text_node to patch the LayoutCache with the edited content.
+    // dirty_text_nodes keys are remapped in update_managers_with_node_moves (step 8).
+
     log_debug!(
         LogCategory::Layout,
         "[regenerate_layout] StyledDom: {} nodes, {} hierarchy",
@@ -401,6 +410,20 @@ pub fn regenerate_layout(
     // resizing back to the original dimensions would be a no-op because
     // the stale layout_window.current_window_state still held the old size.
     layout_window.current_window_state = current_window_state.clone();
+
+    // V3 ARCHITECTURE: Re-apply dirty_text_nodes to the layout cache.
+    // The layout just ran on the stale DOM text (from the layout callback).
+    // Now patch the layout cache with the edited text from dirty_text_nodes
+    // so the display list shows the correct (edited) content.
+    // This calls update_text_cache_after_edit for each dirty node, which
+    // re-shapes the text and regenerates the inline layout result.
+    let dirty_entries: Vec<_> = layout_window.dirty_text_nodes.keys().cloned().collect();
+    for (dom_id, node_id) in dirty_entries {
+        // update_text_cache_after_edit reads from dirty_text_nodes internally
+        // (via get_text_before_textinput which checks dirty_text_nodes first)
+        // and updates the inline_layout_result in the layout tree.
+        layout_window.reapply_dirty_text_node(dom_id, node_id);
+    }
 
     log_debug!(
         LogCategory::Layout,
@@ -847,6 +870,23 @@ fn update_managers_with_node_moves(
 
     // 7. Update FocusManager pending contenteditable focus (BUG-3 fix)
     layout_window.focus_manager.remap_pending_focus_node_ids(dom_id, &node_id_map);
+
+    // 8. Remap and apply dirty_text_nodes to preserve text edits across DOM rebuilds.
+    // The user's layout callback returns the original text, but if we have edits
+    // in dirty_text_nodes, we need to patch the new StyledDom with the edited content.
+    {
+        let mut new_dirty = std::collections::BTreeMap::new();
+        for ((old_dom, old_node), content) in layout_window.dirty_text_nodes.iter() {
+            if *old_dom == dom_id {
+                if let Some(&new_node_id) = node_id_map.get(old_node) {
+                    new_dirty.insert((*old_dom, new_node_id), content.clone());
+                }
+            } else {
+                new_dirty.insert((*old_dom, *old_node), content.clone());
+            }
+        }
+        layout_window.dirty_text_nodes = new_dirty;
+    }
 }
 
 /// Helper function to generate WebRender frame
