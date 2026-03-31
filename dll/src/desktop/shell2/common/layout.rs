@@ -856,8 +856,10 @@ fn update_managers_with_node_moves(
     // The ScrollManager tracks scroll offsets by DomNodeId, which also needs to be updated
     layout_window.scroll_manager.remap_node_ids(dom_id, &node_id_map);
     
-    // 3. Update CursorManager (text cursor position)
-    layout_window.text_edit_manager.cursor_manager.remap_node_ids(dom_id, &node_id_map);
+    // 3. Update MultiCursorState node IDs
+    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+        mc.remap_node_ids(dom_id, &node_id_map);
+    }
     
     // 4. Update SelectionManager
     layout_window.text_edit_manager.selection_manager.remap_node_ids(dom_id, &node_id_map);

@@ -200,8 +200,23 @@ impl ContentEditableHarness {
             found.unwrap_or(node_id)
         };
 
-        lw.text_edit_manager.cursor_manager.initialize_cursor_at_end(dom_id, text_child_id, text_layout.as_ref());
-        lw.text_edit_manager.cursor_manager.set_visibility(true);
+        // Compute cursor at end of text
+        let cursor = text_layout.as_ref()
+            .and_then(|layout| {
+                layout.items.iter().rev()
+                    .find_map(|item| if let azul_layout::text3::cache::ShapedItem::Cluster(c) = &item.item {
+                        Some(azul_core::selection::TextCursor {
+                            cluster_id: c.source_cluster_id,
+                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                        })
+                    } else { None })
+            })
+            .unwrap_or(azul_core::selection::TextCursor {
+                cluster_id: azul_core::selection::GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                affinity: azul_core::selection::CursorAffinity::Trailing,
+            });
+        lw.text_edit_manager.initialize_editing(cursor, dom_id, text_child_id, 0);
+        lw.text_edit_manager.blink.set_visibility(true);
     }
 
     /// Simulate text input on the currently focused node.
@@ -280,7 +295,7 @@ impl ContentEditableHarness {
     /// Get cursor byte offset from cursor manager (start_byte_in_run)
     fn get_cursor_byte_offset(&self) -> Option<u32> {
         let lw = self.layout_window.as_ref().unwrap();
-        lw.text_edit_manager.cursor_manager.get_cursor().map(|c| c.cluster_id.start_byte_in_run)
+        lw.text_edit_manager.get_primary_cursor().map(|c| c.cluster_id.start_byte_in_run)
     }
 
     /// Get focused node
@@ -468,15 +483,15 @@ fn contenteditable_text_input_changes_output() {
     // Verify 5: display list should contain a CursorRect after text input
     let has_cursor = h.has_cursor_rect();
     let lw = h.layout_window.as_ref().unwrap();
-    let draw_cursor = lw.text_edit_manager.cursor_manager.should_draw_cursor();
-    let cursor_loc = lw.text_edit_manager.cursor_manager.get_cursor_location();
-    eprintln!("  [verify] should_draw_cursor={}, cursor_location={:?}, has CursorRect: {}",
-        draw_cursor, cursor_loc, has_cursor);
+    let draw_cursor = lw.text_edit_manager.should_draw_cursor();
+    let cursor_loc = lw.text_edit_manager.multi_cursor.as_ref();
+    eprintln!("  [verify] should_draw_cursor={}, multi_cursor={:?}, has CursorRect: {}",
+        draw_cursor, cursor_loc.map(|mc| &mc.node_id), has_cursor);
     if !has_cursor {
         eprintln!("  [DEBUG] Dumping layout tree:");
         h.dump_layout_tree();
     }
-    assert!(has_cursor, "CursorRect must appear in display list after focus + text input (should_draw_cursor={}, cursor_location={:?})", draw_cursor, cursor_loc);
+    assert!(has_cursor, "CursorRect must appear in display list after focus + text input (should_draw_cursor={}, multi_cursor={:?})", draw_cursor, cursor_loc.is_some());
 
     // Verify 6: rendered frames differ visually
     let frame2 = h.render();

@@ -3783,7 +3783,7 @@ impl WaylandWindow {
     /// Called after every layout pass.
     fn sync_text_input_v3_focus_state(&mut self) {
         let has_contenteditable_focus = self.common.layout_window.as_ref()
-            .map(|lw| lw.text_edit_manager.cursor_manager.cursor_location.is_some())
+            .map(|lw| lw.text_edit_manager.has_active_editing())
             .unwrap_or(false);
 
         if has_contenteditable_focus && !self.text_input_enabled {
@@ -3803,7 +3803,7 @@ impl WaylandWindow {
         // Get the text content and cursor offset from the focused contenteditable
         let (text, cursor_byte, anchor_byte) = match self.common.layout_window.as_ref() {
             Some(lw) => {
-                let cursor_offset = lw.text_edit_manager.cursor_manager.cursor.as_ref()
+                let cursor_offset = lw.text_edit_manager.get_primary_cursor()
                     .map(|c| c.cluster_id.start_byte_in_run as i32)
                     .unwrap_or(0);
                 // Send empty string with cursor at 0 — the IME works without
@@ -3903,7 +3903,7 @@ impl WaylandWindow {
             self.text_input_enabled = false;
             // Clear preedit state
             if let Some(ref mut lw) = self.common.layout_window {
-                lw.text_edit_manager.cursor_manager.clear_preedit();
+                lw.text_edit_manager.clear_preedit();
             }
             log_debug!(
                 LogCategory::Platform,

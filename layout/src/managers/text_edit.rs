@@ -16,7 +16,6 @@ use azul_core::{
     task::Instant,
 };
 
-use super::cursor::CursorManager;
 use super::selection::SelectionManager;
 
 /// Default cursor blink interval in milliseconds
@@ -98,12 +97,10 @@ impl BlinkState {
 /// Unified text editing manager.
 ///
 /// `multi_cursor` is the single source of truth for cursor/selection positions.
-/// `cursor_manager` is kept temporarily for backward compatibility during migration
-/// — it will be removed once all call sites are migrated to the new API.
+/// `blink` manages the caret blink animation.
+/// `selection_manager` handles non-editable text drag-select only.
 #[derive(Debug, Clone)]
 pub struct TextEditManager {
-    /// Legacy cursor manager — kept during migration. Will be removed.
-    pub cursor_manager: CursorManager,
     /// Multi-cursor state for contenteditable elements (Sublime Text style).
     /// `Some` whenever a contenteditable element has focus.
     /// Source of truth for `edit_text()` and display list painting.
@@ -132,8 +129,7 @@ impl Default for TextEditManager {
 
 impl PartialEq for TextEditManager {
     fn eq(&self, other: &Self) -> bool {
-        self.cursor_manager == other.cursor_manager
-            && self.multi_cursor == other.multi_cursor
+        self.multi_cursor == other.multi_cursor
             && self.selection_manager == other.selection_manager
     }
 }
@@ -142,7 +138,6 @@ impl TextEditManager {
     /// Create a new text edit manager with no active editing state
     pub fn new() -> Self {
         Self {
-            cursor_manager: CursorManager::new(),
             multi_cursor: None,
             blink: BlinkState::new(),
             preedit_text: None,

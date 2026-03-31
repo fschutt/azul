@@ -3476,8 +3476,8 @@ impl CallbackInfo {
         let selection =
             if let Some(range) = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id).first() {
                 Selection::Range(*range)
-            } else if let Some(cursor) = layout_window.text_edit_manager.cursor_manager.get_cursor() {
-                Selection::Cursor(*cursor)
+            } else if let Some(cursor) = layout_window.text_edit_manager.get_primary_cursor() {
+                Selection::Cursor(cursor)
             } else {
                 return None; // No cursor or selection
             };
@@ -3651,7 +3651,7 @@ impl CallbackInfo {
             return None;
         }
 
-        layout_window.text_edit_manager.cursor_manager.get_cursor().copied()
+        layout_window.text_edit_manager.get_primary_cursor()
     }
 
     /// Get the current selection ranges in a node
@@ -3691,17 +3691,17 @@ impl CallbackInfo {
     /// * `target` - The node containing the cursor
     pub fn inspect_move_cursor_left(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
         // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_left(*cursor, &mut None);
+        let new_cursor = layout.move_cursor_left(cursor, &mut None);
 
         // Only return if cursor actually moved
-        if new_cursor != *cursor {
+        if new_cursor != cursor {
             Some(new_cursor)
         } else {
             None
@@ -3714,17 +3714,17 @@ impl CallbackInfo {
     /// Returns None if the cursor is already at the end of the document.
     pub fn inspect_move_cursor_right(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
         // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_right(*cursor, &mut None);
+        let new_cursor = layout.move_cursor_right(cursor, &mut None);
 
         // Only return if cursor actually moved
-        if new_cursor != *cursor {
+        if new_cursor != cursor {
             Some(new_cursor)
         } else {
             None
@@ -3737,7 +3737,7 @@ impl CallbackInfo {
     /// Returns None if the cursor is already on the first line.
     pub fn inspect_move_cursor_up(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3745,10 +3745,10 @@ impl CallbackInfo {
 
         // Use the text3::cache cursor movement logic
         // goal_x maintains horizontal position when moving vertically
-        let new_cursor = layout.move_cursor_up(*cursor, &mut None, &mut None);
+        let new_cursor = layout.move_cursor_up(cursor, &mut None, &mut None);
 
         // Only return if cursor actually moved
-        if new_cursor != *cursor {
+        if new_cursor != cursor {
             Some(new_cursor)
         } else {
             None
@@ -3761,7 +3761,7 @@ impl CallbackInfo {
     /// Returns None if the cursor is already on the last line.
     pub fn inspect_move_cursor_down(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
@@ -3769,10 +3769,10 @@ impl CallbackInfo {
 
         // Use the text3::cache cursor movement logic
         // goal_x maintains horizontal position when moving vertically
-        let new_cursor = layout.move_cursor_down(*cursor, &mut None, &mut None);
+        let new_cursor = layout.move_cursor_down(cursor, &mut None, &mut None);
 
         // Only return if cursor actually moved
-        if new_cursor != *cursor {
+        if new_cursor != cursor {
             Some(new_cursor)
         } else {
             None
@@ -3784,14 +3784,14 @@ impl CallbackInfo {
     /// Returns the cursor position at the start of the current line.
     pub fn inspect_move_cursor_to_line_start(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
         // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_to_line_start(*cursor, &mut None);
+        let new_cursor = layout.move_cursor_to_line_start(cursor, &mut None);
 
         // Always return the result (might be same as input if already at line start)
         Some(new_cursor)
@@ -3802,14 +3802,14 @@ impl CallbackInfo {
     /// Returns the cursor position at the end of the current line.
     pub fn inspect_move_cursor_to_line_end(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
         // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
         // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_to_line_end(*cursor, &mut None);
+        let new_cursor = layout.move_cursor_to_line_end(cursor, &mut None);
 
         // Always return the result (might be same as input if already at line end)
         Some(new_cursor)

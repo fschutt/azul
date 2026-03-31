@@ -472,6 +472,27 @@ impl MultiCursorState {
         }
         self.merge_overlapping();
     }
+
+    /// Remap the NodeId in `node_id` after DOM reconciliation.
+    ///
+    /// If the node was removed (not in the map), the multi-cursor state is cleared.
+    pub fn remap_node_ids(
+        &mut self,
+        dom_id: DomId,
+        node_id_map: &alloc::collections::BTreeMap<crate::dom::NodeId, crate::dom::NodeId>,
+    ) {
+        if self.node_id.dom != dom_id {
+            return;
+        }
+        if let Some(old_node_id) = self.node_id.node.into_crate_internal() {
+            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                self.node_id.node = crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
+            } else {
+                // Node removed — clear selections
+                self.selections.clear();
+            }
+        }
+    }
 }
 
 /// Helper: get the start position of a Selection for sorting.

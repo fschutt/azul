@@ -506,7 +506,7 @@ impl MacOSWindow {
         let focused = self.common.layout_window.as_ref()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
         let has_cursor = self.common.layout_window.as_ref()
-            .map(|lw| lw.text_edit_manager.cursor_manager.cursor_location.is_some())
+            .map(|lw| lw.text_edit_manager.has_active_editing())
             .unwrap_or(false);
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,

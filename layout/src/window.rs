@@ -702,15 +702,16 @@ impl LayoutWindow {
         if result.is_ok() {
             // Use catch_unwind to prevent a11y panics from crashing the main application
             // Build cursor info for a11y if we have a cursor in a contenteditable
-            let cursor_a11y_info = self.text_edit_manager.cursor_manager.cursor_location.as_ref().map(|loc| {
-                let offset = self.text_edit_manager.cursor_manager.cursor.as_ref()
+            let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
+                let node_id = mc.node_id.node.into_crate_internal()?;
+                let offset = mc.get_primary_cursor()
                     .map(|c| c.cluster_id.start_byte_in_run as usize)
                     .unwrap_or(0);
-                crate::managers::a11y::CursorA11yInfo {
-                    dom_id: loc.dom_id,
-                    node_id: loc.node_id,
+                Some(crate::managers::a11y::CursorA11yInfo {
+                    dom_id: mc.node_id.dom,
+                    node_id,
                     cursor_offset: offset,
-                }
+                })
             });
 
             let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1791,10 +1792,10 @@ impl LayoutWindow {
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
 
-        let interval_ms = crate::managers::cursor::CURSOR_BLINK_INTERVAL_MS;
+        let interval_ms = crate::managers::text_edit::CURSOR_BLINK_INTERVAL_MS;
 
         // Create a RefAny with a unit type - the timer callback doesn't need any data
-        // The actual cursor state is in LayoutWindow.cursor_manager
+        // The actual cursor state is in LayoutWindow.text_edit_manager.multi_cursor / blink
         let refany = RefAny::new(());
 
         Timer {
@@ -1882,7 +1883,7 @@ impl LayoutWindow {
         };
 
         // Determine the action based on current state and new focus
-        let timer_was_active = self.text_edit_manager.cursor_manager.is_blink_timer_active();
+        let timer_was_active = self.text_edit_manager.blink.is_blink_timer_active();
 
         if let Some((dom_id, container_node_id, text_node_id)) = contenteditable_info {
 
@@ -1896,8 +1897,8 @@ impl LayoutWindow {
 
             // Make cursor visible and record current time (even before actual initialization)
             let now = azul_core::task::Instant::now();
-            self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
-            self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
+            self.text_edit_manager.blink.reset_blink_on_input(now);
+            self.text_edit_manager.blink.set_blink_timer_active(true);
 
             if !timer_was_active {
                 // Need to start the timer
@@ -1911,12 +1912,12 @@ impl LayoutWindow {
             // Focus is moving away from contenteditable or being cleared
 
             // Clear the cursor AND the pending focus flag
-            self.text_edit_manager.cursor_manager.clear();
+            self.text_edit_manager.clear_editing();
             self.focus_manager.clear_pending_contenteditable_focus();
 
             if timer_was_active {
                 // Need to stop the timer
-                self.text_edit_manager.cursor_manager.set_blink_timer_active(false);
+                self.text_edit_manager.blink.set_blink_timer_active(false);
                 return CursorBlinkTimerAction::Stop;
             } else {
                 return CursorBlinkTimerAction::NoChange;
@@ -1956,8 +1957,8 @@ impl LayoutWindow {
         // the cursor in this node during the same event cycle, don't override it
         // with initialize_cursor_at_end. The click handler sets cursor on the IFC
         // root node (may differ from text_node_id), so check both.
-        if self.text_edit_manager.cursor_manager.is_cursor_in_node(pending.dom_id, pending.text_node_id)
-            || self.text_edit_manager.cursor_manager.is_cursor_in_node(pending.dom_id, pending.container_node_id)
+        if self.text_edit_manager.multi_cursor.as_ref().map(|mc| mc.node_id.dom == pending.dom_id && mc.node_id.node.into_crate_internal() == Some(pending.text_node_id)).unwrap_or(false)
+            || self.text_edit_manager.multi_cursor.as_ref().map(|mc| mc.node_id.dom == pending.dom_id && mc.node_id.node.into_crate_internal() == Some(pending.container_node_id)).unwrap_or(false)
         {
             return true;
         }
@@ -1966,11 +1967,23 @@ impl LayoutWindow {
         let text_layout = self.get_inline_layout_for_node(pending.dom_id, pending.text_node_id).cloned();
 
         // Initialize cursor at end of text
-        self.text_edit_manager.cursor_manager.initialize_cursor_at_end(
-            pending.dom_id,
-            pending.text_node_id,
-            text_layout.as_ref(),
-        )
+        // Get the last cluster cursor from text layout
+        let cursor = text_layout.as_ref()
+            .and_then(|layout| {
+                layout.items.iter().rev()
+                    .find_map(|item| if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
+                        Some(azul_core::selection::TextCursor {
+                            cluster_id: c.source_cluster_id,
+                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                        })
+                    } else { None })
+            })
+            .unwrap_or(azul_core::selection::TextCursor {
+                cluster_id: azul_core::selection::GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                affinity: azul_core::selection::CursorAffinity::Trailing,
+            });
+        self.text_edit_manager.initialize_editing(cursor, pending.dom_id, pending.text_node_id, 0);
+        true
     }
 
     /// Helper: Get inline layout for a node
@@ -2006,13 +2019,13 @@ impl LayoutWindow {
     where
         F: FnOnce(&UnifiedLayout, &TextCursor) -> TextCursor,
     {
-        let current_cursor = self.text_edit_manager.cursor_manager.get_cursor()?;
+        let current_cursor = self.text_edit_manager.get_primary_cursor()?;
         let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
 
-        let new_cursor = movement_fn(layout, current_cursor);
+        let new_cursor = movement_fn(layout, &current_cursor);
 
         // Only return if cursor actually moved
-        if new_cursor != *current_cursor {
+        if new_cursor != current_cursor {
             Some(new_cursor)
         } else {
             None
@@ -2032,9 +2045,9 @@ impl LayoutWindow {
         new_cursor: TextCursor,
         extend_selection: bool,
     ) {
-        // Update legacy cursor manager (always, for compat)
+        // Update multi_cursor with the new cursor position
         if extend_selection {
-            if let Some(old_cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
+            if let Some(old_cursor) = self.text_edit_manager.get_primary_cursor() {
                 let dom_node_id = azul_core::dom::DomNodeId {
                     dom: dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -2042,18 +2055,20 @@ impl LayoutWindow {
                 let selection_range = if new_cursor.cluster_id.start_byte_in_run
                     < old_cursor.cluster_id.start_byte_in_run
                 {
-                    SelectionRange { start: new_cursor, end: *old_cursor }
+                    SelectionRange { start: new_cursor, end: old_cursor }
                 } else {
-                    SelectionRange { start: *old_cursor, end: new_cursor }
+                    SelectionRange { start: old_cursor, end: new_cursor }
                 };
                 self.text_edit_manager.selection_manager
                     .set_range(dom_id, dom_node_id, selection_range);
             }
-            self.text_edit_manager.cursor_manager
-                .move_cursor_to(new_cursor, dom_id, node_id);
+            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                mc.set_single_cursor(new_cursor);
+            }
         } else {
-            self.text_edit_manager.cursor_manager
-                .move_cursor_to(new_cursor, dom_id, node_id);
+            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                mc.set_single_cursor(new_cursor);
+            }
             self.text_edit_manager.selection_manager.clear_selection(&dom_id);
         }
 
@@ -2071,15 +2086,10 @@ impl LayoutWindow {
     ) {
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.move_all_cursors(extend_selection, &move_fn);
-            // Sync primary cursor to legacy cursor manager
-            if let Some(primary) = mc.get_primary_cursor() {
-                self.text_edit_manager.cursor_manager
-                    .move_cursor_to(primary, dom_id, node_id);
-            }
         } else {
-            // Single cursor fallback
-            if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
-                let new_cursor = move_fn(cursor);
+            // Single cursor fallback via get_primary_cursor
+            if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
+                let new_cursor = move_fn(&cursor);
                 self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
                 return;
             }
@@ -2505,7 +2515,7 @@ impl LayoutWindow {
         let focused_node = self.focus_manager.focused_node?;
 
         // Get the text cursor
-        let cursor = self.text_edit_manager.cursor_manager.get_cursor()?;
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
 
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
@@ -2523,7 +2533,7 @@ impl LayoutWindow {
         let inline_layout = &cached_layout.layout;
 
         // Get the cursor rect in node-relative coordinates
-        let mut cursor_rect = inline_layout.get_cursor_rect(cursor)?;
+        let mut cursor_rect = inline_layout.get_cursor_rect(&cursor)?;
 
         // Get the calculated layout position from cache (already in logical units)
         let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
@@ -3797,19 +3807,26 @@ impl LayoutWindow {
                             // Get inline layout for cursor positioning
                             // Clone the Arc to avoid borrow conflict
                             let inline_layout = self.get_inline_layout_for_node(dom_id, node_id).cloned();
-                            if inline_layout.is_some() {
-                                self.text_edit_manager.cursor_manager.initialize_cursor_at_end(
-                                    dom_id,
-                                    node_id,
-                                    inline_layout.as_ref(),
-                                );
+                            if let Some(ref layout) = inline_layout {
+                                let cursor = layout.items.iter().rev()
+                                    .find_map(|item| if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
+                                        Some(azul_core::selection::TextCursor {
+                                            cluster_id: c.source_cluster_id,
+                                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                                        })
+                                    } else { None })
+                                    .unwrap_or(azul_core::selection::TextCursor {
+                                        cluster_id: azul_core::selection::GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                                        affinity: azul_core::selection::CursorAffinity::Trailing,
+                                    });
+                                self.text_edit_manager.initialize_editing(cursor, dom_id, node_id, 0);
 
                                 // Scroll cursor into view if necessary
                                 self.scroll_cursor_into_view_if_needed(dom_id, node_id, now);
                             }
                         } else {
                             // Not editable - clear cursor
-                            self.text_edit_manager.cursor_manager.clear();
+                            self.text_edit_manager.clear_editing();
                         }
                     }
                 }
@@ -3819,7 +3836,7 @@ impl LayoutWindow {
             }
             AccessibilityAction::Blur => {
                 self.focus_manager.clear_focus();
-                self.text_edit_manager.cursor_manager.clear();
+                self.text_edit_manager.clear_editing();
             }
             AccessibilityAction::SetSequentialFocusNavigationStartingPoint => {
                 let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -3829,7 +3846,7 @@ impl LayoutWindow {
                 };
                 self.focus_manager.set_focused_node(Some(dom_node_id));
                 // Clear cursor for focus navigation
-                self.text_edit_manager.cursor_manager.clear();
+                self.text_edit_manager.clear_editing();
             }
 
             // Scroll actions
@@ -4199,7 +4216,9 @@ impl LayoutWindow {
 
                         if start == end {
                             // Same position - just set cursor
-                            self.text_edit_manager.cursor_manager.move_cursor_to(start, dom_id, node_id);
+                            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                                mc.set_single_cursor(start);
+                            }
 
                             // Clear any existing selections
                             self.text_edit_manager.selection_manager.clear_selection(&dom_id);
@@ -4217,7 +4236,9 @@ impl LayoutWindow {
                                 .set_selection(dom_id, selection_state);
 
                             // Also set cursor to start of selection
-                            self.text_edit_manager.cursor_manager.move_cursor_to(start, dom_id, node_id);
+                            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                                mc.set_single_cursor(start);
+                            }
                         }
                     } else {
                         // Could not convert byte offsets to cursors - silently ignore
@@ -4393,8 +4414,8 @@ impl LayoutWindow {
             let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
             if let Some(range) = ranges.first() {
                 vec![Selection::Range(*range)]
-            } else if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
-                vec![Selection::Cursor(*cursor)]
+            } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
+                vec![Selection::Cursor(cursor)]
             } else {
                 vec![Selection::Cursor(TextCursor {
                     cluster_id: GraphemeClusterId {
@@ -4443,15 +4464,7 @@ impl LayoutWindow {
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.update_from_edit_result(&new_selections);
         }
-        // Also update legacy cursor manager (for single-cursor compatibility)
-        if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
-            let cursor_node = self.text_edit_manager.cursor_manager
-                .get_cursor_location()
-                .map(|loc| loc.node_id)
-                .unwrap_or(node_id);
-            self.text_edit_manager.cursor_manager
-                .move_cursor_to(*new_cursor, dom_id, cursor_node);
-        }
+        // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
         // Clear selection state after text edit — typing always collapses selection
         self.text_edit_manager.selection_manager.clear_selection(&dom_id);
@@ -4756,7 +4769,7 @@ impl LayoutWindow {
         use crate::solver3::layout_tree::CachedInlineLayout;
 
         // 1. Store the new content in dirty_text_nodes for tracking
-        let cursor = self.text_edit_manager.cursor_manager.get_cursor().cloned();
+        let cursor = self.text_edit_manager.get_primary_cursor();
         self.dirty_text_nodes.insert(
             (dom_id, node_id),
             DirtyTextNode {
@@ -5126,8 +5139,8 @@ impl LayoutWindow {
         node_id: NodeId,
         now: std::time::Instant,
     ) {
-        // Get the cursor from CursorManager
-        let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() else {
+        // Get the cursor from multi_cursor
+        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
             return;
         };
 
@@ -5137,7 +5150,7 @@ impl LayoutWindow {
         };
 
         // Get the cursor rectangle from the text layout
-        let Some(cursor_rect) = inline_layout.get_cursor_rect(cursor) else {
+        let Some(cursor_rect) = inline_layout.get_cursor_rect(&cursor) else {
             return;
         };
 
@@ -5322,34 +5335,36 @@ impl LayoutWindow {
             .map(|c| c.clone_layout())
     }
 
-    /// Sync cursor from CursorManager to SelectionManager for rendering
+    /// Sync cursor from multi_cursor to SelectionManager for rendering
     ///
     /// The renderer expects cursor and selection data from the SelectionManager,
-    /// but we manage the cursor separately in the CursorManager for better separation
+    /// but we manage the cursor in multi_cursor for better separation
     /// of concerns. This function syncs the cursor state so it can be rendered.
     ///
     /// This should be called whenever the cursor changes.
     pub fn sync_cursor_to_selection_manager(&mut self) {
-        if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
-            if let Some(location) = self.text_edit_manager.cursor_manager.get_cursor_location() {
-                // Convert cursor to Selection
-                let selection = Selection::Cursor(cursor.clone());
+        if let Some(ref mc) = self.text_edit_manager.multi_cursor {
+            if let Some(cursor) = mc.get_primary_cursor() {
+                if let Some(node_id) = mc.node_id.node.into_crate_internal() {
+                    // Convert cursor to Selection
+                    let selection = Selection::Cursor(cursor);
 
-                // Create SelectionState
-                let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(location.node_id));
-                let dom_node_id = DomNodeId {
-                    dom: location.dom_id,
-                    node: hierarchy_id,
-                };
+                    // Create SelectionState
+                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                    let dom_node_id = DomNodeId {
+                        dom: mc.node_id.dom,
+                        node: hierarchy_id,
+                    };
 
-                let selection_state = SelectionState {
-                    selections: vec![selection].into(),
-                    node_id: dom_node_id,
-                };
+                    let selection_state = SelectionState {
+                        selections: vec![selection].into(),
+                        node_id: dom_node_id,
+                    };
 
-                // Set selection in SelectionManager
-                self.text_edit_manager.selection_manager
-                    .set_selection(location.dom_id, selection_state);
+                    // Set selection in SelectionManager
+                    self.text_edit_manager.selection_manager
+                        .set_selection(mc.node_id.dom, selection_state);
+                }
             }
         }
         // NOTE: We intentionally do NOT clear selections when there's no cursor.
@@ -5760,12 +5775,7 @@ impl LayoutWindow {
         let now = azul_core::task::Instant::now();
         self.text_edit_manager.blink.reset_blink_on_input(now.clone());
         self.text_edit_manager.blink.set_blink_timer_active(true);
-        // Also sync to legacy CursorManager (temporary, removed in Phase 3)
-        self.text_edit_manager.cursor_manager.move_cursor_to(
-            final_range.start, dom_id, ifc_root_node_id,
-        );
-        self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
-        self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
+        // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
         // Regenerate display list so cursor appears at the clicked position
         // (same pattern as handle_cursor_movement and apply_text_changeset)
@@ -6020,8 +6030,8 @@ impl LayoutWindow {
             let ranges = self.text_edit_manager.selection_manager.get_ranges(&dom_id);
             if !ranges.is_empty() {
                 ranges.iter().map(|r| Selection::Range(*r)).collect()
-            } else if let Some(cursor) = self.text_edit_manager.cursor_manager.get_cursor() {
-                vec![Selection::Cursor(*cursor)]
+            } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
+                vec![Selection::Cursor(cursor)]
             } else {
                 return None;
             }
@@ -6041,10 +6051,7 @@ impl LayoutWindow {
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.update_from_edit_result(&new_selections);
         }
-        // Update legacy cursor
-        if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
-            self.text_edit_manager.cursor_manager.move_cursor_to(*new_cursor, dom_id, node_id);
-        }
+        // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
         self.text_edit_manager.selection_manager.clear_selection(&dom_id);
         self.text_edit_manager.selection_manager.clear_text_selection(&dom_id);

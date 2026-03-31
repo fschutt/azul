@@ -1515,12 +1515,12 @@ pub trait PlatformWindow {
 
             CallbackChange::DeleteBackward { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(cursor) = lw.text_edit_manager.cursor_manager.get_cursor().cloned() {
+                    if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_backward;
                         let mut new_content = content.clone();
                         let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
-                        lw.text_edit_manager.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
+                        if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     } else {
                     }
@@ -1531,12 +1531,12 @@ pub trait PlatformWindow {
 
             CallbackChange::DeleteForward { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(cursor) = lw.text_edit_manager.cursor_manager.get_cursor().cloned() {
+                    if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_forward;
                         let mut new_content = content.clone();
                         let (updated_content, new_cursor) = delete_forward(&mut new_content, &cursor);
-                        lw.text_edit_manager.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
+                        if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     }
                 }
@@ -1545,7 +1545,7 @@ pub trait PlatformWindow {
 
             CallbackChange::MoveCursor { dom_id, node_id, cursor } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.text_edit_manager.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
+                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(*cursor); }
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -1554,11 +1554,11 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     match selection {
                         azul_core::selection::Selection::Cursor(cursor) => {
-                            lw.text_edit_manager.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
+                            if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(*cursor); }
                             lw.text_edit_manager.selection_manager.clear_all();
                         }
                         azul_core::selection::Selection::Range(range) => {
-                            lw.text_edit_manager.cursor_manager.move_cursor_to(range.start, *dom_id, *node_id);
+                            if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(range.start); }
                             let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(*node_id));
                             let dom_node_id = azul_core::dom::DomNodeId { dom: *dom_id, node: hierarchy_id };
                             lw.text_edit_manager.selection_manager.add_selection(*dom_id, dom_node_id, selection.clone());
@@ -1764,10 +1764,10 @@ pub trait PlatformWindow {
             CallbackChange::SetCursorVisibility { visible: _ } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
-                    if lw.text_edit_manager.cursor_manager.should_blink(&now) {
-                        lw.text_edit_manager.cursor_manager.toggle_visibility();
+                    if lw.text_edit_manager.blink.should_blink(&now) {
+                        lw.text_edit_manager.blink.toggle_visibility();
                     } else {
-                        lw.text_edit_manager.cursor_manager.set_visibility(true);
+                        lw.text_edit_manager.blink.set_visibility(true);
                     }
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
@@ -1776,17 +1776,17 @@ pub trait PlatformWindow {
             CallbackChange::ResetCursorBlink => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
-                    lw.text_edit_manager.cursor_manager.reset_blink_on_input(now);
+                    lw.text_edit_manager.blink.reset_blink_on_input(now);
                 }
                 ProcessEventResult::DoNothing
             }
 
             CallbackChange::StartCursorBlinkTimer => {
                 let timer = if let Some(lw) = self.get_layout_window_mut() {
-                    if lw.text_edit_manager.cursor_manager.is_blink_timer_active() {
+                    if lw.text_edit_manager.blink.is_blink_timer_active() {
                         None
                     } else {
-                        lw.text_edit_manager.cursor_manager.set_blink_timer_active(true);
+                        lw.text_edit_manager.blink.set_blink_timer_active(true);
                         let ws = lw.current_window_state.clone();
                         Some(lw.create_cursor_blink_timer(&ws))
                     }
@@ -1805,8 +1805,8 @@ pub trait PlatformWindow {
 
             CallbackChange::StopCursorBlinkTimer => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if lw.text_edit_manager.cursor_manager.is_blink_timer_active() {
-                        lw.text_edit_manager.cursor_manager.set_blink_timer_active(false);
+                    if lw.text_edit_manager.blink.is_blink_timer_active() {
+                        lw.text_edit_manager.blink.set_blink_timer_active(false);
                         lw.timers.remove(&azul_core::task::CURSOR_BLINK_TIMER_ID);
                     }
                 }
@@ -2217,7 +2217,7 @@ pub trait PlatformWindow {
                                 // Move cursor to end of selection
                                 if let Some(layout) = layout_window.get_inline_layout_for_node(dom_id, node_id) {
                                     if let Some(end_cursor) = layout.get_last_cluster_cursor() {
-                                        layout_window.text_edit_manager.cursor_manager.move_cursor_to(end_cursor, dom_id, node_id);
+                                        if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor { mc.set_single_cursor(end_cursor); }
                                     }
                                 }
                                 return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
@@ -2258,9 +2258,9 @@ pub trait PlatformWindow {
                             );
 
                             if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
-                                layout_window.text_edit_manager.cursor_manager.move_cursor_to(
-                                    cursor, target.dom, node_id_internal,
-                                );
+                                if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                    mc.set_single_cursor(cursor);
+                                }
                             }
                         }
 
@@ -2591,8 +2591,8 @@ pub trait PlatformWindow {
                     if needs_init {
                         let cursor_initialized = layout_window.finalize_pending_focus_changes();
                         if cursor_initialized {
-                            if !layout_window.text_edit_manager.cursor_manager.is_blink_timer_active() {
-                                layout_window.text_edit_manager.cursor_manager.set_blink_timer_active(true);
+                            if !layout_window.text_edit_manager.blink.is_blink_timer_active() {
+                                layout_window.text_edit_manager.blink.set_blink_timer_active(true);
                                 true
                             } else {
                                 false

@@ -439,7 +439,7 @@ pub fn create_delete_selection_changeset(
 
     // Get current selection/cursor
     let ranges = layout_window.text_edit_manager.selection_manager.get_ranges(dom_id);
-    let cursor = layout_window.text_edit_manager.cursor_manager.get_cursor();
+    let cursor = layout_window.text_edit_manager.get_primary_cursor();
 
     // Determine what to delete
     let (delete_range, deleted_text) = if let Some(range) = ranges.first() {
@@ -470,7 +470,7 @@ pub fn create_delete_selection_changeset(
             let deleted = text[byte_pos..end_pos].to_string();
 
             let range = azul_core::selection::SelectionRange {
-                start: *cursor_pos,
+                start: cursor_pos,
                 end: TextCursor {
                     cluster_id: GraphemeClusterId {
                         source_run: cursor_pos.cluster_id.source_run,
@@ -497,7 +497,7 @@ pub fn create_delete_selection_changeset(
                     },
                     affinity: CursorAffinity::Leading,
                 },
-                end: *cursor_pos,
+                end: cursor_pos,
             };
             (range, deleted)
         };

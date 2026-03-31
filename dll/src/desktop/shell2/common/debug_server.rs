@@ -8709,24 +8709,24 @@ fn process_debug_event(
 
         DebugEvent::GetCursorState => {
             let layout_window = callback_info.get_layout_window();
-            let cursor_manager = &layout_window.text_edit_manager.cursor_manager;
-            
-            let response = if let (Some(cursor), Some(location)) = (&cursor_manager.cursor, &cursor_manager.cursor_location) {
+            let tem = &layout_window.text_edit_manager;
+
+            let response = if let (Some(cursor), Some(mc)) = (tem.get_primary_cursor(), tem.multi_cursor.as_ref()) {
                 let position = cursor.cluster_id.start_byte_in_run as usize;
                 let affinity = match cursor.affinity {
                     azul_core::selection::CursorAffinity::Leading => "leading".to_string(),
                     azul_core::selection::CursorAffinity::Trailing => "trailing".to_string(),
                 };
-                
+
                 CursorStateResponse {
                     has_cursor: true,
                     cursor: Some(CursorInfo {
-                        dom_id: location.dom_id.inner as u32,
-                        node_id: location.node_id.index() as u64,
+                        dom_id: mc.node_id.dom.inner as u32,
+                        node_id: mc.node_id.node.into_crate_internal().map(|n| n.index() as u64).unwrap_or(0),
                         position,
                         affinity,
-                        is_visible: cursor_manager.is_visible,
-                        blink_timer_active: cursor_manager.blink_timer_active,
+                        is_visible: tem.blink.is_visible,
+                        blink_timer_active: tem.blink.blink_timer_active,
                     }),
                 }
             } else {
