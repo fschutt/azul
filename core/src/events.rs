@@ -2454,6 +2454,19 @@ pub enum SystemChange {
     /// Redo last undone edit (Ctrl+Y / Ctrl+Shift+Z / Cmd+Shift+Z).
     RedoTextEdit { target: DomNodeId },
 
+    // === Multi-Cursor ===
+
+    /// Add a cursor at the clicked position (Ctrl+Click).
+    /// The position will be hit-tested to find the text cursor location.
+    AddCursorAtClick {
+        position: LogicalPosition,
+    },
+    /// Select the next occurrence of the current selection's text (Ctrl+D).
+    /// If the primary selection is a cursor, expand it to the word first.
+    SelectNextOccurrence {
+        target: DomNodeId,
+    },
+
     // === Text Input ===
 
     /// Apply pending text input from platform (keyboard/IME).
@@ -2624,7 +2637,7 @@ fn process_event_for_internal<SM: SelectionManagerQuery>(
     event: &SyntheticEvent,
 ) -> Option<InternalEventAction> {
     match event.event_type {
-        EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count, ctx.mouse_state),
+        EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count, ctx.mouse_state, ctx.keyboard_state),
         EventType::MouseOver => handle_mouse_over(
             event,
             ctx.hit_test,
@@ -2676,12 +2689,13 @@ fn get_mouse_position_with_fallback(
     }
 }
 
-/// Handle MouseDown event - detect text selection clicks
+/// Handle MouseDown event - detect text selection clicks and Ctrl+Click for multi-cursor
 fn handle_mouse_down(
     event: &SyntheticEvent,
     hit_test: Option<&FullHitTest>,
     click_count: u8,
     mouse_state: &crate::window::MouseState,
+    keyboard_state: &crate::window::KeyboardState,
 ) -> Option<InternalEventAction> {
     let effective_click_count = if click_count == 0 { 1 } else { click_count };
 
@@ -2691,6 +2705,13 @@ fn handle_mouse_down(
 
     let _target = get_first_hovered_node(hit_test)?;
     let position = get_mouse_position_with_fallback(event, mouse_state);
+
+    // Ctrl+Click (or Cmd+Click on macOS): add cursor at click position
+    if keyboard_state.ctrl_down() && effective_click_count == 1 {
+        return Some(InternalEventAction::AddAndPass(
+            SystemChange::AddCursorAtClick { position },
+        ));
+    }
 
     Some(InternalEventAction::AddAndPass(
         SystemChange::TextSelectionClick {
@@ -2752,6 +2773,7 @@ fn handle_key_down<SM: SelectionManagerQuery>(
             VirtualKeyCode::Z if !shift => Some(SystemChange::UndoTextEdit { target }),
             VirtualKeyCode::Z if shift => Some(SystemChange::RedoTextEdit { target }),
             VirtualKeyCode::Y => Some(SystemChange::RedoTextEdit { target }),
+            VirtualKeyCode::D => Some(SystemChange::SelectNextOccurrence { target }),
             _ => None,
         };
         if let Some(change) = system_change {
@@ -2848,7 +2870,9 @@ pub fn post_callback_filter_system_changes(
         match change {
             SystemChange::TextSelectionClick { .. }
             | SystemChange::ArrowKeyNavigation { .. }
-            | SystemChange::DeleteTextSelection { .. } => {
+            | SystemChange::DeleteTextSelection { .. }
+            | SystemChange::AddCursorAtClick { .. }
+            | SystemChange::SelectNextOccurrence { .. } => {
                 changes.push(SystemChange::ScrollSelectionIntoView);
             }
             SystemChange::TextSelectionDrag { .. } => {

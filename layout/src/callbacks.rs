@@ -368,6 +368,24 @@ pub enum CallbackChange {
         extend_selection: bool,
     },
 
+    // Multi-Cursor Operations
+    /// Add an additional cursor at the specified position (Ctrl+Click from C API)
+    AddCursor {
+        dom_id: DomId,
+        node_id: NodeId,
+        cursor: TextCursor,
+    },
+    /// Add an additional selection range (for multi-cursor)
+    AddSelectionRange {
+        dom_id: DomId,
+        node_id: NodeId,
+        range: SelectionRange,
+    },
+    /// Remove a specific selection by its stable ID
+    RemoveSelectionById {
+        selection_id: azul_core::selection::SelectionId,
+    },
+
     // Clipboard Operations (Override)
     /// Override clipboard content for copy operation
     SetCopyContent {

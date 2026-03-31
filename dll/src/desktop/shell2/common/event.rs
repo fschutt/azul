@@ -1691,9 +1691,58 @@ pub trait PlatformWindow {
 
             CallbackChange::SetSelectAllRange { target, range } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.text_edit_manager.selection_manager.set_range(target.dom, *target, range.clone());
+                    lw.text_edit_manager.selection_manager.set_range(target.dom, *target, *range);
                 }
                 ProcessEventResult::DoNothing
+            }
+
+            // === Multi-Cursor ===
+
+            CallbackChange::AddCursor { dom_id, node_id, cursor } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
+                        mc.add_cursor(*cursor);
+                    } else {
+                        // Create new MultiCursorState with the cursor
+                        let dom_node_id = azul_core::dom::DomNodeId {
+                            dom: *dom_id,
+                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                        };
+                        lw.text_edit_manager.multi_cursor = Some(
+                            azul_core::selection::MultiCursorState::new_with_cursor(*cursor, dom_node_id, 0)
+                        );
+                    }
+                    lw.text_edit_manager.mark_dirty();
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::AddSelectionRange { dom_id, node_id, range } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
+                        mc.add_selection(*range);
+                    } else {
+                        let dom_node_id = azul_core::dom::DomNodeId {
+                            dom: *dom_id,
+                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                        };
+                        let mut mc = azul_core::selection::MultiCursorState::new_with_cursor(range.start, dom_node_id, 0);
+                        mc.set_single_range(*range);
+                        lw.text_edit_manager.multi_cursor = Some(mc);
+                    }
+                    lw.text_edit_manager.mark_dirty();
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::RemoveSelectionById { selection_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
+                        mc.remove_selection(*selection_id);
+                        lw.text_edit_manager.mark_dirty();
+                    }
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
             // === Debug / Hit Test ===
@@ -2242,6 +2291,61 @@ pub trait PlatformWindow {
                         }
                         layout_window.undo_redo_manager.push_undo(operation);
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Multi-Cursor ===
+
+            SystemChange::AddCursorAtClick { position } => {
+                // Ctrl+Click: add a cursor at the clicked position.
+                // Delegates to process_mouse_click_for_selection which will
+                // set multi_cursor to a single cursor. We then convert it to
+                // "add" mode by saving the old cursors and re-adding them.
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    // Save existing multi-cursor selections
+                    let old_selections = layout_window.text_edit_manager.multi_cursor
+                        .as_ref()
+                        .map(|mc| mc.selections.clone())
+                        .unwrap_or_default();
+                    let old_node_id = layout_window.text_edit_manager.multi_cursor
+                        .as_ref()
+                        .map(|mc| mc.node_id);
+
+                    // This will reset multi_cursor to a single cursor at click position
+                    let external = ExternalSystemCallbacks::rust_internal();
+                    let current_instant = (external.get_system_time_fn.cb)();
+                    layout_window.process_mouse_click_for_selection(*position, 0);
+
+                    // Now add back the old cursors
+                    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                        // Only merge if the node_id matches (same contenteditable)
+                        if old_node_id.map(|n| n == mc.node_id).unwrap_or(false) {
+                            // The new cursor is already in mc.selections[0].
+                            // Prepend the old selections.
+                            let new_cursor = mc.selections.clone();
+                            mc.selections = old_selections;
+                            mc.selections.extend(new_cursor);
+                            mc.merge_overlapping();
+                        }
+                    }
+
+                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::SelectNextOccurrence { target } => {
+                // Ctrl+D: select next occurrence of current selection text
+                // For now, this is a stub — full implementation requires text search in inline content
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let dom_id = target.dom;
+                    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                        // If the primary selection is a cursor (no range), expand to word first
+                        // Then search forward for the next occurrence and add it as a new selection
+                        // TODO: implement word expansion and forward search in text content
+                        layout_window.text_edit_manager.mark_dirty();
                     }
                 }
                 ProcessEventResult::DoNothing
