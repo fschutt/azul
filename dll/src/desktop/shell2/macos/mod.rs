@@ -428,9 +428,14 @@ define_class!(
                         false
                     }
                 };
-                let handled = self.ivars().ime_key_handled.get() || ime_handled_by_context;
-                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}, final={}", ime_handled_by_context, self.ivars().ime_key_handled.get(), handled);
-                if handled {
+                // Only skip handle_key_down if IME actually consumed the key
+                // (called setMarkedText or insertText). inputContext.handleEvent
+                // returns true for arrow keys too (candidate navigation), but we
+                // still need handle_key_down for cursor movement when no composition
+                // is active.
+                let ime_consumed = self.ivars().ime_key_handled.get();
+                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
+                if ime_consumed {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1192,9 +1197,14 @@ define_class!(
                         false
                     }
                 };
-                let handled = self.ivars().ime_key_handled.get() || ime_handled_by_context;
-                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}, final={}", ime_handled_by_context, self.ivars().ime_key_handled.get(), handled);
-                if handled {
+                // Only skip handle_key_down if IME actually consumed the key
+                // (called setMarkedText or insertText). inputContext.handleEvent
+                // returns true for arrow keys too (candidate navigation), but we
+                // still need handle_key_down for cursor movement when no composition
+                // is active.
+                let ime_consumed = self.ivars().ime_key_handled.get();
+                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
+                if ime_consumed {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
