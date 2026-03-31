@@ -200,8 +200,8 @@ impl ContentEditableHarness {
             found.unwrap_or(node_id)
         };
 
-        lw.cursor_manager.initialize_cursor_at_end(dom_id, text_child_id, text_layout.as_ref());
-        lw.cursor_manager.set_visibility(true);
+        lw.text_edit_manager.cursor_manager.initialize_cursor_at_end(dom_id, text_child_id, text_layout.as_ref());
+        lw.text_edit_manager.cursor_manager.set_visibility(true);
     }
 
     /// Simulate text input on the currently focused node.
@@ -280,7 +280,7 @@ impl ContentEditableHarness {
     /// Get cursor byte offset from cursor manager (start_byte_in_run)
     fn get_cursor_byte_offset(&self) -> Option<u32> {
         let lw = self.layout_window.as_ref().unwrap();
-        lw.cursor_manager.get_cursor().map(|c| c.cluster_id.start_byte_in_run)
+        lw.text_edit_manager.cursor_manager.get_cursor().map(|c| c.cluster_id.start_byte_in_run)
     }
 
     /// Get focused node
@@ -468,8 +468,8 @@ fn contenteditable_text_input_changes_output() {
     // Verify 5: display list should contain a CursorRect after text input
     let has_cursor = h.has_cursor_rect();
     let lw = h.layout_window.as_ref().unwrap();
-    let draw_cursor = lw.cursor_manager.should_draw_cursor();
-    let cursor_loc = lw.cursor_manager.get_cursor_location();
+    let draw_cursor = lw.text_edit_manager.cursor_manager.should_draw_cursor();
+    let cursor_loc = lw.text_edit_manager.cursor_manager.get_cursor_location();
     eprintln!("  [verify] should_draw_cursor={}, cursor_location={:?}, has CursorRect: {}",
         draw_cursor, cursor_loc, has_cursor);
     if !has_cursor {

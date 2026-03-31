@@ -571,7 +571,7 @@ mod tests {
             body: U8Vec::from(Vec::new()),
             content_type: AzString::from(String::new()),
             content_length: 0,
-            headers: Vec::new(),
+            headers: HttpHeaderVec::from_const_slice(&[]),
         };
         assert!(response.is_success());
         assert!(!response.is_redirect());
@@ -581,7 +581,7 @@ mod tests {
     
     #[test]
     fn test_http_error_constructors() {
-        let err = HttpError::http_status(404, "Not Found");
+        let err = HttpError::http_status(404, "Not Found".into());
         assert!(err.to_string().contains("404"));
         
         let err2 = HttpError::response_too_large(100, 200);

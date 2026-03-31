@@ -540,13 +540,13 @@ fn test_focus_manager_integration_with_all_managers() {
         node_id: node1.clone(),
     };
     layout_window
-        .selection_manager
+        .text_edit_manager.selection_manager
         .set_selection(dom_id, sel_state);
 
     // Verify state
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node1));
     assert!(layout_window
-        .selection_manager
+        .text_edit_manager.selection_manager
         .get_selection(&dom_id)
         .is_some());
 
@@ -562,12 +562,12 @@ fn test_focus_manager_integration_with_all_managers() {
 
     // Clear selections (as event system would do)
     if old_focus.as_ref() != new_focus {
-        layout_window.selection_manager.clear_all();
+        layout_window.text_edit_manager.selection_manager.clear_all();
     }
 
     // Verify selections cleared
     assert!(layout_window
-        .selection_manager
+        .text_edit_manager.selection_manager
         .get_selection(&dom_id)
         .is_none());
 
