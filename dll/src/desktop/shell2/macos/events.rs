@@ -443,8 +443,12 @@ impl MacOSWindow {
             let is_control_char = ch.is_control();
             let has_cmd = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Command);
             let has_ctrl = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Control);
+            // macOS function keys (arrows, F1-F12, etc.) produce Unicode chars in the
+            // Private Use Area (U+F700-U+F7FF). These are NOT is_control() but must
+            // not be inserted as text — they are navigation/action keys.
+            let is_function_key = ('\u{F700}'..='\u{F7FF}').contains(&ch);
 
-            if !is_control_char && !has_cmd && !has_ctrl {
+            if !is_control_char && !is_function_key && !has_cmd && !has_ctrl {
                 let text_input = ch.to_string();
                 crate::log_debug!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Input,
