@@ -502,6 +502,9 @@ pub fn determine_all_events(
     // Case 1: New key pressed (current != previous)
     // Case 2: Same key pressed again after release (current.is_some() && previous.is_none())
     if current_key.is_some() && (current_key != previous_key || previous_key.is_none()) {
+        #[cfg(feature = "std")]
+        eprintln!("[event_determination] KeyDown detected: current={:?} previous={:?} target={:?}",
+            current_key, previous_key, focus_target);
         events.push(SyntheticEvent::new(
             EventType::KeyDown,
             EventSource::User,
@@ -509,6 +512,10 @@ pub fn determine_all_events(
             timestamp.clone(),
             EventData::None,
         ));
+    } else if current_key.is_some() {
+        #[cfg(feature = "std")]
+        eprintln!("[event_determination] KeyDown SKIPPED: current={:?} previous={:?} (same key, not re-pressed)",
+            current_key, previous_key);
     }
     if previous_key.is_some() && current_key.is_none() {
         events.push(SyntheticEvent::new(

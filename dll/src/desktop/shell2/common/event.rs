@@ -2026,8 +2026,17 @@ pub trait PlatformWindow {
             }
 
             SystemChange::DeleteTextSelection { target, forward } => {
+                crate::log_debug!(
+                    crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                    "[DeleteTextSelection] target={:?}, forward={}", target, forward
+                );
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    if layout_window.delete_selection(*target, *forward).is_some() {
+                    let result = layout_window.delete_selection(*target, *forward);
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[DeleteTextSelection] delete_selection returned {:?}", result.is_some()
+                    );
+                    if result.is_some() {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }

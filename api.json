@@ -34238,10 +34238,12 @@
                         "enum_fields": [
                             {
                                 "Boxed": {
-                                    "type": "*mut T"
+                                    "type": "T",
+                                    "ref_kind": "mutptr"
                                 },
                                 "Static": {
-                                    "type": "*const T"
+                                    "type": "T",
+                                    "ref_kind": "constptr"
                                 }
                             }
                         ],
@@ -37295,6 +37297,84 @@
                                 },
                                 "callback": {
                                     "type": "TreeViewOnNodeClickCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonSectionVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonSection",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonTabVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTabVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonTab",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TreeViewNodeVecSlice": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewNodeVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TreeViewNode",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -72550,6 +72630,57 @@
                                     "type": "RibbonSectionVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonSection"
+                                },
+                                "fn_body": "ribbon_section_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonSectionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonSectionVecSlice"
+                                },
+                                "fn_body": "ribbon_section_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonSectionVecSlice"
+                                },
+                                "fn_body": "ribbon_section_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -72706,6 +72837,57 @@
                                     "type": "RibbonTabVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonTab"
+                                },
+                                "fn_body": "ribbon_tab_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonTabVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTabVecSlice"
+                                },
+                                "fn_body": "ribbon_tab_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTabVecSlice"
+                                },
+                                "fn_body": "ribbon_tab_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -72863,6 +73045,57 @@
                                     "type": "TreeViewNodeVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTreeViewNode"
+                                },
+                                "fn_body": "tree_view_node_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TreeViewNodeVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNodeVecSlice"
+                                },
+                                "fn_body": "tree_view_node_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNodeVecSlice"
+                                },
+                                "fn_body": "tree_view_node_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -72895,84 +73128,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "RibbonSectionVecSlice": {
-                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "RibbonSection",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "RibbonTabVecSlice": {
-                        "external": "azul_layout::widgets::ribbon::RibbonTabVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "RibbonTab",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "TreeViewNodeVecSlice": {
-                        "external": "azul_layout::widgets::tree_view::TreeViewNodeVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "TreeViewNode",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -76800,29 +76955,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionRibbonSection": {
-                        "external": "azul_layout::widgets::ribbon::OptionRibbonSection",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {
-                                    "doc": [
-                                        "No value"
-                                    ]
-                                },
-                                "Some": {
-                                    "type": "RibbonSection",
-                                    "doc": [
-                                        "Some value of type RibbonSection"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionRibbonTab": {
                         "external": "azul_layout::widgets::ribbon::OptionRibbonTab",
                         "derive": [
@@ -76850,6 +76982,23 @@
                         "external": "azul_layout::widgets::tree_view::OptionTreeViewNode",
                         "derive": [
                             "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TreeViewNode"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonSection": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonSection",
+                        "derive": [
+                            "Debug",
                             "Clone"
                         ],
                         "enum_fields": [
@@ -76860,9 +77009,9 @@
                                     ]
                                 },
                                 "Some": {
-                                    "type": "TreeViewNode",
+                                    "type": "RibbonSection",
                                     "doc": [
-                                        "Some value of type TreeViewNode"
+                                        "Some value of type RibbonSection"
                                     ]
                                 }
                             }
