@@ -401,14 +401,13 @@ define_class!(
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
             let key_code = unsafe { event.keyCode() };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[keyDown] keyCode={}", key_code
-            );
-            // Route through interpretKeyEvents when editing — lets macOS handle
-            // IME composition (Ctrl+Space, dead keys, etc.) via NSTextInputClient.
-            // If IME handles the key (sets ime_key_handled via setMarkedText/insertText),
-            // skip handle_key_down to avoid double-processing.
+            let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
+            eprintln!("[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
+                self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                    let w = &*(ptr as *const MacOSWindow);
+                    w.common.layout_window.as_ref()
+                }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false));
+
             let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
@@ -416,16 +415,22 @@ define_class!(
 
             if has_editing {
                 self.ivars().ime_key_handled.set(false);
-                unsafe {
-                    let event_ptr = event as *const NSEvent as *mut NSEvent;
-                    let array = objc2_foundation::NSArray::from_retained_slice(&[
-                        objc2::rc::Retained::retain(event_ptr).unwrap()
-                    ]);
-                    self.interpretKeyEvents(&array);
-                }
-                if self.ivars().ime_key_handled.get() {
-                    // IME consumed this key (called setMarkedText or insertText).
-                    // Request redraw for preedit display and skip handle_key_down.
+                // Use inputContext.handleEvent instead of interpretKeyEvents.
+                // inputContext is the IME "boss" — it routes through the modern
+                // marked text path. interpretKeyEvents often falls through to
+                // doCommandBySelector which bypasses IME entirely.
+                let ime_handled_by_context = unsafe {
+                    if let Some(ctx) = self.inputContext() {
+                        eprintln!("[IME keyDown] calling inputContext.handleEvent...");
+                        ctx.handleEvent(event)
+                    } else {
+                        eprintln!("[IME keyDown] WARNING: inputContext() returned None!");
+                        false
+                    }
+                };
+                let handled = self.ivars().ime_key_handled.get() || ime_handled_by_context;
+                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}, final={}", ime_handled_by_context, self.ivars().ime_key_handled.get(), handled);
+                if handled {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -437,6 +442,7 @@ define_class!(
                 }
             }
 
+            eprintln!("[IME keyDown] falling through to handle_key_down");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -672,6 +678,7 @@ define_class!(
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.is_some())
             }).unwrap_or(false);
+            eprintln!("[IME hasMarkedText] -> {}", has);
             has
         }
 
@@ -706,6 +713,10 @@ define_class!(
             selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                ns_string.to_string()
+            } else { "<non-string>".to_string() };
+            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", text_preview, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
@@ -743,6 +754,7 @@ define_class!(
 
         #[unsafe(method_id(validAttributesForMarkedText))]
         fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
+            eprintln!("[IME validAttributesForMarkedText] called");
             unsafe { objc2_foundation::NSArray::new() }
         }
 
@@ -757,6 +769,10 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                ns_string.to_string()
+            } else { "<non-string>".to_string() };
+            eprintln!("[IME insertText] text='{}'", text_preview);
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -835,13 +851,18 @@ define_class!(
         }
 
         #[unsafe(method(doCommandBySelector:))]
-        fn do_command_by_selector(&self, _selector: objc2::runtime::Sel) {
-            // Called for special key commands during IME
+        fn do_command_by_selector(&self, selector: objc2::runtime::Sel) {
+            eprintln!("[IME doCommandBySelector] selector={:?}", selector.name());
+            // Don't call super — prevents NSBeep for "unhandled" commands.
+            // Don't set ime_key_handled — arrow keys / backspace / enter should
+            // still fall through to handle_key_down for processing.
         }
     }
-);
 
-unsafe impl NSTextInputClient for GLView {}
+    // Register NSTextInputClient protocol conformance with the ObjC runtime.
+    // Must use concrete class name (not Self) so define_class! calls class_addProtocol.
+    unsafe impl NSTextInputClient for GLView {}
+);
 
 // CPUView - CPU rendering view
 
@@ -1134,14 +1155,13 @@ define_class!(
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
             let key_code = unsafe { event.keyCode() };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[keyDown] keyCode={}", key_code
-            );
-            // Route through interpretKeyEvents when editing — lets macOS handle
-            // IME composition (Ctrl+Space, dead keys, etc.) via NSTextInputClient.
-            // If IME handles the key (sets ime_key_handled via setMarkedText/insertText),
-            // skip handle_key_down to avoid double-processing.
+            let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
+            eprintln!("[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
+                self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                    let w = &*(ptr as *const MacOSWindow);
+                    w.common.layout_window.as_ref()
+                }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false));
+
             let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
@@ -1149,16 +1169,22 @@ define_class!(
 
             if has_editing {
                 self.ivars().ime_key_handled.set(false);
-                unsafe {
-                    let event_ptr = event as *const NSEvent as *mut NSEvent;
-                    let array = objc2_foundation::NSArray::from_retained_slice(&[
-                        objc2::rc::Retained::retain(event_ptr).unwrap()
-                    ]);
-                    self.interpretKeyEvents(&array);
-                }
-                if self.ivars().ime_key_handled.get() {
-                    // IME consumed this key (called setMarkedText or insertText).
-                    // Request redraw for preedit display and skip handle_key_down.
+                // Use inputContext.handleEvent instead of interpretKeyEvents.
+                // inputContext is the IME "boss" — it routes through the modern
+                // marked text path. interpretKeyEvents often falls through to
+                // doCommandBySelector which bypasses IME entirely.
+                let ime_handled_by_context = unsafe {
+                    if let Some(ctx) = self.inputContext() {
+                        eprintln!("[IME keyDown] calling inputContext.handleEvent...");
+                        ctx.handleEvent(event)
+                    } else {
+                        eprintln!("[IME keyDown] WARNING: inputContext() returned None!");
+                        false
+                    }
+                };
+                let handled = self.ivars().ime_key_handled.get() || ime_handled_by_context;
+                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}, final={}", ime_handled_by_context, self.ivars().ime_key_handled.get(), handled);
+                if handled {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1170,6 +1196,7 @@ define_class!(
                 }
             }
 
+            eprintln!("[IME keyDown] falling through to handle_key_down");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -1409,6 +1436,7 @@ define_class!(
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.is_some())
             }).unwrap_or(false);
+            eprintln!("[IME hasMarkedText] -> {}", has);
             has
         }
 
@@ -1440,6 +1468,10 @@ define_class!(
             selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                ns_string.to_string()
+            } else { "<non-string>".to_string() };
+            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", text_preview, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
@@ -1477,6 +1509,7 @@ define_class!(
 
         #[unsafe(method_id(validAttributesForMarkedText))]
         fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
+            eprintln!("[IME validAttributesForMarkedText] called");
             unsafe { objc2_foundation::NSArray::new() }
         }
 
@@ -1491,6 +1524,10 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                ns_string.to_string()
+            } else { "<non-string>".to_string() };
+            eprintln!("[IME insertText] text='{}'", text_preview);
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -1558,9 +1595,9 @@ define_class!(
         fn do_command_by_selector(&self, _selector: objc2::runtime::Sel) {
         }
     }
-);
 
-unsafe impl NSTextInputClient for CPUView {}
+    unsafe impl NSTextInputClient for CPUView {}
+);
 
 // GLView Helper Methods (outside define_class!)
 
