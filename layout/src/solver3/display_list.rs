@@ -2028,6 +2028,7 @@ where
             let is_primary = primary_idx_for_this_node == Some(i);
             if is_primary {
                 if let Some(ref preedit) = self.ctx.preedit_text {
+                    eprintln!("[PAINT] preedit='{}' is_primary={} cursor_rect=({},{}) node_index={}", preedit, is_primary, rect.origin.x, rect.origin.y, node_index);
                     if !preedit.is_empty() {
                         let char_count = preedit.chars().count() as f32;
                         let approx_char_width = style.width.max(8.0);

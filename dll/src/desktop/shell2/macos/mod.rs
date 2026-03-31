@@ -5176,8 +5176,14 @@ impl MacOSWindow {
             let needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
             needs_rebuild
         } else if self.common.display_list_dirty {
-            // Display list was updated internally (e.g. text editing) without
-            // a full DOM rebuild — send it to WebRender.
+            eprintln!("[RENDER] display_list_dirty=true, regenerating display list. preedit={:?}",
+                self.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.clone()));
+            // Regenerate the display list from the layout tree so it picks up
+            // preedit text, cursor changes, selection changes, etc.
+            if let Some(ref mut lw) = self.common.layout_window {
+                let dom_id = azul_core::dom::DomId { inner: 0 };
+                lw.regenerate_display_list_for_dom(dom_id);
+            }
             self.common.display_list_dirty = false;
             true
         } else {
@@ -5337,6 +5343,8 @@ impl MacOSWindow {
         // ─── GPU backend: WebRender transaction ───
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
+        eprintln!("[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
+            display_list_needs_rebuild, self.common.frame_needs_regeneration, self.common.display_list_initialized);
         if display_list_needs_rebuild {
             // Full rebuild: fonts, images, display lists, everything
             crate::desktop::wr_translate2::build_webrender_transaction(

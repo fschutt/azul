@@ -4951,7 +4951,7 @@ impl LayoutWindow {
     ///
     /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
     /// and calls `generate_display_list` on the already-computed layout tree and positions.
-    fn regenerate_display_list_for_dom(&mut self, dom_id: DomId) {
+    pub fn regenerate_display_list_for_dom(&mut self, dom_id: DomId) {
         use crate::solver3::{
             display_list::generate_display_list,
             LayoutContext,
