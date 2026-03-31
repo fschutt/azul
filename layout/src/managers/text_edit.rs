@@ -225,6 +225,7 @@ impl TextEditManager {
         self.preedit_text = if text.is_empty() { None } else { Some(text) };
         self.preedit_cursor_begin = cursor_begin;
         self.preedit_cursor_end = cursor_end;
+        self.mark_dirty();
     }
 
     /// Clear the IME preedit text (composition ended or cancelled).

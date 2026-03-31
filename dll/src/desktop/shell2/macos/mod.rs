@@ -132,10 +132,11 @@ pub struct GLViewIvars {
     gl_functions: RefCell<Option<Rc<gl_context_loader::GenericGlContext>>>,
     needs_reshape: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
-    mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
-    /// Back-pointer to the owning MacOSWindow (as *mut to avoid forward reference)
-    /// This is set after window creation via set_window_ptr()
+    mtm: MainThreadMarker,
     window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    /// Set to true by setMarkedText / insertText to prevent handle_key_down
+    /// from double-processing the same key event during IME composition.
+    ime_key_handled: Cell<bool>,
 }
 
 define_class!(
@@ -406,17 +407,33 @@ define_class!(
             );
             // Route through interpretKeyEvents when editing — lets macOS handle
             // IME composition (Ctrl+Space, dead keys, etc.) via NSTextInputClient.
+            // If IME handles the key (sets ime_key_handled via setMarkedText/insertText),
+            // skip handle_key_down to avoid double-processing.
             let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
             }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
+
             if has_editing {
+                self.ivars().ime_key_handled.set(false);
                 unsafe {
                     let event_ptr = event as *const NSEvent as *mut NSEvent;
                     let array = objc2_foundation::NSArray::from_retained_slice(&[
                         objc2::rc::Retained::retain(event_ptr).unwrap()
                     ]);
                     self.interpretKeyEvents(&array);
+                }
+                if self.ivars().ime_key_handled.get() {
+                    // IME consumed this key (called setMarkedText or insertText).
+                    // Request redraw for preedit display and skip handle_key_down.
+                    if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                        unsafe {
+                            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                    }
+                    return;
                 }
             }
 
@@ -586,6 +603,7 @@ define_class!(
                 tracking_area: RefCell::new(None),
                 mtm,
                 window_ptr: RefCell::new(None),
+                ime_key_handled: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
@@ -688,6 +706,7 @@ define_class!(
             selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -738,6 +757,7 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => return,
@@ -832,8 +852,10 @@ pub struct CPUViewIvars {
     height: Cell<usize>,
     needs_redraw: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
-    mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>, // Back-pointer to MacOSWindow
+    mtm: MainThreadMarker,
+    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    /// Set to true by setMarkedText / insertText during IME composition.
+    ime_key_handled: Cell<bool>,
 }
 
 define_class!(
@@ -1118,17 +1140,33 @@ define_class!(
             );
             // Route through interpretKeyEvents when editing — lets macOS handle
             // IME composition (Ctrl+Space, dead keys, etc.) via NSTextInputClient.
+            // If IME handles the key (sets ime_key_handled via setMarkedText/insertText),
+            // skip handle_key_down to avoid double-processing.
             let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
             }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
+
             if has_editing {
+                self.ivars().ime_key_handled.set(false);
                 unsafe {
                     let event_ptr = event as *const NSEvent as *mut NSEvent;
                     let array = objc2_foundation::NSArray::from_retained_slice(&[
                         objc2::rc::Retained::retain(event_ptr).unwrap()
                     ]);
                     self.interpretKeyEvents(&array);
+                }
+                if self.ivars().ime_key_handled.get() {
+                    // IME consumed this key (called setMarkedText or insertText).
+                    // Request redraw for preedit display and skip handle_key_down.
+                    if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                        unsafe {
+                            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                    }
+                    return;
                 }
             }
 
@@ -1301,6 +1339,7 @@ define_class!(
                 tracking_area: RefCell::new(None),
                 mtm,
                 window_ptr: RefCell::new(None),
+                ime_key_handled: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -1401,6 +1440,7 @@ define_class!(
             selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1451,6 +1491,7 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => return,
