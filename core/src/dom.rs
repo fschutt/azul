@@ -2896,6 +2896,10 @@ impl NodeData {
         ) {
             return true;
         }
+        // Contenteditable elements are implicitly focusable (W3C spec)
+        if self.is_contenteditable() {
+            return true;
+        }
         // Element is focusable if it has a tab index or any focus-related callback
         self.get_tab_index().is_some()
             || self
