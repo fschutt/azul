@@ -8,7 +8,7 @@ use azul_core::{
     dom::{DomId, DomNodeId},
     events::{
         deduplicate_synthetic_events, EventData, EventProvider, EventSource, EventType,
-        KeyModifiers, MouseButton, MouseEventData, SyntheticEvent, WindowEventData,
+        KeyModifiers, KeyboardEventData, MouseButton, MouseEventData, SyntheticEvent, WindowEventData,
     },
     geom::{LogicalPosition, LogicalRect},
     id::NodeId,
@@ -501,29 +501,36 @@ pub fn determine_all_events(
     // KeyDown: Fires when a new key is pressed
     // Case 1: New key pressed (current != previous)
     // Case 2: Same key pressed again after release (current.is_some() && previous.is_none())
+    let keyboard_data = EventData::Keyboard(KeyboardEventData {
+        key_code: current_key.map(|k| k as u32).unwrap_or(0),
+        char_code: None, // Character is available from the keyboard state
+        modifiers,
+        repeat: false,
+    });
+
     if current_key.is_some() && (current_key != previous_key || previous_key.is_none()) {
-        #[cfg(feature = "std")]
-        eprintln!("[event_determination] KeyDown detected: current={:?} previous={:?} target={:?}",
-            current_key, previous_key, focus_target);
         events.push(SyntheticEvent::new(
             EventType::KeyDown,
             EventSource::User,
             focus_target.clone(),
             timestamp.clone(),
-            EventData::None,
+            keyboard_data.clone(),
         ));
-    } else if current_key.is_some() {
-        #[cfg(feature = "std")]
-        eprintln!("[event_determination] KeyDown SKIPPED: current={:?} previous={:?} (same key, not re-pressed)",
-            current_key, previous_key);
     }
+    let key_up_data = EventData::Keyboard(KeyboardEventData {
+        key_code: previous_key.map(|k| k as u32).unwrap_or(0),
+        char_code: None,
+        modifiers,
+        repeat: false,
+    });
+
     if previous_key.is_some() && current_key.is_none() {
         events.push(SyntheticEvent::new(
             EventType::KeyUp,
             EventSource::User,
             focus_target.clone(),
             timestamp.clone(),
-            EventData::None,
+            key_up_data,
         ));
     }
 
