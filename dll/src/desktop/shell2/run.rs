@@ -358,6 +358,11 @@ pub fn run(
         let app = NSApplication::sharedApplication(mtm);
         unsafe {
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+
+            // Set up main menu with Cmd+Q quit item.
+            // The menu item sends `terminate:` to NSApp which stops the run loop.
+            crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
+
             // finishLaunching posts NSApplicationDidFinishLaunchingNotification,
             // which is required for the Window Server to fully register the app.
             // Without this, accessibility queries return kAXErrorCannotComplete

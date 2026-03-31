@@ -404,20 +404,11 @@ define_class!(
                 crate::desktop::shell2::common::debug_server::LogCategory::Input,
                 "[keyDown] keyCode={}", key_code
             );
-            // NOTE: We do NOT call interpretKeyEvents here because objc2's
-            // NSTextInputClient protocol conformance doesn't work — macOS
-            // never calls insertText:replacementRange: and instead beeps.
-            // Text input is handled directly in handle_key_down().
-            // TODO: Fix NSTextInputClient protocol conformance for IME support.
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_down(event);
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[keyDown] result={:?}", result
-                    );
                     match result {
                         EventProcessResult::RegenerateDisplayList => {
                             macos_window.common.frame_needs_regeneration = true;
@@ -1103,20 +1094,11 @@ define_class!(
                 crate::desktop::shell2::common::debug_server::LogCategory::Input,
                 "[keyDown] keyCode={}", key_code
             );
-            // NOTE: We do NOT call interpretKeyEvents here because objc2's
-            // NSTextInputClient protocol conformance doesn't work — macOS
-            // never calls insertText:replacementRange: and instead beeps.
-            // Text input is handled directly in handle_key_down().
-            // TODO: Fix NSTextInputClient protocol conformance for IME support.
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_down(event);
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[keyDown] result={:?}", result
-                    );
                     match result {
                         EventProcessResult::RegenerateDisplayList => {
                             macos_window.common.frame_needs_regeneration = true;
@@ -1597,6 +1579,38 @@ pub struct WindowDelegateIvars {
     /// This is set after window creation via set_window_ptr()
     window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
 }
+
+/// Set up the main menu bar with a Quit item bound to Cmd+Q.
+/// The Quit item sends `terminate:` to NSApp, which stops the run loop.
+pub fn setup_main_menu(app: &NSApplication, mtm: objc2::MainThreadMarker) {
+    unsafe {
+        let menubar = NSMenu::new(mtm);
+
+        // App menu (first item = application menu on macOS)
+        let app_menu_item = NSMenuItem::new(mtm);
+        let app_menu = NSMenu::new(mtm);
+
+        // "Quit <AppName>" with Cmd+Q
+        let quit_title = NSString::from_str("Quit");
+        let quit_key = NSString::from_str("q");
+        let quit_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &quit_title,
+            Some(objc2::sel!(terminate:)),
+            &quit_key,
+        );
+        app_menu.addItem(&quit_item);
+
+        app_menu_item.setSubmenu(Some(&app_menu));
+        menubar.addItem(&app_menu_item);
+
+        app.setMainMenu(Some(&menubar));
+    }
+}
+
+// ============================================================================
+// WindowDelegate — handles per-window close, resize, etc.
+// ============================================================================
 
 define_class!(
     #[unsafe(super(NSObject))]
