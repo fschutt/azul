@@ -895,31 +895,8 @@ impl LayoutWindow {
         let styled_dom_clone = styled_dom.clone();
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
-        // Get cursor visibility from cursor manager for display list generation
-        let cursor_is_visible = self.text_edit_manager.cursor_manager.should_draw_cursor();
-
-        // Build cursor locations from multi-cursor state (primary) or single cursor manager
-        let cursor_locations = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
-            // Multi-cursor mode: all cursors from MultiCursorState
-            if let Some(node_id) = mc.node_id.node.into_crate_internal() {
-                mc.selections.iter().map(|s| {
-                    let cursor = match &s.selection {
-                        azul_core::selection::Selection::Cursor(c) => *c,
-                        azul_core::selection::Selection::Range(r) => r.end,
-                    };
-                    (mc.node_id.dom, node_id, cursor)
-                }).collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            }
-        } else {
-            // Single cursor mode: from CursorManager
-            self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
-                self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
-                    vec![(loc.dom_id, loc.node_id, *cursor)]
-                })
-            }).unwrap_or_default()
-        };
+        let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
+        let cursor_locations = self.text_edit_manager.build_cursor_locations();
 
         let mut display_list = solver3::layout_document(
             &mut self.layout_cache,
@@ -937,7 +914,7 @@ impl LayoutWindow {
             dom_id,
             cursor_is_visible,
             cursor_locations,
-            self.text_edit_manager.cursor_manager.preedit_text.clone(),
+            self.text_edit_manager.preedit_text.clone(),
             &self.image_cache,
             self.system_style.clone(),
             system_callbacks.get_system_time_fn,
@@ -4950,26 +4927,8 @@ impl LayoutWindow {
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
         // Get cursor state for display list generation
-        let cursor_is_visible = self.text_edit_manager.cursor_manager.should_draw_cursor();
-        let cursor_locations = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
-            if let Some(node_id) = mc.node_id.node.into_crate_internal() {
-                mc.selections.iter().map(|s| {
-                    let cursor = match &s.selection {
-                        azul_core::selection::Selection::Cursor(c) => *c,
-                        azul_core::selection::Selection::Range(r) => r.end,
-                    };
-                    (mc.node_id.dom, node_id, cursor)
-                }).collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            }
-        } else {
-            self.text_edit_manager.cursor_manager.get_cursor_location().and_then(|loc| {
-                self.text_edit_manager.cursor_manager.get_cursor().map(|cursor| {
-                    vec![(loc.dom_id, loc.node_id, *cursor)]
-                })
-            }).unwrap_or_default()
-        };
+        let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
+        let cursor_locations = self.text_edit_manager.build_cursor_locations();
 
         // Build a temporary LayoutContext with all the state we need
         let mut counter_values = HashMap::new();
@@ -4987,7 +4946,7 @@ impl LayoutWindow {
             fragmentation_context: None,
             cursor_is_visible,
             cursor_locations,
-            preedit_text: self.text_edit_manager.cursor_manager.preedit_text.clone(),
+            preedit_text: self.text_edit_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,
             system_style: self.system_style.clone(),
@@ -5787,26 +5746,26 @@ impl LayoutWindow {
         // Setting focus directly here bypasses that, causing the blue border to not
         // appear until the next full layout (e.g., resize).
 
-        // Initialize cursor at the clicked position.
+        // Initialize editing at the clicked position via unified API.
+        let ce_key = self.layout_results.get(&dom_id).map(|lr| {
+            azul_core::diff::calculate_contenteditable_key(
+                lr.styled_dom.node_data.as_ref(),
+                lr.styled_dom.node_hierarchy.as_ref(),
+                ifc_root_node_id,
+            )
+        }).unwrap_or(0);
+        self.text_edit_manager.initialize_editing(
+            final_range.start, dom_id, ifc_root_node_id, ce_key,
+        );
         let now = azul_core::task::Instant::now();
+        self.text_edit_manager.blink.reset_blink_on_input(now.clone());
+        self.text_edit_manager.blink.set_blink_timer_active(true);
+        // Also sync to legacy CursorManager (temporary, removed in Phase 3)
         self.text_edit_manager.cursor_manager.move_cursor_to(
-            final_range.start,
-            dom_id,
-            ifc_root_node_id,
+            final_range.start, dom_id, ifc_root_node_id,
         );
         self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
         self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
-
-        // Initialize or update MultiCursorState with the clicked cursor.
-        // A plain click (no Ctrl) always resets to a single cursor.
-        // Ctrl+Click for adding cursors is handled in the event layer (Step 7).
-        let mc = azul_core::selection::MultiCursorState::new_with_cursor(
-            final_range.start,
-            dom_node_id,
-            0, // contenteditable_key: computed later if needed
-        );
-        self.text_edit_manager.multi_cursor = Some(mc);
-        self.text_edit_manager.mark_dirty();
 
         // Regenerate display list so cursor appears at the clicked position
         // (same pattern as handle_cursor_movement and apply_text_changeset)

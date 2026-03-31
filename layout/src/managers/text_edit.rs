@@ -1,35 +1,126 @@
 //! Unified text editing manager
 //!
-//! Merges CursorManager and SelectionManager into a single source of truth
-//! for all text editing state. Every mutation that affects visual output sets
-//! `display_list_dirty = true`, ensuring the display list is always regenerated.
+//! Single source of truth for all text editing state. `MultiCursorState` is
+//! the primary cursor/selection system. `BlinkState` handles the caret blink
+//! animation. `SelectionManager` handles non-editable drag-select only.
 //!
-//! This eliminates bugs caused by forgetting to update one manager when
-//! another changes (e.g., click updates selection but not cursor, or arrow
-//! keys move cursor but don't regenerate display list).
+//! Every mutation that affects visual output sets `display_list_dirty = true`,
+//! ensuring the display list is always regenerated.
 
-use azul_core::selection::MultiCursorState;
+use azul_core::{
+    dom::{DomId, DomNodeId, NodeId},
+    selection::{
+        CursorAffinity, GraphemeClusterId, MultiCursorState, Selection, TextCursor,
+    },
+    styled_dom::NodeHierarchyItemId,
+    task::Instant,
+};
 
 use super::cursor::CursorManager;
 use super::selection::SelectionManager;
 
+/// Default cursor blink interval in milliseconds
+pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
+
+/// Cursor blink animation state.
+///
+/// Extracted from the old `CursorManager` so it can live independently
+/// on `TextEditManager` without coupling to cursor position.
+#[derive(Debug, Clone)]
+pub struct BlinkState {
+    /// Whether the cursor is currently visible (toggled by blink timer)
+    pub is_visible: bool,
+    /// Timestamp of the last user input event (keyboard, mouse click in text).
+    /// Used to determine whether to blink or stay solid while typing.
+    pub last_input_time: Option<Instant>,
+    /// Whether the cursor blink timer is currently active
+    pub blink_timer_active: bool,
+}
+
+impl Default for BlinkState {
+    fn default() -> Self {
+        Self {
+            is_visible: false,
+            last_input_time: None,
+            blink_timer_active: false,
+        }
+    }
+}
+
+impl BlinkState {
+    pub fn new() -> Self { Self::default() }
+
+    /// Reset blink on user input — cursor stays solid until blink interval elapses.
+    pub fn reset_blink_on_input(&mut self, now: Instant) {
+        self.is_visible = true;
+        self.last_input_time = Some(now);
+    }
+
+    /// Toggle cursor visibility (called by blink timer callback).
+    pub fn toggle_visibility(&mut self) -> bool {
+        self.is_visible = !self.is_visible;
+        self.is_visible
+    }
+
+    pub fn set_visibility(&mut self, visible: bool) {
+        self.is_visible = visible;
+    }
+
+    pub fn set_blink_timer_active(&mut self, active: bool) {
+        self.blink_timer_active = active;
+    }
+
+    pub fn is_blink_timer_active(&self) -> bool {
+        self.blink_timer_active
+    }
+
+    /// Check if enough time has passed since last input to start blinking.
+    pub fn should_blink(&self, now: &Instant) -> bool {
+        use azul_core::task::{Duration, SystemTimeDiff};
+        match &self.last_input_time {
+            Some(last_input) => {
+                let elapsed = now.duration_since(last_input);
+                let blink_interval = Duration::System(SystemTimeDiff::from_millis(CURSOR_BLINK_INTERVAL_MS));
+                elapsed.greater_than(&blink_interval)
+            }
+            None => true,
+        }
+    }
+
+    /// Clear all blink state (when editing ends).
+    pub fn clear(&mut self) {
+        self.is_visible = false;
+        self.last_input_time = None;
+        self.blink_timer_active = false;
+    }
+}
+
 /// Unified text editing manager.
 ///
-/// Owns both cursor and selection state, plus a dirty flag that ensures
-/// the display list is regenerated after any mutation that affects rendering.
+/// `multi_cursor` is the single source of truth for cursor/selection positions.
+/// `cursor_manager` is kept temporarily for backward compatibility during migration
+/// — it will be removed once all call sites are migrated to the new API.
 #[derive(Debug, Clone)]
 pub struct TextEditManager {
-    /// Cursor position, blink state, and IME preedit
+    /// Legacy cursor manager — kept during migration. Will be removed.
     pub cursor_manager: CursorManager,
     /// Multi-cursor state for contenteditable elements (Sublime Text style).
-    /// When `Some`, this is the active editing state; cursors/selections here
-    /// are the source of truth for `edit_text()` and display list painting.
+    /// `Some` whenever a contenteditable element has focus.
+    /// Source of truth for `edit_text()` and display list painting.
     pub multi_cursor: Option<MultiCursorState>,
+    /// Cursor blink animation state.
+    pub blink: BlinkState,
+    /// IME preedit (composition) text currently being composed.
+    /// Applies to the primary cursor only.
+    pub preedit_text: Option<String>,
+    /// Byte offset of cursor within preedit text (from IME), or -1 if unset
+    pub preedit_cursor_begin: i32,
+    /// Byte offset of cursor end within preedit text (from IME), or -1 if unset
+    pub preedit_cursor_end: i32,
     /// Selection ranges (legacy + anchor/focus model) and click state
     /// for non-editable text (drag-select in read-only content).
     pub selection_manager: SelectionManager,
     /// Set to true by any mutation that changes visual output.
-    /// The event loop checks this and calls `regenerate_display_list_for_dom()`.
     pub display_list_dirty: bool,
 }
 
@@ -53,15 +144,18 @@ impl TextEditManager {
         Self {
             cursor_manager: CursorManager::new(),
             multi_cursor: None,
+            blink: BlinkState::new(),
+            preedit_text: None,
+            preedit_cursor_begin: -1,
+            preedit_cursor_end: -1,
             selection_manager: SelectionManager::new(),
             display_list_dirty: false,
         }
     }
 
+    // === Dirty flag ===
+
     /// Check and clear the display_list_dirty flag.
-    ///
-    /// Returns true if the display list needs regeneration.
-    /// Clears the flag so subsequent calls return false until the next mutation.
     pub fn take_display_list_dirty(&mut self) -> bool {
         let v = self.display_list_dirty;
         self.display_list_dirty = false;
@@ -71,5 +165,104 @@ impl TextEditManager {
     /// Mark that the display list needs regeneration.
     pub fn mark_dirty(&mut self) {
         self.display_list_dirty = true;
+    }
+
+    // === Editing lifecycle ===
+
+    /// Whether a contenteditable element is currently being edited.
+    pub fn has_active_editing(&self) -> bool {
+        self.multi_cursor.is_some()
+    }
+
+    /// Get the DomId of the node being edited.
+    pub fn get_editing_dom_id(&self) -> Option<DomId> {
+        self.multi_cursor.as_ref().map(|mc| mc.node_id.dom)
+    }
+
+    /// Get the NodeId of the node being edited.
+    pub fn get_editing_node_id(&self) -> Option<NodeId> {
+        self.multi_cursor.as_ref()
+            .and_then(|mc| mc.node_id.node.into_crate_internal())
+    }
+
+    /// Get the primary cursor position (last-added cursor).
+    pub fn get_primary_cursor(&self) -> Option<TextCursor> {
+        self.multi_cursor.as_ref().and_then(|mc| mc.get_primary_cursor())
+    }
+
+    /// Whether the cursor should be drawn (editing active AND blink visible).
+    pub fn should_draw_cursor(&self) -> bool {
+        self.has_active_editing() && self.blink.is_visible
+    }
+
+    /// Initialize editing for a newly focused contenteditable element.
+    ///
+    /// Creates a `MultiCursorState` with a single cursor, starts the blink,
+    /// and sets preedit to None.
+    pub fn initialize_editing(
+        &mut self,
+        cursor: TextCursor,
+        dom_id: DomId,
+        node_id: NodeId,
+        contenteditable_key: u64,
+    ) {
+        let dom_node_id = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        self.multi_cursor = Some(MultiCursorState::new_with_cursor(
+            cursor,
+            dom_node_id,
+            contenteditable_key,
+        ));
+        self.blink.is_visible = true;
+        self.blink.last_input_time = None;
+        self.clear_preedit();
+        self.mark_dirty();
+    }
+
+    /// End editing (focus left the contenteditable element).
+    pub fn clear_editing(&mut self) {
+        self.multi_cursor = None;
+        self.blink.clear();
+        self.clear_preedit();
+        self.mark_dirty();
+    }
+
+    // === IME preedit ===
+
+    /// Set the IME preedit (composition) text.
+    pub fn set_preedit(&mut self, text: String, cursor_begin: i32, cursor_end: i32) {
+        self.preedit_text = if text.is_empty() { None } else { Some(text) };
+        self.preedit_cursor_begin = cursor_begin;
+        self.preedit_cursor_end = cursor_end;
+    }
+
+    /// Clear the IME preedit text (composition ended or cancelled).
+    pub fn clear_preedit(&mut self) {
+        self.preedit_text = None;
+        self.preedit_cursor_begin = -1;
+        self.preedit_cursor_end = -1;
+    }
+
+    // === Convenience for building cursor_locations ===
+
+    /// Build the Vec of cursor locations for LayoutContext.
+    ///
+    /// Returns all cursor positions from MultiCursorState, or empty if not editing.
+    pub fn build_cursor_locations(&self) -> Vec<(DomId, NodeId, TextCursor)> {
+        let Some(ref mc) = self.multi_cursor else {
+            return Vec::new();
+        };
+        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
+            return Vec::new();
+        };
+        mc.selections.iter().map(|s| {
+            let cursor = match &s.selection {
+                Selection::Cursor(c) => *c,
+                Selection::Range(r) => r.end,
+            };
+            (mc.node_id.dom, node_id, cursor)
+        }).collect()
     }
 }
