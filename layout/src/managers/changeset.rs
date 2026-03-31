@@ -171,15 +171,8 @@ pub enum TextOperation {
     SelectAll(TextOpSelectAll),
 }
 
-/// Direction of selection extension
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(C)]
-pub enum SelectionDirection {
-    /// Extending selection forward (to the right/down)
-    Forward,
-    /// Extending selection backward (to the left/up)
-    Backward,
-}
+/// Re-export from events module
+pub use azul_core::events::SelectionDirection;
 
 /// Type of cursor movement
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

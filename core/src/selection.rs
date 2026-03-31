@@ -194,13 +194,15 @@ impl_option!(
 /// Each SelectionId is unique within the lifetime of the process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
-pub struct SelectionId(pub u64);
+pub struct SelectionId {
+    pub inner: u64,
+}
 
 impl SelectionId {
     /// Generate a new unique SelectionId.
     pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
-        SelectionId(COUNTER.fetch_add(1, Ordering::Relaxed))
+        SelectionId { inner: COUNTER.fetch_add(1, Ordering::Relaxed) }
     }
 }
 

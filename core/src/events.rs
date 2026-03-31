@@ -2521,6 +2521,19 @@ pub enum SystemChange {
     StopAutoScrollTimer,
 }
 
+impl_option!(
+    SystemChange,
+    OptionSystemChange,
+    copy = false,
+    clone = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl_vec!(SystemChange, SystemChangeVec, SystemChangeVecDestructor, SystemChangeVecDestructorType, SystemChangeVecSlice, OptionSystemChange);
+impl_vec_debug!(SystemChange, SystemChangeVec);
+impl_vec_clone!(SystemChange, SystemChangeVec, SystemChangeVecDestructor);
+impl_vec_partialeq!(SystemChange, SystemChangeVec);
+
 /// Result of pre-callback internal event filtering
 #[derive(Debug, Clone, PartialEq)]
 pub struct PreCallbackFilterResult {
@@ -2529,6 +2542,106 @@ pub struct PreCallbackFilterResult {
     /// Regular events that will be passed to user callbacks
     pub user_events: Vec<SyntheticEvent>,
 }
+
+/// Flattened focus/selection state for the input interpreter (replaces trait objects).
+#[derive(Debug, Clone)]
+pub struct InputInterpreterState {
+    pub focused_node: Option<DomNodeId>,
+    pub click_count: u8,
+    pub drag_start_position: Option<LogicalPosition>,
+    pub has_selection: bool,
+}
+
+/// All context needed by the input interpreter to map events to system changes.
+///
+/// Passed to the interpreter callback. Contains references to the current
+/// events and window state. The interpreter reads this and returns system changes.
+pub struct InputInterpreterInfo<'a> {
+    pub events: &'a [SyntheticEvent],
+    pub hit_test: Option<&'a FullHitTest>,
+    pub keyboard_state: &'a crate::window::KeyboardState,
+    pub mouse_state: &'a crate::window::MouseState,
+    pub state: InputInterpreterState,
+}
+
+/// The `extern "C"` callback type for the input interpreter.
+///
+/// The first `RefAny` is the user data (vim mode, repeat counter, etc.)
+/// held in `InputInterpreterCallback.ctx`. The `*const ()` is an opaque
+/// pointer to `InputInterpreterInfo` — callers use the safe wrapper
+/// methods to access event data. Returns a `PreCallbackFilterResult`.
+///
+/// For C/Python: the trampoline extracts the foreign callable from `RefAny.ctx`.
+/// For Rust: use `InputInterpreterCallback::from(fn_ptr)` which sets ctx=None.
+pub type InputInterpreterCallbackType = extern "C" fn(
+    crate::refany::RefAny,
+    *const InputInterpreterInfo<'static>,  // Opaque; actual lifetime managed by caller
+) -> PreCallbackFilterResult;
+
+/// Configurable input interpreter callback.
+///
+/// Maps raw platform events + window state → semantic `SystemChange` actions.
+/// The default (`default_input_interpreter`) handles standard desktop keybindings.
+/// Replace this on `LayoutWindow` to implement vim, game controls, etc.
+///
+/// ## Pattern
+/// - **Rust**: `InputInterpreterCallback::from(my_fn_ptr)` — `ctx` is None
+/// - **Python/C**: Set `cb` to a trampoline, `ctx` to `RefAny` wrapping the foreign callable
+#[repr(C)]
+pub struct InputInterpreterCallback {
+    pub cb: InputInterpreterCallbackType,
+    pub ctx: crate::refany::OptionRefAny,
+}
+
+impl_callback!(InputInterpreterCallback, InputInterpreterCallbackType);
+
+impl Default for InputInterpreterCallback {
+    fn default() -> Self {
+        Self {
+            cb: default_input_interpreter_extern,
+            ctx: crate::refany::OptionRefAny::None,
+        }
+    }
+}
+
+/// The `extern "C"` callback type for the post-callback filter.
+pub type PostFilterCallbackType = extern "C" fn(
+    crate::refany::RefAny,
+    bool,                    // prevent_default
+    SystemChangeVecSlice,    // pre_changes (immutable slice)
+    DomNodeId,               // old_focus (0xFFFF = None)
+    DomNodeId,               // new_focus (0xFFFF = None)
+) -> SystemChangeVec;
+
+/// Configurable post-callback filter.
+#[repr(C)]
+pub struct PostFilterCallback {
+    pub cb: PostFilterCallbackType,
+    pub ctx: crate::refany::OptionRefAny,
+}
+
+impl_callback!(PostFilterCallback, PostFilterCallbackType);
+
+impl Default for PostFilterCallback {
+    fn default() -> Self {
+        Self {
+            cb: default_post_filter_extern,
+            ctx: crate::refany::OptionRefAny::None,
+        }
+    }
+}
+
+// Keep simpler Rust fn pointer aliases for internal use
+pub type InputInterpreterFn = fn(
+    info: &InputInterpreterInfo,
+) -> PreCallbackFilterResult;
+
+pub type PostFilterFn = fn(
+    prevent_default: bool,
+    pre_changes: &[SystemChange],
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> Vec<SystemChange>;
 
 /// Mouse button state for drag tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2633,32 +2746,47 @@ pub enum KeyboardShortcut {
     Redo,      // Ctrl+Y or Ctrl+Shift+Z
 }
 
-/// Pre-callback filter: Extract system changes from synthetic events.
+/// Default input interpreter: standard desktop keybindings.
 ///
-/// Separates framework system changes (text selection, shortcuts) from user-facing events.
-pub fn pre_callback_filter_internal_events<SM, FM>(
-    events: &[SyntheticEvent],
-    hit_test: Option<&FullHitTest>,
-    keyboard_state: &crate::window::KeyboardState,
-    mouse_state: &crate::window::MouseState,
-    selection_manager: &SM,
-    focus_manager: &FM,
-) -> PreCallbackFilterResult
-where
-    SM: SelectionManagerQuery,
-    FM: FocusManagerQuery,
-{
+/// This is the default `InputInterpreterFn` that handles arrow keys, Home/End,
+/// Backspace/Delete, Ctrl+C/V/A/Z, mouse clicks, and drag selection.
+/// Replace it on `LayoutWindow` to implement vim, game controls, etc.
+/// `extern "C"` trampoline for `default_input_interpreter`.
+pub extern "C" fn default_input_interpreter_extern(
+    _user_data: crate::refany::RefAny,
+    info_ptr: *const InputInterpreterInfo<'static>,
+) -> PreCallbackFilterResult {
+    let info = unsafe { &*info_ptr };
+    default_input_interpreter(info)
+}
+
+/// `extern "C"` trampoline for `default_post_filter`.
+pub extern "C" fn default_post_filter_extern(
+    _user_data: crate::refany::RefAny,
+    prevent_default: bool,
+    pre_changes: SystemChangeVecSlice,
+    old_focus: DomNodeId,
+    new_focus: DomNodeId,
+) -> SystemChangeVec {
+    let pre_changes_slice = pre_changes.as_slice();
+    let old = old_focus.node.into_crate_internal().map(|_| old_focus);
+    let new = new_focus.node.into_crate_internal().map(|_| new_focus);
+    default_post_filter(prevent_default, pre_changes_slice, old, new).into()
+}
+
+pub fn default_input_interpreter(
+    info: &InputInterpreterInfo,
+) -> PreCallbackFilterResult {
     let ctx = FilterContext {
-        hit_test,
-        keyboard_state,
-        mouse_state,
-        click_count: selection_manager.get_click_count(),
-        focused_node: focus_manager.get_focused_node_id(),
-        drag_start_position: selection_manager.get_drag_start_position(),
-        selection_manager,
+        hit_test: info.hit_test,
+        keyboard_state: info.keyboard_state,
+        mouse_state: info.mouse_state,
+        click_count: info.state.click_count,
+        focused_node: info.state.focused_node,
+        drag_start_position: info.state.drag_start_position,
     };
 
-    let (system_changes, user_events) = events.iter().fold(
+    let (system_changes, user_events) = info.events.iter().fold(
         (Vec::new(), Vec::new()),
         |(mut internal, mut user), event| {
             match process_event_for_internal(&ctx, event) {
@@ -2683,20 +2811,47 @@ where
     }
 }
 
-/// Context for filtering internal events
-struct FilterContext<'a, SM> {
+/// Backward-compatible wrapper that calls `default_input_interpreter`.
+pub fn pre_callback_filter_internal_events<SM, FM>(
+    events: &[SyntheticEvent],
+    hit_test: Option<&FullHitTest>,
+    keyboard_state: &crate::window::KeyboardState,
+    mouse_state: &crate::window::MouseState,
+    selection_manager: &SM,
+    focus_manager: &FM,
+) -> PreCallbackFilterResult
+where
+    SM: SelectionManagerQuery,
+    FM: FocusManagerQuery,
+{
+    let info = InputInterpreterInfo {
+        events,
+        hit_test,
+        keyboard_state,
+        mouse_state,
+        state: InputInterpreterState {
+            focused_node: focus_manager.get_focused_node_id(),
+            click_count: selection_manager.get_click_count(),
+            drag_start_position: selection_manager.get_drag_start_position(),
+            has_selection: selection_manager.has_selection(),
+        },
+    };
+    default_input_interpreter(&info)
+}
+
+/// Context for filtering internal events (used by default_input_interpreter)
+struct FilterContext<'a> {
     hit_test: Option<&'a FullHitTest>,
     keyboard_state: &'a crate::window::KeyboardState,
     mouse_state: &'a crate::window::MouseState,
     click_count: u8,
     focused_node: Option<DomNodeId>,
     drag_start_position: Option<LogicalPosition>,
-    selection_manager: &'a SM,
 }
 
 /// Process a single event and determine if it generates an internal event
-fn process_event_for_internal<SM: SelectionManagerQuery>(
-    ctx: &FilterContext<'_, SM>,
+fn process_event_for_internal(
+    ctx: &FilterContext<'_>,
     event: &SyntheticEvent,
 ) -> Option<InternalEventAction> {
     match event.event_type {
@@ -2710,7 +2865,6 @@ fn process_event_for_internal<SM: SelectionManagerQuery>(
         EventType::KeyDown => handle_key_down(
             event,
             ctx.keyboard_state,
-            ctx.selection_manager,
             ctx.focused_node,
         ),
         _ => None,
@@ -2809,10 +2963,9 @@ fn handle_mouse_over(
 }
 
 /// Handle KeyDown event - detect shortcuts, arrow keys, and delete keys
-fn handle_key_down<SM: SelectionManagerQuery>(
+fn handle_key_down(
     event: &SyntheticEvent,
     keyboard_state: &crate::window::KeyboardState,
-    selection_manager: &SM,
     focused_node: Option<DomNodeId>,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
@@ -2907,6 +3060,16 @@ pub trait FocusManagerQuery {
 ///
 /// Takes the pre-callback system changes and focus state to determine what
 /// post-callback system changes are needed (text input, scrolling, timers).
+/// Default post-callback filter: scroll-into-view after cursor ops, auto-scroll during drag.
+pub fn default_post_filter(
+    prevent_default: bool,
+    pre_changes: &[SystemChange],
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> Vec<SystemChange> {
+    post_callback_filter_system_changes(prevent_default, pre_changes, old_focus, new_focus)
+}
+
 pub fn post_callback_filter_system_changes(
     prevent_default: bool,
     pre_changes: &[SystemChange],

@@ -380,6 +380,13 @@ pub struct LayoutWindow {
     /// Used to skip font chain resolution on frames where the font requirements
     /// haven't changed (e.g. scroll-only frames).
     font_stacks_hash: u64,
+    /// Configurable input interpreter: maps raw events → SystemChange actions.
+    /// Default: `default_input_interpreter` (standard desktop keybindings).
+    /// Replace to implement vim, game controls, accessibility remaps, etc.
+    pub input_interpreter: azul_core::events::InputInterpreterCallback,
+    /// Configurable post-callback filter.
+    /// Default: `default_post_filter` (scroll-into-view after cursor ops).
+    pub post_filter: azul_core::events::PostFilterCallback,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
@@ -476,6 +483,8 @@ impl LayoutWindow {
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
+            input_interpreter: azul_core::events::InputInterpreterCallback::default(),
+            post_filter: azul_core::events::PostFilterCallback::default(),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -551,6 +560,8 @@ impl LayoutWindow {
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
+            input_interpreter: azul_core::events::InputInterpreterCallback::default(),
+            post_filter: azul_core::events::PostFilterCallback::default(),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -625,6 +636,8 @@ impl LayoutWindow {
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
+            input_interpreter: azul_core::events::InputInterpreterCallback::default(),
+            post_filter: azul_core::events::PostFilterCallback::default(),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })

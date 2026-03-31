@@ -4636,13 +4636,23 @@
                                     "Returns the SelectionId of the new cursor."
                                 ],
                                 "fn_args": [
-                                    { "self": "refmut" },
-                                    { "dom_id": "DomId" },
-                                    { "node_id": "NodeId" },
-                                    { "cursor": "TextCursor" }
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    },
+                                    {
+                                        "node_id": "NodeId"
+                                    },
+                                    {
+                                        "cursor": "TextCursor"
+                                    }
                                 ],
-                                "fn_body": "object.add_cursor(dom_id, node_id, cursor)",
-                                "returns": { "type": "SelectionId" }
+                                "returns": {
+                                    "type": "SelectionId"
+                                },
+                                "fn_body": "object.add_cursor(dom_id, node_id, cursor)"
                             },
                             "add_selection_range": {
                                 "doc": [
@@ -4651,35 +4661,57 @@
                                     "Returns the SelectionId of the new selection."
                                 ],
                                 "fn_args": [
-                                    { "self": "refmut" },
-                                    { "dom_id": "DomId" },
-                                    { "node_id": "NodeId" },
-                                    { "range": "SelectionRange" }
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    },
+                                    {
+                                        "node_id": "NodeId"
+                                    },
+                                    {
+                                        "range": "SelectionRange"
+                                    }
                                 ],
-                                "fn_body": "object.add_selection_range(dom_id, node_id, range)",
-                                "returns": { "type": "SelectionId" }
+                                "returns": {
+                                    "type": "SelectionId"
+                                },
+                                "fn_body": "object.add_selection_range(dom_id, node_id, range)"
                             },
                             "remove_selection_by_id": {
                                 "doc": [
                                     "Remove a specific selection/cursor by its stable SelectionId."
                                 ],
                                 "fn_args": [
-                                    { "self": "refmut" },
-                                    { "selection_id": "SelectionId" }
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "selection_id": "SelectionId"
+                                    }
                                 ],
-                                "fn_body": "object.remove_selection_by_id(selection_id)",
-                                "returns": { "type": "bool" }
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.remove_selection_by_id(selection_id)"
                             },
                             "get_selection_count": {
                                 "doc": [
                                     "Get the number of active cursors/selections in the MultiCursorState."
                                 ],
                                 "fn_args": [
-                                    { "self": "ref" },
-                                    { "dom_id": "DomId" }
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    }
                                 ],
-                                "fn_body": "object.get_selection_count(&dom_id)",
-                                "returns": { "type": "usize" }
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.get_selection_count(&dom_id)"
                             },
                             "open_menu_for_node": {
                                 "doc": [
@@ -13520,6 +13552,9 @@
                     },
                     "SelectionId": {
                         "external": "azul_core::selection::SelectionId",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -13534,28 +13569,6 @@
                             {
                                 "inner": {
                                     "type": "u64"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "IdentifiedSelection": {
-                        "external": "azul_core::selection::IdentifiedSelection",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "id": {
-                                    "type": "SelectionId"
-                                },
-                                "selection": {
-                                    "type": "Selection"
                                 }
                             }
                         ],
@@ -14057,13 +14070,14 @@
                         "repr": "C"
                     },
                     "SelectionDirection": {
-                        "external": "azul_layout::managers::changeset::SelectionDirection",
+                        "external": "azul_core::events::SelectionDirection",
                         "derive": [
                             "Debug",
                             "Clone",
                             "Copy",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Hash"
                         ],
                         "enum_fields": [
                             {
@@ -34333,12 +34347,10 @@
                         "enum_fields": [
                             {
                                 "Boxed": {
-                                    "type": "T",
-                                    "ref_kind": "mutptr"
+                                    "type": "*mut T"
                                 },
                                 "Static": {
-                                    "type": "T",
-                                    "ref_kind": "constptr"
+                                    "type": "*const T"
                                 }
                             }
                         ],
