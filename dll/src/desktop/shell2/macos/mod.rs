@@ -791,19 +791,23 @@ define_class!(
             unsafe {
                 let window = &*(window_ptr as *const MacOSWindow);
                 if let ImePosition::Initialized(rect) = window.common.current_window_state.ime_position {
-                    // Convert from window-local coordinates to screen coordinates
-                    let window_frame = window.window.frame();
-
-                    return NSRect {
+                    // Convert from top-left (azul) to bottom-left (macOS) window coordinates,
+                    // then to screen coordinates via convertRectToScreen.
+                    let content_height = self.frame().size.height;
+                    let window_local = NSRect {
                         origin: NSPoint {
-                            x: window_frame.origin.x + rect.origin.x as f64,
-                            y: window_frame.origin.y + rect.origin.y as f64,
+                            x: rect.origin.x as f64,
+                            // Flip Y: macOS origin is bottom-left
+                            y: content_height - rect.origin.y as f64 - rect.size.height as f64,
                         },
                         size: NSSize {
-                            width: rect.size.width as f64,
-                            height: rect.size.height as f64,
+                            width: rect.size.width.max(1.0) as f64,
+                            height: rect.size.height.max(16.0) as f64,
                         },
                     };
+                    // Convert from view-local to screen coordinates
+                    let screen_rect = window.window.convertRectToScreen(window_local);
+                    return screen_rect;
                 }
             }
 
@@ -1486,19 +1490,23 @@ define_class!(
             unsafe {
                 let window = &*(window_ptr as *const MacOSWindow);
                 if let ImePosition::Initialized(rect) = window.common.current_window_state.ime_position {
-                    // Convert from window-local coordinates to screen coordinates
-                    let window_frame = window.window.frame();
-
-                    return NSRect {
+                    // Convert from top-left (azul) to bottom-left (macOS) window coordinates,
+                    // then to screen coordinates via convertRectToScreen.
+                    let content_height = self.frame().size.height;
+                    let window_local = NSRect {
                         origin: NSPoint {
-                            x: window_frame.origin.x + rect.origin.x as f64,
-                            y: window_frame.origin.y + rect.origin.y as f64,
+                            x: rect.origin.x as f64,
+                            // Flip Y: macOS origin is bottom-left
+                            y: content_height - rect.origin.y as f64 - rect.size.height as f64,
                         },
                         size: NSSize {
-                            width: rect.size.width as f64,
-                            height: rect.size.height as f64,
+                            width: rect.size.width.max(1.0) as f64,
+                            height: rect.size.height.max(16.0) as f64,
                         },
                     };
+                    // Convert from view-local to screen coordinates
+                    let screen_rect = window.window.convertRectToScreen(window_local);
+                    return screen_rect;
                 }
             }
 
