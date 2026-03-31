@@ -2426,25 +2426,13 @@ pub enum SystemChange {
         start_position: LogicalPosition,
         current_position: LogicalPosition,
     },
-    /// Delete text: expand each cursor by (direction, step), then replace the
-    /// expanded range with empty string. If a range selection already exists,
-    /// just delete it (direction/step are ignored).
+    /// Unified selection operation: cursor movement, selection extension, or deletion.
     ///
-    /// - Backspace = (Backward, Character)
-    /// - Delete = (Forward, Character)
-    /// - Ctrl+Backspace = (Backward, Word)
-    /// - Ctrl+Delete = (Forward, Word)
-    DeleteTextSelection {
+    /// Replaces the old ArrowKeyNavigation and DeleteTextSelection variants.
+    /// Every keyboard shortcut maps to a single SelectionOp — see its docs.
+    ApplySelectionOp {
         target: DomNodeId,
-        direction: SelectionDirection,
-        step: SelectionStep,
-    },
-    /// Arrow key navigation in text.
-    ArrowKeyNavigation {
-        target: DomNodeId,
-        direction: ArrowDirection,
-        extend_selection: bool,
-        word_jump: bool,
+        op: SelectionOp,
     },
 
     // === Keyboard Shortcuts ===
@@ -2593,6 +2581,45 @@ pub enum SelectionStep {
     VisualLine,
     /// To document boundary (Ctrl+Home/End)
     Document,
+}
+
+/// What to do with the selection after moving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum SelectionMode {
+    /// Collapse selection to cursor, then move (plain arrow key).
+    Move,
+    /// Extend selection from anchor to new position (Shift+arrow).
+    Extend,
+    /// Expand cursor to range in the given direction, then delete the range
+    /// (Backspace/Delete). If a range already exists, just delete it.
+    Delete,
+}
+
+/// A unified selection operation that replaces all cursor movement,
+/// selection extension, and text deletion commands.
+///
+/// Every keyboard shortcut for cursor movement or deletion maps to this:
+/// - Arrow Left = (Backward, Character, Move, 1)
+/// - Shift+Right = (Forward, Character, Extend, 1)
+/// - Ctrl+Backspace = (Backward, Word, Delete, 1)
+/// - Home = (Backward, Line, Move, 1)
+/// - Ctrl+End = (Forward, Document, Move, 1)
+///
+/// The `repeat` field enables vim-style commands: 3w = (Forward, Word, Move, 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct SelectionOp {
+    pub direction: SelectionDirection,
+    pub step: SelectionStep,
+    pub mode: SelectionMode,
+    pub repeat: usize,
+}
+
+impl SelectionOp {
+    pub fn new(direction: SelectionDirection, step: SelectionStep, mode: SelectionMode) -> Self {
+        Self { direction, step, mode, repeat: 1 }
+    }
 }
 
 /// Keyboard shortcuts for text editing
@@ -2817,45 +2844,38 @@ fn handle_key_down<SM: SelectionManagerQuery>(
         }
     }
 
-    // Check arrow key navigation
-    let direction = match vk {
-        VirtualKeyCode::Left => Some(ArrowDirection::Left),
-        VirtualKeyCode::Up => Some(ArrowDirection::Up),
-        VirtualKeyCode::Right => Some(ArrowDirection::Right),
-        VirtualKeyCode::Down => Some(ArrowDirection::Down),
-        VirtualKeyCode::Home if ctrl => Some(ArrowDirection::DocumentStart),
-        VirtualKeyCode::Home => Some(ArrowDirection::LineStart),
-        VirtualKeyCode::End if ctrl => Some(ArrowDirection::DocumentEnd),
-        VirtualKeyCode::End => Some(ArrowDirection::LineEnd),
-        _ => None,
-    };
-    if let Some(direction) = direction {
-        return Some(InternalEventAction::AddAndSkip(
-            SystemChange::ArrowKeyNavigation {
-                target,
-                direction,
-                extend_selection: shift,
-                word_jump: ctrl && matches!(direction, ArrowDirection::Left | ArrowDirection::Right),
-            },
-        ));
-    }
-
-    // Backspace/Delete → DeleteTextSelection with direction + step.
-    // Ctrl modifier upgrades granularity from Character to Word.
-    let (direction, step) = match vk {
-        VirtualKeyCode::Back => Some((
+    // Unified: arrow keys, Home/End, Backspace/Delete all map to SelectionOp.
+    let mode_for_shift = if shift { SelectionMode::Extend } else { SelectionMode::Move };
+    let selection_op = match vk {
+        // Ctrl+Arrow = word jump
+        VirtualKeyCode::Left if ctrl => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Word, mode_for_shift)),
+        VirtualKeyCode::Right if ctrl => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Word, mode_for_shift)),
+        // Plain arrow = character
+        VirtualKeyCode::Left => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Character, mode_for_shift)),
+        VirtualKeyCode::Right => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Character, mode_for_shift)),
+        VirtualKeyCode::Up => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::VisualLine, mode_for_shift)),
+        VirtualKeyCode::Down => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::VisualLine, mode_for_shift)),
+        // Home/End
+        VirtualKeyCode::Home if ctrl => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Document, mode_for_shift)),
+        VirtualKeyCode::Home => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Line, mode_for_shift)),
+        VirtualKeyCode::End if ctrl => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Document, mode_for_shift)),
+        VirtualKeyCode::End => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Line, mode_for_shift)),
+        // Backspace/Delete = Delete mode (Ctrl upgrades to Word)
+        VirtualKeyCode::Back => Some(SelectionOp::new(
             SelectionDirection::Backward,
             if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+            SelectionMode::Delete,
         )),
-        VirtualKeyCode::Delete => Some((
+        VirtualKeyCode::Delete => Some(SelectionOp::new(
             SelectionDirection::Forward,
             if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+            SelectionMode::Delete,
         )),
         _ => None,
     }?;
 
     Some(InternalEventAction::AddAndSkip(
-        SystemChange::DeleteTextSelection { target, direction, step },
+        SystemChange::ApplySelectionOp { target, op: selection_op },
     ))
 }
 
@@ -2910,8 +2930,7 @@ pub fn post_callback_filter_system_changes(
     for change in pre_changes {
         match change {
             SystemChange::TextSelectionClick { .. }
-            | SystemChange::ArrowKeyNavigation { .. }
-            | SystemChange::DeleteTextSelection { .. }
+            | SystemChange::ApplySelectionOp { .. }
             | SystemChange::AddCursorAtClick { .. }
             | SystemChange::SelectNextOccurrence { .. } => {
                 changes.push(SystemChange::ScrollSelectionIntoView);
@@ -3007,15 +3026,15 @@ mod tests {
             &events, None, &kb, &mouse, &sel, &focus,
         );
 
-        let delete_changes: Vec<_> = result.system_changes.iter()
-            .filter(|c| matches!(c, SystemChange::DeleteTextSelection { .. }))
+        let ops: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::ApplySelectionOp { .. }))
             .collect();
-
-        assert_eq!(delete_changes.len(), 1, "Backspace should generate DeleteTextSelection");
-        match &delete_changes[0] {
-            SystemChange::DeleteTextSelection { direction, step, .. } => {
-                assert_eq!(*direction, SelectionDirection::Backward, "Backspace should be Backward");
-                assert_eq!(*step, SelectionStep::Character, "Backspace without Ctrl should be Character");
+        assert_eq!(ops.len(), 1, "Backspace should generate ApplySelectionOp");
+        match &ops[0] {
+            SystemChange::ApplySelectionOp { op, .. } => {
+                assert_eq!(op.direction, SelectionDirection::Backward);
+                assert_eq!(op.step, SelectionStep::Character);
+                assert_eq!(op.mode, SelectionMode::Delete);
             }
             _ => unreachable!(),
         }
@@ -3025,35 +3044,27 @@ mod tests {
     fn delete_key_generates_forward_deletion() {
         let target = focused_node(2);
         let event = SyntheticEvent::new(
-            EventType::KeyDown,
-            EventSource::User,
-            target,
+            EventType::KeyDown, EventSource::User, target,
             Instant::Tick(SystemTick::new(0)),
             EventData::Keyboard(KeyboardEventData {
                 key_code: VirtualKeyCode::Delete as u32,
-                char_code: None,
-                modifiers: KeyModifiers::default(),
-                repeat: false,
+                char_code: None, modifiers: KeyModifiers::default(), repeat: false,
             }),
         );
         let kb = make_keyboard_state(VirtualKeyCode::Delete);
         let mouse = MouseState::default();
         let sel = MockSelectionManager { click_count: 0, has_sel: false };
         let focus = MockFocusManager(Some(target));
-
-        let result = pre_callback_filter_internal_events(
-            &[event], None, &kb, &mouse, &sel, &focus,
-        );
-
-        let delete_changes: Vec<_> = result.system_changes.iter()
-            .filter(|c| matches!(c, SystemChange::DeleteTextSelection { .. }))
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let ops: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::ApplySelectionOp { .. }))
             .collect();
-
-        assert_eq!(delete_changes.len(), 1);
-        match &delete_changes[0] {
-            SystemChange::DeleteTextSelection { direction, step, .. } => {
-                assert_eq!(*direction, SelectionDirection::Forward, "Delete should be Forward");
-                assert_eq!(*step, SelectionStep::Character, "Delete without Ctrl should be Character");
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
+            SystemChange::ApplySelectionOp { op, .. } => {
+                assert_eq!(op.direction, SelectionDirection::Forward);
+                assert_eq!(op.step, SelectionStep::Character);
+                assert_eq!(op.mode, SelectionMode::Delete);
             }
             _ => unreachable!(),
         }
@@ -3063,31 +3074,30 @@ mod tests {
     fn arrow_left_generates_navigation() {
         let target = focused_node(2);
         let event = SyntheticEvent::new(
-            EventType::KeyDown,
-            EventSource::User,
-            target,
+            EventType::KeyDown, EventSource::User, target,
             Instant::Tick(SystemTick::new(0)),
             EventData::Keyboard(KeyboardEventData {
                 key_code: VirtualKeyCode::Left as u32,
-                char_code: None,
-                modifiers: KeyModifiers::default(),
-                repeat: false,
+                char_code: None, modifiers: KeyModifiers::default(), repeat: false,
             }),
         );
         let kb = make_keyboard_state(VirtualKeyCode::Left);
         let mouse = MouseState::default();
         let sel = MockSelectionManager { click_count: 0, has_sel: false };
         let focus = MockFocusManager(Some(target));
-
-        let result = pre_callback_filter_internal_events(
-            &[event], None, &kb, &mouse, &sel, &focus,
-        );
-
-        let nav_changes: Vec<_> = result.system_changes.iter()
-            .filter(|c| matches!(c, SystemChange::ArrowKeyNavigation { .. }))
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let ops: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::ApplySelectionOp { .. }))
             .collect();
-
-        assert_eq!(nav_changes.len(), 1, "Left arrow should generate ArrowKeyNavigation");
+        assert_eq!(ops.len(), 1, "Left arrow should generate ApplySelectionOp");
+        match &ops[0] {
+            SystemChange::ApplySelectionOp { op, .. } => {
+                assert_eq!(op.direction, SelectionDirection::Backward);
+                assert_eq!(op.step, SelectionStep::Character);
+                assert_eq!(op.mode, SelectionMode::Move);
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[test]

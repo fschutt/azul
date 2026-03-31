@@ -2009,6 +2009,85 @@ impl LayoutWindow {
         layout_result.layout_tree.get_inline_layout_for_node(layout_index)
     }
 
+    /// Single dispatch: (direction, step) → UnifiedLayout cursor movement.
+    fn resolve_step_static(
+        layout: &crate::text3::cache::UnifiedLayout,
+        cursor: &TextCursor,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> TextCursor {
+        use azul_core::events::{SelectionDirection as D, SelectionStep as S};
+        match (direction, step) {
+            (D::Backward, S::Character) => layout.move_cursor_left(*cursor, &mut None),
+            (D::Forward, S::Character) => layout.move_cursor_right(*cursor, &mut None),
+            (D::Backward, S::Word) => layout.move_cursor_to_prev_word(*cursor, &mut None),
+            (D::Forward, S::Word) => layout.move_cursor_to_next_word(*cursor, &mut None),
+            (D::Backward, S::VisualLine) => layout.move_cursor_up(*cursor, &mut None, &mut None),
+            (D::Forward, S::VisualLine) => layout.move_cursor_down(*cursor, &mut None, &mut None),
+            (D::Backward, S::Line) => layout.move_cursor_to_line_start(*cursor, &mut None),
+            (D::Forward, S::Line) => layout.move_cursor_to_line_end(*cursor, &mut None),
+            (D::Backward, S::Document) => layout.get_first_cluster_cursor().unwrap_or(*cursor),
+            (D::Forward, S::Document) => layout.get_last_cluster_cursor().unwrap_or(*cursor),
+        }
+    }
+
+    /// Apply a unified selection operation (navigation, extend, or delete).
+    ///
+    /// Single entry point that replaces the separate ArrowKeyNavigation and
+    /// DeleteTextSelection handlers, as well as handle_cursor_movement and
+    /// handle_multi_cursor_movement.
+    pub fn apply_selection_op(
+        &mut self,
+        target: azul_core::dom::DomNodeId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        use azul_core::events::{SelectionMode, SelectionStep, SelectionDirection};
+
+        let dom_id = target.dom;
+        let node_id = match target.node.into_crate_internal() {
+            Some(id) => id,
+            None => return false,
+        };
+
+        let layout = match self.get_inline_layout_for_node(dom_id, node_id) {
+            Some(l) => l.clone(),
+            None => return false,
+        };
+
+        match op.mode {
+            SelectionMode::Move | SelectionMode::Extend => {
+                let extend = matches!(op.mode, SelectionMode::Extend);
+                if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                    for _ in 0..op.repeat.max(1) {
+                        mc.move_all_cursors(extend, |c| {
+                            Self::resolve_step_static(&layout, c, op.direction, op.step)
+                        });
+                    }
+                }
+                if !extend {
+                    self.text_edit_manager.selection_manager.clear_selection(&dom_id);
+                }
+                self.regenerate_display_list_for_dom(dom_id);
+                true
+            }
+            SelectionMode::Delete => {
+                // Step 1: if step > Character, expand cursors to ranges first
+                if !matches!(op.step, SelectionStep::Character) {
+                    if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                        for _ in 0..op.repeat.max(1) {
+                            mc.move_all_cursors(true, |c| {
+                                Self::resolve_step_static(&layout, c, op.direction, op.step)
+                            });
+                        }
+                    }
+                }
+                // Step 2: delete the expanded ranges (or single char for Character step)
+                let forward = matches!(op.direction, SelectionDirection::Forward);
+                self.delete_selection(target, forward).is_some()
+            }
+        }
+    }
+
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
     pub fn move_cursor_in_node<F>(
         &self,
