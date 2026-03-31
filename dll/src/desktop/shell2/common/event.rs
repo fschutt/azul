@@ -2074,17 +2074,44 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
-            SystemChange::DeleteTextSelection { target, forward } => {
+            SystemChange::DeleteTextSelection { target, direction, step } => {
                 crate::log_debug!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                    "[DeleteTextSelection] target={:?}, forward={}", target, forward
+                    "[DeleteTextSelection] target={:?}, dir={:?}, step={:?}", target, direction, step
                 );
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let result = layout_window.delete_selection(*target, *forward);
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[DeleteTextSelection] delete_selection returned {:?}", result.is_some()
-                    );
+                    let forward = matches!(direction, azul_core::events::SelectionDirection::Forward);
+
+                    // Word/Line/Document step: expand each cursor to a range first
+                    if !matches!(step, azul_core::events::SelectionStep::Character) {
+                        let dom_id = target.dom;
+                        if let Some(node_id) = target.node.into_crate_internal() {
+                            if let Some(layout) = layout_window.get_inline_layout_for_node(dom_id, node_id) {
+                                let layout = layout.clone();
+                                if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                    mc.move_all_cursors(true, |cursor| {
+                                        match (direction, step) {
+                                            (azul_core::events::SelectionDirection::Backward, azul_core::events::SelectionStep::Word) =>
+                                                layout.move_cursor_to_prev_word(*cursor, &mut None),
+                                            (azul_core::events::SelectionDirection::Forward, azul_core::events::SelectionStep::Word) =>
+                                                layout.move_cursor_to_next_word(*cursor, &mut None),
+                                            (azul_core::events::SelectionDirection::Backward, azul_core::events::SelectionStep::Line) =>
+                                                layout.move_cursor_to_line_start(*cursor, &mut None),
+                                            (azul_core::events::SelectionDirection::Forward, azul_core::events::SelectionStep::Line) =>
+                                                layout.move_cursor_to_line_end(*cursor, &mut None),
+                                            (azul_core::events::SelectionDirection::Backward, azul_core::events::SelectionStep::Document) =>
+                                                layout.get_first_cluster_cursor().unwrap_or(*cursor),
+                                            (azul_core::events::SelectionDirection::Forward, azul_core::events::SelectionStep::Document) =>
+                                                layout.get_last_cluster_cursor().unwrap_or(*cursor),
+                                            _ => *cursor,
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    let result = layout_window.delete_selection(*target, forward);
                     if result.is_some() {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }

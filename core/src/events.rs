@@ -2426,10 +2426,18 @@ pub enum SystemChange {
         start_position: LogicalPosition,
         current_position: LogicalPosition,
     },
-    /// Delete selected text (Backspace = forward:false, Delete = forward:true).
+    /// Delete text: expand each cursor by (direction, step), then replace the
+    /// expanded range with empty string. If a range selection already exists,
+    /// just delete it (direction/step are ignored).
+    ///
+    /// - Backspace = (Backward, Character)
+    /// - Delete = (Forward, Character)
+    /// - Ctrl+Backspace = (Backward, Word)
+    /// - Ctrl+Delete = (Forward, Word)
     DeleteTextSelection {
         target: DomNodeId,
-        forward: bool,
+        direction: SelectionDirection,
+        step: SelectionStep,
     },
     /// Arrow key navigation in text.
     ArrowKeyNavigation {
@@ -2557,6 +2565,34 @@ pub enum ArrowDirection {
     DocumentStart,
     /// Ctrl+End: move to end of document
     DocumentEnd,
+}
+
+/// Direction of cursor movement or selection expansion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum SelectionDirection {
+    Forward,
+    Backward,
+}
+
+/// Granularity of cursor movement or selection expansion.
+///
+/// Combined with `SelectionDirection`, determines how far a cursor moves
+/// or a selection expands. Reused for navigation, deletion, and visual
+/// selection — a single code path for word boundaries etc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum SelectionStep {
+    /// One grapheme cluster (arrow keys, Backspace, Delete)
+    Character,
+    /// One word boundary (Ctrl+arrow, Ctrl+Backspace, Ctrl+Delete)
+    Word,
+    /// To line boundary (Home/End)
+    Line,
+    /// One visual line up/down (Up/Down arrows)
+    VisualLine,
+    /// To document boundary (Ctrl+Home/End)
+    Document,
 }
 
 /// Keyboard shortcuts for text editing
@@ -2804,17 +2840,22 @@ fn handle_key_down<SM: SelectionManagerQuery>(
         ));
     }
 
-    // Bug E fix: Always generate DeleteTextSelection for Backspace/Delete
-    // when a node is focused, not just when has_selection() is true.
-    // A cursor without a visual selection still needs to delete one character.
-    let forward = match vk {
-        VirtualKeyCode::Back => Some(false),
-        VirtualKeyCode::Delete => Some(true),
+    // Backspace/Delete → DeleteTextSelection with direction + step.
+    // Ctrl modifier upgrades granularity from Character to Word.
+    let (direction, step) = match vk {
+        VirtualKeyCode::Back => Some((
+            SelectionDirection::Backward,
+            if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+        )),
+        VirtualKeyCode::Delete => Some((
+            SelectionDirection::Forward,
+            if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+        )),
         _ => None,
     }?;
 
     Some(InternalEventAction::AddAndSkip(
-        SystemChange::DeleteTextSelection { target, forward },
+        SystemChange::DeleteTextSelection { target, direction, step },
     ))
 }
 
@@ -2972,8 +3013,9 @@ mod tests {
 
         assert_eq!(delete_changes.len(), 1, "Backspace should generate DeleteTextSelection");
         match &delete_changes[0] {
-            SystemChange::DeleteTextSelection { forward, .. } => {
-                assert!(!forward, "Backspace should be forward=false");
+            SystemChange::DeleteTextSelection { direction, step, .. } => {
+                assert_eq!(*direction, SelectionDirection::Backward, "Backspace should be Backward");
+                assert_eq!(*step, SelectionStep::Character, "Backspace without Ctrl should be Character");
             }
             _ => unreachable!(),
         }
@@ -3009,8 +3051,9 @@ mod tests {
 
         assert_eq!(delete_changes.len(), 1);
         match &delete_changes[0] {
-            SystemChange::DeleteTextSelection { forward, .. } => {
-                assert!(*forward, "Delete should be forward=true");
+            SystemChange::DeleteTextSelection { direction, step, .. } => {
+                assert_eq!(*direction, SelectionDirection::Forward, "Delete should be Forward");
+                assert_eq!(*step, SelectionStep::Character, "Delete without Ctrl should be Character");
             }
             _ => unreachable!(),
         }
