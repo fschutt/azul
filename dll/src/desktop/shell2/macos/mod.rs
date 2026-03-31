@@ -739,6 +739,7 @@ define_class!(
                         );
                     }
                     macos_window.sync_ime_position_to_os();
+                    macos_window.common.display_list_dirty = true;
                     macos_window.request_redraw();
                 }
             }
@@ -1509,6 +1510,7 @@ define_class!(
                         );
                     }
                     macos_window.sync_ime_position_to_os();
+                    macos_window.common.display_list_dirty = true;
                     macos_window.request_redraw();
                 }
             }
