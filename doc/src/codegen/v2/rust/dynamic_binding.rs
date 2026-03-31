@@ -283,8 +283,14 @@ impl RustDynamicGenerator {
         };
         let full_name = format!("{}{}", name, generics);
 
+        // Skip C-API trait impls for generic types — there is no single
+        // `AzBoxOrStatic_clone` extern fn for a generic `AzBoxOrStatic<T>`.
+        // The concrete monomorphized type aliases (e.g. AzBoxOrStaticString)
+        // get their own Clone/Drop impls via the type_alias path.
+        let is_generic = !enum_def.generic_params.is_empty();
+
         // Clone trait - only generate manual impl if Clone is NOT derived
-        if enum_def.traits.is_clone && !enum_def.traits.clone_is_derived {
+        if enum_def.traits.is_clone && !enum_def.traits.clone_is_derived && !is_generic {
             let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
@@ -298,7 +304,7 @@ impl RustDynamicGenerator {
             builder.blank();
         }
 
-        if enum_def.traits.has_custom_drop {
+        if enum_def.traits.has_custom_drop && !is_generic {
             let delete_fn = format!("{}_delete", name);
             builder.line(&format!("impl{} Drop for {} {{", generics, full_name));
             builder.indent();
