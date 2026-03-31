@@ -713,19 +713,19 @@ define_class!(
             selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
-            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+            // macOS sends either NSString or NSAttributedString — handle both.
+            let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
-            } else { "<non-string>".to_string() };
-            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", text_preview, selected_range.location, selected_range.length);
+            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
+                unsafe { attr_string.string() }.to_string()
+            } else {
+                String::new()
+            };
+            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                        ns_string.to_string()
-                    } else {
-                        String::new()
-                    };
                     if let Some(ref mut lw) = macos_window.common.layout_window {
                         lw.text_edit_manager.set_preedit(
                             preedit,
@@ -769,38 +769,30 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
-            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+            // macOS sends either NSString or NSAttributedString — handle both.
+            let committed_text = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
-            } else { "<non-string>".to_string() };
-            eprintln!("[IME insertText] text='{}'", text_preview);
+            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
+                unsafe { attr_string.string() }.to_string()
+            } else {
+                String::new()
+            };
+            eprintln!("[IME insertText] text='{}'", committed_text);
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => return,
             };
 
+            if committed_text.is_empty() {
+                return;
+            }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ref mut lw) = macos_window.common.layout_window {
                     lw.text_edit_manager.clear_preedit();
                 }
-                if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                    let text = ns_string.to_string();
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[insertText] text='{}', calling handle_text_input", text
-                    );
-                    macos_window.handle_text_input(&text);
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[insertText] handle_text_input returned"
-                    );
-                } else {
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[insertText] could not downcast to NSString"
-                    );
-                }
+                macos_window.handle_text_input(&committed_text);
             }
         }
 
@@ -816,38 +808,56 @@ define_class!(
             _range: NSRange,
             _actual_range: *mut NSRange,
         ) -> NSRect {
-            use azul_core::window::ImePosition;
-
-            // Get ime_position from window state
+            // Compute cursor rect live from the layout (don't rely on cached ime_position
+            // which may be stale or Uninitialized).
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
-                None => return NSRect::ZERO,
+                None => {
+                    eprintln!("[IME firstRect] no window_ptr");
+                    return NSRect::ZERO;
+                }
             };
 
             unsafe {
                 let window = &*(window_ptr as *const MacOSWindow);
-                if let ImePosition::Initialized(rect) = window.common.current_window_state.ime_position {
-                    // Convert from top-left (azul) to bottom-left (macOS) window coordinates,
-                    // then to screen coordinates via convertRectToScreen.
-                    let content_height = self.frame().size.height;
-                    let window_local = NSRect {
-                        origin: NSPoint {
-                            x: rect.origin.x as f64,
-                            // Flip Y: macOS origin is bottom-left
-                            y: content_height - rect.origin.y as f64 - rect.size.height as f64,
-                        },
-                        size: NSSize {
-                            width: rect.size.width.max(1.0) as f64,
-                            height: rect.size.height.max(16.0) as f64,
-                        },
-                    };
-                    // Convert from view-local to screen coordinates
-                    let screen_rect = window.window.convertRectToScreen(window_local);
-                    return screen_rect;
-                }
-            }
 
-            NSRect::ZERO
+                // Try live cursor rect from layout
+                let cursor_rect = window.common.layout_window.as_ref()
+                    .and_then(|lw| lw.get_focused_cursor_rect_viewport());
+
+                let rect = match cursor_rect {
+                    Some(r) => r,
+                    None => {
+                        // Fallback: cached ime_position
+                        use azul_core::window::ImePosition;
+                        match window.common.current_window_state.ime_position {
+                            ImePosition::Initialized(r) => r,
+                            _ => {
+                                eprintln!("[IME firstRect] no cursor rect, no ime_position");
+                                return NSRect::ZERO;
+                            }
+                        }
+                    }
+                };
+
+                eprintln!("[IME firstRect] cursor at ({}, {}) size ({}, {})",
+                    rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
+                // Convert from top-left (azul) to bottom-left (macOS) view coordinates
+                let content_height = self.frame().size.height;
+                let window_local = NSRect {
+                    origin: NSPoint {
+                        x: rect.origin.x as f64,
+                        y: content_height - rect.origin.y as f64 - rect.size.height.max(16.0) as f64,
+                    },
+                    size: NSSize {
+                        width: rect.size.width.max(1.0) as f64,
+                        height: rect.size.height.max(16.0) as f64,
+                    },
+                };
+                // Convert from view-local to screen coordinates
+                window.window.convertRectToScreen(window_local)
+            }
         }
 
         #[unsafe(method(doCommandBySelector:))]
@@ -1468,19 +1478,19 @@ define_class!(
             selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
-            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+            // macOS sends either NSString or NSAttributedString — handle both.
+            let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
-            } else { "<non-string>".to_string() };
-            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", text_preview, selected_range.location, selected_range.length);
+            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
+                unsafe { attr_string.string() }.to_string()
+            } else {
+                String::new()
+            };
+            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                        ns_string.to_string()
-                    } else {
-                        String::new()
-                    };
                     if let Some(ref mut lw) = macos_window.common.layout_window {
                         lw.text_edit_manager.set_preedit(
                             preedit,
@@ -1524,10 +1534,15 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
-            let text_preview = if let Some(ns_string) = string.downcast_ref::<NSString>() {
+            // macOS sends either NSString or NSAttributedString — handle both.
+            let committed_text = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
-            } else { "<non-string>".to_string() };
-            eprintln!("[IME insertText] text='{}'", text_preview);
+            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
+                unsafe { attr_string.string() }.to_string()
+            } else {
+                String::new()
+            };
+            eprintln!("[IME insertText] text='{}'", committed_text);
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -1557,38 +1572,56 @@ define_class!(
             _range: NSRange,
             _actual_range: *mut NSRange,
         ) -> NSRect {
-            use azul_core::window::ImePosition;
-
-            // Get ime_position from window state
+            // Compute cursor rect live from the layout (don't rely on cached ime_position
+            // which may be stale or Uninitialized).
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
-                None => return NSRect::ZERO,
+                None => {
+                    eprintln!("[IME firstRect] no window_ptr");
+                    return NSRect::ZERO;
+                }
             };
 
             unsafe {
                 let window = &*(window_ptr as *const MacOSWindow);
-                if let ImePosition::Initialized(rect) = window.common.current_window_state.ime_position {
-                    // Convert from top-left (azul) to bottom-left (macOS) window coordinates,
-                    // then to screen coordinates via convertRectToScreen.
-                    let content_height = self.frame().size.height;
-                    let window_local = NSRect {
-                        origin: NSPoint {
-                            x: rect.origin.x as f64,
-                            // Flip Y: macOS origin is bottom-left
-                            y: content_height - rect.origin.y as f64 - rect.size.height as f64,
-                        },
-                        size: NSSize {
-                            width: rect.size.width.max(1.0) as f64,
-                            height: rect.size.height.max(16.0) as f64,
-                        },
-                    };
-                    // Convert from view-local to screen coordinates
-                    let screen_rect = window.window.convertRectToScreen(window_local);
-                    return screen_rect;
-                }
-            }
 
-            NSRect::ZERO
+                // Try live cursor rect from layout
+                let cursor_rect = window.common.layout_window.as_ref()
+                    .and_then(|lw| lw.get_focused_cursor_rect_viewport());
+
+                let rect = match cursor_rect {
+                    Some(r) => r,
+                    None => {
+                        // Fallback: cached ime_position
+                        use azul_core::window::ImePosition;
+                        match window.common.current_window_state.ime_position {
+                            ImePosition::Initialized(r) => r,
+                            _ => {
+                                eprintln!("[IME firstRect] no cursor rect, no ime_position");
+                                return NSRect::ZERO;
+                            }
+                        }
+                    }
+                };
+
+                eprintln!("[IME firstRect] cursor at ({}, {}) size ({}, {})",
+                    rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
+                // Convert from top-left (azul) to bottom-left (macOS) view coordinates
+                let content_height = self.frame().size.height;
+                let window_local = NSRect {
+                    origin: NSPoint {
+                        x: rect.origin.x as f64,
+                        y: content_height - rect.origin.y as f64 - rect.size.height.max(16.0) as f64,
+                    },
+                    size: NSSize {
+                        width: rect.size.width.max(1.0) as f64,
+                        height: rect.size.height.max(16.0) as f64,
+                    },
+                };
+                // Convert from view-local to screen coordinates
+                window.window.convertRectToScreen(window_local)
+            }
         }
 
         #[unsafe(method(doCommandBySelector:))]
