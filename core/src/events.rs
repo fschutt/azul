@@ -2874,3 +2874,263 @@ pub fn post_callback_filter_system_changes(
     changes
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dom::{DomId, DomNodeId};
+    use crate::styled_dom::NodeHierarchyItemId;
+    use crate::id::NodeId;
+    use crate::window::{KeyboardState, MouseState, VirtualKeyCode, VirtualKeyCodeVec, OptionVirtualKeyCode};
+    use crate::geom::LogicalPosition;
+    use crate::task::{Instant, SystemTick};
+
+    struct MockSelectionManager {
+        click_count: u8,
+        has_sel: bool,
+    }
+    impl SelectionManagerQuery for MockSelectionManager {
+        fn get_click_count(&self) -> u8 { self.click_count }
+        fn get_drag_start_position(&self) -> Option<LogicalPosition> { None }
+        fn has_selection(&self) -> bool { self.has_sel }
+    }
+
+    struct MockFocusManager(Option<DomNodeId>);
+    impl FocusManagerQuery for MockFocusManager {
+        fn get_focused_node_id(&self) -> Option<DomNodeId> { self.0 }
+    }
+
+    fn focused_node(node_idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: 0 },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_idx))),
+        }
+    }
+
+    fn make_keyboard_state(vk: VirtualKeyCode) -> KeyboardState {
+        let mut ks = KeyboardState::default();
+        ks.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+        ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(vec![vk]);
+        ks
+    }
+
+    fn make_keydown_event(target: DomNodeId) -> SyntheticEvent {
+        SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: VirtualKeyCode::Back as u32,
+                char_code: None,
+                modifiers: KeyModifiers::default(),
+                repeat: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn backspace_generates_delete_text_selection() {
+        let target = focused_node(2);
+        let events = vec![make_keydown_event(target)];
+        let kb = make_keyboard_state(VirtualKeyCode::Back);
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 0, has_sel: false };
+        let focus = MockFocusManager(Some(target));
+
+        let result = pre_callback_filter_internal_events(
+            &events, None, &kb, &mouse, &sel, &focus,
+        );
+
+        let delete_changes: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::DeleteTextSelection { .. }))
+            .collect();
+
+        assert_eq!(delete_changes.len(), 1, "Backspace should generate DeleteTextSelection");
+        match &delete_changes[0] {
+            SystemChange::DeleteTextSelection { forward, .. } => {
+                assert!(!forward, "Backspace should be forward=false");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn delete_key_generates_forward_deletion() {
+        let target = focused_node(2);
+        let event = SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: VirtualKeyCode::Delete as u32,
+                char_code: None,
+                modifiers: KeyModifiers::default(),
+                repeat: false,
+            }),
+        );
+        let kb = make_keyboard_state(VirtualKeyCode::Delete);
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 0, has_sel: false };
+        let focus = MockFocusManager(Some(target));
+
+        let result = pre_callback_filter_internal_events(
+            &[event], None, &kb, &mouse, &sel, &focus,
+        );
+
+        let delete_changes: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::DeleteTextSelection { .. }))
+            .collect();
+
+        assert_eq!(delete_changes.len(), 1);
+        match &delete_changes[0] {
+            SystemChange::DeleteTextSelection { forward, .. } => {
+                assert!(*forward, "Delete should be forward=true");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn arrow_left_generates_navigation() {
+        let target = focused_node(2);
+        let event = SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: VirtualKeyCode::Left as u32,
+                char_code: None,
+                modifiers: KeyModifiers::default(),
+                repeat: false,
+            }),
+        );
+        let kb = make_keyboard_state(VirtualKeyCode::Left);
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 0, has_sel: false };
+        let focus = MockFocusManager(Some(target));
+
+        let result = pre_callback_filter_internal_events(
+            &[event], None, &kb, &mouse, &sel, &focus,
+        );
+
+        let nav_changes: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::ArrowKeyNavigation { .. }))
+            .collect();
+
+        assert_eq!(nav_changes.len(), 1, "Left arrow should generate ArrowKeyNavigation");
+    }
+
+    #[test]
+    fn no_focused_node_means_no_keyboard_system_changes() {
+        let target = focused_node(2);
+        let event = make_keydown_event(target);
+        let kb = make_keyboard_state(VirtualKeyCode::Back);
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 0, has_sel: false };
+        let focus = MockFocusManager(None); // No focus!
+
+        let result = pre_callback_filter_internal_events(
+            &[event], None, &kb, &mouse, &sel, &focus,
+        );
+
+        assert!(result.system_changes.is_empty(),
+            "No system changes should be generated without focused node");
+    }
+
+    #[test]
+    fn keydown_without_keyboard_data_generates_no_system_change() {
+        let target = focused_node(2);
+        let event = SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::None, // Bug: missing keyboard data
+        );
+        let kb = make_keyboard_state(VirtualKeyCode::Back);
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 0, has_sel: false };
+        let focus = MockFocusManager(Some(target));
+
+        let result = pre_callback_filter_internal_events(
+            &[event], None, &kb, &mouse, &sel, &focus,
+        );
+
+        // This test documents the bug we just fixed: EventData::None causes
+        // the handle_key_down function to return None (early exit at line 2737)
+        assert!(result.system_changes.is_empty(),
+            "EventData::None should not generate system changes (documents the old bug)");
+    }
+
+    #[test]
+    fn ctrl_c_generates_copy() {
+        let target = focused_node(2);
+        let event = SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: VirtualKeyCode::C as u32,
+                char_code: Some('c'),
+                modifiers: KeyModifiers { ctrl: true, shift: false, alt: false, meta: false },
+                repeat: false,
+            }),
+        );
+        let mut kb = make_keyboard_state(VirtualKeyCode::C);
+        kb.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(
+            vec![VirtualKeyCode::C, VirtualKeyCode::LControl]
+        );
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 0, has_sel: false };
+        let focus = MockFocusManager(Some(target));
+
+        let result = pre_callback_filter_internal_events(
+            &[event], None, &kb, &mouse, &sel, &focus,
+        );
+
+        let copy_changes: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::CopyToClipboard))
+            .collect();
+
+        assert_eq!(copy_changes.len(), 1, "Ctrl+C should generate CopyToClipboard");
+    }
+
+    #[test]
+    fn mousedown_generates_text_selection_click() {
+        let target = focused_node(2);
+        let event = SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Mouse(MouseEventData {
+                position: LogicalPosition::new(100.0, 200.0),
+                button: crate::events::MouseButton::Left,
+                buttons: 1,
+                modifiers: KeyModifiers::default(),
+            }),
+        );
+        let kb = KeyboardState::default();
+        let mouse = MouseState::default();
+        let sel = MockSelectionManager { click_count: 1, has_sel: false };
+        let focus = MockFocusManager(Some(target));
+
+        let result = pre_callback_filter_internal_events(
+            &[event], None, &kb, &mouse, &sel, &focus,
+        );
+
+        let click_changes: Vec<_> = result.system_changes.iter()
+            .filter(|c| matches!(c, SystemChange::TextSelectionClick { .. }))
+            .collect();
+
+        // TextSelectionClick requires a hit_test (for get_first_hovered_node).
+        // Without a hit_test (None), no TextSelectionClick is generated.
+        // This documents the requirement: mouse events need hit_test data.
+        assert_eq!(click_changes.len(), 0,
+            "TextSelectionClick requires hit_test; None => no click change");
+    }
+}

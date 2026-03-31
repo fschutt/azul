@@ -871,3 +871,137 @@ pub fn determine_all_events(
 
     deduplicate_synthetic_events(events)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use azul_core::window::{
+        VirtualKeyCode, VirtualKeyCodeVec,
+        OptionVirtualKeyCode,
+    };
+
+    fn ts() -> Instant { Instant::Tick(SystemTick::new(0)) }
+
+    fn default_state() -> crate::window_state::FullWindowState {
+        crate::window_state::FullWindowState::default()
+    }
+
+    fn state_with_key(vk: VirtualKeyCode) -> crate::window_state::FullWindowState {
+        let mut s = default_state();
+        s.keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+        s.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(vec![vk]);
+        s
+    }
+
+    fn state_with_left_down(x: f32, y: f32) -> crate::window_state::FullWindowState {
+        let mut s = default_state();
+        s.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(x, y));
+        s.mouse_state.left_down = true;
+        s
+    }
+
+    fn state_with_cursor(x: f32, y: f32) -> crate::window_state::FullWindowState {
+        let mut s = default_state();
+        s.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(x, y));
+        s
+    }
+
+    fn empty_providers() -> Vec<&'static dyn EventProvider> { vec![] }
+
+    fn run_determine(
+        current: &crate::window_state::FullWindowState,
+        previous: &crate::window_state::FullWindowState,
+    ) -> Vec<SyntheticEvent> {
+        let focus = crate::managers::focus_cursor::FocusManager::new();
+        let hover = crate::managers::hover::HoverManager::new();
+        let filedrop = crate::managers::file_drop::FileDropManager::new();
+        let providers = empty_providers();
+        determine_all_events(current, previous, &hover, &focus, &filedrop, None, &providers, ts())
+    }
+
+    // === Keyboard tests ===
+
+    #[test]
+    fn keydown_fires_when_key_newly_pressed() {
+        let events = run_determine(&state_with_key(VirtualKeyCode::A), &default_state());
+        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        assert_eq!(kd.len(), 1);
+        assert!(matches!(kd[0].data, EventData::Keyboard(_)));
+    }
+
+    #[test]
+    fn keydown_skipped_when_same_key_held() {
+        let s = state_with_key(VirtualKeyCode::A);
+        let events = run_determine(&s, &s);
+        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        assert_eq!(kd.len(), 0, "KeyDown should not fire when same key held");
+    }
+
+    #[test]
+    fn keydown_fires_for_different_key() {
+        let events = run_determine(
+            &state_with_key(VirtualKeyCode::B),
+            &state_with_key(VirtualKeyCode::A),
+        );
+        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        assert_eq!(kd.len(), 1);
+    }
+
+    #[test]
+    fn keyup_fires_when_key_released() {
+        let events = run_determine(&default_state(), &state_with_key(VirtualKeyCode::A));
+        let ku: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyUp).collect();
+        assert_eq!(ku.len(), 1);
+        assert!(matches!(ku[0].data, EventData::Keyboard(_)));
+    }
+
+    #[test]
+    fn backspace_keydown_has_keyboard_data() {
+        let events = run_determine(&state_with_key(VirtualKeyCode::Back), &default_state());
+        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        assert_eq!(kd.len(), 1);
+        match &kd[0].data {
+            EventData::Keyboard(kb) => assert_eq!(kb.key_code, VirtualKeyCode::Back as u32),
+            other => panic!("Expected Keyboard data, got {:?}", other),
+        }
+    }
+
+    // === Mouse tests ===
+
+    #[test]
+    fn mousedown_fires_on_left_press() {
+        let events = run_determine(
+            &state_with_left_down(100.0, 200.0),
+            &state_with_cursor(100.0, 200.0),
+        );
+        let md: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseDown).collect();
+        assert_eq!(md.len(), 1);
+    }
+
+    #[test]
+    fn mouseup_fires_on_left_release() {
+        let events = run_determine(
+            &state_with_cursor(100.0, 200.0),
+            &state_with_left_down(100.0, 200.0),
+        );
+        let mu: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseUp).collect();
+        assert_eq!(mu.len(), 1);
+    }
+
+    #[test]
+    fn no_events_when_state_unchanged() {
+        let s = default_state();
+        let events = run_determine(&s, &s);
+        assert!(events.is_empty(), "Got {} events when state unchanged", events.len());
+    }
+
+    #[test]
+    fn mouseover_fires_on_cursor_move() {
+        let events = run_determine(
+            &state_with_cursor(150.0, 250.0),
+            &state_with_cursor(100.0, 200.0),
+        );
+        let mo: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseOver).collect();
+        assert_eq!(mo.len(), 1);
+    }
+}
