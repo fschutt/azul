@@ -1961,9 +1961,11 @@ impl LayoutWindow {
 
         // Bug B+H fix: If process_mouse_click_for_selection already positioned
         // the cursor in this node during the same event cycle, don't override it
-        // with initialize_cursor_at_end. The click handler sets the cursor to the
-        // clicked position; we should only initialize at end for tab/programmatic focus.
-        if self.text_edit_manager.cursor_manager.is_cursor_in_node(pending.dom_id, pending.text_node_id) {
+        // with initialize_cursor_at_end. The click handler sets cursor on the IFC
+        // root node (may differ from text_node_id), so check both.
+        if self.text_edit_manager.cursor_manager.is_cursor_in_node(pending.dom_id, pending.text_node_id)
+            || self.text_edit_manager.cursor_manager.is_cursor_in_node(pending.dom_id, pending.container_node_id)
+        {
             return true;
         }
 
