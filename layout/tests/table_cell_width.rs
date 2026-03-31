@@ -311,3 +311,140 @@ fn test_table_cell_with_explicit_css_gets_width() {
     assert!((table_rect.size.width - 400.0).abs() < 1.0,
         "Table should be 400px, got {}", table_rect.size.width);
 }
+
+/// HN header reproduction: 3-cell row where cell 1 has long text, cell 2 has
+/// medium text, cell 3 has short text ("login"). Cell 3 must NOT get 0 width.
+#[test]
+fn test_hn_header_three_cells_all_nonzero() {
+    // Mimics: <table><tr>
+    //   <td><span><a>Hacker News</a></span></td>
+    //   <td><span>new | past | comments | ask | show</span></td>
+    //   <td><span><a>login</a></span></td>
+    // </tr></table>
+    let dom = Dom::create_node(NodeType::Table)
+        .with_child(
+            Dom::create_node(NodeType::Tr)
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(
+                            Dom::create_node(NodeType::Span)
+                                .with_child(
+                                    Dom::create_node(NodeType::A)
+                                        .with_child(Dom::create_text("Hacker News"))
+                                )
+                        )
+                )
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(
+                            Dom::create_node(NodeType::Span)
+                                .with_child(Dom::create_text("new | past | comments | ask | show"))
+                        )
+                )
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(
+                            Dom::create_node(NodeType::Span)
+                                .with_child(
+                                    Dom::create_node(NodeType::A)
+                                        .with_child(Dom::create_text("login"))
+                                )
+                        )
+                )
+        );
+
+    // No CSS — pure UA defaults
+    let layout_window = layout_dom(dom, "", 800.0, 600.0);
+
+    eprintln!("\n=== HN-like 3-cell header (no CSS) ===");
+    for i in 0..25 {
+        let id = node_id(i);
+        if let Some(rect) = layout_window.get_node_layout_rect(id) {
+            eprintln!(
+                "  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
+                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
+            );
+        }
+    }
+
+    // Find the "login" text width — it should be at least ~30px (5 chars)
+    // With 3 cells, even the narrowest should be > 20px for "login"
+    let mut min_cell_width = f32::MAX;
+    let mut min_cell_idx = 0;
+    for i in 0..25 {
+        if let Some(rect) = layout_window.get_node_layout_rect(node_id(i)) {
+            // Cells should be > 0 width and < total table width
+            if rect.size.width > 0.0 && rect.size.width < 400.0 && rect.size.height > 10.0 {
+                if rect.size.width < min_cell_width {
+                    min_cell_width = rect.size.width;
+                    min_cell_idx = i;
+                }
+            }
+        }
+    }
+    eprintln!("\n  Narrowest cell-like node: node[{}] w={:.1}", min_cell_idx, min_cell_width);
+
+    // Also test: simple cells with inline <a> children directly
+    eprintln!("\n=== Simple: <td><a>login</a></td> vs <td>login</td> ===");
+    let dom2 = Dom::create_node(NodeType::Table)
+        .with_child(
+            Dom::create_node(NodeType::Tr)
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(Dom::create_text("direct text"))
+                )
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(
+                            Dom::create_node(NodeType::A)
+                                .with_child(Dom::create_text("in anchor"))
+                        )
+                )
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(
+                            Dom::create_node(NodeType::Span)
+                                .with_child(Dom::create_text("in span"))
+                        )
+                )
+        );
+    let lw2 = layout_dom(dom2, "", 800.0, 600.0);
+    for i in 0..20 {
+        if let Some(rect) = lw2.get_node_layout_rect(node_id(i)) {
+            eprintln!("  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
+                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+        }
+    }
+
+    // Now test nested inlines: <td><span><a>text</a></span></td>
+    eprintln!("\n=== Nested: <td><span><a>text</a></span></td> ===");
+    let dom3 = Dom::create_node(NodeType::Table)
+        .with_child(
+            Dom::create_node(NodeType::Tr)
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(Dom::create_text("plain"))
+                )
+                .with_child(
+                    Dom::create_node(NodeType::Td)
+                        .with_child(
+                            Dom::create_node(NodeType::Span)
+                                .with_child(
+                                    Dom::create_node(NodeType::A)
+                                        .with_child(Dom::create_text("nested"))
+                                )
+                        )
+                )
+        );
+    let lw3 = layout_dom(dom3, "", 800.0, 600.0);
+    for i in 0..15 {
+        if let Some(rect) = lw3.get_node_layout_rect(node_id(i)) {
+            eprintln!("  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
+                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+        }
+    }
+
+    assert!(min_cell_width > 20.0,
+        "Narrowest cell should be > 20px (for 'login' text), got {:.1}px at node[{}]",
+        min_cell_width, min_cell_idx);
+}

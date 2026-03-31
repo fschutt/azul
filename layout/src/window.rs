@@ -4927,6 +4927,7 @@ impl LayoutWindow {
             get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },
+            dirty_text_overrides: BTreeMap::new(),
         };
 
         // Generate the new display list from the existing layout tree
@@ -5713,12 +5714,13 @@ impl LayoutWindow {
             })
             .unwrap_or(false);
 
-        // W3C conformance: contenteditable elements are implicitly focusable
-        if is_contenteditable {
-            self.focus_manager.set_focused_node(Some(dom_node_id));
-        }
+        // NOTE: Do NOT call focus_manager.set_focused_node() here!
+        // The click-to-focus system in event.rs (process_window_events) handles
+        // focus via SetFocus which also triggers apply_focus_restyle for :focus CSS.
+        // Setting focus directly here bypasses that, causing the blue border to not
+        // appear until the next full layout (e.g., resize).
 
-        // CRITICAL FIX 2: Initialize the CursorManager with the clicked position
+        // Initialize the CursorManager with the clicked position
         // Without this, clicking on a contenteditable element sets focus (blue outline)
         // but the text cursor doesn't appear because CursorManager is never told where to draw it.
         let now = azul_core::task::Instant::now();
@@ -5730,6 +5732,11 @@ impl LayoutWindow {
         // Reset the blink timer so the cursor is immediately visible
         self.text_edit_manager.cursor_manager.reset_blink_on_input(now);
         self.text_edit_manager.cursor_manager.set_blink_timer_active(true);
+        self.text_edit_manager.mark_dirty();
+
+        // Regenerate display list so cursor appears at the clicked position
+        // (same pattern as handle_cursor_movement and apply_text_changeset)
+        self.regenerate_display_list_for_dom(dom_id);
 
         // Return the affected node for dirty tracking
         Some(vec![dom_node_id])

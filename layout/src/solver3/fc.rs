@@ -5014,6 +5014,24 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     let mut temp_scrollbar_reflow = false;
     let mut temp_float_cache = HashMap::new();
 
+    // Clear cached layout for this cell and its descendants so that
+    // min/max-content measurement uses unconstrained width, not a
+    // stale result from a previous pass with narrower constraints.
+    if cell_index < ctx.cache_map.entries.len() {
+        ctx.cache_map.entries[cell_index].clear();
+    }
+    // Also clear descendants (anonymous IFC wrappers, inline nodes)
+    for &desc_idx in tree.children(cell_index) {
+        if desc_idx < ctx.cache_map.entries.len() {
+            ctx.cache_map.entries[desc_idx].clear();
+        }
+        for &grand_idx in tree.children(desc_idx) {
+            if grand_idx < ctx.cache_map.entries.len() {
+                ctx.cache_map.entries[grand_idx].clear();
+            }
+        }
+    }
+
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
         tree,
@@ -5027,14 +5045,28 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         crate::solver3::cache::ComputeMode::ComputeSize,
     )?;
 
-    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
-    let size = cell_node.used_size.unwrap_or_default();
-    let cell_bp = cell_node.box_props.unpack();
+    let cell_bp = tree.get(cell_index)
+        .ok_or(LayoutError::InvalidTree)?
+        .box_props.unpack();
     let padding = &cell_bp.padding;
     let border = &cell_bp.border;
     let wm = constraints.writing_mode;
 
-    Ok(size.width
+    // For min/max-content measurement, use the overflow content size (actual
+    // content width) rather than used_size. used_size for auto-width blocks
+    // fills the containing block, which is huge (f32::MAX/2) during
+    // intrinsic sizing — that would make every column appear infinitely wide.
+    let content_width = tree.warm(cell_index)
+        .and_then(|w| w.overflow_content_size)
+        .map(|s| s.width)
+        .unwrap_or_else(|| {
+            tree.get(cell_index)
+                .and_then(|n| n.used_size)
+                .map(|s| s.width)
+                .unwrap_or(0.0)
+        });
+
+    Ok(content_width
         + padding.cross_start(wm) + padding.cross_end(wm)
         + border.cross_start(wm) + border.cross_end(wm))
 }

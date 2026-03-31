@@ -1606,6 +1606,24 @@ pub fn calculate_used_size_for_node(
                     intrinsic.max_content_width
                 }
                 LayoutDisplay::Table | LayoutDisplay::InlineTable => intrinsic.max_content_width,
+                // Table cells: during intrinsic measurement, intrinsic sizes
+                // aren't known yet (0). Use containing block width so content
+                // can expand and be measured. The table layout algorithm sets
+                // the final cell width from computed column widths.
+                LayoutDisplay::TableCell => {
+                    if intrinsic.max_content_width > 0.0 {
+                        intrinsic.max_content_width
+                    } else {
+                        (containing_block_size.width
+                            - _box_props.margin.left
+                            - _box_props.margin.right
+                            - _box_props.border.left
+                            - _box_props.border.right
+                            - _box_props.padding.left
+                            - _box_props.padding.right)
+                            .max(0.0)
+                    }
+                }
                 // Other display types use intrinsic sizing
                 _ => intrinsic.max_content_width,
             }

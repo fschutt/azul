@@ -222,6 +222,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// IME preedit (composition) text to render inline at the cursor position.
     /// When Some, the text should be rendered with an underline decoration.
     pub preedit_text: Option<String>,
+    /// Text content overrides from in-progress edits (dirty_text_nodes).
+    /// When a text node has been edited but not yet committed to the DOM,
+    /// the layout pipeline should read from here instead of StyledDom.
+    /// Key: (DomId, NodeId of the text node), Value: the edited text string.
+    pub dirty_text_overrides: BTreeMap<(DomId, NodeId), String>,
     /// Per-node multi-slot cache (Taffy-inspired 9+1 architecture).
     /// Moved out of LayoutCache via std::mem::take for the duration of layout,
     /// then moved back after the layout pass completes.
@@ -454,6 +459,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
         preedit_text: preedit_text.clone(),
+        dirty_text_overrides: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         image_cache,
         system_style: system_style.clone(),
@@ -501,6 +507,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location,
         preedit_text,
+        dirty_text_overrides: BTreeMap::new(),
         cache_map, // Moved from LayoutCache; will be moved back after layout
         image_cache,
         system_style,
