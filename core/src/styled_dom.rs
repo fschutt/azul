@@ -973,10 +973,7 @@ impl StyledDom {
         );
         let tags_ms = t_tags.elapsed().as_secs_f64() * 1000.0;
 
-        let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(feature = "std")]
-        eprintln!("[cascade] {} nodes: prep={:.1}ms restyle={:.1}ms compact={:.1}ms tags={:.1}ms total={:.1}ms",
-            compact_dom.len(), prep_ms, restyle_ms, inherit_compact_ms, tags_ms, total_ms);
+        let _total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
         // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).
         // For XHTML-parsed DOMs with no callbacks, this early-exits immediately.

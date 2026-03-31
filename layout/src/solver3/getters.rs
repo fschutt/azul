@@ -3366,10 +3366,8 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     let resolved = resolve_font_chains(&collected, fc_cache);
     let resolve_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
-    #[cfg(feature = "std")]
-    eprintln!("[font-chains] collect={:.1}ms ({} unique stacks from {} nodes) resolve={:.1}ms ({} chains)",
-        collect_ms, collected.font_stacks.len(), styled_dom.node_data.as_ref().len(),
-        resolve_ms, resolved.chains.len());
+    // Font chain timing is logged via AZ_RECORD, not stderr
+    let _ = (collect_ms, resolve_ms);
 
     resolved
 }

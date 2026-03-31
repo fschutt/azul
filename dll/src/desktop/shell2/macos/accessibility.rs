@@ -103,13 +103,14 @@ impl MacOSAccessibilityAdapter {
     /// This function is designed to be non-blocking. If the a11y lock cannot
     /// be acquired immediately, the update is skipped to prevent UI hangs.
     pub fn update_tree(&mut self, tree_update: TreeUpdate) {
-        eprintln!("[a11y] update_tree: {} nodes, tree={}", tree_update.nodes.len(), tree_update.tree.is_some());
+        crate::log_trace!(crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+            "[a11y] update_tree: {} nodes, tree={}", tree_update.nodes.len(), tree_update.tree.is_some());
 
         // Store for next activation - use try_lock to avoid blocking
         if let Ok(mut guard) = self.tree_provider.try_lock() {
             *guard = Some(tree_update.clone());
         } else {
-            eprintln!("[a11y] update_tree: lock contention, skipping");
+            crate::log_trace!(crate::desktop::shell2::common::debug_server::LogCategory::Platform, "[a11y] update_tree: lock contention, skipping");
             return;
         }
 
@@ -122,17 +123,17 @@ impl MacOSAccessibilityAdapter {
         }));
         match result {
             Ok(Some(events)) => {
-                eprintln!("[a11y] update_tree: got QueuedEvents, raising");
+                crate::log_trace!(crate::desktop::shell2::common::debug_server::LogCategory::Platform, "[a11y] update_tree: got QueuedEvents, raising");
                 events.raise();
             }
             Ok(None) => {
-                eprintln!("[a11y] update_tree: adapter inactive (no events)");
+                crate::log_trace!(crate::desktop::shell2::common::debug_server::LogCategory::Platform, "[a11y] update_tree: adapter inactive (no events)");
             }
             Err(e) => {
                 let msg = e.downcast_ref::<String>().cloned()
                     .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
                     .unwrap_or_else(|| format!("{:?}", e));
-                eprintln!("[a11y] ERROR: update_if_active panicked: {}", msg);
+                crate::log_warn!(crate::desktop::shell2::common::debug_server::LogCategory::Platform, "[a11y] ERROR: update_if_active panicked: {}", msg);
             }
         }
     }
@@ -141,9 +142,9 @@ impl MacOSAccessibilityAdapter {
     /// This must be called when the window gains or loses focus
     /// so VoiceOver knows which window is active.
     pub fn update_view_focus_state(&mut self, is_focused: bool) {
-        eprintln!("[a11y] update_view_focus_state: is_focused={}", is_focused);
+        crate::log_trace!(crate::desktop::shell2::common::debug_server::LogCategory::Platform, "[a11y] update_view_focus_state: is_focused={}", is_focused);
         if let Some(events) = self.adapter.update_view_focus_state(is_focused) {
-            eprintln!("[a11y] update_view_focus_state: raising events");
+            crate::log_trace!(crate::desktop::shell2::common::debug_server::LogCategory::Platform, "[a11y] update_view_focus_state: raising events");
             events.raise();
         }
     }
