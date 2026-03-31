@@ -543,16 +543,25 @@ pub fn convert_cpu_hit_test_to_full(
     let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
 
     for (depth, (dom_id, node_id)) in hits.iter().enumerate() {
-        // Compute point_relative_to_item from cursor position and node's absolute position
+        // Compute point_relative_to_item in content-box coordinates.
+        // cursor_position is in window coordinates. Subtract node's border-box
+        // position AND padding+border to get content-box-local coordinates
+        // that match the text layout coordinate space.
         let point_relative = layout_results.get(dom_id)
             .and_then(|lr| {
                 lr.layout_tree.dom_to_layout.get(node_id)
                     .and_then(|indices| indices.first())
-                    .and_then(|&idx| lr.calculated_positions.get(idx))
-                    .map(|node_pos| azul_core::geom::LogicalPosition::new(
-                        cursor_position.x - node_pos.x,
-                        cursor_position.y - node_pos.y,
-                    ))
+                    .and_then(|&idx| {
+                        let node_pos = lr.calculated_positions.get(idx)?;
+                        let node = lr.layout_tree.get(idx)?;
+                        let bp = node.box_props.unpack();
+                        let content_x = node_pos.x + bp.padding.left + bp.border.left;
+                        let content_y = node_pos.y + bp.padding.top + bp.border.top;
+                        Some(azul_core::geom::LogicalPosition::new(
+                            cursor_position.x - content_x,
+                            cursor_position.y - content_y,
+                        ))
+                    })
             })
             .unwrap_or(azul_core::geom::LogicalPosition::zero());
 
