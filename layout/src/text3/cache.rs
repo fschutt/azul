@@ -4176,21 +4176,10 @@ impl UnifiedLayout {
             return cursor;
         };
 
-        // If we're at trailing edge, move to leading edge of same cluster
-        if cursor.affinity == CursorAffinity::Trailing {
-            if let Some(d) = debug {
-                d.push(format!(
-                    "[Cursor] move_cursor_left: moving from trailing to leading edge of byte {}",
-                    cursor.cluster_id.start_byte_in_run
-                ));
-            }
-            return TextCursor {
-                cluster_id: cursor.cluster_id,
-                affinity: CursorAffinity::Leading,
-            };
-        }
+        // Skip the Trailing→Leading affinity flip for simple cursor movement.
+        // Each left arrow press should move to the previous visible character position.
 
-        // We're at leading edge, move to previous cluster's trailing edge
+        // Move to previous cluster's trailing edge
         // Search backwards for a cluster on the same line, or any cluster if at line start
         let current_line = self.items[current_pos].line_index;
 
@@ -4288,21 +4277,13 @@ impl UnifiedLayout {
             return cursor;
         };
 
-        // If we're at leading edge, move to trailing edge of same cluster
-        if cursor.affinity == CursorAffinity::Leading {
-            if let Some(d) = debug {
-                d.push(format!(
-                    "[Cursor] move_cursor_right: moving from leading to trailing edge of byte {}",
-                    cursor.cluster_id.start_byte_in_run
-                ));
-            }
-            return TextCursor {
-                cluster_id: cursor.cluster_id,
-                affinity: CursorAffinity::Trailing,
-            };
-        }
+        // Skip the Leading→Trailing affinity flip for simple cursor movement.
+        // The affinity distinction matters for selection extension and bidi text,
+        // but for basic left/right navigation, the user expects each press to move
+        // the cursor to the next/previous visible character position.
+        // If at Leading, go directly to the next cluster's Leading.
 
-        // We're at trailing edge, move to next cluster's leading edge
+        // We're at leading or trailing edge, move to next cluster's leading edge
         let current_line = self.items[current_pos].line_index;
 
         if let Some(d) = debug {
