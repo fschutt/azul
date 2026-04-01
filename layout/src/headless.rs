@@ -133,35 +133,16 @@ impl Default for HeadlessConfig {
 }
 
 impl HeadlessConfig {
-    /// Create a headless config from environment variables.
+    /// Create a headless config with sensible defaults.
     ///
-    /// Recognized variables:
-    /// - `AZ_HEADLESS_WIDTH` (default: 800)
-    /// - `AZ_HEADLESS_HEIGHT` (default: 600)
-    /// - `AZ_HEADLESS_DPI` (default: 1.0)
-    /// - `AZ_HEADLESS_RENDER` (default: false, set to "1" or "true")
-    /// - `AZ_HEADLESS_MAX_ITER` (default: 1000)
+    /// The viewport can be changed at runtime via the debug server's
+    /// `resize` command or from E2E test JSON files.
     pub fn from_env() -> Self {
-        let width = std::env::var("AZ_HEADLESS_WIDTH")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(800.0);
-        let height = std::env::var("AZ_HEADLESS_HEIGHT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(600.0);
-        let dpi_factor = std::env::var("AZ_HEADLESS_DPI")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1.0);
-        let enable_rendering = std::env::var("AZ_HEADLESS_RENDER")
-            .ok()
-            .map(|s| s == "1" || s == "true")
-            .unwrap_or(false);
-        let max_iterations = std::env::var("AZ_HEADLESS_MAX_ITER")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .or(Some(1000));
+        let width = 800.0;
+        let height = 600.0;
+        let dpi_factor = 1.0;
+        let enable_rendering = true;
+        let max_iterations = Some(1000);
 
         Self {
             width,

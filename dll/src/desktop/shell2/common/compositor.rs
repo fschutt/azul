@@ -38,12 +38,6 @@ impl CompositorMode {
         }
     }
 
-    /// Get compositor mode from environment variable AZ_COMPOSITOR.
-    pub fn from_env() -> Option<Self> {
-        std::env::var("AZ_COMPOSITOR")
-            .ok()
-            .and_then(|s| Self::from_str(&s))
-    }
 }
 
 // ============================================================================
