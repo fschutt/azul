@@ -47,7 +47,7 @@ sleep 0.5
 
 # Start app
 echo -e "${YELLOW}Starting text_input with debug server on port $DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT ./text_input &
+AZ_DEBUG=$DEBUG_PORT ./text_input &
 APP_PID=$!
 
 cleanup() {

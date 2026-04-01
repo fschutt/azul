@@ -13,7 +13,7 @@
 //!
 //! ```bash
 //! # Start app with debug server
-//! AZUL_DEBUG=8765 cargo run --bin my_app
+//! AZ_DEBUG=8765 cargo run --bin my_app
 //!
 //! # Send events (blocks until processed)
 //! curl -X POST http://localhost:8765/ -d '{"type":"get_state"}'
@@ -2271,7 +2271,7 @@ static E2E_ACTIVE: AtomicBool = AtomicBool::new(false);
 static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 
 /// Global debug server handle (singleton — one per application).
-/// Started in `AppInternal::create()` when `AZUL_DEBUG=<port>` is set.
+/// Started in `AppInternal::create()` when `AZ_DEBUG=<port>` is set.
 #[cfg(feature = "std")]
 static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
 
@@ -2356,7 +2356,7 @@ impl Drop for DebugServerHandle {
 
 /// Get a clone of the global `DebugServerHandle` `Arc`.
 ///
-/// Returns `None` when `AZUL_DEBUG` was not set or the server
+/// Returns `None` when `AZ_DEBUG` was not set or the server
 /// hasn't been started yet.
 #[cfg(feature = "std")]
 pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
@@ -2365,7 +2365,7 @@ pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
 
 /// Check if the debug timer should be registered.
 ///
-/// Returns `true` when either `AZUL_DEBUG=<port>` started the HTTP
+/// Returns `true` when either `AZ_DEBUG=<port>` started the HTTP
 /// server **or** `AZUL_RUN_E2E_TESTS` queued tests.
 #[cfg(feature = "std")]
 pub fn is_debug_enabled() -> bool {
@@ -2446,12 +2446,12 @@ pub fn queue_e2e_tests(
 
 /// Get debug server port from environment
 ///
-/// The `AZUL_DEBUG` environment variable should be set to a port number (e.g., `AZUL_DEBUG=8765`).
+/// The `AZ_DEBUG` environment variable should be set to a port number (e.g., `AZ_DEBUG=8765`).
 /// Ports below 1024 require root/administrator privileges.
 /// Returns `None` if not set or not a valid port number.
 #[cfg(feature = "std")]
 pub fn get_debug_port() -> Option<u16> {
-    std::env::var("AZUL_DEBUG")
+    std::env::var("AZ_DEBUG")
         .ok()
         .and_then(|s| s.parse().ok())
 }
@@ -2466,7 +2466,7 @@ pub fn get_debug_port() -> Option<u16> {
 /// 5. Stores the handle in `DEBUG_SERVER` for global access
 /// 6. Returns the handle AND the `spmc::Receiver` for window timers
 ///
-/// Called once from `run()` when `AZUL_DEBUG=<port>` is set.
+/// Called once from `run()` when `AZ_DEBUG=<port>` is set.
 /// Subsequent calls return the existing handle (without a new receiver).
 #[cfg(feature = "std")]
 pub fn start_debug_server(
@@ -2597,7 +2597,7 @@ pub fn start_debug_server(
 
 /// Create a debug channel without starting the HTTP server.
 ///
-/// Used for E2E-only mode (`AZUL_RUN_E2E_TESTS` without `AZUL_DEBUG`).
+/// Used for E2E-only mode (`AZUL_RUN_E2E_TESTS` without `AZ_DEBUG`).
 /// Creates the `spmc` channel, stores a minimal `DebugServerHandle` in
 /// `DEBUG_SERVER`, and returns the receiver for window timers.
 #[cfg(feature = "std")]
@@ -9811,7 +9811,7 @@ pub fn create_debug_timer(
     ))
 }
 
-/// Register the debug timer on a window if `AZUL_DEBUG` or E2E mode is active.
+/// Register the debug timer on a window if `AZ_DEBUG` or E2E mode is active.
 ///
 /// This is the single cross-platform entry point that replaces the
 /// copy-pasted registration blocks in each platform window constructor.

@@ -46,7 +46,7 @@ sleep 0.5
 
 # Start app
 echo -e "${YELLOW}Starting drag_select_scroll with debug server on port $DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT ./drag_select_scroll &
+AZ_DEBUG=$DEBUG_PORT ./drag_select_scroll &
 APP_PID=$!
 
 cleanup() {

@@ -44,7 +44,7 @@ fi
 
 # Start the test app in background
 echo -e "${YELLOW}Starting focus_scroll_test with debug server on port $DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT ./focus_scroll_test &
+AZ_DEBUG=$DEBUG_PORT ./focus_scroll_test &
 APP_PID=$!
 
 # Give the app time to start

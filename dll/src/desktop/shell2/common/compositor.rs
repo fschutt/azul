@@ -38,9 +38,9 @@ impl CompositorMode {
         }
     }
 
-    /// Get compositor mode from environment variable AZUL_COMPOSITOR.
+    /// Get compositor mode from environment variable AZ_COMPOSITOR.
     pub fn from_env() -> Option<Self> {
-        std::env::var("AZUL_COMPOSITOR")
+        std::env::var("AZ_COMPOSITOR")
             .ok()
             .and_then(|s| Self::from_str(&s))
     }
@@ -53,7 +53,7 @@ impl CompositorMode {
 /// Backend selection for the entire application.
 ///
 /// Replaces the fragmented `AZUL_HEADLESS`, `AZUL_RENDERER`, and
-/// `AZUL_COMPOSITOR` env vars with a single `AZ_BACKEND` variable.
+/// `AZ_COMPOSITOR` env vars with a single `AZ_BACKEND` variable.
 ///
 /// ```text
 /// AZ_BACKEND=auto      (default) Try GPU, fall back to CPU on failure

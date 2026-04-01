@@ -14,7 +14,7 @@ cc focus.c -I../../target/codegen/ -L../../target/release/ -lazul -o focus_test 
 
 # Start with output to log
 echo "Starting focus_test..."
-AZUL_DEBUG=8765 ./focus_test > $LOG 2>&1 &
+AZ_DEBUG=8765 ./focus_test > $LOG 2>&1 &
 PID=$!
 sleep 3
 

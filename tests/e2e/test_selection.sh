@@ -49,7 +49,7 @@ sleep 0.5
 
 # Start app
 echo -e "${YELLOW}Starting selection with debug server on port $DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT ./selection &
+AZ_DEBUG=$DEBUG_PORT ./selection &
 APP_PID=$!
 
 cleanup() {

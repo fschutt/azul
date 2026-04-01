@@ -30,7 +30,7 @@ API="http://127.0.0.1:8765"
 
     # Start the application in background
     echo "=== Starting application ==="
-    AZUL_DEBUG=8765 ./simple_contenteditable &
+    AZ_DEBUG=8765 ./simple_contenteditable &
     APP_PID=$!
     echo "App PID: $APP_PID"
 

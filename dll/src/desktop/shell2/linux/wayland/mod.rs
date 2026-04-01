@@ -1156,7 +1156,7 @@ impl WaylandWindow {
             }
         }
 
-        // Register debug timer if AZUL_DEBUG is enabled
+        // Register debug timer if AZ_DEBUG is enabled
         #[cfg(feature = "std")]
         if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
             // Initialize LayoutWindow if not already done

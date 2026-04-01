@@ -90,7 +90,7 @@ if ! curl -s --connect-timeout 2 "$BASE_URL/" > /dev/null 2>&1; then
     echo "Starting focus_nested..."
     pkill -f focus_nested 2>/dev/null || true
     sleep 0.5
-    AZUL_DEBUG=$PORT ./focus_nested > /tmp/focus_nested.log 2>&1 &
+    AZ_DEBUG=$PORT ./focus_nested > /tmp/focus_nested.log 2>&1 &
     PID=$!
     sleep 3
     if ! curl -s --connect-timeout 2 "$BASE_URL/" > /dev/null 2>&1; then

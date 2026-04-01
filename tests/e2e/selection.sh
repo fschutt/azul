@@ -4,7 +4,7 @@
 #
 # This script tests text selection behavior:
 # 1. Compiles the selection C example
-# 2. Starts it with AZUL_DEBUG enabled
+# 2. Starts it with AZ_DEBUG enabled
 # 3. Simulates mouse drag to select text across 3 paragraphs
 # 4. Verifies that user-select: none (paragraph 2) is respected
 # 5. Queries and validates selection state via debug API
@@ -30,7 +30,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Configuration
-DEBUG_PORT="${AZUL_DEBUG_PORT:-8766}"
+DEBUG_PORT="${AZ_DEBUG_PORT:-8766}"
 OUTPUT_DIR="${PROJECT_ROOT}/target/test_results/selection"
 BINARY_DIR="${PROJECT_ROOT}/target/e2e-tests"
 SCREENSHOT_DIR="${OUTPUT_DIR}/screenshots"
@@ -118,8 +118,8 @@ echo -e "${YELLOW}[Phase 2] Starting application${NC}"
 pkill -f "selection" 2>/dev/null || true
 sleep 1
 
-echo "  Starting with AZUL_DEBUG=$DEBUG_PORT..."
-AZUL_DEBUG=$DEBUG_PORT "$BINARY" > "$OUTPUT_DIR/app.log" 2>&1 &
+echo "  Starting with AZ_DEBUG=$DEBUG_PORT..."
+AZ_DEBUG=$DEBUG_PORT "$BINARY" > "$OUTPUT_DIR/app.log" 2>&1 &
 APP_PID=$!
 echo "  PID: $APP_PID"
 

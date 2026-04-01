@@ -81,7 +81,7 @@ check_test() {
 echo "Testing connection to debug server..."
 if ! curl -s --connect-timeout 2 "$BASE_URL/" > /dev/null 2>&1; then
     echo -e "${RED}Error: Debug server not responding on port $PORT${NC}"
-    echo "Start the test app with: AZUL_DEBUG=$PORT ./focus_scroll"
+    echo "Start the test app with: AZ_DEBUG=$PORT ./focus_scroll"
     exit 1
 fi
 echo -e "${GREEN}Connected to debug server${NC}"

@@ -48,7 +48,7 @@ cc scrollbar_drag.c -I../../target/codegen/ -L../../target/release/ -lazul -o sc
 echo "Build successful"
 
 echo "Starting scrollbar_drag with debug server..."
-AZUL_DEBUG=$PORT ./scrollbar_drag 2>&1 &
+AZ_DEBUG=$PORT ./scrollbar_drag 2>&1 &
 sleep 3
 
 # Wait for server

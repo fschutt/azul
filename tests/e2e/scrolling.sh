@@ -4,7 +4,7 @@
 #
 # This script tests automatic scrollbars and programmatic scrolling:
 # 1. Compiles the scrolling C example
-# 2. Starts it with AZUL_DEBUG enabled
+# 2. Starts it with AZ_DEBUG enabled
 # 3. Uses the debug API to scroll and verify behavior
 # 4. Takes native screenshots for visual verification
 #
@@ -29,7 +29,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Configuration
-DEBUG_PORT="${AZUL_DEBUG_PORT:-8765}"
+DEBUG_PORT="${AZ_DEBUG_PORT:-8765}"
 OUTPUT_DIR="${PROJECT_ROOT}/target/test_results/scrolling"
 BINARY_DIR="${PROJECT_ROOT}/target/e2e-tests"
 SCREENSHOT_DIR="${OUTPUT_DIR}/screenshots"
@@ -122,8 +122,8 @@ echo -e "${YELLOW}[Phase 2] Starting application${NC}"
 pkill -f "scrolling" 2>/dev/null || true
 sleep 1
 
-echo "  Starting with AZUL_DEBUG=$DEBUG_PORT, item_count=$ITEM_COUNT..."
-AZUL_DEBUG=$DEBUG_PORT "$BINARY" "$ITEM_COUNT" > "$OUTPUT_DIR/app.log" 2>&1 &
+echo "  Starting with AZ_DEBUG=$DEBUG_PORT, item_count=$ITEM_COUNT..."
+AZ_DEBUG=$DEBUG_PORT "$BINARY" "$ITEM_COUNT" > "$OUTPUT_DIR/app.log" 2>&1 &
 APP_PID=$!
 echo "  PID: $APP_PID"
 

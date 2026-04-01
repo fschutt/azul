@@ -31,7 +31,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Configuration
-DEBUG_PORT="${AZUL_DEBUG_PORT:-8765}"
+DEBUG_PORT="${AZ_DEBUG_PORT:-8765}"
 OUTPUT_DIR="${PROJECT_ROOT}/target/test_results/focus"
 BINARY_DIR="${PROJECT_ROOT}/target/e2e-tests"
 SCREENSHOT_DIR="${OUTPUT_DIR}/screenshots"
@@ -132,8 +132,8 @@ echo -e "${YELLOW}[Phase 2] Starting application${NC}"
 pkill -f "focus" 2>/dev/null || true
 sleep 1
 
-echo "  Starting with AZUL_DEBUG=$DEBUG_PORT..."
-AZUL_DEBUG=$DEBUG_PORT "$BINARY" > "$OUTPUT_DIR/app.log" 2>&1 &
+echo "  Starting with AZ_DEBUG=$DEBUG_PORT..."
+AZ_DEBUG=$DEBUG_PORT "$BINARY" > "$OUTPUT_DIR/app.log" 2>&1 &
 APP_PID=$!
 echo "  PID: $APP_PID"
 

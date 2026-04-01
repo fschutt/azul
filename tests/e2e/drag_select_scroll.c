@@ -13,7 +13,7 @@
  * Compile:
  *   cd tests/e2e && cc drag_select_scroll.c -I../../target/codegen/ -L../../target/release/ -lazul -o drag_select_scroll -Wl,-rpath,../../target/release
  * 
- * Run with: AZUL_DEBUG=8765 ./drag_select_scroll
+ * Run with: AZ_DEBUG=8765 ./drag_select_scroll
  * Test with: ./test_drag_select_scroll.sh
  */
 
@@ -212,7 +212,7 @@ int main() {
     printf("  3. Selection extends during auto-scroll\n");
     printf("  4. Drag out of window behavior\n");
     printf("\n");
-    printf("Debug API: AZUL_DEBUG=8765 ./drag_select_scroll\n");
+    printf("Debug API: AZ_DEBUG=8765 ./drag_select_scroll\n");
     printf("Test: ./test_drag_select_scroll.sh\n");
     printf("\n");
     

@@ -136,29 +136,29 @@ impl HeadlessConfig {
     /// Create a headless config from environment variables.
     ///
     /// Recognized variables:
-    /// - `AZUL_HEADLESS_WIDTH` (default: 800)
-    /// - `AZUL_HEADLESS_HEIGHT` (default: 600)
-    /// - `AZUL_HEADLESS_DPI` (default: 1.0)
-    /// - `AZUL_HEADLESS_RENDER` (default: false, set to "1" or "true")
-    /// - `AZUL_HEADLESS_MAX_ITER` (default: 1000)
+    /// - `AZ_HEADLESS_WIDTH` (default: 800)
+    /// - `AZ_HEADLESS_HEIGHT` (default: 600)
+    /// - `AZ_HEADLESS_DPI` (default: 1.0)
+    /// - `AZ_HEADLESS_RENDER` (default: false, set to "1" or "true")
+    /// - `AZ_HEADLESS_MAX_ITER` (default: 1000)
     pub fn from_env() -> Self {
-        let width = std::env::var("AZUL_HEADLESS_WIDTH")
+        let width = std::env::var("AZ_HEADLESS_WIDTH")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(800.0);
-        let height = std::env::var("AZUL_HEADLESS_HEIGHT")
+        let height = std::env::var("AZ_HEADLESS_HEIGHT")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(600.0);
-        let dpi_factor = std::env::var("AZUL_HEADLESS_DPI")
+        let dpi_factor = std::env::var("AZ_HEADLESS_DPI")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(1.0);
-        let enable_rendering = std::env::var("AZUL_HEADLESS_RENDER")
+        let enable_rendering = std::env::var("AZ_HEADLESS_RENDER")
             .ok()
             .map(|s| s == "1" || s == "true")
             .unwrap_or(false);
-        let max_iterations = std::env::var("AZUL_HEADLESS_MAX_ITER")
+        let max_iterations = std::env::var("AZ_HEADLESS_MAX_ITER")
             .ok()
             .and_then(|s| s.parse().ok())
             .or(Some(1000));

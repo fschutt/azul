@@ -16,7 +16,7 @@ sleep 0.5
 
 # Start with debug server
 echo "Starting app with debug server on port 8765..."
-AZUL_DEBUG=8765 ./simple_contenteditable 2>&1 &
+AZ_DEBUG=8765 ./simple_contenteditable 2>&1 &
 APP_PID=$!
 
 # Wait for app to start

@@ -4,7 +4,7 @@
 
 set -e
 
-DEBUG_PORT=${AZUL_DEBUG:-8765}
+DEBUG_PORT=${AZ_DEBUG:-8765}
 BASE_URL="http://localhost:$DEBUG_PORT"
 
 echo "=== WebRender Scroll Verification Test ==="

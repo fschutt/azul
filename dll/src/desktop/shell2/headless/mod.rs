@@ -669,7 +669,7 @@ impl HeadlessWindow {
                     "[azul] HeadlessWindow: no timers, threads, or debug server active. \
                      The event loop will block indefinitely on a condvar \
                      (same as a desktop window nobody interacts with). \
-                     Set AZUL_DEBUG=1 to enable the debug server, or \
+                     Set AZ_DEBUG=1 to enable the debug server, or \
                      inject events via inject_event()."
                 );
             }

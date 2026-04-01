@@ -4,7 +4,7 @@
 # This script:
 # 1. Rebuilds the DLL (release)
 # 2. Compiles scrolling.c
-# 3. Runs it with AZUL_DEBUG
+# 3. Runs it with AZ_DEBUG
 # 4. Scrolls the container to the very bottom (500 rows × 30px = 15000px)
 # 5. Takes a native screenshot and saves it
 # 6. Dumps the display list and scroll state for debugging
@@ -71,7 +71,7 @@ echo -e "${GREEN}scrolling.c compiled${NC}"
 echo ""
 echo -e "${YELLOW}[3/7] Starting scrolling app with debug server on port $PORT...${NC}"
 mkdir -p "$OUT_DIR"
-AZUL_DEBUG=$PORT DYLD_LIBRARY_PATH="$ROOT_DIR/target/release" "$EXAMPLES_C/scrolling" > "$OUT_DIR/app_stdout.log" 2>&1 &
+AZ_DEBUG=$PORT DYLD_LIBRARY_PATH="$ROOT_DIR/target/release" "$EXAMPLES_C/scrolling" > "$OUT_DIR/app_stdout.log" 2>&1 &
 APP_PID=$!
 echo "App PID: $APP_PID"
 

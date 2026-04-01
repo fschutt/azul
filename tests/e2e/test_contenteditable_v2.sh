@@ -44,7 +44,7 @@ echo -e "${GREEN}Build successful${NC}"
 
 # Start the test app in background
 echo -e "${YELLOW}Starting contenteditable_test with debug server on port $DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT ./contenteditable_test &
+AZ_DEBUG=$DEBUG_PORT ./contenteditable_test &
 APP_PID=$!
 
 # Give the app time to start and render first frame

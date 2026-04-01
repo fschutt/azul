@@ -47,7 +47,7 @@ sleep 0.5
 
 # Start app
 echo -e "${YELLOW}Starting scrollbar_drag with debug server on port $DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT ./scrollbar_drag &
+AZ_DEBUG=$DEBUG_PORT ./scrollbar_drag &
 APP_PID=$!
 
 cleanup() {

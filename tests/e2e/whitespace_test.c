@@ -9,7 +9,7 @@
  * Compile:
  *   cd tests/e2e && cc whitespace_test.c -I../../target/codegen/ -L../../target/release/ -lazul -o whitespace_test -Wl,-rpath,../../target/release
  * 
- * Run with: AZUL_DEBUG=8765 ./whitespace_test
+ * Run with: AZ_DEBUG=8765 ./whitespace_test
  */
 
 #include "azul.h"
@@ -124,7 +124,7 @@ int main() {
     printf("  2. white-space: pre - preserves newlines\n");
     printf("  3. white-space: normal - wraps at words\n");
     printf("\n");
-    printf("Debug API: AZUL_DEBUG=8765 ./whitespace_test\n");
+    printf("Debug API: AZ_DEBUG=8765 ./whitespace_test\n");
     printf("\n");
     
     AppData initial_data = { .dummy = 0 };

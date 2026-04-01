@@ -4,7 +4,7 @@
 #
 # This script tests button click functionality:
 # 1. Compiles the hello-world C example
-# 2. Starts it with AZUL_DEBUG enabled
+# 2. Starts it with AZ_DEBUG enabled
 # 3. Uses the debug API to click the button via CSS selector
 # 4. Verifies the counter increases in the display list
 #
@@ -29,7 +29,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Configuration
-DEBUG_PORT="${AZUL_DEBUG_PORT:-8766}"
+DEBUG_PORT="${AZ_DEBUG_PORT:-8766}"
 OUTPUT_DIR="${PROJECT_ROOT}/target/test_results/hello-world"
 BINARY_DIR="${PROJECT_ROOT}/target/e2e-tests"
 SCREENSHOT_DIR="${OUTPUT_DIR}/screenshots"
@@ -123,8 +123,8 @@ echo -e "${YELLOW}[Phase 2] Starting application${NC}"
 pkill -f "hello-world" 2>/dev/null || true
 sleep 1
 
-echo "  Starting with AZUL_DEBUG=$DEBUG_PORT..."
-AZUL_DEBUG=$DEBUG_PORT "$BINARY" > "$OUTPUT_DIR/app.log" 2>&1 &
+echo "  Starting with AZ_DEBUG=$DEBUG_PORT..."
+AZ_DEBUG=$DEBUG_PORT "$BINARY" > "$OUTPUT_DIR/app.log" 2>&1 &
 APP_PID=$!
 echo "  PID: $APP_PID"
 

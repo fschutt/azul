@@ -15,7 +15,7 @@
  * Compile:
  *   cd tests/e2e && cc contenteditable.c -I../../examples/c -L../../target/release/ -lazul -o contenteditable_test -Wl,-rpath,../../target/release
  * 
- * Run with: AZUL_DEBUG=8765 ./contenteditable_test
+ * Run with: AZ_DEBUG=8765 ./contenteditable_test
  * Test with: ./test_contenteditable.sh
  */
 
@@ -248,7 +248,7 @@ int main(int argc, char** argv) {
     printf("  - Tab navigation between inputs\n");
     printf("  - Text input, cursor movement, selection\n");
     printf("\n");
-    printf("Debug API: AZUL_DEBUG=8765\n");
+    printf("Debug API: AZ_DEBUG=8765\n");
     printf("Test commands:\n");
     printf("  curl -X POST http://localhost:8765/ -d '{\"op\": \"get_state\"}'\n");
     printf("  curl -X POST http://localhost:8765/ -d '{\"op\": \"key_down\", \"key\": \"Tab\"}'\n");
