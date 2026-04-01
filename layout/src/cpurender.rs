@@ -3815,7 +3815,6 @@ pub fn render_component_preview(
     };
     let mut text_cache = TextLayoutCache::new();
     let empty_scroll_offsets = BTreeMap::new();
-    let empty_selections = BTreeMap::new();
     let empty_text_selections = BTreeMap::new();
     let renderer_resources = RendererResources::default();
     let id_namespace = IdNamespace(0xFFFF);
@@ -3832,7 +3831,6 @@ pub fn render_component_preview(
         viewport,
         &preview_font_manager,
         &empty_scroll_offsets,
-        &empty_selections,
         &empty_text_selections,
         &mut debug_messages,
         None,

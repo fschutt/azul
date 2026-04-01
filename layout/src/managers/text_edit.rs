@@ -256,26 +256,50 @@ impl TextEditManager {
         }).collect()
     }
 
-    /// Build a SelectionState map for the display list's `paint_selections`.
+    /// Build a TextSelection map for the display list's `paint_selections`.
     ///
-    /// Extracts Range selections from MultiCursorState and returns them in the
-    /// format that `LayoutContext.selections` expects: `BTreeMap<DomId, SelectionState>`.
-    pub fn build_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::SelectionState> {
-        use azul_core::selection::{SelectionState, SelectionVec};
+    /// Extracts Range selections from MultiCursorState into the format that
+    /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
+    /// The `affected_nodes` map uses the editing node's NodeId as key.
+    pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+        use azul_core::selection::{TextSelection, SelectionAnchor, SelectionFocus};
+        use azul_core::geom::LogicalRect;
 
         let mut map = std::collections::BTreeMap::new();
         let Some(ref mc) = self.multi_cursor else {
             return map;
         };
+        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
+            return map;
+        };
 
-        let selections: Vec<Selection> = mc.selections.iter()
-            .map(|s| s.selection)
-            .collect();
+        let mut affected_nodes = std::collections::BTreeMap::new();
+        let mut first_range: Option<azul_core::selection::SelectionRange> = None;
+        for sel in &mc.selections {
+            if let Selection::Range(range) = &sel.selection {
+                affected_nodes.insert(node_id, *range);
+                if first_range.is_none() {
+                    first_range = Some(*range);
+                }
+            }
+        }
 
-        if !selections.is_empty() {
-            map.insert(mc.node_id.dom, SelectionState {
-                selections: SelectionVec::from_vec(selections),
-                node_id: mc.node_id,
+        if let Some(range) = first_range {
+            map.insert(mc.node_id.dom, TextSelection {
+                dom_id: mc.node_id.dom,
+                anchor: SelectionAnchor {
+                    ifc_root_node_id: node_id,
+                    cursor: range.start,
+                    char_bounds: LogicalRect::zero(),
+                    mouse_position: azul_core::geom::LogicalPosition::zero(),
+                },
+                focus: SelectionFocus {
+                    ifc_root_node_id: node_id,
+                    cursor: range.end,
+                    mouse_position: azul_core::geom::LogicalPosition::zero(),
+                },
+                affected_nodes,
+                is_forward: true,
             });
         }
 

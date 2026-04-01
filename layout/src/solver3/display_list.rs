@@ -13,7 +13,7 @@ use azul_core::{
         IdNamespace, ImageRef, OpacityKey, RendererResources, TransformKey,
     },
     transform::ComputedTransform3D,
-    selection::{Selection, SelectionRange, SelectionState, TextSelection},
+    selection::{Selection, SelectionRange, TextSelection},
     styled_dom::StyledDom,
     ui_solver::GlyphInstance,
 };
@@ -1883,35 +1883,6 @@ where
                 }
                 
                 return Ok(());
-            }
-        }
-
-        // === LEGACY: Fall back to old selections for backward compatibility ===
-        let Some(selection_state) = self.ctx.selections.get(&self.ctx.styled_dom.dom_id) else {
-            return Ok(());
-        };
-
-        if selection_state.node_id.node.into_crate_internal() != Some(dom_id) {
-            return Ok(());
-        }
-
-        for selection in selection_state.selections.as_slice() {
-            if let Selection::Range(range) = &selection {
-                let rects = layout.get_selection_rects(range);
-                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id), self.ctx.system_style.as_ref());
-
-                let border_radius = BorderRadius {
-                    top_left: style.radius,
-                    top_right: style.radius,
-                    bottom_left: style.radius,
-                    bottom_right: style.radius,
-                };
-
-                for mut rect in rects {
-                    rect.origin.x += content_box_offset_x;
-                    rect.origin.y += content_box_offset_y;
-                    builder.push_selection_rect(rect, style.bg_color, border_radius);
-                }
             }
         }
 
