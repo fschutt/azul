@@ -18,12 +18,12 @@
 //!
 //! # E2E Test Runner
 //!
-//! Set `AZUL_RUN_E2E_TESTS=<path>` to run E2E tests from a JSON file.
+//! Set `AZ_E2E=<path>` to run E2E tests from a JSON file.
 //! The app starts in headless mode, runs all tests, prints cargo-test-style
 //! output, and exits with code 0 (all pass) or 1 (any failure).
 //!
 //! ```bash
-//! AZUL_RUN_E2E_TESTS=tests.json ./my_app
+//! AZ_E2E=tests.json ./my_app
 //! ```
 
 use std::{ffi::c_void, sync::{Arc, Mutex}};
@@ -48,9 +48,9 @@ fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
 }
 
 /// Check if E2E test runner mode is requested via environment variable.
-/// Returns `Some(path)` if `AZUL_RUN_E2E_TESTS` is set.
+/// Returns `Some(path)` if `AZ_E2E` is set.
 fn e2e_test_file() -> Option<String> {
-    std::env::var("AZUL_RUN_E2E_TESTS").ok().filter(|s| !s.is_empty())
+    std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty())
 }
 
 /// Set up E2E test runner: read the JSON file, push a `RunE2eTests`
@@ -63,7 +63,7 @@ fn e2e_test_file() -> Option<String> {
 ///
 /// - **Headless mode** (`AZUL_HEADLESS`) → StubWindow instead of real window
 /// - **Debug server** (`AZUL_DEBUG=<port>`) → HTTP API on that port
-/// - **E2E runner** (`AZUL_RUN_E2E_TESTS=<file>`) → one event on the queue
+/// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
 fn setup_e2e_runner(test_file: &str) {
     // Read the test file — exit immediately on error
     let tests_json = match std::fs::read_to_string(test_file) {
