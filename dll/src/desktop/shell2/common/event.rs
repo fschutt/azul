@@ -1767,8 +1767,13 @@ pub trait PlatformWindow {
                     } else {
                         lw.text_edit_manager.blink.set_visibility(true);
                     }
+                    // Regenerate display list with cursor rect toggled.
+                    // Future: use GPU opacity animation instead of display list rebuild.
+                    if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
+                        lw.regenerate_display_list_for_dom(dom_id);
+                    }
                 }
-                ProcessEventResult::ShouldReRenderCurrentWindow
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
             CallbackChange::ResetCursorBlink => {

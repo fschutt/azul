@@ -4978,6 +4978,10 @@ impl LayoutWindow {
         // Get cursor state for display list generation
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
+        let selections_map = self.text_edit_manager.build_selections_map();
+        // text_selections is for multi-node drag selections (cross-IFC).
+        // MultiCursorState selections are single-node and go through `selections`.
+        let text_selections_map = std::collections::BTreeMap::new();
 
         // Build a temporary LayoutContext with all the state we need
         let mut counter_values = HashMap::new();
@@ -4987,8 +4991,8 @@ impl LayoutWindow {
         let mut ctx = LayoutContext {
             styled_dom,
             font_manager: &self.font_manager,
-            selections: &std::collections::BTreeMap::new(),
-            text_selections: &std::collections::BTreeMap::new(),
+            selections: &selections_map,
+            text_selections: &text_selections_map,
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,

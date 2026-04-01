@@ -255,4 +255,30 @@ impl TextEditManager {
             (mc.node_id.dom, node_id, cursor)
         }).collect()
     }
+
+    /// Build a SelectionState map for the display list's `paint_selections`.
+    ///
+    /// Extracts Range selections from MultiCursorState and returns them in the
+    /// format that `LayoutContext.selections` expects: `BTreeMap<DomId, SelectionState>`.
+    pub fn build_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::SelectionState> {
+        use azul_core::selection::{SelectionState, SelectionVec};
+
+        let mut map = std::collections::BTreeMap::new();
+        let Some(ref mc) = self.multi_cursor else {
+            return map;
+        };
+
+        let selections: Vec<Selection> = mc.selections.iter()
+            .map(|s| s.selection)
+            .collect();
+
+        if !selections.is_empty() {
+            map.insert(mc.node_id.dom, SelectionState {
+                selections: SelectionVec::from_vec(selections),
+                node_id: mc.node_id,
+            });
+        }
+
+        map
+    }
 }
