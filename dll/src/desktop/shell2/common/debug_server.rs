@@ -3897,6 +3897,13 @@ fn resume_e2e_continuation(
 
             cont.step_idx += 1;
 
+            // Apply delay between steps if configured (for visual inspection)
+            if test.config.delay_between_steps_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    test.config.delay_between_steps_ms,
+                ));
+            }
+
             if cont.current_test_failed && !continue_on_failure {
                 break;
             }

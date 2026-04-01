@@ -133,24 +133,10 @@ impl Default for HeadlessConfig {
 }
 
 impl HeadlessConfig {
-    /// Create a headless config with sensible defaults.
-    ///
-    /// The viewport can be changed at runtime via the debug server's
-    /// `resize` command or from E2E test JSON files.
-    pub fn from_env() -> Self {
-        let width = 800.0;
-        let height = 600.0;
-        let dpi_factor = 1.0;
-        let enable_rendering = true;
-        let max_iterations = Some(1000);
-
-        Self {
-            width,
-            height,
-            dpi_factor,
-            enable_rendering,
-            max_iterations,
-        }
+    /// Create with defaults. Viewport can be changed at runtime via
+    /// the debug server's `resize` command or E2E test JSON steps.
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
