@@ -49,14 +49,22 @@ pub fn render_initial_page(
     // Generate the loader JS
     let loader_js_content = loader_js::generate_loader_js("stub", cb_wasms);
 
-    // Render the DOM to HTML
+    // Render the DOM to HTML, collecting pseudo-state CSS rules
     let mut node_counter = 0;
     let mut callback_count = 0;
-    let body_html = render_dom_node(&dom, &mut node_counter, &mut callback_count);
+    let mut pseudo_css_rules = Vec::new();
+    let body_html = render_dom_node(&dom, &mut node_counter, &mut callback_count, &mut pseudo_css_rules);
     eprintln!(
-        "[azul-web] Rendered {} nodes, {} with callbacks",
-        node_counter, callback_count,
+        "[azul-web] Rendered {} nodes, {} with callbacks, {} pseudo-state CSS rules",
+        node_counter, callback_count, pseudo_css_rules.len(),
     );
+
+    // Build pseudo-state stylesheet
+    let pseudo_css = if pseudo_css_rules.is_empty() {
+        String::new()
+    } else {
+        pseudo_css_rules.join("\n")
+    };
 
     // Assemble the full page
     format!(
@@ -67,7 +75,9 @@ pub fn render_initial_page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Azul Web App</title>
 {}
-<style>{}</style>
+<style>{}
+{}
+</style>
 </head>
 <body>
 <div id="az-body">
@@ -80,6 +90,7 @@ pub fn render_initial_page(
 </html>"#,
         preload_hints,
         RESET_CSS,
+        pseudo_css,
         body_html,
         loader_js_content,
     )
@@ -190,7 +201,12 @@ fn content_hash(data: &[u8]) -> String {
 }
 
 /// Recursively render a Dom node and its children to HTML.
-fn render_dom_node(dom: &Dom, counter: &mut usize, callback_count: &mut usize) -> String {
+fn render_dom_node(
+    dom: &Dom,
+    counter: &mut usize,
+    callback_count: &mut usize,
+    pseudo_css_rules: &mut Vec<String>,
+) -> String {
     let node_id = *counter;
     *counter += 1;
 
@@ -219,7 +235,6 @@ fn render_dom_node(dom: &Dom, counter: &mut usize, callback_count: &mut usize) -
     for attr in node_data.attributes().as_ref().iter() {
         let name = attr.name();
         if name == "id" {
-            // Store as data-az-id to avoid conflict with our az_{N} id
             if let Some(id) = attr.as_id() {
                 html_attrs.push(format!("data-az-id=\"{}\"", html_escape_attr(id)));
             }
@@ -249,10 +264,11 @@ fn render_dom_node(dom: &Dom, counter: &mut usize, callback_count: &mut usize) -
 
     // ── Inline styles from css_props ──
 
-    let inline_style = render_inline_styles(node_data);
+    let (inline_style, pseudo_rules) = render_styles(node_data, node_id);
     if !inline_style.is_empty() {
         attrs.push_str(&format!(" style=\"{}\"", html_escape_attr(&inline_style)));
     }
+    pseudo_css_rules.extend(pseudo_rules);
 
     // ── Callback data attributes (Phase 0 server-side execution) ──
 
@@ -278,27 +294,83 @@ fn render_dom_node(dom: &Dom, counter: &mut usize, callback_count: &mut usize) -
     }
 
     for child in dom.children.as_ref().iter() {
-        children_html.push_str(&render_dom_node(child, counter, callback_count));
+        children_html.push_str(&render_dom_node(child, counter, callback_count, pseudo_css_rules));
     }
 
     format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
 }
 
-/// Extract inline CSS styles from a node's css_props and format as a style string.
+/// Extract CSS styles from a node's css_props.
 ///
-/// Only emits properties with no dynamic selectors (i.e., unconditional "normal" state).
-/// Hover/focus/active styles would need to be emitted as CSS rules or handled by JS.
-fn render_inline_styles(node_data: &NodeData) -> String {
-    let mut style_parts = Vec::new();
+/// Returns (inline_style_string, vec_of_pseudo_state_css_rules).
+///
+/// - Unconditional properties → inline `style=""` (deduped: last value wins per property type)
+/// - PseudoState properties → CSS rules like `#az_3:hover { color: red; }`
+/// - Other dynamic selectors (OS, media, etc.) → skipped for now
+fn render_styles(node_data: &NodeData, node_id: usize) -> (String, Vec<String>) {
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+    use std::collections::BTreeMap;
+
+    // Dedup inline styles: last value per property type wins
+    let mut inline_map: BTreeMap<azul_css::props::property::CssPropertyType, String> = BTreeMap::new();
+
+    // Group pseudo-state properties: (pseudo_state) → Vec<css_declaration>
+    let mut pseudo_map: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
 
     for prop_with_cond in node_data.css_props.as_ref().iter() {
-        // Only emit unconditional properties (no dynamic selectors = always active)
-        if prop_with_cond.apply_if.as_ref().is_empty() {
-            style_parts.push(prop_with_cond.property.format_css());
+        let conditions = prop_with_cond.apply_if.as_ref();
+
+        if conditions.is_empty() {
+            // Unconditional → inline style (dedup by property type)
+            let prop_type = prop_with_cond.property.get_type();
+            inline_map.insert(prop_type, prop_with_cond.property.format_css());
+        } else {
+            // Check if ALL conditions are pseudo-state (common case: single hover/active/focus)
+            let pseudo_state = extract_single_pseudo_state(conditions);
+            if let Some(css_pseudo) = pseudo_state {
+                pseudo_map
+                    .entry(css_pseudo)
+                    .or_default()
+                    .push(prop_with_cond.property.format_css());
+            }
+            // Other dynamic selectors (OS, viewport, etc.) are skipped for now
         }
     }
 
-    style_parts.join(" ")
+    let inline_style = inline_map.values().cloned().collect::<Vec<_>>().join(" ");
+
+    let pseudo_rules: Vec<String> = pseudo_map
+        .into_iter()
+        .map(|(pseudo, props)| {
+            format!("#az_{}{} {{ {} }}", node_id, pseudo, props.join(" "))
+        })
+        .collect();
+
+    (inline_style, pseudo_rules)
+}
+
+/// If all conditions in the list are a single PseudoState, return the CSS pseudo-class string.
+fn extract_single_pseudo_state(conditions: &[azul_css::dynamic_selector::DynamicSelector]) -> Option<&'static str> {
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+    if conditions.len() != 1 {
+        return None; // Multiple conditions — not a simple pseudo-state
+    }
+
+    match &conditions[0] {
+        DynamicSelector::PseudoState(state) => match state {
+            PseudoStateType::Hover => Some(":hover"),
+            PseudoStateType::Active => Some(":active"),
+            PseudoStateType::Focus => Some(":focus"),
+            PseudoStateType::FocusWithin => Some(":focus-within"),
+            PseudoStateType::Disabled => Some(":disabled"),
+            PseudoStateType::CheckedTrue => Some(":checked"),
+            PseudoStateType::Visited => Some(":visited"),
+            PseudoStateType::Dragging => Some(":active"), // closest CSS equivalent
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Map NodeType to HTML tag name.
