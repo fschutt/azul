@@ -788,7 +788,39 @@ Each replacement is a shim patched into the lifted IR — the user's callback co
 
 ## 7. Implementation Phases
 
-### Phase 0 — remill-rs Wrapper Library (1-2 weeks)
+### Phase 0 — Scaffolding + Server-Side Rendering (current)
+
+**Goal:** `AZ_BACKEND=web://127.0.0.1:8080` serves the app as HTML. Callbacks
+execute server-side (full page reload). No WASM transpilation yet — remill is
+stubbed behind a trait so the real implementation can slot in later.
+
+**This phase proves the integration model works** — AzBackend::Web wired into
+the event loop, DOM rendered to HTML, HTTP server serving pages, the full
+pipeline from layout callback → HTML → browser. The transpiler is a stub that
+returns "not yet implemented" for all functions.
+
+**Tasks:**
+1. [x] Add `Web(SocketAddr)` variant to `AzBackend` in `compositor.rs`
+2. [x] Parse `web://ip:port` URL format in `AzBackend::resolve()`
+3. [x] Create `dll/src/web/` module with feature gate
+4. [x] `config.rs` — parse web:// URL → SocketAddr
+5. [x] `html_render.rs` — StyledDom → HTML string (with `id="az_{N}"` per node)
+6. [x] `server.rs` — HTTP server using `std::net::TcpListener` (zero new deps)
+7. [x] `loader_js.rs` — generate the bootstrap JS
+8. [x] `classify.rs` — api.json function classification (stubbed)
+9. [x] `transpiler.rs` — `Transpiler` trait + `StubTranspiler` impl
+10. [x] `cb_gen.rs` / `mini_gen.rs` — callback and mini.wasm generation (stubbed)
+11. [x] Wire `run_web()` into `run.rs` (like `run_headless()`)
+12. [ ] Server-side callback execution: POST /az/exec/{callback_id} → run callback natively → return new HTML
+
+**Server-side fallback model (Phase 0 only):**
+When the transpiler is stubbed, the server falls back to server-side execution:
+- Initial page load: layout() runs natively, DOM rendered to HTML
+- User clicks: JS sends POST to server, callback runs natively, returns new HTML
+- Page updates via innerHTML replacement (no WASM, no client-side state)
+- This is slow but functionally correct — every callback works
+
+### Phase 0.5 — remill-rs Wrapper Library
 
 **Goal:** Standalone Rust crate wrapping remill's C++ API via cbindgen-style FFI. Developed in tandem, usable independently of Azul.
 
@@ -959,56 +991,50 @@ This could serve as a **fallback mode** (`AZ_BACKEND=web-precompiled://127.0.0.1
 
 ## 10. File Structure
 
+The web backend lives inside `dll/src/web/` — following the same pattern as the
+headless backend (`dll/src/desktop/shell2/headless/`). It is gated behind
+`#[cfg(feature = "web")]` and adds no dependencies to the default build.
+
+### Integration points in existing code
+
+| File | Change |
+|------|--------|
+| `dll/src/desktop/shell2/common/compositor.rs` | Add `Web(std::net::SocketAddr)` variant to `AzBackend` enum, parse `web://` in `resolve()` |
+| `dll/src/desktop/shell2/run.rs` | Add web path: `if let AzBackend::Web(addr) = backend { return run_web(...); }` |
+| `dll/src/lib.rs` | Add `#[cfg(feature = "web")] pub mod web;` |
+| `dll/Cargo.toml` | Add `web` feature flag (no new deps for Phase 1 — uses `std::net`) |
+| `Cargo.toml` (workspace) | No changes needed |
+
+### New files
+
 ```
-remill-rs/                      # SEPARATE REPO: fschutt/remill-rs
-├── remill-sys/                 # Raw C FFI bindings to remill C++ API
+dll/src/web/                     # NEW: web backend module (feature-gated)
+├── mod.rs                       # Entry: run_web() orchestrates startup + serves
+├── config.rs                    # Parse web://[ip]:[port]?opts → SocketAddr
+├── server.rs                    # HTTP server (std::net::TcpListener, zero deps)
+├── html_render.rs               # StyledDom → HTML with id="az_{N}" per node
+├── loader_js.rs                 # Generates azul-loader.js (~500B bootstrap)
+├── classify.rs                  # api.json → FnClass classification
+├── transpiler.rs                # Remill stub API (trait + stub impl for Phase 1)
+│                                # Real impl will use remill-rs when available
+├── cb_gen.rs                    # Per-callback .wasm generation (uses transpiler)
+└── mini_gen.rs                  # azul-mini.wasm generation (uses transpiler)
+```
+
+### Separate repos (future — not needed for Phase 1)
+
+```
+remill-rs/                       # FUTURE: fschutt/remill-rs
+├── remill-sys/                  # Raw C FFI bindings to remill C++ API
 │   ├── Cargo.toml
-│   ├── build.rs                # cmake integration to find/build remill + LLVM
-│   ├── wrapper.h               # Thin C header wrapping remill's C++ API
-│   └── src/lib.rs              # bindgen-generated bindings
-│
-└── remill-rs/                  # Safe Rust API
-    ├── Cargo.toml              # depends on remill-sys
-    └── src/
-        ├── lib.rs              # Arch, LlvmModule, WasmImport, etc.
-        ├── arch.rs             # Architecture detection + creation
-        ├── lifter.rs           # lift_function(bytes, addr) → LlvmModule
-        ├── optimizer.rs        # LLVM optimization pass runner
-        ├── patcher.rs          # replace_call(), replace with WASM imports
-        └── wasm_compiler.rs    # LlvmModule → wasm32 compilation
-
-azul/                           # EXISTING REPO: fschutt/azul
-├── azul-core/              # Existing: core types, DOM, CSS
-├── azul-layout/            # Existing: layout solver
-├── azul-desktop/           # Existing: native window backend
-├── azul-dll/               # Existing: the shared library (UNCHANGED build process)
-│
-├── azul-web/               # NEW: web backend — uses remill-rs for lifting
-│   ├── Cargo.toml          # depends on azul-core, remill-rs, hyper; feature-gated
-│   └── src/
-│       ├── lib.rs           # Entry: AzApp_run web path, orchestrates startup
-│       ├── config.rs        # Parse web://[ip]:[port]?opts URL format
-│       ├── classify.rs      # Read api.json → classify fns as Framework/ServerEntryPoint/Replace
-│       ├── routing.rs       # Route matching, AppConfig_addRoute, switchRoute web_sys shim
-│       ├── mini_gen.rs      # Phase A: generate azul-mini.wasm from framework fns via remill-rs
-│       ├── cb_gen.rs        # Phase B: generate per-callback .wasm files via remill-rs
-│       ├── style_emitter.rs  # Shims: display list/GPU calls → setStyle(nodeId, prop, val) via web_sys
-│       ├── panic_stubs.rs   # Generates panic shims for unsupported ops + startup warnings
-│       ├── abi.rs           # Calling convention recovery (SysV AMD64, Win64)
-│       ├── server.rs        # HTTP server (hyper-based), serves HTML + WASMs per route
-│       ├── preload.rs       # Generate <link rel="preload"> hints
-│       ├── html_render.rs   # DOM → HTML with id="az_{N}" per node + inline styles from cascade
-│       └── loader_js.rs     # Generates azul-loader.js (~300B bootstrap)
-│
-├── api.json                # Existing: describes every C API function — drives classification
-│
-└── examples/
-    └── web/
-        ├── counter.rs       # Counter app: AZ_BACKEND=web://127.0.0.1:8080
-        └── todolist.rs      # Multi-route example with /todos and /todos/:id
+│   ├── build.rs                 # cmake to find/build remill + LLVM
+│   └── src/lib.rs               # bindgen-generated bindings
+└── remill-rs/                   # Safe Rust API
+    ├── Cargo.toml
+    └── src/lib.rs               # Arch, LlvmModule, lift_function(), compile_to_wasm()
 ```
 
-Note: there is **no `azul-mini/` crate**. `azul-mini.wasm` is generated at runtime by `azul-web` (using `remill-rs`) from the native DLL.
+Note: there is **no `azul-mini/` crate**. `azul-mini.wasm` is generated at runtime from the native DLL. For Phase 1, the transpiler is stubbed — callbacks execute server-side with round-trips instead of client-side WASM.
 
 ---
 
