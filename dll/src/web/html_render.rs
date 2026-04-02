@@ -106,28 +106,40 @@ fn render_dom_node(dom: &Dom, counter: &mut usize) -> String {
     *counter += 1;
 
     let node_data = &dom.root;
-    let tag = node_type_to_html_tag(&node_data.node_type);
 
-    // Check if this is a text node
+    // Text nodes render as escaped text content (no wrapping element)
     if let NodeType::Text(ref text) = node_data.node_type {
         return html_escape(text.as_str());
     }
 
+    // Map node type to HTML tag — Body/Html/Head are rendered as div
+    // since we already have the outer document structure
+    let tag = match &node_data.node_type {
+        NodeType::Body | NodeType::Html | NodeType::Head => "div",
+        other => node_type_to_html_tag(other),
+    };
+
     // Check if this is a void element (no closing tag)
     let is_void = is_void_element(tag);
 
-    // Build attributes
-    let mut attrs = format!(" id=\"az_{}\"", node_id);
-
-    // Add id/class attributes from the node
+    // Collect all classes into a single attribute
+    let mut classes = Vec::new();
+    let mut extra_attrs = String::new();
     for attr in node_data.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
-            attrs.push_str(&format!(" data-az-id=\"{}\"", html_escape_attr(id)));
+            extra_attrs.push_str(&format!(" data-az-id=\"{}\"", html_escape_attr(id)));
         }
         if let Some(class) = attr.as_class() {
-            attrs.push_str(&format!(" class=\"{}\"", html_escape_attr(class)));
+            classes.push(html_escape_attr(class));
         }
     }
+
+    // Build attributes string
+    let mut attrs = format!(" id=\"az_{}\"", node_id);
+    if !classes.is_empty() {
+        attrs.push_str(&format!(" class=\"{}\"", classes.join(" ")));
+    }
+    attrs.push_str(&extra_attrs);
 
     // Add callback data attributes for Phase 0 server-side execution
     if !node_data.callbacks.as_ref().is_empty() {
