@@ -199,6 +199,7 @@ link-static = [
     "azul-core",
     "azul-css",
     "azul-layout",
+    "cpurender",
     "tfd",
     "rust-fontconfig",
     "gl-context-loader",
@@ -221,6 +222,20 @@ link-static = [
     "clipboard-win",
     # Windows needs libm
     "libm",
+    # ICU backends
+    "icu",
+    "icu_macos",
+    "icu_windows",
+    # Fluent localization support
+    "fluent",
+    # HTTP client support
+    "http",
+    # ZIP file manipulation
+    "zip_support",
+    # JSON support
+    "json",
+    # Icon provider support
+    "icons",
 ]
 
 # Dynamic linking: Include extern "C" declarations
@@ -242,9 +257,12 @@ logging = ["log"]
 # Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
 # Phase 0: no external dependencies (uses std::net::TcpListener).
 # Phase 1+: will add remill-rs, wasm-encoder as optional deps.
-# NOTE: includes link-static deps since desktop code compiles alongside web.
+# Can be combined with link-static (Rust app) or used standalone (C binary).
 web = [
-    "link-static",
+    "azul-core",
+    "azul-css",
+    "azul-layout",
+    "rust-fontconfig",
 ]
 
 # -----------------------------------------------------------------------------
