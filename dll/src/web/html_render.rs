@@ -1,8 +1,8 @@
 //! Render azul DOM tree to HTML.
 //!
 //! Converts the `Dom` tree (returned by layout callbacks) into HTML strings
-//! with stable `id="az_{N}"` attributes per node. In the full pipeline,
-//! these IDs are used by the WASM-side diff algorithm to patch the DOM.
+//! with stable `id="az_{N}"` attributes per node. CSS properties from the
+//! node's `css_props` are emitted as `style=""` inline styles.
 //!
 //! Phase 0: The HTML is served as a complete page. Nodes with callbacks
 //! get `data-az-cb` attributes so the Phase 0 loader JS can intercept
@@ -33,18 +33,30 @@ pub fn render_initial_page(
     window_state: &FullWindowState,
     fc_cache: &Arc<FcFontCache>,
     _font_registry: Option<&FcFontRegistry>,
-    _mini_wasm: &[u8],
+    mini_wasm: &[u8],
     cb_wasms: &[CallbackWasm],
 ) -> String {
     // Run the layout callback to get the DOM tree
     let dom = call_layout(app_data, layout_callback, window_state, fc_cache);
+
+    // Debug: print DOM tree structure
+    let mut debug_counter = 0;
+    debug_print_dom(&dom, 0, &mut debug_counter);
+
+    // Generate preload hints for WASM assets
+    let preload_hints = generate_preload_hints(mini_wasm, cb_wasms);
 
     // Generate the loader JS
     let loader_js_content = loader_js::generate_loader_js("stub", cb_wasms);
 
     // Render the DOM to HTML
     let mut node_counter = 0;
-    let body_html = render_dom_node(&dom, &mut node_counter);
+    let mut callback_count = 0;
+    let body_html = render_dom_node(&dom, &mut node_counter, &mut callback_count);
+    eprintln!(
+        "[azul-web] Rendered {} nodes, {} with callbacks",
+        node_counter, callback_count,
+    );
 
     // Assemble the full page
     format!(
@@ -54,6 +66,7 @@ pub fn render_initial_page(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Azul Web App</title>
+{}
 <style>{}</style>
 </head>
 <body>
@@ -65,6 +78,7 @@ pub fn render_initial_page(
 </script>
 </body>
 </html>"#,
+        preload_hints,
         RESET_CSS,
         body_html,
         loader_js_content,
@@ -78,8 +92,6 @@ fn call_layout(
     window_state: &FullWindowState,
     fc_cache: &Arc<FcFontCache>,
 ) -> Dom {
-    // Create the minimal ref data the layout callback needs.
-    // For web, we have no GL context and an empty image cache.
     let image_cache = ImageCache::default();
     let gl_context = OptionGlContextPtr::None;
     let system_style = Arc::new(SystemStyle::default());
@@ -100,8 +112,85 @@ fn call_layout(
     (layout_callback.cb)(app_data.clone(), info)
 }
 
+/// Debug-print the DOM tree structure at startup.
+fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
+    let indent = "  ".repeat(depth);
+    let node_id = *counter;
+    *counter += 1;
+    let node_data = &dom.root;
+
+    let tag = node_type_to_html_tag(&node_data.node_type);
+    let css_count = node_data.css_props.as_ref().len();
+    let cb_count = node_data.callbacks.as_ref().len();
+    let attr_count = node_data.attributes().as_ref().len();
+
+    let mut extras = Vec::new();
+    if css_count > 0 { extras.push(format!("{} css_props", css_count)); }
+    if cb_count > 0 { extras.push(format!("{} callbacks", cb_count)); }
+    if attr_count > 0 { extras.push(format!("{} attrs", attr_count)); }
+
+    let extras_str = if extras.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", extras.join(", "))
+    };
+
+    // For text nodes, show a snippet of the text
+    if let NodeType::Text(ref text) = node_data.node_type {
+        let preview: String = text.as_str().chars().take(40).collect();
+        eprintln!("[azul-web]   {}[{}] #text \"{}\"", indent, node_id, preview);
+    } else {
+        eprintln!("[azul-web]   {}[{}] <{}>{}", indent, node_id, tag, extras_str);
+    }
+
+    // Print CSS properties for debugging
+    for prop in node_data.css_props.as_ref().iter() {
+        eprintln!("[azul-web]   {}  style: {}", indent, prop.property.format_css());
+    }
+
+    for child in dom.children.as_ref().iter() {
+        debug_print_dom(child, depth + 1, counter);
+    }
+}
+
+/// Generate `<link rel="preload">` hints for WASM assets.
+fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String {
+    let mut hints = String::new();
+
+    // Preload azul-mini.wasm (even if stub, for future compatibility)
+    if !mini_wasm.is_empty() {
+        let hash = content_hash(mini_wasm);
+        hints.push_str(&format!(
+            "<link rel=\"preload\" href=\"/az/mini.{}.wasm\" as=\"fetch\" crossorigin>\n",
+            hash
+        ));
+    }
+
+    // Preload each callback WASM
+    for cb in cb_wasms {
+        if cb.is_client_side && !cb.wasm_bytes.is_empty() {
+            hints.push_str(&format!(
+                "<link rel=\"preload\" href=\"/az/cb/{}.{}.wasm\" as=\"fetch\" crossorigin>\n",
+                cb.name, cb.content_hash
+            ));
+        }
+    }
+
+    hints
+}
+
+/// Simple content hash for cache-busting URLs.
+fn content_hash(data: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in data {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
+}
+
 /// Recursively render a Dom node and its children to HTML.
-fn render_dom_node(dom: &Dom, counter: &mut usize) -> String {
+fn render_dom_node(dom: &Dom, counter: &mut usize, callback_count: &mut usize) -> String {
     let node_id = *counter;
     *counter += 1;
 
@@ -119,32 +208,57 @@ fn render_dom_node(dom: &Dom, counter: &mut usize) -> String {
         other => node_type_to_html_tag(other),
     };
 
-    // Check if this is a void element (no closing tag)
     let is_void = is_void_element(tag);
 
-    // Collect all classes into a single attribute
+    // ── Build attributes ──
+
     let mut classes = Vec::new();
-    let mut extra_attrs = String::new();
+    let mut html_attrs = Vec::new();
+
+    // Emit all HTML attributes using name()/value() methods
     for attr in node_data.attributes().as_ref().iter() {
-        if let Some(id) = attr.as_id() {
-            extra_attrs.push_str(&format!(" data-az-id=\"{}\"", html_escape_attr(id)));
-        }
-        if let Some(class) = attr.as_class() {
-            classes.push(html_escape_attr(class));
+        let name = attr.name();
+        if name == "id" {
+            // Store as data-az-id to avoid conflict with our az_{N} id
+            if let Some(id) = attr.as_id() {
+                html_attrs.push(format!("data-az-id=\"{}\"", html_escape_attr(id)));
+            }
+        } else if name == "class" {
+            if let Some(class) = attr.as_class() {
+                classes.push(html_escape_attr(class));
+            }
+        } else if attr.is_boolean() {
+            html_attrs.push(name.to_string());
+        } else {
+            let value = attr.value();
+            if !value.as_str().is_empty() {
+                html_attrs.push(format!("{}=\"{}\"", name, html_escape_attr(value.as_str())));
+            }
         }
     }
 
-    // Build attributes string
+    // Assemble attributes string
     let mut attrs = format!(" id=\"az_{}\"", node_id);
     if !classes.is_empty() {
         attrs.push_str(&format!(" class=\"{}\"", classes.join(" ")));
     }
-    attrs.push_str(&extra_attrs);
+    for a in &html_attrs {
+        attrs.push(' ');
+        attrs.push_str(a);
+    }
 
-    // Add callback data attributes for Phase 0 server-side execution
+    // ── Inline styles from css_props ──
+
+    let inline_style = render_inline_styles(node_data);
+    if !inline_style.is_empty() {
+        attrs.push_str(&format!(" style=\"{}\"", html_escape_attr(&inline_style)));
+    }
+
+    // ── Callback data attributes (Phase 0 server-side execution) ──
+
     if !node_data.callbacks.as_ref().is_empty() {
+        *callback_count += 1;
         attrs.push_str(&format!(" data-az-cb=\"{}\"", node_id));
-        // Use the first callback's event type
         if let Some(first_cb) = node_data.callbacks.as_ref().first() {
             let ev_name = event_filter_to_js_name(&first_cb.event);
             attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
@@ -155,26 +269,41 @@ fn render_dom_node(dom: &Dom, counter: &mut usize) -> String {
         return format!("<{}{}/>", tag, attrs);
     }
 
-    // Render children
+    // ── Children ──
+
     let mut children_html = String::new();
 
-    // Handle inline text content for nodes that have it
     if let Some(text) = node_type_inline_text(&node_data.node_type) {
         children_html.push_str(&html_escape(text));
     }
 
-    // Render child Dom nodes
     for child in dom.children.as_ref().iter() {
-        children_html.push_str(&render_dom_node(child, counter));
+        children_html.push_str(&render_dom_node(child, counter, callback_count));
     }
 
     format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
 }
 
+/// Extract inline CSS styles from a node's css_props and format as a style string.
+///
+/// Only emits properties with no dynamic selectors (i.e., unconditional "normal" state).
+/// Hover/focus/active styles would need to be emitted as CSS rules or handled by JS.
+fn render_inline_styles(node_data: &NodeData) -> String {
+    let mut style_parts = Vec::new();
+
+    for prop_with_cond in node_data.css_props.as_ref().iter() {
+        // Only emit unconditional properties (no dynamic selectors = always active)
+        if prop_with_cond.apply_if.as_ref().is_empty() {
+            style_parts.push(prop_with_cond.property.format_css());
+        }
+    }
+
+    style_parts.join(" ")
+}
+
 /// Map NodeType to HTML tag name.
 fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
     match node_type {
-        // Document structure
         NodeType::Html => "html",
         NodeType::Head => "head",
         NodeType::Body => "body",
@@ -203,7 +332,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::Details => "details",
         NodeType::Summary => "summary",
         NodeType::Dialog => "dialog",
-        // Lists
         NodeType::Ul => "ul",
         NodeType::Ol => "ol",
         NodeType::Li => "li",
@@ -213,7 +341,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::Menu => "menu",
         NodeType::MenuItem => "menuitem",
         NodeType::Dir => "dir",
-        // Tables
         NodeType::Table => "table",
         NodeType::Caption => "caption",
         NodeType::THead => "thead",
@@ -224,7 +351,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::Td => "td",
         NodeType::ColGroup => "colgroup",
         NodeType::Col => "col",
-        // Forms
         NodeType::Form => "form",
         NodeType::FieldSet => "fieldset",
         NodeType::Legend => "legend",
@@ -239,7 +365,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::Progress => "progress",
         NodeType::Meter => "meter",
         NodeType::DataList => "datalist",
-        // Inline elements
         NodeType::Span => "span",
         NodeType::A => "a",
         NodeType::Em => "em",
@@ -273,7 +398,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::Rtc => "rtc",
         NodeType::Rp => "rp",
         NodeType::Data => "data",
-        // Embedded content
         NodeType::Canvas => "canvas",
         NodeType::Object => "object",
         NodeType::Param => "param",
@@ -285,7 +409,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::Map => "map",
         NodeType::Area => "area",
         NodeType::Image(_) => "img",
-        // SVG elements
         NodeType::Svg => "svg",
         NodeType::SvgG => "g",
         NodeType::SvgDefs => "defs",
@@ -314,20 +437,16 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::SvgTitle => "title",
         NodeType::SvgA => "a",
         NodeType::SvgMarker => "marker",
-        // Metadata
         NodeType::Title => "title",
         NodeType::Meta => "meta",
         NodeType::Link => "link",
         NodeType::Script => "script",
         NodeType::Style => "style",
         NodeType::Base => "base",
-        // Pseudo-elements → rendered as spans
         NodeType::Before | NodeType::After | NodeType::Marker | NodeType::Placeholder => "span",
-        // Special content types
-        NodeType::Text(_) => "span", // text nodes handled separately above
+        NodeType::Text(_) => "span",
         NodeType::VirtualView => "div",
         NodeType::Icon(_) => "span",
-        // Catch-all for any remaining SVG filter elements, etc.
         _ => "div",
     }
 }
