@@ -2428,6 +2428,8 @@ impl MacOSWindow {
         match AzBackend::resolve(hw_accel) {
             AzBackend::Gpu => RenderBackend::OpenGL,
             AzBackend::Cpu | AzBackend::Headless => RenderBackend::CPU,
+            #[cfg(feature = "web")]
+            AzBackend::Web(_) => RenderBackend::CPU,
             AzBackend::Auto => RenderBackend::OpenGL, // caller handles fallback
         }
     }

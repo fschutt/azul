@@ -43,6 +43,14 @@ extern crate azul_layout;
 ))]
 pub mod desktop;
 
+// Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
+#[cfg(all(
+    feature = "web",
+    any(feature = "build-dll", feature = "link-static"),
+    not(target_arch = "wasm32")
+))]
+pub mod web;
+
 // =============================================================================
 // Build DLL: Include C-API functions with #[no_mangle] for export
 // This is used when building libazul.dylib/so/dll

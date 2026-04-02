@@ -239,6 +239,14 @@ link-dynamic = []
 std = ["azul-core?/std", "azul-layout?/std"]
 logging = ["log"]
 
+# Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
+# Phase 0: no external dependencies (uses std::net::TcpListener).
+# Phase 1+: will add remill-rs, wasm-encoder as optional deps.
+# NOTE: includes link-static deps since desktop code compiles alongside web.
+web = [
+    "link-static",
+]
+
 # -----------------------------------------------------------------------------
 # Accessibility
 # -----------------------------------------------------------------------------

@@ -70,6 +70,12 @@ pub enum AzBackend {
     /// Implies `Cpu` for the compositor and `HeadlessWindow` for the
     /// window implementation.
     Headless,
+    /// Web backend: serve the app as HTML over HTTP.
+    /// `AZ_BACKEND=web://127.0.0.1:8080` starts an HTTP server.
+    /// Layout runs natively, DOM is rendered to HTML, callbacks are
+    /// transpiled to WASM (or executed server-side when stubbed).
+    #[cfg(feature = "web")]
+    Web(std::net::SocketAddr),
 }
 
 impl Default for AzBackend {
@@ -93,7 +99,13 @@ impl AzBackend {
                 "cpu" => return AzBackend::Cpu,
                 "gpu" | "opengl" | "gl" => return AzBackend::Gpu,
                 "auto" => return AzBackend::Auto,
-                _ => {} // unrecognised — fall through
+                _ => {
+                    // Try parsing web://ip:port
+                    #[cfg(feature = "web")]
+                    if let Some(addr) = crate::web::config::parse_web_url(&val) {
+                        return AzBackend::Web(addr);
+                    }
+                }
             }
         }
 
@@ -114,6 +126,8 @@ impl AzBackend {
     pub fn needs_native_window(self) -> bool {
         match self {
             AzBackend::Headless => false,
+            #[cfg(feature = "web")]
+            AzBackend::Web(_) => false,
             AzBackend::Cpu | AzBackend::Gpu | AzBackend::Auto => true,
         }
     }
@@ -124,6 +138,8 @@ impl AzBackend {
         match self {
             AzBackend::Gpu => Some(true),
             AzBackend::Cpu | AzBackend::Headless => Some(false),
+            #[cfg(feature = "web")]
+            AzBackend::Web(_) => Some(false),
             AzBackend::Auto => None,
         }
     }
@@ -133,6 +149,8 @@ impl AzBackend {
         match self {
             AzBackend::Gpu => CompositorMode::GPU,
             AzBackend::Cpu | AzBackend::Headless => CompositorMode::CPU,
+            #[cfg(feature = "web")]
+            AzBackend::Web(_) => CompositorMode::CPU,
             AzBackend::Auto => CompositorMode::Auto,
         }
     }

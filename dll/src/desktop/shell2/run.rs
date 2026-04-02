@@ -272,6 +272,12 @@ pub fn run(
     // Resolve rendering backend from AZ_BACKEND env / config
     let backend = resolve_backend(&root_window);
 
+    // Web mode — serve as HTTP server, no native window
+    #[cfg(feature = "web")]
+    if let super::AzBackend::Web(bind_addr) = backend {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
+    }
+
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
@@ -621,6 +627,10 @@ pub fn run(
     if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
     }
+    #[cfg(feature = "web")]
+    if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
+    }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
@@ -659,6 +669,10 @@ pub fn run(
     };
     if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
+    }
+    #[cfg(feature = "web")]
+    if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
@@ -944,6 +958,10 @@ pub fn run(
     };
     if let Some(ref test_file) = e2e_file {
         setup_e2e_runner(test_file);
+    }
+    #[cfg(feature = "web")]
+    if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
