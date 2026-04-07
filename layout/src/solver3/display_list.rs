@@ -879,6 +879,44 @@ impl DisplayListItem {
              Self::Strikethrough { bounds: b2, color: c2, thickness: t2 }) => b1 == b2 && c1 == c2 && t1 == t2,
             (Self::Overline { bounds: b1, color: c1, thickness: t1 },
              Self::Overline { bounds: b2, color: c2, thickness: t2 }) => b1 == b2 && c1 == c2 && t1 == t2,
+            (Self::Border { bounds: b1, widths: w1, colors: c1, styles: s1, .. },
+             Self::Border { bounds: b2, widths: w2, colors: c2, styles: s2, .. }) => {
+                b1 == b2
+                    && w1.top == w2.top && w1.right == w2.right && w1.bottom == w2.bottom && w1.left == w2.left
+                    && c1.top == c2.top && c1.right == c2.right && c1.bottom == c2.bottom && c1.left == c2.left
+                    && s1.top == s2.top && s1.right == s2.right && s1.bottom == s2.bottom && s1.left == s2.left
+            }
+            (Self::Image { bounds: b1, image: i1, border_radius: br1 },
+             Self::Image { bounds: b2, image: i2, border_radius: br2 }) => {
+                b1 == b2
+                    && i1.data as usize == i2.data as usize // pointer identity
+                    && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
+            (Self::BoxShadow { bounds: b1, shadow: s1, border_radius: br1 },
+             Self::BoxShadow { bounds: b2, shadow: s2, border_radius: br2 }) => {
+                b1 == b2 && s1 == s2
+                    && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
+            (Self::LinearGradient { bounds: b1, gradient: g1, border_radius: br1 },
+             Self::LinearGradient { bounds: b2, gradient: g2, border_radius: br2 }) => {
+                b1 == b2 && g1 == g2
+                    && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
+            (Self::RadialGradient { bounds: b1, gradient: g1, border_radius: br1 },
+             Self::RadialGradient { bounds: b2, gradient: g2, border_radius: br2 }) => {
+                b1 == b2 && g1 == g2
+                    && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
+            (Self::ConicGradient { bounds: b1, gradient: g1, border_radius: br1 },
+             Self::ConicGradient { bounds: b2, gradient: g2, border_radius: br2 }) => {
+                b1 == b2 && g1 == g2
+                    && br1.top_left == br2.top_left && br1.top_right == br2.top_right
+                    && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
+            }
             (Self::ScrollBar { bounds: b1, color: c1, .. },
              Self::ScrollBar { bounds: b2, color: c2, .. }) => b1 == b2 && c1 == c2,
             (Self::PushClip { bounds: b1, .. }, Self::PushClip { bounds: b2, .. }) => b1 == b2,
@@ -927,6 +965,34 @@ impl DisplayListItem {
             | Self::PushTextShadow { .. }
             | Self::PopTextShadow
         )
+    }
+
+    /// Return the visual bounding rect including effects that extend beyond
+    /// content bounds (e.g. box-shadow spread/blur/offset). Used for damage
+    /// rect computation where we need the full repaint area.
+    pub fn visual_bounds(&self) -> Option<LogicalRect> {
+        match self {
+            Self::BoxShadow { bounds, shadow, .. } => {
+                let b = *bounds.inner();
+                // Shadow can extend beyond element bounds by offset + spread + blur
+                let ox = shadow.offset_x.to_pixels_internal(16.0).abs();
+                let oy = shadow.offset_y.to_pixels_internal(16.0).abs();
+                let blur = shadow.blur_radius.to_pixels_internal(16.0).abs();
+                let spread = shadow.spread_radius.to_pixels_internal(16.0).abs();
+                let expand = ox + oy + blur + spread;
+                Some(LogicalRect {
+                    origin: LogicalPosition {
+                        x: b.origin.x - expand,
+                        y: b.origin.y - expand,
+                    },
+                    size: LogicalSize {
+                        width: b.size.width + expand * 2.0,
+                        height: b.size.height + expand * 2.0,
+                    },
+                })
+            }
+            _ => self.bounds(),
+        }
     }
 
     /// Return the bounding rect of this item, or None for push/pop commands

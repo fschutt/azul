@@ -2051,9 +2051,10 @@ pub fn compute_display_list_damage(
 
         // Compare full visual content, not just bounds — a color or text
         // change within the same bounds must still produce a damage rect.
+        // Use visual_bounds() to include effects like box-shadow extent.
         if !old_item.is_visually_equal(new_item) {
-            let old_bounds = old_item.bounds();
-            let new_bounds = new_item.bounds();
+            let old_bounds = old_item.visual_bounds();
+            let new_bounds = new_item.visual_bounds();
             if let Some(ob) = old_bounds { damage.push(ob); }
             if let Some(nb) = new_bounds { damage.push(nb); }
         }
@@ -2322,45 +2323,56 @@ pub fn render_display_list_damaged(
         pixmap.fill_rect(px, py, pw, ph, 255, 255, 255, 255);
     }
 
-    // Render each damage rect
-    for dr in damage_rects {
-        let clip = AzRect {
-            x: dr.origin.x * dpi_factor,
-            y: dr.origin.y * dpi_factor,
-            width: dr.size.width * dpi_factor,
-            height: dr.size.height * dpi_factor,
-        };
+    // Compute the union of all damage rects as the outer clip.
+    // We iterate items ONCE (not per-rect) to avoid double-rendering
+    // items that span multiple damage rects, which would cause
+    // alpha-blending artifacts on anti-aliased text / semi-transparent content.
+    let union = damage_rects.iter().copied().reduce(|a, b| union_rect(&a, &b));
+    let union = match union {
+        Some(u) => u,
+        None => return Ok(()),
+    };
 
-        let mut transform_stack = vec![TransAffine::new()];
-        let mut clip_stack: Vec<Option<AzRect>> = vec![Some(clip)]; // start with damage clip
-        let mut mask_stack: Vec<MaskEntry> = Vec::new();
-        let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    let clip = AzRect {
+        x: union.origin.x * dpi_factor,
+        y: union.origin.y * dpi_factor,
+        width: union.size.width * dpi_factor,
+        height: union.size.height * dpi_factor,
+    };
 
-        for (idx, item) in display_list.items.iter().enumerate() {
-            // Always process state-management items (Push/Pop) regardless of bounds,
-            // because skipping a Push while processing its matching Pop corrupts stacks.
-            if !item.is_state_management() {
-                if let Some(item_bounds) = item.bounds() {
-                    if !rects_overlap_or_adjacent(&item_bounds, dr, 0.0) {
-                        continue;
-                    }
+    let mut transform_stack = vec![TransAffine::new()];
+    let mut clip_stack: Vec<Option<AzRect>> = vec![Some(clip)]; // start with damage clip
+    let mut mask_stack: Vec<MaskEntry> = Vec::new();
+    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+
+    for item in display_list.items.iter() {
+        // Always process state-management items (Push/Pop) regardless of bounds,
+        // because skipping a Push while processing its matching Pop corrupts stacks.
+        if !item.is_state_management() {
+            if let Some(item_bounds) = item.bounds() {
+                // Check if item intersects ANY damage rect (not just the union)
+                let hits_damage = damage_rects.iter().any(|dr| {
+                    rects_overlap_or_adjacent(&item_bounds, dr, 0.0)
+                });
+                if !hits_damage {
+                    continue;
                 }
             }
-
-            render_single_item(
-                item,
-                pixmap,
-                dpi_factor,
-                renderer_resources,
-                font_manager,
-                glyph_cache,
-                &mut transform_stack,
-                &mut clip_stack,
-                &mut mask_stack,
-                &mut scroll_offset_stack,
-                render_state,
-            )?;
         }
+
+        render_single_item(
+            item,
+            pixmap,
+            dpi_factor,
+            renderer_resources,
+            font_manager,
+            glyph_cache,
+            &mut transform_stack,
+            &mut clip_stack,
+            &mut mask_stack,
+            &mut scroll_offset_stack,
+            render_state,
+        )?;
     }
 
     Ok(())
