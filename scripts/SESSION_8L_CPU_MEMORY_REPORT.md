@@ -41,8 +41,15 @@ Even when NO re-render is needed (flags are false), the `drawRect` still:
 3. Copies the entire framebuffer to bitmap
 4. Draws the full image to the window
 
-**Fix:** Use `_dirty_rect` to only blit the changed region. Store the
-previous frame and diff, or track damage rects from the layout system.
+**Fix:** The headless backend ALREADY does this correctly:
+- `headless/mod.rs:227-233` uses `compute_display_list_damage()`
+- `headless/mod.rs:275-281` uses `render_display_list_damaged()` for incremental
+- `cpurender.rs:1938` has `acquire_pixmap()` for buffer reuse
+- `cpurender.rs` has `render_display_list_damaged()` accepting damage_rects
+
+Port the headless damage rect logic to the macOS CPU path. The functions
+already exist — they're just not called from `macos/mod.rs:5310-5362`.
+Also use macOS's `_dirty_rect` parameter to limit the blit region.
 
 ### 3. Mouse Move Triggers drawRect
 
@@ -147,4 +154,6 @@ kill $PID
 | **P0** | Only dirty hover when node changes | Eliminates full re-render on mouse move |
 | **P1** | Reuse tiny_skia::Pixmap across frames | Avoids framebuffer realloc per render |
 | **P1** | Use damage rects for partial blit | Only blit changed region to window |
+| **P1** | Port damage rects from headless to macOS | Functions exist, just not wired up |
 | **P2** | Glyph cache eviction | Prevent unbounded memory growth |
+| **P2** | Dead `NSData::with_bytes` at line 961 | Unused, potential use-after-free |
