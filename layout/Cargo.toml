@@ -31,7 +31,7 @@ serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
-agg-rust                = { path = "/Users/fschutt/Development/agg-rust", default-features = false, optional = true }
+agg-rust                = { package = "agg-rust-azul", version = "1.0.2", default-features = false, optional = true }
 png                     = { version = "0.17", default-features = false, optional = true }
 roxmltree               = { version = "0.21.1",   default-features = false, optional = true }
 xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }

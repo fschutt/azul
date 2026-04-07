@@ -33,7 +33,7 @@ fxhash = "0.2.1"
 azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }
-agg-rust = { path = "/Users/fschutt/Development/agg-rust", default-features = false }
+agg-rust = { package = "agg-rust-azul", version = "1.0.2", default-features = false }
 
 
 [dev-dependencies]
