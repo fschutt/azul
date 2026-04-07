@@ -5825,10 +5825,63 @@ impl LayoutWindow {
     pub fn process_mouse_drag_for_selection(
         &mut self,
         _start_position: azul_core::geom::LogicalPosition,
-        _current_position: azul_core::geom::LogicalPosition,
+        current_position: azul_core::geom::LogicalPosition,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
-        // TODO: redesign drag selection for multi-cursor model
-        None
+        use azul_core::selection::{Selection, SelectionRange};
+
+        // Get the anchor cursor and editing node from MultiCursorState.
+        // The anchor was set by process_mouse_click_for_selection.
+        // IMPORTANT: For Range selections, the anchor is .start (fixed),
+        // NOT .end (which moves with each drag event).
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let anchor = match &mc.get_primary()?.selection {
+            Selection::Cursor(c) => *c,
+            Selection::Range(r) => r.start, // anchor stays fixed during drag
+        };
+        let dom_id = mc.node_id.dom;
+        let node_id = mc.node_id.node.into_crate_internal()?;
+        let dom_node_id = mc.node_id;
+
+        // Hit-test the current drag position to get the focus cursor
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let tree = &layout_result.layout_tree;
+        let layout_idx = tree.nodes.iter()
+            .position(|n| n.dom_node_id == Some(node_id))?;
+        let node_pos = layout_result.calculated_positions
+            .get(layout_idx)
+            .copied()
+            .unwrap_or_default();
+        let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+
+        let local_pos = azul_core::geom::LogicalPosition {
+            x: current_position.x - node_pos.x,
+            y: current_position.y - node_pos.y,
+        };
+        let focus = cached.layout.hittest_cursor(local_pos)?;
+
+        eprintln!(
+            "[DRAG SELECT] anchor=({},{}) focus=({},{}) local_pos=({:.1},{:.1})",
+            anchor.cluster_id.source_run, anchor.cluster_id.start_byte_in_run,
+            focus.cluster_id.source_run, focus.cluster_id.start_byte_in_run,
+            local_pos.x, local_pos.y,
+        );
+
+        // Update primary selection: Cursor → Range(anchor, focus)
+        let mc = self.text_edit_manager.multi_cursor.as_mut()?;
+        if let Some(primary) = mc.get_primary_mut() {
+            if anchor == focus {
+                primary.selection = Selection::Cursor(anchor);
+            } else {
+                primary.selection = Selection::Range(SelectionRange {
+                    start: anchor,
+                    end: focus,
+                });
+            }
+        }
+
+        self.text_edit_manager.mark_dirty();
+        self.regenerate_display_list_for_dom(dom_id);
+        Some(vec![dom_node_id])
     }
 
     /// Delete the currently selected text or one character at the cursor

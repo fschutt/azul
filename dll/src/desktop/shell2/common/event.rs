@@ -1395,6 +1395,7 @@ pub trait PlatformWindow {
             // === Scroll ===
 
             CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
+                eprintln!("[SCROLL] ScrollTo dom={:?} node={:?} pos=({:.1},{:.1}) unclamped={}", dom_id, node_id, position.x, position.y, unclamped);
                 let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
@@ -2078,6 +2079,7 @@ pub trait PlatformWindow {
             }
 
             SystemChange::TextSelectionDrag { start_position, current_position } => {
+                eprintln!("[DRAG] TextSelectionDrag start=({:.1},{:.1}) current=({:.1},{:.1})", start_position.x, start_position.y, current_position.x, current_position.y);
                 // Suppress text selection if a node drag is active
                 let node_dragging = self.get_layout_window()
                     .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
@@ -3462,8 +3464,16 @@ pub trait PlatformWindow {
                 mouse_state: &current_window_state.mouse_state,
                 state: InputInterpreterState {
                     focused_node: layout_window.focus_manager.get_focused_node().copied(),
-                    click_count: 1, // TODO: track click count in TextEditManager or MultiCursorState
-                    drag_start_position: None, // TODO: track drag start in TextEditManager
+                    click_count: 1,
+                    // Provide drag start position when left mouse is down and editing is active.
+                    // This enables TextSelectionDrag events during mouse drag.
+                    drag_start_position: if current_window_state.mouse_state.left_down
+                        && layout_window.text_edit_manager.has_active_editing()
+                    {
+                        current_window_state.mouse_state.cursor_position.get_position()
+                    } else {
+                        None
+                    },
                     has_selection: layout_window.text_edit_manager.multi_cursor.as_ref()
                         .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, azul_core::selection::Selection::Range(_))))
                         .unwrap_or(false),
