@@ -95,6 +95,12 @@ pub fn edit_text(
 }
 
 /// Applies a single edit to a single selection.
+///
+/// When the selection is a Range:
+/// - `Insert`: deletes the range, then inserts text at the collapsed cursor
+/// - `DeleteBackward`/`DeleteForward`: deletes the range ONLY (the range
+///   deletion replaces the character-level delete — pressing Backspace with
+///   a selection should remove the selection, not the selection + 1 char)
 pub fn apply_edit_to_selection(
     content: &[InlineContent],
     selection: &Selection,
@@ -102,24 +108,31 @@ pub fn apply_edit_to_selection(
 ) -> (Vec<InlineContent>, TextCursor) {
     let mut new_content = content.to_vec();
 
-    // First, if the selection is a range, we perform a deletion.
-    // The result of a deletion is always a single cursor.
-    let cursor_after_delete = match selection {
+    match selection {
         Selection::Range(range) => {
+            // Delete the range first
             let (content_after_delete, cursor_pos) = delete_range(&new_content, range);
-            new_content = content_after_delete;
-            cursor_pos
+            match edit {
+                // Insert: replace the deleted range with new text
+                TextEdit::Insert(text_to_insert) => {
+                    let mut c = content_after_delete;
+                    insert_text(&mut c, &cursor_pos, text_to_insert)
+                }
+                // Delete: range deletion is sufficient — don't delete again
+                TextEdit::DeleteBackward | TextEdit::DeleteForward => {
+                    (content_after_delete, cursor_pos)
+                }
+            }
         }
-        Selection::Cursor(cursor) => *cursor,
-    };
-
-    // Now, apply the edit at the collapsed cursor position.
-    match edit {
-        TextEdit::Insert(text_to_insert) => {
-            insert_text(&mut new_content, &cursor_after_delete, text_to_insert)
+        Selection::Cursor(cursor) => {
+            match edit {
+                TextEdit::Insert(text_to_insert) => {
+                    insert_text(&mut new_content, cursor, text_to_insert)
+                }
+                TextEdit::DeleteBackward => delete_backward(&mut new_content, cursor),
+                TextEdit::DeleteForward => delete_forward(&mut new_content, cursor),
+            }
         }
-        TextEdit::DeleteBackward => delete_backward(&mut new_content, &cursor_after_delete),
-        TextEdit::DeleteForward => delete_forward(&mut new_content, &cursor_after_delete),
     }
 }
 

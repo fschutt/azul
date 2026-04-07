@@ -3867,16 +3867,59 @@ impl WaylandWindow {
             _ => return,
         };
 
-        // Get the text content and cursor offset from the focused contenteditable
+        // Get the actual text content and cursor byte offset from the focused node
         let (text, cursor_byte, anchor_byte) = match self.common.layout_window.as_ref() {
             Some(lw) => {
-                let cursor_offset = lw.text_edit_manager.get_primary_cursor()
-                    .map(|c| c.cluster_id.start_byte_in_run as i32)
-                    .unwrap_or(0);
-                // Send empty string with cursor at 0 — the IME works without
-                // surrounding text context, just less intelligently. The cursor
-                // offset must be 0 for an empty string per the protocol spec.
-                (std::ffi::CString::new("").unwrap(), 0, 0)
+                let mc = match lw.text_edit_manager.multi_cursor.as_ref() {
+                    Some(mc) => mc,
+                    None => return,
+                };
+                let node_id = match mc.node_id.node.into_crate_internal() {
+                    Some(id) => id,
+                    None => return,
+                };
+                let dom_id = mc.node_id.dom;
+
+                // Get current text (checks dirty_text_nodes first)
+                let content = lw.get_text_before_textinput(dom_id, node_id);
+                let text_str = lw.extract_text_from_inline_content(&content);
+
+                // Compute global byte offset: sum prior runs + offset in current run
+                let (cursor_byte, anchor_byte) = match mc.get_primary() {
+                    Some(identified) => {
+                        let calc_global_offset = |cursor: &azul_core::selection::TextCursor| -> i32 {
+                            let run_idx = cursor.cluster_id.source_run as usize;
+                            let byte_in_run = cursor.cluster_id.start_byte_in_run as usize;
+                            let mut global = 0usize;
+                            for (i, item) in content.iter().enumerate() {
+                                if i >= run_idx { break; }
+                                match item {
+                                    azul_layout::text3::cache::InlineContent::Text(r) => global += r.text.len(),
+                                    azul_layout::text3::cache::InlineContent::Space(_) => global += 1,
+                                    azul_layout::text3::cache::InlineContent::LineBreak(_) => global += 1,
+                                    azul_layout::text3::cache::InlineContent::Tab { .. } => global += 1,
+                                    _ => {}
+                                }
+                            }
+                            (global + byte_in_run) as i32
+                        };
+                        match &identified.selection {
+                            azul_core::selection::Selection::Cursor(c) => {
+                                let off = calc_global_offset(c);
+                                (off, off)
+                            }
+                            azul_core::selection::Selection::Range(r) => {
+                                (calc_global_offset(&r.start), calc_global_offset(&r.end))
+                            }
+                        }
+                    }
+                    None => (0, 0),
+                };
+
+                match std::ffi::CString::new(text_str) {
+                    Ok(cstr) => (cstr, cursor_byte, anchor_byte),
+                    Err(_) => (std::ffi::CString::new("").unwrap(), 0, 0),
+                }
             }
             None => return,
         };
