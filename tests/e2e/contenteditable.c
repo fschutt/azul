@@ -168,9 +168,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Build DOM
     AzDom root = AzDom_createBody();
     
-    // Label 1: Single Line Input
-    AzDom label1 = AzDom_createText(AZ_STR("Single Line Input (48px font):"));
+    // Label 1: Single Line Input — wrap text in a <p> so the class applies
+    AzDom label1 = AzDom_createDiv();
     AzDom_addClass(&label1, AZ_STR("label"));
+    AzDom_addChild(&label1, AzDom_createText(AZ_STR("Single Line Input (48px font):")));
     AzDom_addChild(&root, label1);
     
     // Single-line contenteditable input
@@ -192,8 +193,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&root, single_input);
     
     // Label 2: Multi Line Text Area
-    AzDom label2 = AzDom_createText(AZ_STR("Multi Line Text Area (scroll test):"));
+    AzDom label2 = AzDom_createDiv();
     AzDom_addClass(&label2, AZ_STR("label"));
+    AzDom_addChild(&label2, AzDom_createText(AZ_STR("Multi Line Text Area (scroll test):")));
     AzDom_addChild(&root, label2);
     
     // Multi-line contenteditable textarea
@@ -223,8 +225,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
              ref.ptr->selection_start, ref.ptr->selection_end,
              ref.ptr->key_press_count, ref.ptr->text_change_count);
     
-    AzDom status_bar = AzDom_createText(AZ_STR(status));
+    AzDom status_bar = AzDom_createDiv();
     AzDom_addClass(&status_bar, AZ_STR("status-bar"));
+    AzDom_addChild(&status_bar, AzDom_createText(AZ_STR(status)));
     AzDom_addChild(&root, status_bar);
     
     ContentEditableDataRef_delete(&ref);
