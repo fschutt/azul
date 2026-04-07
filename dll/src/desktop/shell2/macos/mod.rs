@@ -6242,9 +6242,9 @@ impl MacOSWindow {
     }
 
     /// Process accessibility actions from VoiceOver / screen readers.
-    /// Polls the accesskit action channel and handles Focus, ScrollIntoView,
-    /// SetValue, etc. Must be called regularly (both from process_event and
-    /// the idle phase of the run loop).
+    /// Polls the accesskit action channel and dispatches each action through
+    /// `LayoutWindow::process_accessibility_action()` — the comprehensive handler
+    /// that covers focus, click, scroll, text editing, and all other a11y actions.
     #[cfg(feature = "a11y")]
     pub fn process_accessibility_actions(&mut self) {
         let actions = self.poll_accessibility_actions();
@@ -6252,45 +6252,14 @@ impl MacOSWindow {
             return;
         }
 
+        let now = std::time::Instant::now();
+
         for (dom_id, node_id, action) in actions {
-            use azul_core::dom::AccessibilityAction;
-            use azul_core::styled_dom::NodeHierarchyItemId;
-
-            let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-            let dom_node_id = azul_core::dom::DomNodeId {
-                dom: dom_id,
-                node: hierarchy_id,
-            };
-
-            match action {
-                AccessibilityAction::Focus => {
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        lw.focus_manager.set_focused_node(Some(dom_node_id));
-                    }
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                let affected = lw.process_accessibility_action(dom_id, node_id, action, now);
+                if !affected.is_empty() {
+                    self.common.display_list_dirty = true;
                 }
-                AccessibilityAction::Default => {
-                    // TODO: dispatch click callback on the target node
-                }
-                AccessibilityAction::ScrollIntoView => {
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
-                        let now = azul_core::task::Instant::now();
-                        lw.scroll_node_into_view(dom_node_id, ScrollIntoViewOptions::nearest(), now);
-                        self.common.display_list_dirty = true;
-                    }
-                }
-                AccessibilityAction::SetValue(value) => {
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        lw.focus_manager.set_focused_node(Some(dom_node_id));
-                        let _ = lw.process_text_input(value.as_str());
-                    }
-                }
-                AccessibilityAction::ReplaceSelectedText(text) => {
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        let _ = lw.process_text_input(text.as_str());
-                    }
-                }
-                _ => {}
             }
         }
 
