@@ -51459,6 +51459,55 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "RouteMatch": {
+                        "external": "azul_core::resources::RouteMatch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "pattern": {
+                                    "type": "String"
+                                },
+                                "params": {
+                                    "type": "StringPairVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RouteVecSlice": {
+                        "external": "azul_core::resources::RouteVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Route",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -73403,6 +73452,57 @@
                                     "type": "RouteVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRoute"
+                                },
+                                "fn_body": "route_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RouteVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RouteVecSlice"
+                                },
+                                "fn_body": "route_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RouteVecSlice"
+                                },
+                                "fn_body": "route_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -73423,32 +73523,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "RouteVecSlice": {
-                        "external": "azul_core::resources::RouteVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "Route",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -77343,20 +77417,18 @@
                         "external": "azul_core::resources::OptionRoute",
                         "derive": [
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
                         ],
                         "enum_fields": [
                             {
-                                "None": {
-                                    "doc": [
-                                        "No value"
-                                    ]
-                                },
+                                "None": {},
                                 "Some": {
-                                    "type": "Route",
-                                    "doc": [
-                                        "Some value of type Route"
-                                    ]
+                                    "type": "Route"
                                 }
                             }
                         ],
@@ -81755,29 +81827,6 @@
                                 "fn_body": "object.dom_with_buttons(&buttons, button_side)"
                             }
                         },
-                        "repr": "C"
-                    },
-                    "RouteMatch": {
-                        "external": "azul_core::resources::RouteMatch",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "pattern": {
-                                    "type": "String"
-                                },
-                                "params": {
-                                    "type": "StringPairVec"
-                                }
-                            }
-                        ],
                         "repr": "C"
                     }
                 }
