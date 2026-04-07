@@ -6039,6 +6039,130 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     Ok(shaped)
 }
 
+/// Split text into segments where consecutive characters resolve to the same font
+/// in the fallback chain. Returns Vec<(byte_start, byte_end, FontId)>.
+///
+/// Characters that can't be resolved to any font are skipped (gap in coverage).
+fn split_text_by_font_coverage(
+    text: &str,
+    font_chain: &rust_fontconfig::FontFallbackChain,
+    fc_cache: &FcFontCache,
+) -> Vec<(usize, usize, FontId)> {
+    let mut segments: Vec<(usize, usize, FontId)> = Vec::new();
+
+    for (byte_idx, ch) in text.char_indices() {
+        let char_end = byte_idx + ch.len_utf8();
+        if let Some((font_id, _)) = font_chain.resolve_char(fc_cache, ch) {
+            match segments.last_mut() {
+                Some(last) if last.2 == font_id && last.1 == byte_idx => {
+                    // Extend current segment (same font, contiguous)
+                    last.1 = char_end;
+                }
+                _ => {
+                    // New segment (different font or gap)
+                    segments.push((byte_idx, char_end, font_id));
+                }
+            }
+        }
+    }
+
+    segments
+}
+
+/// Shape text with per-character font fallback.
+///
+/// Splits the text into segments by font coverage, shapes each segment with
+/// its resolved font, and fixes byte offsets so they're relative to the
+/// original `text` (not the segment substring).
+fn shape_with_font_fallback<T: ParsedFontTrait>(
+    text: &str,
+    script: Script,
+    language: crate::text3::script::Language,
+    direction: BidiDirection,
+    style: &Arc<StyleProperties>,
+    source_index: ContentIndex,
+    source_node_id: Option<NodeId>,
+    font_chain: &rust_fontconfig::FontFallbackChain,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
+) -> Result<Vec<ShapedCluster>, LayoutError> {
+    let segments = split_text_by_font_coverage(text, font_chain, fc_cache);
+
+    if segments.len() > 1 {
+        eprintln!(
+            "[FONT FALLBACK] text needs {} font segments for '{}' ({}..{} bytes)",
+            segments.len(),
+            text.chars().take(40).collect::<String>(),
+            0, text.len()
+        );
+    }
+
+    if segments.len() <= 1 {
+        // Fast path: all characters use the same font (common case)
+        let (seg_start, seg_end, font_id) = match segments.first() {
+            Some(s) => s,
+            None => {
+                eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
+                return Ok(Vec::new());
+            }
+        };
+        let font = match loaded_fonts.get(font_id) {
+            Some(f) => f,
+            None => {
+                eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
+                return Ok(Vec::new());
+            }
+        };
+        // If segment covers the full text (overwhelmingly common), skip substr+fixup
+        if *seg_start == 0 && *seg_end == text.len() {
+            return shape_text_correctly(
+                text, script, language, direction,
+                font, style, source_index, source_node_id,
+            );
+        }
+        let mut clusters = shape_text_correctly(
+            &text[*seg_start..*seg_end], script, language, direction,
+            font, style, source_index, source_node_id,
+        )?;
+        if *seg_start > 0 {
+            for cluster in &mut clusters {
+                cluster.source_cluster_id.start_byte_in_run += *seg_start as u32;
+            }
+        }
+        return Ok(clusters);
+    }
+
+    // Multiple fonts needed — shape each segment separately
+    let mut all_clusters = Vec::new();
+    for (seg_start, seg_end, font_id) in &segments {
+        let font = match loaded_fonts.get(font_id) {
+            Some(f) => f,
+            None => {
+                eprintln!("[FONT FALLBACK] font {:?} NOT loaded, skipping segment bytes {}..{}", font_id, seg_start, seg_end);
+                continue;
+            }
+        };
+        let segment_text = &text[*seg_start..*seg_end];
+        eprintln!(
+            "[FONT FALLBACK] text='{}' uses font {:?} (bytes {}..{})",
+            segment_text, font_id, seg_start, seg_end
+        );
+        let mut seg_clusters = shape_text_correctly(
+            segment_text, script, language, direction,
+            font, style, source_index, source_node_id,
+        )?;
+        // Fix byte offsets: shape_text_correctly produces offsets relative to
+        // segment_text, but callers expect offsets relative to the full text.
+        if *seg_start > 0 {
+            for cluster in &mut seg_clusters {
+                cluster.source_cluster_id.start_byte_in_run += *seg_start as u32;
+            }
+        }
+        all_clusters.extend(seg_clusters);
+    }
+    Ok(all_clusters)
+}
+
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -6155,18 +6279,12 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 Some(chain) => chain,
                                 None => { idx = coalesce_end; continue; }
                             };
-                            let first_char = merged_text.chars().next().unwrap_or('A');
-                            let font_id = match font_chain.resolve_char(fc_cache, first_char) {
-                                Some((id, _)) => id,
-                                None => { idx = coalesce_end; continue; }
-                            };
-                            match loaded_fonts.get(&font_id) {
-                                Some(font) => shape_text_correctly(
-                                    &merged_text, script, language, direction,
-                                    font, style, *source, *source_node_id,
-                                ),
-                                None => { idx = coalesce_end; continue; }
-                            }
+                            // Per-character font fallback: split text by font coverage
+                            shape_with_font_fallback(
+                                &merged_text, script, language, direction,
+                                style, *source, *source_node_id,
+                                font_chain, fc_cache, loaded_fonts,
+                            )
                         }
                     };
 
@@ -6258,55 +6376,12 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             }
                         };
 
-                        // Use the font chain to resolve which font to use for the first character
-                        let first_char = item.text.chars().next().unwrap_or('A');
-                        let font_id = match font_chain.resolve_char(fc_cache, first_char) {
-                            Some((id, _css_source)) => id,
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::warning(format!(
-                                        "[TextLayout] No font in chain can render character '{}' \
-                                         (U+{:04X})",
-                                        first_char, first_char as u32
-                                    )));
-                                }
-                                idx += 1;
-                                continue;
-                            }
-                        };
-
-                        // Look up the pre-loaded font
-                        match loaded_fonts.get(&font_id) {
-                            Some(font) => {
-                                shape_text_correctly(
-                                    &item.text,
-                                    item.script,
-                                    language,
-                                    direction,
-                                    font,
-                                    style,
-                                    *source,
-                                    *source_node_id,
-                                )
-                            }
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    let truncated_text = item.text.chars().take(50).collect::<String>();
-                                    let display_text = if item.text.chars().count() > 50 {
-                                        format!("{}...", truncated_text)
-                                    } else {
-                                        truncated_text
-                                    };
-
-                                    msgs.push(LayoutDebugMessage::warning(format!(
-                                        "[TextLayout] Font {:?} not pre-loaded for text: '{}'",
-                                        font_id, display_text
-                                    )));
-                                }
-                                idx += 1;
-                                continue;
-                            }
-                        }
+                        // Per-character font fallback: split text by font coverage
+                        shape_with_font_fallback(
+                            &item.text, item.script, language, direction,
+                            style, *source, *source_node_id,
+                            font_chain, fc_cache, loaded_fonts,
+                        )
                     }
                 };
 
@@ -6473,42 +6548,36 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             }
                         };
 
-                        let first_char = text.chars().next().unwrap_or('A');
-                        let font_id = match font_chain.resolve_char(fc_cache, first_char) {
-                            Some((id, _)) => id,
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::warning(format!(
-                                        "[TextLayout] No font for CombinedText char '{}'",
-                                        first_char
-                                    )));
+                        // Per-character font fallback for CombinedText
+                        let segments = split_text_by_font_coverage(&text, font_chain, fc_cache);
+                        let mut all_glyphs = Vec::new();
+                        for (seg_start, seg_end, font_id) in &segments {
+                            let font = match loaded_fonts.get(font_id) {
+                                Some(f) => f,
+                                None => continue,
+                            };
+                            let segment_text = &text[*seg_start..*seg_end];
+                            let mut seg_glyphs = font.shape_text(
+                                segment_text,
+                                item.script,
+                                language,
+                                BidiDirection::Ltr,
+                                style.as_ref(),
+                            )?;
+                            // Fix byte offsets for glyphs
+                            if *seg_start > 0 {
+                                for g in &mut seg_glyphs {
+                                    g.logical_byte_index += *seg_start;
+                                    g.cluster += *seg_start as u32;
                                 }
-                                idx += 1;
-                                continue;
                             }
-                        };
-
-                        match loaded_fonts.get(&font_id) {
-                            Some(font) => {
-                                font.shape_text(
-                                    &text,
-                                    item.script,
-                                    language,
-                                    BidiDirection::Ltr,
-                                    style.as_ref(),
-                                )?
-                            }
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::warning(format!(
-                                        "[TextLayout] Font {:?} not pre-loaded for CombinedText",
-                                        font_id
-                                    )));
-                                }
-                                idx += 1;
-                                continue;
-                            }
+                            all_glyphs.extend(seg_glyphs);
                         }
+                        if all_glyphs.is_empty() {
+                            idx += 1;
+                            continue;
+                        }
+                        all_glyphs
                     }
                 };
 

@@ -4974,6 +4974,15 @@ impl LayoutWindow {
         let byte_pos = cursor.cluster_id.start_byte_in_run as usize;
         if let Some(crate::text3::cache::InlineContent::Text(run)) = content.get_mut(run_idx) {
             let clamped_pos = byte_pos.min(run.text.len());
+            eprintln!(
+                "[PREEDIT inject] run_idx={} byte_pos={} preedit='{}' original_len={} result='{}'",
+                run_idx, clamped_pos, preedit, run.text.len(),
+                {
+                    let mut preview = run.text.clone();
+                    preview.insert_str(clamped_pos, &preedit);
+                    preview.chars().take(80).collect::<String>()
+                }
+            );
             run.text.insert_str(clamped_pos, &preedit);
         }
 
