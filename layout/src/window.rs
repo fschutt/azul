@@ -4930,6 +4930,44 @@ impl LayoutWindow {
     /// Called by regenerate_layout() after layout_and_generate_display_list().
     /// The layout just ran on the stale DOM text, so we re-shape the edited text
     /// from dirty_text_nodes and update the inline layout result + display list.
+    /// Inject preedit text into the text cache and regenerate the display list.
+    ///
+    /// Called from the platform IME handler (setMarkedText). Gets the current
+    /// text content, splices the preedit string at the cursor position, then
+    /// re-shapes and regenerates the display list so the preedit glyphs appear
+    /// inline with an underline.
+    pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
+        let preedit = match &self.text_edit_manager.preedit_text {
+            Some(p) if !p.is_empty() => p.clone(),
+            _ => {
+                // No preedit — restore original text from dirty_text_nodes or DOM
+                // (the preedit was just cleared by unmarkText/insertText)
+                self.reapply_dirty_text_node(dom_id, node_id);
+                return;
+            }
+        };
+
+        let cursor = match self.text_edit_manager.get_primary_cursor() {
+            Some(c) => c,
+            None => return,
+        };
+
+        // Get the base content (without preedit)
+        let mut content = self.get_text_before_textinput(dom_id, node_id);
+
+        // Insert preedit at cursor position
+        let run_idx = cursor.cluster_id.source_run as usize;
+        let byte_pos = cursor.cluster_id.start_byte_in_run as usize;
+        if let Some(crate::text3::cache::InlineContent::Text(run)) = content.get_mut(run_idx) {
+            let clamped_pos = byte_pos.min(run.text.len());
+            run.text.insert_str(clamped_pos, &preedit);
+        }
+
+        // Re-shape text with preedit injected — font fallback handles CJK
+        self.update_text_cache_after_edit(dom_id, node_id, content);
+        self.regenerate_display_list_for_dom(dom_id);
+    }
+
     pub fn reapply_dirty_text_node(&mut self, dom_id: DomId, node_id: NodeId) {
         let content = match self.dirty_text_nodes.get(&(dom_id, node_id)) {
             Some(dirty) => dirty.content.clone(),

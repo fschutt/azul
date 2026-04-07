@@ -731,15 +731,24 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // Get the editing node before borrowing layout_window mutably
+                    let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
+                        let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
+                        let node_id = lw.text_edit_manager.get_editing_node_id()?;
+                        Some((dom_id, node_id))
+                    });
                     if let Some(ref mut lw) = macos_window.common.layout_window {
                         lw.text_edit_manager.set_preedit(
                             preedit,
                             selected_range.location as i32,
                             (selected_range.location + selected_range.length) as i32,
                         );
+                        // Inject preedit into text cache and re-shape
+                        if let Some((dom_id, node_id)) = editing_info {
+                            lw.apply_preedit_to_text_cache(dom_id, node_id);
+                        }
                     }
                     macos_window.sync_ime_position_to_os();
-                    macos_window.common.display_list_dirty = true;
                     macos_window.request_redraw();
                 }
             }
@@ -1502,15 +1511,24 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // Get the editing node before borrowing layout_window mutably
+                    let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
+                        let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
+                        let node_id = lw.text_edit_manager.get_editing_node_id()?;
+                        Some((dom_id, node_id))
+                    });
                     if let Some(ref mut lw) = macos_window.common.layout_window {
                         lw.text_edit_manager.set_preedit(
                             preedit,
                             selected_range.location as i32,
                             (selected_range.location + selected_range.length) as i32,
                         );
+                        // Inject preedit into text cache and re-shape
+                        if let Some((dom_id, node_id)) = editing_info {
+                            lw.apply_preedit_to_text_cache(dom_id, node_id);
+                        }
                     }
                     macos_window.sync_ime_position_to_os();
-                    macos_window.common.display_list_dirty = true;
                     macos_window.request_redraw();
                 }
             }
