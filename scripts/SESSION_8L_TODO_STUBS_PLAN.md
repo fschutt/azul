@@ -11,12 +11,16 @@ and ordered for implementation.
 
 ### 1.1 Double/triple-click detection
 - **File:** `window.rs:5716`
-- **Problem:** `click_count` hardcoded to 1
-- **Fix:** Track click state in TextEditManager:
-  - Add `last_click_position: Option<LogicalPosition>`, `last_click_time: Option<Instant>`, `click_count: u8`
-  - On mousedown: if same position (within 5px) and time < 500ms → increment; else reset to 1
-  - Pass real click_count to `process_mouse_click_for_selection`
-  - The word/paragraph selection code (lines 5730-5736) already exists, just needs real click_count
+- **Problem:** `click_count` hardcoded to `1u32`
+- **Key finding:** `SelectionManager.update_click_count(node_id, position, time_ms)`
+  already exists at `managers/selection.rs:87-136` with 500ms timeout and 5px threshold.
+  It returns `u8` (1/2/3). Just wire it up.
+- **Fix:** Replace line 5717 `let click_count = 1u32;` with:
+  ```rust
+  // SelectionManager tracks multi-click state with timeout + distance
+  self.selection_manager.update_click_count(dom_node_id, position, time_ms) as u32
+  ```
+  The word/paragraph selection code (lines 5730-5736) already handles count 2/3.
 
 ### 1.2 Selection bounding rect
 - **File:** `window.rs:2790`
@@ -30,8 +34,10 @@ and ordered for implementation.
 ### 2.1 Find scrollable ancestor
 - **File:** `window.rs:5264`
 - **Problem:** Only checks if node itself is scrollable
-- **Fix:** Walk `node_hierarchy` parent chain via `parent_id()`. For each ancestor, check `overflow_x/y != Visible` in the styled properties. Return first scrollable ancestor.
-- **~10 lines**: standard DOM tree traversal
+- **Key finding:** `find_scrollable_ancestor()` already exists at `window.rs:2700`!
+  It walks the layout tree and returns the scrollable ancestor's DomNodeId.
+- **Fix:** Replace the stub with a call to `self.find_scrollable_ancestor(dom_node_id)`.
+  Use the returned ancestor for scroll offset calculations.
 
 ### 2.2 Scroll-to-node
 - **File:** `window.rs:5201`
@@ -69,7 +75,10 @@ and ordered for implementation.
 ### 3.3 Route switching
 - **File:** `event.rs:2033`
 - **Problem:** Stub prints message, doesn't switch
-- **Fix:** Look up route in `AppConfig.routes`, if found, replace the layout callback and force DOM rebuild via `ShouldRegenerateDomCurrentWindow`. This depends on the routing system design.
+- **Architecture:** `apply_user_change()` on `PlatformWindowHandler` has no access to
+  `AppConfig`. Need to add `Arc<RouteVec>` to `CommonWindowState`, set at window creation
+  from `shell2/run.rs`. Then handler can look up route and swap `layout_callback`.
+- **Risk:** Touches all 5 platform window creation sites (Win32, macOS, X11, Wayland, headless).
 
 ---
 
