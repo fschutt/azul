@@ -2327,25 +2327,11 @@ pub fn render_display_list_damaged(
         pixmap.fill_rect(px, py, pw, ph, 255, 255, 255, 255);
     }
 
-    // Compute the union of all damage rects as the outer clip.
-    // We iterate items ONCE (not per-rect) to avoid double-rendering
-    // items that span multiple damage rects, which would cause
-    // alpha-blending artifacts on anti-aliased text / semi-transparent content.
-    let union = damage_rects.iter().copied().reduce(|a, b| union_rect(&a, &b));
-    let union = match union {
-        Some(u) => u,
-        None => return Ok(()),
-    };
-
-    let clip = AzRect {
-        x: union.origin.x * dpi_factor,
-        y: union.origin.y * dpi_factor,
-        width: union.size.width * dpi_factor,
-        height: union.size.height * dpi_factor,
-    };
-
+    // No union needed — items are individually tested against each damage rect
+    // below (line-by-line). We iterate items ONCE (not per-rect) to avoid
+    // double-rendering items that span multiple rects (alpha-blending artifacts).
     let mut transform_stack = vec![TransAffine::new()];
-    let mut clip_stack: Vec<Option<AzRect>> = vec![Some(clip)]; // start with damage clip
+    let mut clip_stack: Vec<Option<AzRect>> = vec![None]; // no outer clip — per-rect filtering suffices
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
