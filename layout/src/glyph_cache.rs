@@ -52,6 +52,13 @@ pub struct CachedCells {
     pub cells: Vec<CellAa>,
 }
 
+/// Maximum number of glyph path entries before eviction.
+/// ~8K glyphs covers most Latin + CJK pages without unbounded growth.
+const MAX_PATH_ENTRIES: usize = 8192;
+/// Maximum number of cell cache entries before eviction.
+/// Cell entries are larger than paths, so a lower limit is appropriate.
+const MAX_CELL_ENTRIES: usize = 16384;
+
 /// Cache of built glyph paths and pre-rasterized cells.
 pub struct GlyphCache {
     paths: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
@@ -83,6 +90,9 @@ impl GlyphCache {
         parsed_font: &ParsedFont,
         ppem: u16,
     ) -> Option<CachedGlyph<'_>> {
+        if self.paths.len() >= MAX_PATH_ENTRIES {
+            self.paths.clear();
+        }
         let key = GlyphPathKey { font_hash, glyph_id, ppem };
         let entry = self
             .paths
@@ -120,6 +130,9 @@ impl GlyphCache {
         scale: f32,
         is_hinted: bool,
     ) -> Option<(&[CellAa], i32, i32)> {
+        if self.cells.len() >= MAX_CELL_ENTRIES {
+            self.cells.clear();
+        }
         let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
         let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
         let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
@@ -172,6 +185,18 @@ impl GlyphCache {
     pub fn clear(&mut self) {
         self.paths.clear();
         self.cells.clear();
+    }
+
+    /// Evict caches if they exceed size limits.
+    /// Called automatically by get_or_build / get_or_build_cells, but can
+    /// also be called manually between frames to enforce bounds.
+    pub fn evict_if_needed(&mut self) {
+        if self.paths.len() > MAX_PATH_ENTRIES {
+            self.paths.clear();
+        }
+        if self.cells.len() > MAX_CELL_ENTRIES {
+            self.cells.clear();
+        }
     }
 
     /// Number of cached path entries.

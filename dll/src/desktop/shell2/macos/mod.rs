@@ -55,7 +55,7 @@ use objc2_app_kit::{
     NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{
-    ns_string, NSAttributedString, NSData, NSNotification, NSObject, NSPoint, NSRange, NSRect,
+    ns_string, NSAttributedString, NSNotification, NSObject, NSPoint, NSRange, NSRect,
     NSSize, NSString, NSTimer, NSUndoManager,
 };
 use rust_fontconfig::FcFontCache;
@@ -665,11 +665,26 @@ define_class!(
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_move(event);
+                    let result = macos_window.handle_mouse_move(event);
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {} // DoNothing: no redraw needed for move within same node
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
@@ -902,6 +917,11 @@ pub struct CPUViewIvars {
     window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
     /// Set to true by setMarkedText / insertText during IME composition.
     ime_key_handled: Cell<bool>,
+    /// Cached NSBitmapImageRep reused across frames (only reallocated on resize).
+    /// Eliminates ~1.8 MB/frame allocation churn at 800x600.
+    cached_bitmap: RefCell<Option<Retained<NSBitmapImageRep>>>,
+    cached_bitmap_w: Cell<usize>,
+    cached_bitmap_h: Cell<usize>,
 }
 
 define_class!(
@@ -952,37 +972,44 @@ define_class!(
                 }
             }
 
-            // Blit framebuffer to window
+            // Blit framebuffer to window, reusing cached NSBitmapImageRep
             unsafe {
-                let mtm = ivars.mtm; // Get mtm from ivars
                 let framebuffer = ivars.framebuffer.borrow();
 
-                // Use NSData::with_bytes to wrap our framebuffer
-                let data = NSData::with_bytes(&framebuffer[..]);
+                // Reuse cached bitmap if size matches, otherwise allocate new
+                let mut cached = ivars.cached_bitmap.borrow_mut();
+                let cached_w = ivars.cached_bitmap_w.get();
+                let cached_h = ivars.cached_bitmap_h.get();
 
-                if let Some(bitmap) = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
-                    NSBitmapImageRep::alloc(),
-                    std::ptr::null_mut(),
-                    width as isize,
-                    height as isize,
-                    8,
-                    4,
-                    true,
-                    false,
-                    ns_string!("NSCalibratedRGBColorSpace"),
-                    (width * 4) as isize,
-                    32,
-                ) {
-                    // Copy framebuffer data to bitmap
+                if cached.is_none() || cached_w != width || cached_h != height {
+                    *cached = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+                        NSBitmapImageRep::alloc(),
+                        std::ptr::null_mut(),
+                        width as isize,
+                        height as isize,
+                        8,
+                        4,
+                        true,
+                        false,
+                        ns_string!("NSCalibratedRGBColorSpace"),
+                        (width * 4) as isize,
+                        32,
+                    );
+                    ivars.cached_bitmap_w.set(width);
+                    ivars.cached_bitmap_h.set(height);
+                }
+
+                if let Some(ref bitmap) = *cached {
+                    // Copy framebuffer data into the reused bitmap's pixel buffer
                     std::ptr::copy_nonoverlapping(
                         framebuffer.as_ptr(),
                         bitmap.bitmapData(),
                         framebuffer.len(),
                     );
 
-                    // Create image and draw
+                    // Create lightweight NSImage wrapper and draw
                     let image = NSImage::initWithSize(NSImage::alloc(), bounds.size);
-                    image.addRepresentation(&bitmap);
+                    image.addRepresentation(bitmap);
                     image.drawInRect(bounds);
                 }
             }
@@ -1397,6 +1424,9 @@ define_class!(
                 mtm,
                 window_ptr: RefCell::new(None),
                 ime_key_handled: Cell::new(false),
+                cached_bitmap: RefCell::new(None),
+                cached_bitmap_w: Cell::new(0),
+                cached_bitmap_h: Cell::new(0),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -1448,11 +1478,26 @@ define_class!(
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_move(event);
+                    let result = macos_window.handle_mouse_move(event);
+                    match result {
+                        EventProcessResult::RegenerateDisplayList => {
+                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::UpdateDisplayList => {
+                            macos_window.common.display_list_dirty = true;
+                            macos_window.request_redraw();
+                        }
+                        EventProcessResult::RequestRedraw => {
+                            macos_window.request_redraw();
+                        }
+                        _ => {} // DoNothing: no redraw needed for move within same node
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
@@ -2151,6 +2196,9 @@ pub struct MacOSWindow {
     /// Previous display list for CPU damage computation
     #[cfg(feature = "cpurender")]
     previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    /// Retained pixmap reused across CPU frames (avoids realloc per render)
+    #[cfg(feature = "cpurender")]
+    retained_pixmap: Option<azul_layout::cpurender::AzulPixmap>,
     /// Window is open flag
     is_open: bool,
     /// Main thread marker (required for AppKit)
@@ -3270,6 +3318,8 @@ impl MacOSWindow {
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
+            #[cfg(feature = "cpurender")]
+            retained_pixmap: None,
             is_open: true,
             mtm,
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
@@ -5312,7 +5362,8 @@ impl MacOSWindow {
         if self.backend == RenderBackend::CPU {
             use azul_core::dom::DomId;
             use azul_layout::cpurender::{
-                render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap,
+                self, render_with_font_manager_and_scroll_retained,
+                CpuRenderState, RenderOptions, ScrollOffsetMap,
             };
 
             let dom_id = DomId { inner: 0 };
@@ -5329,31 +5380,80 @@ impl MacOSWindow {
                     let render_state = CpuRenderState::from_gpu_cache(
                         gpu_cache, dom_id, &scroll_offsets,
                     );
-                    let opts = RenderOptions { width, height, dpi_factor: dpi };
-                    match render_with_font_manager_and_scroll(
-                        &result.display_list,
-                        &layout_window.renderer_resources,
-                        &layout_window.font_manager,
-                        opts,
-                        &mut self.glyph_cache,
-                        &render_state,
-                    ) {
-                        Ok(pixmap) => {
-                            if let Some(ref cpu_view) = self.cpu_view {
-                                cpu_view.update_framebuffer(
-                                    pixmap.data(),
-                                    pixmap.width() as usize,
-                                    pixmap.height() as usize,
+
+                    // Try incremental damage-rect rendering first
+                    let dl_damage = match &self.previous_display_list {
+                        Some(old_dl) => cpurender::compute_display_list_damage(old_dl, &result.display_list),
+                        None => None, // first frame → full repaint
+                    };
+
+                    let did_incremental = match &dl_damage {
+                        Some(rects) if rects.is_empty() => {
+                            // Nothing changed — skip rendering entirely
+                            true
+                        }
+                        Some(rects) if self.retained_pixmap.is_some() => {
+                            // Incremental: render only damaged regions into retained pixmap
+                            if let Some(ref mut pixmap) = self.retained_pixmap {
+                                let pw = (width * dpi) as u32;
+                                let ph = (height * dpi) as u32;
+                                if pixmap.width() == pw && pixmap.height() == ph {
+                                    let _ = cpurender::render_display_list_damaged(
+                                        &result.display_list,
+                                        pixmap,
+                                        dpi,
+                                        &layout_window.renderer_resources,
+                                        Some(&layout_window.font_manager),
+                                        &mut self.glyph_cache,
+                                        &render_state,
+                                        rects,
+                                    );
+                                    true
+                                } else {
+                                    false // size mismatch, do full render
+                                }
+                            } else {
+                                false
+                            }
+                        }
+                        _ => false, // structural change or first frame → full repaint
+                    };
+
+                    if !did_incremental {
+                        let opts = RenderOptions { width, height, dpi_factor: dpi };
+                        match render_with_font_manager_and_scroll_retained(
+                            &result.display_list,
+                            &layout_window.renderer_resources,
+                            &layout_window.font_manager,
+                            opts,
+                            &mut self.glyph_cache,
+                            &render_state,
+                            self.retained_pixmap.take(),
+                        ) {
+                            Ok(pixmap) => {
+                                self.retained_pixmap = Some(pixmap);
+                            }
+                            Err(e) => {
+                                log_error!(
+                                    LogCategory::Rendering,
+                                    "[CPU] render failed: {}", e
                                 );
                             }
                         }
-                        Err(e) => {
-                            log_error!(
-                                LogCategory::Rendering,
-                                "[CPU] render failed: {}", e
+                    }
+
+                    // Blit retained pixmap to CPUView
+                    if let Some(ref pixmap) = self.retained_pixmap {
+                        if let Some(ref cpu_view) = self.cpu_view {
+                            cpu_view.update_framebuffer(
+                                pixmap.data(),
+                                pixmap.width() as usize,
+                                pixmap.height() as usize,
                             );
                         }
                     }
+
+                    self.previous_display_list = Some(result.display_list.clone());
                 }
             }
 

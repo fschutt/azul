@@ -178,6 +178,12 @@ pub struct WaylandWindow {
     // CPU rendering glyph cache (persisted across frames)
     #[cfg(feature = "cpurender")]
     glyph_cache: azul_layout::glyph_cache::GlyphCache,
+    /// Retained pixmap reused across CPU frames (avoids realloc per render)
+    #[cfg(feature = "cpurender")]
+    retained_pixmap: Option<azul_layout::cpurender::AzulPixmap>,
+    /// Previous display list for CPU damage computation
+    #[cfg(feature = "cpurender")]
+    previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
 
     // Monitor tracking for multi-monitor support
     pub known_outputs: Vec<MonitorState>,
@@ -907,6 +913,10 @@ impl WaylandWindow {
             render_mode: RenderMode::Cpu(None),
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            #[cfg(feature = "cpurender")]
+            retained_pixmap: None,
+            #[cfg(feature = "cpurender")]
+            previous_display_list: None,
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
@@ -2746,7 +2756,8 @@ impl WaylandWindow {
                 {
                     use azul_core::dom::DomId;
                     use azul_layout::cpurender::{
-                        render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap,
+                        self, render_with_font_manager_and_scroll_retained,
+                        CpuRenderState, RenderOptions,
                     };
 
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
@@ -2764,39 +2775,74 @@ impl WaylandWindow {
                                 let render_state = CpuRenderState::from_gpu_cache(
                                     gpu_cache, dom_id, &scroll_offsets,
                                 );
-                                let opts = RenderOptions { width, height, dpi_factor: dpi };
-                                match render_with_font_manager_and_scroll(
-                                    &result.display_list,
-                                    &layout_window.renderer_resources,
-                                    &layout_window.font_manager,
-                                    opts,
-                                    &mut self.glyph_cache,
-                                    &render_state,
-                                ) {
-                                    Ok(pixmap) => {
-                                        // Copy RGBA pixmap into Wayland ARGB8888 shm buffer
-                                        let buf = cpu_state.pixel_buffer_mut();
-                                        let src = pixmap.data();
-                                        let copy_len = buf.len().min(src.len());
-                                        // RGBA → ARGB: swap R and B channels for Wayland's ARGB8888
-                                        for i in (0..copy_len).step_by(4) {
-                                            if i + 3 < copy_len {
-                                                buf[i]     = src[i + 2]; // B
-                                                buf[i + 1] = src[i + 1]; // G
-                                                buf[i + 2] = src[i];     // R
-                                                buf[i + 3] = src[i + 3]; // A
-                                            }
-                                        }
-                                        true
+
+                                // Try incremental damage-rect rendering first
+                                let dl_damage = match &self.previous_display_list {
+                                    Some(old_dl) => cpurender::compute_display_list_damage(old_dl, &result.display_list),
+                                    None => None,
+                                };
+
+                                let did_incremental = match &dl_damage {
+                                    Some(rects) if rects.is_empty() => true,
+                                    Some(rects) if self.retained_pixmap.is_some() => {
+                                        let pw = (width * dpi) as u32;
+                                        let ph = (height * dpi) as u32;
+                                        if let Some(ref mut pixmap) = self.retained_pixmap {
+                                            if pixmap.width() == pw && pixmap.height() == ph {
+                                                let _ = cpurender::render_display_list_damaged(
+                                                    &result.display_list,
+                                                    pixmap, dpi,
+                                                    &layout_window.renderer_resources,
+                                                    Some(&layout_window.font_manager),
+                                                    &mut self.glyph_cache,
+                                                    &render_state, rects,
+                                                );
+                                                true
+                                            } else { false }
+                                        } else { false }
                                     }
-                                    Err(e) => {
-                                        log_error!(
-                                            LogCategory::Rendering,
-                                            "[Wayland CPU] render failed: {}", e
-                                        );
-                                        false
+                                    _ => false,
+                                };
+
+                                if !did_incremental {
+                                    let opts = RenderOptions { width, height, dpi_factor: dpi };
+                                    match render_with_font_manager_and_scroll_retained(
+                                        &result.display_list,
+                                        &layout_window.renderer_resources,
+                                        &layout_window.font_manager,
+                                        opts,
+                                        &mut self.glyph_cache,
+                                        &render_state,
+                                        self.retained_pixmap.take(),
+                                    ) {
+                                        Ok(pixmap) => { self.retained_pixmap = Some(pixmap); }
+                                        Err(e) => {
+                                            log_error!(
+                                                LogCategory::Rendering,
+                                                "[Wayland CPU] render failed: {}", e
+                                            );
+                                        }
                                     }
                                 }
+
+                                // Blit retained pixmap into Wayland shm buffer
+                                if let Some(ref pixmap) = self.retained_pixmap {
+                                    let buf = cpu_state.pixel_buffer_mut();
+                                    let src = pixmap.data();
+                                    let copy_len = buf.len().min(src.len());
+                                    // RGBA → ARGB: swap R and B channels for Wayland's ARGB8888
+                                    for i in (0..copy_len).step_by(4) {
+                                        if i + 3 < copy_len {
+                                            buf[i]     = src[i + 2]; // B
+                                            buf[i + 1] = src[i + 1]; // G
+                                            buf[i + 2] = src[i];     // R
+                                            buf[i + 3] = src[i + 3]; // A
+                                        }
+                                    }
+                                }
+
+                                self.previous_display_list = Some(result.display_list.clone());
+                                true
                             } else { false }
                         } else { false }
                     } else { false };

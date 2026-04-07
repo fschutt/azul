@@ -105,6 +105,15 @@ pub struct Win32Window {
     /// Glyph cache for CPU rendering (persists across frames)
     #[cfg(feature = "cpurender")]
     glyph_cache: azul_layout::glyph_cache::GlyphCache,
+    /// Retained pixmap reused across CPU frames (avoids realloc per render)
+    #[cfg(feature = "cpurender")]
+    retained_pixmap: Option<azul_layout::cpurender::AzulPixmap>,
+    /// Previous display list for CPU damage computation
+    #[cfg(feature = "cpurender")]
+    previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    /// Cached BGRA conversion buffer reused across CPU frames
+    #[cfg(feature = "cpurender")]
+    bgra_buffer: Vec<u8>,
     /// Damage rects for incremental rendering (CPU and GPU)
     /// When non-empty, only these regions need redrawing
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
@@ -496,6 +505,12 @@ impl Win32Window {
             new_frame_ready,
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            #[cfg(feature = "cpurender")]
+            retained_pixmap: None,
+            #[cfg(feature = "cpurender")]
+            previous_display_list: None,
+            #[cfg(feature = "cpurender")]
+            bgra_buffer: Vec::new(),
             gpu_damage_rects: Vec::new(),
             common: event::CommonWindowState {
                 layout_window: Some(layout_window),
@@ -709,7 +724,8 @@ impl Win32Window {
             {
                 use azul_core::dom::DomId;
                 use azul_layout::cpurender::{
-                    render_with_font_manager_and_scroll, CpuRenderState, RenderOptions,
+                    self, render_with_font_manager_and_scroll_retained,
+                    CpuRenderState, RenderOptions,
                 };
 
                 // Synchronize window state to layout_window before rendering
@@ -755,72 +771,104 @@ impl Win32Window {
                                 dom_id,
                                 &scroll_offsets,
                             );
-                            let opts = RenderOptions {
-                                width,
-                                height,
-                                dpi_factor: dpi,
+
+                            // Try incremental damage-rect rendering first
+                            let dl_damage = match &self.previous_display_list {
+                                Some(old_dl) => cpurender::compute_display_list_damage(old_dl, &result.display_list),
+                                None => None,
                             };
-                            match render_with_font_manager_and_scroll(
-                                &result.display_list,
-                                &layout_window.renderer_resources,
-                                &layout_window.font_manager,
-                                opts,
-                                &mut self.glyph_cache,
-                                &render_state,
-                            ) {
-                                Ok(pixmap) => {
-                                    // Blit RGBA pixmap to window via StretchDIBits
-                                    // Windows expects BGRA in bottom-up DIB format
-                                    let pw = pixmap.width() as i32;
-                                    let ph = pixmap.height() as i32;
-                                    let mut bgra_data: Vec<u8> =
-                                        Vec::with_capacity(pixmap.data().len());
-                                    for chunk in pixmap.data().chunks_exact(4) {
-                                        bgra_data.push(chunk[2]); // B
-                                        bgra_data.push(chunk[1]); // G
-                                        bgra_data.push(chunk[0]); // R
-                                        bgra_data.push(chunk[3]); // A
-                                    }
 
-                                    let bmi = dlopen::BitmapInfoHeader {
-                                        biSize: core::mem::size_of::<dlopen::BitmapInfoHeader>() as u32,
-                                        biWidth: pw,
-                                        biHeight: -ph, // negative = top-down
-                                        biPlanes: 1,
-                                        biBitCount: 32,
-                                        biCompression: 0, // BI_RGB
-                                        biSizeImage: 0,
-                                        biXPelsPerMeter: 0,
-                                        biYPelsPerMeter: 0,
-                                        biClrUsed: 0,
-                                        biClrImportant: 0,
-                                    };
-
-                                    unsafe {
-                                        let hdc = (self.win32.user32.GetDC)(self.hwnd);
-                                        if !hdc.is_null() {
-                                            (self.win32.gdi32.StretchDIBits)(
-                                                hdc,
-                                                0, 0, pw, ph, // dest rect
-                                                0, 0, pw, ph, // src rect
-                                                bgra_data.as_ptr() as *const c_void,
-                                                &bmi,
-                                                dlopen::DIB_RGB_COLORS,
-                                                dlopen::SRCCOPY,
+                            let did_incremental = match &dl_damage {
+                                Some(rects) if rects.is_empty() => true,
+                                Some(rects) if self.retained_pixmap.is_some() => {
+                                    let pw = (width * dpi) as u32;
+                                    let ph = (height * dpi) as u32;
+                                    if let Some(ref mut pixmap) = self.retained_pixmap {
+                                        if pixmap.width() == pw && pixmap.height() == ph {
+                                            let _ = cpurender::render_display_list_damaged(
+                                                &result.display_list,
+                                                pixmap, dpi,
+                                                &layout_window.renderer_resources,
+                                                Some(&layout_window.font_manager),
+                                                &mut self.glyph_cache,
+                                                &render_state, rects,
                                             );
-                                            (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
-                                        }
-                                    }
-                                    rendered = true;
+                                            true
+                                        } else { false }
+                                    } else { false }
                                 }
-                                Err(e) => {
-                                    log_error!(
-                                        LogCategory::Rendering,
-                                        "[Win32 CPU] render failed: {}",
-                                        e
-                                    );
+                                _ => false,
+                            };
+
+                            if !did_incremental {
+                                let opts = RenderOptions { width, height, dpi_factor: dpi };
+                                match render_with_font_manager_and_scroll_retained(
+                                    &result.display_list,
+                                    &layout_window.renderer_resources,
+                                    &layout_window.font_manager,
+                                    opts,
+                                    &mut self.glyph_cache,
+                                    &render_state,
+                                    self.retained_pixmap.take(),
+                                ) {
+                                    Ok(pixmap) => { self.retained_pixmap = Some(pixmap); }
+                                    Err(e) => {
+                                        log_error!(
+                                            LogCategory::Rendering,
+                                            "[Win32 CPU] render failed: {}", e
+                                        );
+                                    }
                                 }
                             }
+
+                            // Blit retained pixmap to window via StretchDIBits
+                            if let Some(ref pixmap) = self.retained_pixmap {
+                                let pw = pixmap.width() as i32;
+                                let ph = pixmap.height() as i32;
+                                let data = pixmap.data();
+
+                                // Reuse BGRA conversion buffer
+                                self.bgra_buffer.resize(data.len(), 0);
+                                for (src, dst) in data.chunks_exact(4).zip(self.bgra_buffer.chunks_exact_mut(4)) {
+                                    dst[0] = src[2]; // B
+                                    dst[1] = src[1]; // G
+                                    dst[2] = src[0]; // R
+                                    dst[3] = src[3]; // A
+                                }
+
+                                let bmi = dlopen::BitmapInfoHeader {
+                                    biSize: core::mem::size_of::<dlopen::BitmapInfoHeader>() as u32,
+                                    biWidth: pw,
+                                    biHeight: -ph, // negative = top-down
+                                    biPlanes: 1,
+                                    biBitCount: 32,
+                                    biCompression: 0, // BI_RGB
+                                    biSizeImage: 0,
+                                    biXPelsPerMeter: 0,
+                                    biYPelsPerMeter: 0,
+                                    biClrUsed: 0,
+                                    biClrImportant: 0,
+                                };
+
+                                unsafe {
+                                    let hdc = (self.win32.user32.GetDC)(self.hwnd);
+                                    if !hdc.is_null() {
+                                        (self.win32.gdi32.StretchDIBits)(
+                                            hdc,
+                                            0, 0, pw, ph, // dest rect
+                                            0, 0, pw, ph, // src rect
+                                            self.bgra_buffer.as_ptr() as *const c_void,
+                                            &bmi,
+                                            dlopen::DIB_RGB_COLORS,
+                                            dlopen::SRCCOPY,
+                                        );
+                                        (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
+                                    }
+                                }
+                                rendered = true;
+                            }
+
+                            self.previous_display_list = Some(result.display_list.clone());
                         }
                     }
                 }

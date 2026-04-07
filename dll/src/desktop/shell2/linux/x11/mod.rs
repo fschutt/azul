@@ -302,6 +302,15 @@ pub struct X11Window {
     // CPU rendering glyph cache
     #[cfg(feature = "cpurender")]
     glyph_cache: azul_layout::glyph_cache::GlyphCache,
+    /// Retained pixmap reused across CPU frames (avoids realloc per render)
+    #[cfg(feature = "cpurender")]
+    retained_pixmap: Option<azul_layout::cpurender::AzulPixmap>,
+    /// Previous display list for CPU damage computation
+    #[cfg(feature = "cpurender")]
+    previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    /// Cached BGRA conversion buffer reused across CPU frames
+    #[cfg(feature = "cpurender")]
+    bgra_buffer: Vec<u8>,
 
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
@@ -907,6 +916,12 @@ impl X11Window {
             },
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            #[cfg(feature = "cpurender")]
+            retained_pixmap: None,
+            #[cfg(feature = "cpurender")]
+            previous_display_list: None,
+            #[cfg(feature = "cpurender")]
+            bgra_buffer: Vec::new(),
             gpu_damage_rects: Vec::new(),
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
@@ -1566,7 +1581,8 @@ impl X11Window {
                 {
                     use azul_core::dom::DomId;
                     use azul_layout::cpurender::{
-                        render_with_font_manager_and_scroll, CpuRenderState, RenderOptions,
+                        self, render_with_font_manager_and_scroll_retained,
+                        CpuRenderState, RenderOptions,
                     };
                     use std::ffi::{c_char, c_uint};
 
@@ -1613,82 +1629,101 @@ impl X11Window {
                                     dom_id,
                                     &scroll_offsets,
                                 );
-                                let opts = RenderOptions {
-                                    width,
-                                    height,
-                                    dpi_factor: dpi,
+
+                                // Try incremental damage-rect rendering first
+                                let dl_damage = match &self.previous_display_list {
+                                    Some(old_dl) => cpurender::compute_display_list_damage(old_dl, &result.display_list),
+                                    None => None,
                                 };
-                                match render_with_font_manager_and_scroll(
-                                    &result.display_list,
-                                    &layout_window.renderer_resources,
-                                    &layout_window.font_manager,
-                                    opts,
-                                    &mut self.glyph_cache,
-                                    &render_state,
-                                ) {
-                                    Ok(pixmap) => {
-                                        // Convert RGBA to BGRA for X11 (ZPixmap format)
-                                        let pw = pixmap.width() as c_uint;
-                                        let ph = pixmap.height() as c_uint;
-                                        let mut bgra_data: Vec<u8> =
-                                            Vec::with_capacity(pixmap.data().len());
-                                        for chunk in pixmap.data().chunks_exact(4) {
-                                            bgra_data.push(chunk[2]); // B
-                                            bgra_data.push(chunk[1]); // G
-                                            bgra_data.push(chunk[0]); // R
-                                            bgra_data.push(chunk[3]); // A
-                                        }
 
-                                        unsafe {
-                                            let screen =
-                                                (self.xlib.XDefaultScreen)(self.display);
-                                            let visual =
-                                                (self.xlib.XDefaultVisual)(self.display, screen);
-                                            let depth =
-                                                (self.xlib.XDefaultDepth)(self.display, screen);
-
-                                            let ximage = (self.xlib.XCreateImage)(
-                                                self.display,
-                                                visual as *mut c_void,
-                                                depth as c_uint,
-                                                2, // ZPixmap
-                                                0,
-                                                bgra_data.as_mut_ptr() as *mut c_char,
-                                                pw,
-                                                ph,
-                                                32, // bitmap_pad
-                                                0,  // bytes_per_line (0 = auto)
-                                            );
-
-                                            if !ximage.is_null() {
-                                                (self.xlib.XPutImage)(
-                                                    self.display,
-                                                    self.window,
-                                                    *gc,
-                                                    ximage,
-                                                    0,
-                                                    0,
-                                                    0,
-                                                    0,
-                                                    pw,
-                                                    ph,
+                                let did_incremental = match &dl_damage {
+                                    Some(rects) if rects.is_empty() => true, // nothing changed
+                                    Some(rects) if self.retained_pixmap.is_some() => {
+                                        let pw = (width * dpi) as u32;
+                                        let ph = (height * dpi) as u32;
+                                        if let Some(ref mut pixmap) = self.retained_pixmap {
+                                            if pixmap.width() == pw && pixmap.height() == ph {
+                                                let _ = cpurender::render_display_list_damaged(
+                                                    &result.display_list,
+                                                    pixmap, dpi,
+                                                    &layout_window.renderer_resources,
+                                                    Some(&layout_window.font_manager),
+                                                    &mut self.glyph_cache,
+                                                    &render_state, rects,
                                                 );
-                                                // Set data to null before destroy so
-                                                // XDestroyImage doesn't free our Vec's memory
-                                                (*ximage).data = std::ptr::null_mut();
-                                                (self.xlib.XDestroyImage)(ximage);
-                                            }
-                                        }
-                                        rendered = true;
+                                                true
+                                            } else { false }
+                                        } else { false }
                                     }
-                                    Err(e) => {
-                                        log_error!(
-                                            LogCategory::Rendering,
-                                            "[X11 CPU] render failed: {}",
-                                            e
-                                        );
+                                    _ => false,
+                                };
+
+                                if !did_incremental {
+                                    let opts = RenderOptions { width, height, dpi_factor: dpi };
+                                    match render_with_font_manager_and_scroll_retained(
+                                        &result.display_list,
+                                        &layout_window.renderer_resources,
+                                        &layout_window.font_manager,
+                                        opts,
+                                        &mut self.glyph_cache,
+                                        &render_state,
+                                        self.retained_pixmap.take(),
+                                    ) {
+                                        Ok(pixmap) => { self.retained_pixmap = Some(pixmap); }
+                                        Err(e) => {
+                                            log_error!(
+                                                LogCategory::Rendering,
+                                                "[X11 CPU] render failed: {}", e
+                                            );
+                                        }
                                     }
                                 }
+
+                                // Blit retained pixmap to X11 window
+                                if let Some(ref pixmap) = self.retained_pixmap {
+                                    let pw = pixmap.width() as c_uint;
+                                    let ph = pixmap.height() as c_uint;
+                                    let data = pixmap.data();
+
+                                    // Reuse BGRA conversion buffer
+                                    self.bgra_buffer.resize(data.len(), 0);
+                                    for (src, dst) in data.chunks_exact(4).zip(self.bgra_buffer.chunks_exact_mut(4)) {
+                                        dst[0] = src[2]; // B
+                                        dst[1] = src[1]; // G
+                                        dst[2] = src[0]; // R
+                                        dst[3] = src[3]; // A
+                                    }
+
+                                    unsafe {
+                                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                                        let visual = (self.xlib.XDefaultVisual)(self.display, screen);
+                                        let depth = (self.xlib.XDefaultDepth)(self.display, screen);
+
+                                        let ximage = (self.xlib.XCreateImage)(
+                                            self.display,
+                                            visual as *mut c_void,
+                                            depth as c_uint,
+                                            2, // ZPixmap
+                                            0,
+                                            self.bgra_buffer.as_mut_ptr() as *mut c_char,
+                                            pw, ph,
+                                            32, // bitmap_pad
+                                            0,  // bytes_per_line (0 = auto)
+                                        );
+
+                                        if !ximage.is_null() {
+                                            (self.xlib.XPutImage)(
+                                                self.display, self.window, *gc, ximage,
+                                                0, 0, 0, 0, pw, ph,
+                                            );
+                                            (*ximage).data = std::ptr::null_mut();
+                                            (self.xlib.XDestroyImage)(ximage);
+                                        }
+                                    }
+                                    rendered = true;
+                                }
+
+                                self.previous_display_list = Some(result.display_list.clone());
                             }
                         }
                     }
