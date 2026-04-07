@@ -2602,6 +2602,16 @@ impl LayoutWindow {
             })
         });
 
+        // Build text overrides from dirty_text_nodes so the a11y tree
+        // reads the current (edited) text, not the stale StyledDom text.
+        let mut dirty_text_overrides: BTreeMap<(DomId, NodeId), String> = BTreeMap::new();
+        for (&(dom_id, node_id), dirty_node) in &self.dirty_text_nodes {
+            dirty_text_overrides.insert(
+                (dom_id, node_id),
+                self.extract_text_from_inline_content(&dirty_node.content),
+            );
+        }
+
         let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             crate::managers::a11y::A11yManager::update_tree(
                 self.a11y_manager.root_id,
@@ -2610,6 +2620,7 @@ impl LayoutWindow {
                 self.current_window_state.size.dimensions,
                 self.focus_manager.get_focused_node().copied(),
                 self.current_window_state.size.get_hidpi_factor().inner.get(),
+                &dirty_text_overrides,
                 cursor_a11y_info,
             )
         }));

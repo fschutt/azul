@@ -77,6 +77,7 @@ impl A11yManager {
         window_size: LogicalSize,
         focused_node: Option<azul_core::dom::DomNodeId>,
         hidpi_factor: f32,
+        dirty_text_overrides: &std::collections::BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
     ) -> TreeUpdate {
         let mut nodes = Vec::new();
@@ -162,24 +163,36 @@ impl A11yManager {
                 // Only do this when all children are text nodes — if the node has
                 // interactive children (links, buttons, inputs), DON'T set a group
                 // label, so VoiceOver navigates into the children individually.
+                //
+                // For edited contenteditable nodes, dirty_text_overrides has the
+                // current text (from the relayout path) instead of the stale
+                // StyledDom text.
                 {
                     let hierarchy_item = &node_hierarchy[dom_idx];
-                    let mut text_content = String::new();
-                    let mut has_non_text_children = false;
+                    let dom_node_id_key = (*dom_id, NodeId::new(dom_idx));
 
-                    let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
-                    while let Some(child_id) = child {
-                        if let Some(child_data) = node_data_slice.get(child_id.index()) {
-                            if let NodeType::Text(t) = &child_data.node_type {
-                                if !text_content.is_empty() { text_content.push(' '); }
-                                text_content.push_str(t.as_str());
-                            } else {
-                                has_non_text_children = true;
+                    // Use dirty text override if this node was edited since last RefreshDom
+                    let (text_content, has_non_text_children) = if let Some(override_text) = dirty_text_overrides.get(&dom_node_id_key) {
+                        (override_text.clone(), false)
+                    } else {
+                        let mut text = String::new();
+                        let mut has_non_text = false;
+
+                        let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
+                        while let Some(child_id) = child {
+                            if let Some(child_data) = node_data_slice.get(child_id.index()) {
+                                if let NodeType::Text(t) = &child_data.node_type {
+                                    if !text.is_empty() { text.push(' '); }
+                                    text.push_str(t.as_str());
+                                } else {
+                                    has_non_text = true;
+                                }
                             }
+                            if child_id.index() >= node_hierarchy.len() { break; }
+                            child = node_hierarchy[child_id.index()].next_sibling_id();
                         }
-                        if child_id.index() >= node_hierarchy.len() { break; }
-                        child = node_hierarchy[child_id.index()].next_sibling_id();
-                    }
+                        (text, has_non_text)
+                    };
 
                     if !text_content.is_empty() {
                         if node_data.is_contenteditable()

@@ -6197,48 +6197,28 @@ impl MacOSWindow {
         );
     }
 
-    /// Update accessibility tree after layout changes
+    /// Update accessibility tree after layout changes.
     ///
-    /// This should be called after regenerate_layout() to keep the
-    /// accessibility tree synchronized with the visual representation.
+    /// Delegates to `LayoutWindow::update_a11y_tree()` which reads dirty text,
+    /// focus, cursor state and builds the tree.  Then submits to the OS adapter.
     #[cfg(feature = "a11y")]
     fn update_accessibility(&mut self) {
         let adapter = match self.accessibility_adapter.as_mut() {
             Some(a) => a,
-            None => return, // Not initialized yet
-        };
-
-        let layout_window = match self.common.layout_window.as_ref() {
-            Some(lw) => lw,
             None => return,
         };
 
-        // Generate tree update from current layout, with current focus
-        let focused_node = layout_window.focus_manager.get_focused_node().copied();
-        let hidpi_factor = self.common.current_window_state.size.get_hidpi_factor().inner.get();
-        let cursor_a11y_info = layout_window.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            let node_id = mc.node_id.node.into_crate_internal()?;
-            let offset = mc.get_primary_cursor()
-                .map(|c| c.cluster_id.start_byte_in_run as usize)
-                .unwrap_or(0);
-            Some(azul_layout::managers::a11y::CursorA11yInfo {
-                dom_id: mc.node_id.dom,
-                node_id,
-                cursor_offset: offset,
-            })
-        });
-        let tree_update = azul_layout::managers::a11y::A11yManager::update_tree(
-            layout_window.a11y_manager.root_id,
-            &layout_window.layout_results,
-            &self.common.current_window_state.title,
-            self.common.current_window_state.size.dimensions,
-            focused_node,
-            hidpi_factor,
-            cursor_a11y_info,
-        );
+        // Rebuild tree (stores result in layout_window.a11y_manager.last_tree_update)
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.update_a11y_tree();
+        }
 
-        // Submit to OS
-        adapter.update_tree(tree_update);
+        // Take the tree update and submit to OS
+        let tree_update = self.common.layout_window.as_mut()
+            .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+        if let Some(tree_update) = tree_update {
+            adapter.update_tree(tree_update);
+        }
     }
 
     /// Process accessibility actions from VoiceOver / screen readers.
