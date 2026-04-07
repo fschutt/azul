@@ -34,5 +34,3 @@ lto = false       # Disable LTO so grcov can see individual object files.
 codegen-units = 16
 panic = "unwind"  # Tests need unwinding for #[should_panic] etc.
 
-[patch.crates-io]
-rust-fontconfig = { git = "https://github.com/fschutt/rust-fontconfig", branch = "master" }
