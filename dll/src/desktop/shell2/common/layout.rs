@@ -126,6 +126,7 @@ pub fn regenerate_layout(
         gl_context: gl_context_ptr,
         system_fonts: &*layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
+        active_route: None, // TODO: pass active route from FullWindowState when routing is wired up
     };
 
     let callback_info = LayoutCallbackInfo::new(

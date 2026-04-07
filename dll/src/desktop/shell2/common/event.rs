@@ -2021,6 +2021,22 @@ pub trait PlatformWindow {
                 }
                 ProcessEventResult::ShouldIncrementalRelayout
             }
+
+            // === Routing ===
+
+            CallbackChange::SwitchRoute { pattern, params } => {
+                // Look up the route in AppConfig and swap the layout callback
+                // For now, this is a stub — the desktop event loop needs access
+                // to AppConfig.routes to resolve the pattern. The web backend
+                // handles this in server.rs.
+                // TODO: wire up AppConfig.routes lookup here
+                eprintln!(
+                    "[azul] SwitchRoute to '{}' with {} params (desktop handler stub)",
+                    pattern.as_str(),
+                    params.as_ref().len(),
+                );
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
         }
     }
 

@@ -500,6 +500,9 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// Platform-specific system style (colors, spacing, etc.)
     /// Used for CSD rendering and menu windows.
     pub system_style: Arc<SystemStyle>,
+    /// Active route match (if routing is configured).
+    /// Contains the matched pattern and extracted parameters.
+    pub active_route: Option<&'a crate::resources::RouteMatch>,
 }
 
 #[repr(C)]
@@ -615,6 +618,20 @@ impl LayoutCallbackInfo {
         self.internal_get_image_cache()
             .get_css_image_id(image_id)
             .cloned()
+    }
+
+    /// Get the active route match (pattern + extracted parameters).
+    ///
+    /// Returns `None` if no routes are configured or no route is active.
+    pub fn get_active_route(&self) -> Option<&crate::resources::RouteMatch> {
+        unsafe { (*self.ref_data).active_route }
+    }
+
+    /// Get a route parameter by key (e.g. `get_route_param("id")` for `/user/:id`).
+    ///
+    /// Returns `None` if no route is active or the parameter doesn't exist.
+    pub fn get_route_param(&self, key: &str) -> Option<&AzString> {
+        self.get_active_route()?.get_param(key)
     }
 
     // Responsive layout helper methods

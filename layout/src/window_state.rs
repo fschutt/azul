@@ -93,6 +93,10 @@ pub struct FullWindowState {
     /// Window background color. If None, uses system window background color.
     pub background_color: OptionColorU,
     pub window_focused: bool,
+    /// Active route match (pattern + extracted parameters).
+    /// Set by `CallbackInfo::switch_route()` or by the web server on URL match.
+    /// Layout callbacks read this via `LayoutCallbackInfo::get_route_param()`.
+    pub active_route: azul_core::resources::OptionRouteMatch,
 }
 
 impl_option!(
@@ -123,6 +127,7 @@ impl Default for FullWindowState {
             debug_state: DebugState::default(),
             background_color: OptionColorU::None,
             window_focused: true,
+            active_route: azul_core::resources::OptionRouteMatch::None,
         }
     }
 }

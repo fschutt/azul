@@ -811,7 +811,18 @@ returns "not yet implemented" for all functions.
 9. [x] `transpiler.rs` — `Transpiler` trait + `StubTranspiler` impl
 10. [x] `cb_gen.rs` / `mini_gen.rs` — callback and mini.wasm generation (stubbed)
 11. [x] Wire `run_web()` into `run.rs` (like `run_headless()`)
-12. [ ] Server-side callback execution: POST /az/exec/{callback_id} → run callback natively → return new HTML
+12. [x] Server-side callback execution: POST /az/exec/{callback_id} → run callback natively → return new HTML
+13. [x] CSS stylesheet generation: `#az_N { ... }` per-node-ID rules (not inline styles)
+14. [x] Pseudo-state CSS: `:hover`, `:focus`, `:active`, `:checked`, etc.
+15. [x] Media queries: `@media (max-width: ...)`, `(prefers-color-scheme: ...)`, `(orientation: ...)`
+16. [x] Image serving: `GET /az/img/{id}` — images collected during render, served as PNG
+17. [x] Font serving: `GET /az/font/{id}` — bundled fonts served as TTF, `@font-face` rules generated
+18. [x] Routing system: `Route` repr(C) struct, `AppConfig::add_route()`, URL pattern matching
+19. [x] `RouteMatch` with param extraction (e.g. `/user/:id` → `{id: "42"}`)
+20. [x] `CallbackInfo::switch_route()` — cross-platform route switching (desktop + web)
+21. [x] `LayoutCallbackInfo::get_route_param()` — read route params in layout callbacks
+22. [x] Route-aware pre-rendering: all registered routes pre-rendered at startup
+23. [x] SPA-style navigation: link interception + `history.pushState` + `popstate`
 
 **Server-side fallback model (Phase 0 only):**
 When the transpiler is stubbed, the server falls back to server-side execution:

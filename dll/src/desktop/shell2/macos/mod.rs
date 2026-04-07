@@ -3143,6 +3143,7 @@ impl MacOSWindow {
             close_callback: options.window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
+            active_route: azul_core::resources::OptionRouteMatch::None,
         };
 
         // Initialize resource caches

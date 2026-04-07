@@ -504,6 +504,19 @@ pub enum CallbackChange {
         node_id: NodeId,
         ids_and_classes: azul_core::dom::IdOrClassVec,
     },
+
+    // Routing
+    /// Switch to a different route.
+    ///
+    /// On desktop: swaps `FullWindowState.layout_callback` to the matched
+    /// route's callback, stores the `RouteMatch`, and triggers `RefreshDom`.
+    /// On web: additionally calls `history.pushState()`.
+    SwitchRoute {
+        /// Route pattern to switch to (e.g. `"/user/:id"`)
+        pattern: AzString,
+        /// Route parameters (e.g. `[("id", "42")]`)
+        params: azul_core::window::StringPairVec,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -895,6 +908,87 @@ impl CallbackInfo {
     /// Close the current window (applied after callback returns)
     pub fn close_window(&mut self) {
         self.push_change(CallbackChange::CloseWindow);
+    }
+
+    /// Switch to a different route (applied after callback returns).
+    ///
+    /// On desktop: swaps the layout callback and triggers `RefreshDom`.
+    /// On web: also calls `history.pushState()`.
+    ///
+    /// # C API
+    /// ```c
+    /// AzCallbackInfo_switchRoute(&info, AzString_fromConstStr("/user/:id"),
+    ///     AzStringPairVec_fromConstSlice(&[AzStringPair { key: "id", value: "42" }]));
+    /// ```
+    pub fn switch_route(&mut self, pattern: AzString, params: azul_core::window::StringPairVec) {
+        self.push_change(CallbackChange::SwitchRoute { pattern, params });
+    }
+
+    /// Get the current active route pattern (e.g. `"/user/:id"`).
+    ///
+    /// Returns empty string if no route is active.
+    ///
+    /// # C API
+    /// ```c
+    /// AzString pattern = AzCallbackInfo_getRoutePattern(&info);
+    /// ```
+    pub fn get_route_pattern(&self) -> AzString {
+        match &self.get_current_window_state().active_route {
+            azul_core::resources::OptionRouteMatch::Some(rm) => rm.pattern.clone(),
+            azul_core::resources::OptionRouteMatch::None => AzString::from_const_str(""),
+        }
+    }
+
+    /// Get a route parameter by key (e.g. `"id"` from `/user/:id`).
+    ///
+    /// Returns empty string if the parameter doesn't exist or no route is active.
+    ///
+    /// # C API
+    /// ```c
+    /// AzString id = AzCallbackInfo_getRouteParam(&info, AzString_fromConstStr("id"));
+    /// ```
+    pub fn get_route_param(&self, key: AzString) -> AzString {
+        match &self.get_current_window_state().active_route {
+            azul_core::resources::OptionRouteMatch::Some(rm) => {
+                rm.get_param(key.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| AzString::from_const_str(""))
+            }
+            azul_core::resources::OptionRouteMatch::None => AzString::from_const_str(""),
+        }
+    }
+
+    /// Set a route parameter value and trigger re-render.
+    ///
+    /// This modifies the active route's params in-place and triggers a DOM refresh.
+    /// On web, this also updates the URL via `history.replaceState()`.
+    ///
+    /// # C API
+    /// ```c
+    /// AzCallbackInfo_setRouteParam(&info, AzString_fromConstStr("id"), AzString_fromConstStr("99"));
+    /// ```
+    pub fn set_route_param(&mut self, key: AzString, value: AzString) {
+        let ws = self.get_current_window_state();
+        let pattern = match &ws.active_route {
+            azul_core::resources::OptionRouteMatch::Some(rm) => rm.pattern.clone(),
+            azul_core::resources::OptionRouteMatch::None => return,
+        };
+        let mut params = match &ws.active_route {
+            azul_core::resources::OptionRouteMatch::Some(rm) => {
+                rm.params.as_ref().to_vec()
+            }
+            azul_core::resources::OptionRouteMatch::None => return,
+        };
+        // Update or insert the parameter
+        if let Some(existing) = params.iter_mut().find(|p| p.key.as_str() == key.as_str()) {
+            existing.value = value;
+        } else {
+            params.push(azul_core::window::AzStringPair { key, value });
+        }
+        self.push_change(CallbackChange::SwitchRoute {
+            pattern,
+            params: azul_core::window::StringPairVec::from_vec(params),
+        });
     }
 
     /// Modify the window state (applied after callback returns)

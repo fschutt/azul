@@ -1955,6 +1955,9 @@
                                 },
                                 "window_focused": {
                                     "type": "bool"
+                                },
+                                "active_route": {
+                                    "type": "OptionRouteMatch"
                                 }
                             }
                         ],
@@ -51433,6 +51436,29 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "Route": {
+                        "external": "azul_core::resources::Route",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "pattern": {
+                                    "type": "String"
+                                },
+                                "layout_callback": {
+                                    "type": "LayoutCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -73235,6 +73261,194 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "RouteVecDestructorType": {
+                        "external": "azul_core::resources::RouteVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RouteVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "RouteVec": {
+                        "external": "azul_core::resources::RouteVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Route",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RouteVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RouteVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RouteVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RouteVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RouteVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "route_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "route_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "route_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RouteVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "Route"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RouteVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RouteVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const Route"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RouteVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RouteVecDestructor": {
+                        "external": "azul_core::resources::RouteVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RouteVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RouteVecSlice": {
+                        "external": "azul_core::resources::RouteVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Route",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -77124,6 +77338,50 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionRoute": {
+                        "external": "azul_core::resources::OptionRoute",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "Route",
+                                    "doc": [
+                                        "Some value of type Route"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRouteMatch": {
+                        "external": "azul_core::resources::OptionRouteMatch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RouteMatch"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -79617,6 +79875,9 @@
                                 },
                                 "component_libraries": {
                                     "type": "ComponentLibraryVec"
+                                },
+                                "routes": {
+                                    "type": "RouteVec"
                                 }
                             }
                         ],
@@ -81494,6 +81755,29 @@
                                 "fn_body": "object.dom_with_buttons(&buttons, button_side)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "RouteMatch": {
+                        "external": "azul_core::resources::RouteMatch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "pattern": {
+                                    "type": "String"
+                                },
+                                "params": {
+                                    "type": "StringPairVec"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }

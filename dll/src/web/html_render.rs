@@ -1,32 +1,63 @@
-//! Render azul DOM tree to HTML.
+//! Render azul DOM tree to HTML with a CSS stylesheet built from the StyledDom cascade.
 //!
-//! Converts the `Dom` tree (returned by layout callbacks) into HTML strings
-//! with stable `id="az_{N}"` attributes per node. CSS properties from the
-//! node's `css_props` are emitted as `style=""` inline styles.
+//! **Architecture**: Azul runs its full CSS cascade on the server (Dom → StyledDom),
+//! resolving ALL conditions (OS, theme, viewport, container, language). The computed
+//! styles are then emitted as `#az_N { ... }` rules. Only interactive pseudo-states
+//! (`:hover`, `:focus`, `:active`) remain as CSS rules for the browser.
 //!
-//! Phase 0: The HTML is served as a complete page. Nodes with callbacks
-//! get `data-az-cb` attributes so the Phase 0 loader JS can intercept
-//! clicks and POST them to the server.
+//! Images are collected and served at `/az/img/{id}`, fonts at `/az/font/{id}`.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInfoRefData};
 use azul_core::dom::{Dom, NodeData, NodeType};
 use azul_core::gl::OptionGlContextPtr;
+use azul_core::id::NodeId;
+use azul_core::prop_cache::{CssPropertyCache, StatefulCssProperty};
 use azul_core::refany::RefAny;
-use azul_core::resources::ImageCache;
+use azul_core::resources::{ImageCache, ImageRef, RouteMatch};
+use azul_core::styled_dom::StyledDom;
+use azul_css::dynamic_selector::PseudoStateType;
+use azul_css::props::property::CssPropertyType;
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use super::cb_gen::CallbackWasm;
-use super::loader_js;
+
+/// Collected image to serve at `/az/img/{id}`.
+#[derive(Debug, Clone)]
+pub struct CollectedImage {
+    pub id: usize,
+    pub data: Vec<u8>,
+    pub content_type: &'static str,
+}
+
+/// Collected font to serve at `/az/font/{id}`.
+#[derive(Debug, Clone)]
+pub struct CollectedFont {
+    pub id: usize,
+    pub name: String,
+    pub data: Vec<u8>,
+    pub content_type: &'static str,
+}
+
+/// Complete output of rendering a route.
+#[derive(Debug, Clone)]
+pub struct RenderOutput {
+    pub html: String,
+    pub images: Vec<CollectedImage>,
+    pub fonts: Vec<CollectedFont>,
+}
 
 /// Render the initial full HTML page for a route.
 ///
-/// Calls the layout callback natively to produce a `Dom`, then converts
-/// it to an HTML string wrapped in a complete `<!DOCTYPE html>` page.
+/// 1. Calls the layout callback → `Dom`
+/// 2. Runs Azul's full cascade → `StyledDom` (all conditions resolved server-side)
+/// 3. Walks the StyledDom and emits HTML + `#az_N` stylesheet rules from computed styles
+/// 4. Pseudo-states (`:hover`, `:focus`, `:active`) emitted as CSS rules for the browser
 pub fn render_initial_page(
     app_data: &RefAny,
     layout_callback: &LayoutCallback,
@@ -35,39 +66,60 @@ pub fn render_initial_page(
     _font_registry: Option<&FcFontRegistry>,
     mini_wasm: &[u8],
     cb_wasms: &[CallbackWasm],
-) -> String {
-    // Run the layout callback to get the DOM tree
-    let dom = call_layout(app_data, layout_callback, window_state, fc_cache);
+    active_route: Option<&RouteMatch>,
+    bundled_fonts: &[azul_core::resources::NamedFont],
+) -> RenderOutput {
+    // 1. Run layout callback → Dom (recursive tree with CSS attached)
+    let dom = call_layout(app_data, layout_callback, window_state, fc_cache, active_route);
 
-    // Debug: print DOM tree structure
+    // Debug log
     let mut debug_counter = 0;
     debug_print_dom(&dom, 0, &mut debug_counter);
 
-    // Generate preload hints for WASM assets
+    // 2. Run Azul's full cascade: Dom → StyledDom
+    //    This resolves ALL conditions (OS, theme, viewport, container, language)
+    //    and produces computed styles per node.
+    let styled_dom = StyledDom::create_from_dom(dom);
+
+    let node_count = styled_dom.node_data.as_ref().len();
+    eprintln!("[azul-web] StyledDom cascade complete: {} nodes", node_count);
+
+    // 3. Generate preload hints
     let preload_hints = generate_preload_hints(mini_wasm, cb_wasms);
+    let loader_js_content = super::loader_js::generate_loader_js("stub", cb_wasms);
 
-    // Generate the loader JS
-    let loader_js_content = loader_js::generate_loader_js("stub", cb_wasms);
+    // 4. Walk the StyledDom: generate HTML structure + CSS rules from computed styles
+    let mut ctx = RenderContext::new();
 
-    // Render the DOM to HTML, collecting pseudo-state CSS rules
-    let mut node_counter = 0;
-    let mut callback_count = 0;
-    let mut pseudo_css_rules = Vec::new();
-    let body_html = render_dom_node(&dom, &mut node_counter, &mut callback_count, &mut pseudo_css_rules);
+    // Collect bundled fonts as @font-face rules
+    for named_font in bundled_fonts {
+        let font_id = ctx.fonts.len();
+        ctx.font_face_rules.push(format!(
+            "@font-face {{ font-family: \"{}\"; src: url(\"/az/font/{}\"); }}",
+            html_escape_attr(named_font.name.as_str()),
+            font_id,
+        ));
+        ctx.fonts.push(CollectedFont {
+            id: font_id,
+            name: named_font.name.as_str().to_string(),
+            data: named_font.bytes.as_ref().to_vec(),
+            content_type: "font/ttf",
+        });
+    }
+
+    // Render the flat StyledDom arena into HTML, reading computed styles from the cache
+    let body_html = ctx.render_styled_dom(&styled_dom);
+
     eprintln!(
-        "[azul-web] Rendered {} nodes, {} with callbacks, {} pseudo-state CSS rules",
-        node_counter, callback_count, pseudo_css_rules.len(),
+        "[azul-web] Rendered {} nodes, {} with callbacks, {} CSS rules, {} images, {} fonts",
+        ctx.node_counter, ctx.callback_count, ctx.css_rules.len(),
+        ctx.images.len(), ctx.fonts.len(),
     );
 
-    // Build pseudo-state stylesheet
-    let pseudo_css = if pseudo_css_rules.is_empty() {
-        String::new()
-    } else {
-        pseudo_css_rules.join("\n")
-    };
+    // 5. Build stylesheet
+    let stylesheet = build_stylesheet(&ctx);
 
-    // Assemble the full page
-    format!(
+    let html = format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -90,10 +142,236 @@ pub fn render_initial_page(
 </html>"#,
         preload_hints,
         RESET_CSS,
-        pseudo_css,
+        stylesheet,
         body_html,
         loader_js_content,
-    )
+    );
+
+    RenderOutput {
+        html,
+        images: ctx.images,
+        fonts: ctx.fonts,
+    }
+}
+
+/// Build the full CSS stylesheet from collected rules.
+fn build_stylesheet(ctx: &RenderContext) -> String {
+    let mut parts = Vec::new();
+    for rule in &ctx.font_face_rules {
+        parts.push(rule.clone());
+    }
+    for rule in &ctx.css_rules {
+        parts.push(rule.clone());
+    }
+    parts.join("\n")
+}
+
+/// State accumulated during StyledDom → HTML rendering.
+struct RenderContext {
+    node_counter: usize,
+    callback_count: usize,
+    css_rules: Vec<String>,
+    font_face_rules: Vec<String>,
+    images: Vec<CollectedImage>,
+    fonts: Vec<CollectedFont>,
+}
+
+impl RenderContext {
+    fn new() -> Self {
+        Self {
+            node_counter: 0,
+            callback_count: 0,
+            css_rules: Vec::new(),
+            font_face_rules: Vec::new(),
+            images: Vec::new(),
+            fonts: Vec::new(),
+        }
+    }
+
+    /// Render the StyledDom (flat arena) into HTML, reading computed styles
+    /// from the property cache. Uses a depth-first traversal of the node hierarchy.
+    fn render_styled_dom(&mut self, styled_dom: &StyledDom) -> String {
+        let node_data = styled_dom.node_data.as_ref();
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let cache: &CssPropertyCache = &styled_dom.css_property_cache.ptr;
+
+        if node_data.is_empty() {
+            return String::new();
+        }
+
+        // The root is typically node 0 (or styled_dom.root)
+        let root_id = styled_dom.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        self.render_node_recursive(root_id, node_data, hierarchy.internal, cache)
+    }
+
+    /// Recursively render a node and its children from the flat arena.
+    fn render_node_recursive(
+        &mut self,
+        node_id: NodeId,
+        node_data: &[NodeData],
+        hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
+        cache: &CssPropertyCache,
+    ) -> String {
+        let idx = node_id.index();
+        if idx >= node_data.len() {
+            return String::new();
+        }
+
+        let nd = &node_data[idx];
+        let az_id = self.node_counter;
+        self.node_counter += 1;
+
+        // Text nodes → escaped text (no wrapper element)
+        if let NodeType::Text(ref text) = nd.node_type {
+            return html_escape(text.as_str());
+        }
+
+        let tag = match &nd.node_type {
+            NodeType::Body | NodeType::Html | NodeType::Head => "div",
+            other => node_type_to_html_tag(other),
+        };
+        let is_void = is_void_element(tag);
+
+        // ── Build attributes ──
+        let mut classes = Vec::new();
+        let mut html_attrs = Vec::new();
+
+        for attr in nd.attributes().as_ref().iter() {
+            let name = attr.name();
+            if name == "id" {
+                if let Some(id) = attr.as_id() {
+                    html_attrs.push(format!("data-az-id=\"{}\"", html_escape_attr(id)));
+                }
+            } else if name == "class" {
+                if let Some(class) = attr.as_class() {
+                    classes.push(html_escape_attr(class));
+                }
+            } else if attr.is_boolean() {
+                html_attrs.push(name.to_string());
+            } else {
+                let value = attr.value();
+                if !value.as_str().is_empty() {
+                    html_attrs.push(format!("{}=\"{}\"", name, html_escape_attr(value.as_str())));
+                }
+            }
+        }
+
+        let mut attrs = format!(" id=\"az_{}\"", az_id);
+        if !classes.is_empty() {
+            attrs.push_str(&format!(" class=\"{}\"", classes.join(" ")));
+        }
+        for a in &html_attrs {
+            attrs.push(' ');
+            attrs.push_str(a);
+        }
+
+        // ── Handle image nodes → /az/img/{id} ──
+        if let NodeType::Image(ref img_ref) = nd.node_type {
+            let image_ref: &ImageRef = img_ref.as_ref();
+            if let Some(raw_image) = image_ref.get_rawimage() {
+                let img_id = self.images.len();
+                let (data, content_type) = match azul_layout::image::encode_png(&raw_image) {
+                    Ok(encoded) => (encoded.into_library_owned_vec(), "image/png"),
+                    Err(_) => {
+                        let bytes = raw_image.pixels.into_library_owned_vec();
+                        (bytes, "application/octet-stream")
+                    }
+                };
+                self.images.push(CollectedImage { id: img_id, data, content_type });
+                attrs.push_str(&format!(" src=\"/az/img/{}\"", img_id));
+            }
+        }
+
+        // ── CSS from computed styles (Azul cascade already resolved) ──
+        self.emit_css_from_cache(cache, idx, az_id);
+
+        // ── Callback data attributes (Phase 0 server-side execution) ──
+        if !nd.callbacks.as_ref().is_empty() {
+            self.callback_count += 1;
+            attrs.push_str(&format!(" data-az-cb=\"{}\"", az_id));
+            if let Some(first_cb) = nd.callbacks.as_ref().first() {
+                let ev_name = event_filter_to_js_name(&first_cb.event);
+                attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
+            }
+        }
+
+        if is_void {
+            return format!("<{}{}/>", tag, attrs);
+        }
+
+        // ── Children (walk the arena hierarchy) ──
+        let mut children_html = String::new();
+
+        if let Some(text) = node_type_inline_text(&nd.node_type) {
+            children_html.push_str(&html_escape(text));
+        }
+
+        // Walk children via first_child / next_sibling in the flat hierarchy
+        if let Some(first_child) = hierarchy.get(idx).and_then(|h| h.first_child_id(node_id)) {
+            let mut child_id = first_child;
+            loop {
+                children_html.push_str(
+                    &self.render_node_recursive(child_id, node_data, hierarchy, cache),
+                );
+                match hierarchy.get(child_id.index()).and_then(|h| h.next_sibling_id()) {
+                    Some(next) => child_id = next,
+                    None => break,
+                }
+            }
+        }
+
+        format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
+    }
+
+    /// Emit CSS rules for a node from the property cache.
+    ///
+    /// - `computed_values[node]` → base rule `#az_N { ... }` (fully cascade-resolved)
+    /// - `css_props[node]` with state=Hover → `#az_N:hover { ... }` (browser-interactive)
+    /// - `css_props[node]` with state=Focus → `#az_N:focus { ... }` etc.
+    fn emit_css_from_cache(&mut self, cache: &CssPropertyCache, node_idx: usize, az_id: usize) {
+        // Base computed styles (all conditions already resolved by Azul)
+        if let Some(computed) = cache.computed_values.get(node_idx) {
+            if !computed.is_empty() {
+                let decls: Vec<String> = computed.iter()
+                    .map(|(_ptype, pwith)| pwith.property.format_css())
+                    .collect();
+                self.css_rules.push(format!("#az_{} {{ {} }}", az_id, decls.join(" ")));
+            }
+        }
+
+        // Interactive pseudo-state rules from the css_props cache
+        // (these are properties that differ based on :hover, :focus, :active, etc.)
+        let props_slice = cache.css_props.get_slice(node_idx);
+        if !props_slice.is_empty() {
+            let mut pseudo_groups: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
+            for sp in props_slice.iter() {
+                if let Some(css_pseudo) = pseudo_state_to_css(&sp.state) {
+                    pseudo_groups.entry(css_pseudo).or_default().push(sp.property.format_css());
+                }
+                // Normal state properties are already in computed_values, skip them here
+            }
+            for (pseudo, decls) in pseudo_groups {
+                self.css_rules.push(format!("#az_{}{} {{ {} }}", az_id, pseudo, decls.join(" ")));
+            }
+        }
+    }
+}
+
+/// Convert a PseudoStateType to a CSS pseudo-class string.
+/// Returns None for Normal (those are in computed_values, not pseudo rules).
+fn pseudo_state_to_css(state: &PseudoStateType) -> Option<&'static str> {
+    match state {
+        PseudoStateType::Normal => None, // base styles handled by computed_values
+        PseudoStateType::Hover => Some(":hover"),
+        PseudoStateType::Active => Some(":active"),
+        PseudoStateType::Focus => Some(":focus"),
+        PseudoStateType::FocusWithin => Some(":focus-within"),
+        PseudoStateType::Disabled => Some(":disabled"),
+        PseudoStateType::CheckedTrue => Some(":checked"),
+        PseudoStateType::Visited => Some(":visited"),
+        PseudoStateType::Dragging => Some(":active"), // closest CSS equivalent
+        _ => None,
+    }
 }
 
 /// Call the layout callback to produce a Dom tree.
@@ -102,6 +380,7 @@ fn call_layout(
     layout_callback: &LayoutCallback,
     window_state: &FullWindowState,
     fc_cache: &Arc<FcFontCache>,
+    active_route: Option<&RouteMatch>,
 ) -> Dom {
     let image_cache = ImageCache::default();
     let gl_context = OptionGlContextPtr::None;
@@ -112,6 +391,7 @@ fn call_layout(
         gl_context: &gl_context,
         system_fonts: fc_cache.as_ref(),
         system_style,
+        active_route,
     };
 
     let info = LayoutCallbackInfo::new(
@@ -146,7 +426,6 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
         format!(" ({})", extras.join(", "))
     };
 
-    // For text nodes, show a snippet of the text
     if let NodeType::Text(ref text) = node_data.node_type {
         let preview: String = text.as_str().chars().take(40).collect();
         eprintln!("[azul-web]   {}[{}] #text \"{}\"", indent, node_id, preview);
@@ -154,7 +433,6 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
         eprintln!("[azul-web]   {}[{}] <{}>{}", indent, node_id, tag, extras_str);
     }
 
-    // Print CSS properties for debugging
     for prop in node_data.css_props.as_ref().iter() {
         eprintln!("[azul-web]   {}  style: {}", indent, prop.property.format_css());
     }
@@ -167,8 +445,6 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
 /// Generate `<link rel="preload">` hints for WASM assets.
 fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String {
     let mut hints = String::new();
-
-    // Preload azul-mini.wasm (even if stub, for future compatibility)
     if !mini_wasm.is_empty() {
         let hash = content_hash(mini_wasm);
         hints.push_str(&format!(
@@ -176,8 +452,6 @@ fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String
             hash
         ));
     }
-
-    // Preload each callback WASM
     for cb in cb_wasms {
         if cb.is_client_side && !cb.wasm_bytes.is_empty() {
             hints.push_str(&format!(
@@ -186,7 +460,6 @@ fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String
             ));
         }
     }
-
     hints
 }
 
@@ -200,330 +473,65 @@ fn content_hash(data: &[u8]) -> String {
     format!("{:016x}", hash)
 }
 
-/// Recursively render a Dom node and its children to HTML.
-fn render_dom_node(
-    dom: &Dom,
-    counter: &mut usize,
-    callback_count: &mut usize,
-    pseudo_css_rules: &mut Vec<String>,
-) -> String {
-    let node_id = *counter;
-    *counter += 1;
-
-    let node_data = &dom.root;
-
-    // Text nodes render as escaped text content (no wrapping element)
-    if let NodeType::Text(ref text) = node_data.node_type {
-        return html_escape(text.as_str());
-    }
-
-    // Map node type to HTML tag — Body/Html/Head are rendered as div
-    // since we already have the outer document structure
-    let tag = match &node_data.node_type {
-        NodeType::Body | NodeType::Html | NodeType::Head => "div",
-        other => node_type_to_html_tag(other),
-    };
-
-    let is_void = is_void_element(tag);
-
-    // ── Build attributes ──
-
-    let mut classes = Vec::new();
-    let mut html_attrs = Vec::new();
-
-    // Emit all HTML attributes using name()/value() methods
-    for attr in node_data.attributes().as_ref().iter() {
-        let name = attr.name();
-        if name == "id" {
-            if let Some(id) = attr.as_id() {
-                html_attrs.push(format!("data-az-id=\"{}\"", html_escape_attr(id)));
-            }
-        } else if name == "class" {
-            if let Some(class) = attr.as_class() {
-                classes.push(html_escape_attr(class));
-            }
-        } else if attr.is_boolean() {
-            html_attrs.push(name.to_string());
-        } else {
-            let value = attr.value();
-            if !value.as_str().is_empty() {
-                html_attrs.push(format!("{}=\"{}\"", name, html_escape_attr(value.as_str())));
-            }
-        }
-    }
-
-    // Assemble attributes string
-    let mut attrs = format!(" id=\"az_{}\"", node_id);
-    if !classes.is_empty() {
-        attrs.push_str(&format!(" class=\"{}\"", classes.join(" ")));
-    }
-    for a in &html_attrs {
-        attrs.push(' ');
-        attrs.push_str(a);
-    }
-
-    // ── Inline styles from css_props ──
-
-    let (inline_style, pseudo_rules) = render_styles(node_data, node_id);
-    if !inline_style.is_empty() {
-        attrs.push_str(&format!(" style=\"{}\"", html_escape_attr(&inline_style)));
-    }
-    pseudo_css_rules.extend(pseudo_rules);
-
-    // ── Callback data attributes (Phase 0 server-side execution) ──
-
-    if !node_data.callbacks.as_ref().is_empty() {
-        *callback_count += 1;
-        attrs.push_str(&format!(" data-az-cb=\"{}\"", node_id));
-        if let Some(first_cb) = node_data.callbacks.as_ref().first() {
-            let ev_name = event_filter_to_js_name(&first_cb.event);
-            attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
-        }
-    }
-
-    if is_void {
-        return format!("<{}{}/>", tag, attrs);
-    }
-
-    // ── Children ──
-
-    let mut children_html = String::new();
-
-    if let Some(text) = node_type_inline_text(&node_data.node_type) {
-        children_html.push_str(&html_escape(text));
-    }
-
-    for child in dom.children.as_ref().iter() {
-        children_html.push_str(&render_dom_node(child, counter, callback_count, pseudo_css_rules));
-    }
-
-    format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
-}
-
-/// Extract CSS styles from a node's css_props.
-///
-/// Returns (inline_style_string, vec_of_pseudo_state_css_rules).
-///
-/// - Unconditional properties → inline `style=""` (deduped: last value wins per property type)
-/// - PseudoState properties → CSS rules like `#az_3:hover { color: red; }`
-/// - Other dynamic selectors (OS, media, etc.) → skipped for now
-fn render_styles(node_data: &NodeData, node_id: usize) -> (String, Vec<String>) {
-    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-    use std::collections::BTreeMap;
-
-    // Dedup inline styles: last value per property type wins
-    let mut inline_map: BTreeMap<azul_css::props::property::CssPropertyType, String> = BTreeMap::new();
-
-    // Group pseudo-state properties: (pseudo_state) → Vec<css_declaration>
-    let mut pseudo_map: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
-
-    for prop_with_cond in node_data.css_props.as_ref().iter() {
-        let conditions = prop_with_cond.apply_if.as_ref();
-
-        if conditions.is_empty() {
-            // Unconditional → inline style (dedup by property type)
-            let prop_type = prop_with_cond.property.get_type();
-            inline_map.insert(prop_type, prop_with_cond.property.format_css());
-        } else {
-            // Check if ALL conditions are pseudo-state (common case: single hover/active/focus)
-            let pseudo_state = extract_single_pseudo_state(conditions);
-            if let Some(css_pseudo) = pseudo_state {
-                pseudo_map
-                    .entry(css_pseudo)
-                    .or_default()
-                    .push(prop_with_cond.property.format_css());
-            }
-            // Other dynamic selectors (OS, viewport, etc.) are skipped for now
-        }
-    }
-
-    let inline_style = inline_map.values().cloned().collect::<Vec<_>>().join(" ");
-
-    let pseudo_rules: Vec<String> = pseudo_map
-        .into_iter()
-        .map(|(pseudo, props)| {
-            format!("#az_{}{} {{ {} }}", node_id, pseudo, props.join(" "))
-        })
-        .collect();
-
-    (inline_style, pseudo_rules)
-}
-
-/// If all conditions in the list are a single PseudoState, return the CSS pseudo-class string.
-fn extract_single_pseudo_state(conditions: &[azul_css::dynamic_selector::DynamicSelector]) -> Option<&'static str> {
-    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-
-    if conditions.len() != 1 {
-        return None; // Multiple conditions — not a simple pseudo-state
-    }
-
-    match &conditions[0] {
-        DynamicSelector::PseudoState(state) => match state {
-            PseudoStateType::Hover => Some(":hover"),
-            PseudoStateType::Active => Some(":active"),
-            PseudoStateType::Focus => Some(":focus"),
-            PseudoStateType::FocusWithin => Some(":focus-within"),
-            PseudoStateType::Disabled => Some(":disabled"),
-            PseudoStateType::CheckedTrue => Some(":checked"),
-            PseudoStateType::Visited => Some(":visited"),
-            PseudoStateType::Dragging => Some(":active"), // closest CSS equivalent
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
 /// Map NodeType to HTML tag name.
 fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
     match node_type {
-        NodeType::Html => "html",
-        NodeType::Head => "head",
-        NodeType::Body => "body",
-        NodeType::Div => "div",
-        NodeType::P => "p",
-        NodeType::Article => "article",
-        NodeType::Section => "section",
-        NodeType::Nav => "nav",
-        NodeType::Aside => "aside",
-        NodeType::Header => "header",
-        NodeType::Footer => "footer",
-        NodeType::Main => "main",
-        NodeType::Figure => "figure",
-        NodeType::FigCaption => "figcaption",
-        NodeType::H1 => "h1",
-        NodeType::H2 => "h2",
-        NodeType::H3 => "h3",
-        NodeType::H4 => "h4",
-        NodeType::H5 => "h5",
-        NodeType::H6 => "h6",
-        NodeType::Br => "br",
-        NodeType::Hr => "hr",
-        NodeType::Pre => "pre",
-        NodeType::BlockQuote => "blockquote",
-        NodeType::Address => "address",
-        NodeType::Details => "details",
-        NodeType::Summary => "summary",
-        NodeType::Dialog => "dialog",
-        NodeType::Ul => "ul",
-        NodeType::Ol => "ol",
-        NodeType::Li => "li",
-        NodeType::Dl => "dl",
-        NodeType::Dt => "dt",
-        NodeType::Dd => "dd",
-        NodeType::Menu => "menu",
-        NodeType::MenuItem => "menuitem",
-        NodeType::Dir => "dir",
-        NodeType::Table => "table",
-        NodeType::Caption => "caption",
-        NodeType::THead => "thead",
-        NodeType::TBody => "tbody",
-        NodeType::TFoot => "tfoot",
-        NodeType::Tr => "tr",
-        NodeType::Th => "th",
-        NodeType::Td => "td",
-        NodeType::ColGroup => "colgroup",
-        NodeType::Col => "col",
-        NodeType::Form => "form",
-        NodeType::FieldSet => "fieldset",
-        NodeType::Legend => "legend",
-        NodeType::Label => "label",
-        NodeType::Input => "input",
-        NodeType::Button => "button",
-        NodeType::Select => "select",
-        NodeType::OptGroup => "optgroup",
-        NodeType::SelectOption => "option",
-        NodeType::TextArea => "textarea",
-        NodeType::Output => "output",
-        NodeType::Progress => "progress",
-        NodeType::Meter => "meter",
-        NodeType::DataList => "datalist",
-        NodeType::Span => "span",
-        NodeType::A => "a",
-        NodeType::Em => "em",
-        NodeType::Strong => "strong",
-        NodeType::B => "b",
-        NodeType::I => "i",
-        NodeType::U => "u",
-        NodeType::S => "s",
-        NodeType::Mark => "mark",
-        NodeType::Del => "del",
-        NodeType::Ins => "ins",
-        NodeType::Code => "code",
-        NodeType::Samp => "samp",
-        NodeType::Kbd => "kbd",
-        NodeType::Var => "var",
-        NodeType::Cite => "cite",
-        NodeType::Dfn => "dfn",
-        NodeType::Abbr => "abbr",
-        NodeType::Acronym => "acronym",
-        NodeType::Q => "q",
-        NodeType::Time => "time",
-        NodeType::Sub => "sub",
-        NodeType::Sup => "sup",
-        NodeType::Small => "small",
-        NodeType::Big => "big",
-        NodeType::Bdo => "bdo",
-        NodeType::Bdi => "bdi",
-        NodeType::Wbr => "wbr",
-        NodeType::Ruby => "ruby",
-        NodeType::Rt => "rt",
-        NodeType::Rtc => "rtc",
-        NodeType::Rp => "rp",
-        NodeType::Data => "data",
-        NodeType::Canvas => "canvas",
-        NodeType::Object => "object",
-        NodeType::Param => "param",
-        NodeType::Embed => "embed",
-        NodeType::Audio => "audio",
-        NodeType::Video => "video",
-        NodeType::Source => "source",
-        NodeType::Track => "track",
-        NodeType::Map => "map",
-        NodeType::Area => "area",
-        NodeType::Image(_) => "img",
-        NodeType::Svg => "svg",
-        NodeType::SvgG => "g",
-        NodeType::SvgDefs => "defs",
-        NodeType::SvgSymbol => "symbol",
-        NodeType::SvgUse => "use",
-        NodeType::SvgSwitch => "switch",
-        NodeType::SvgPath => "path",
-        NodeType::SvgCircle => "circle",
-        NodeType::SvgRect => "rect",
-        NodeType::SvgEllipse => "ellipse",
-        NodeType::SvgLine => "line",
-        NodeType::SvgPolygon => "polygon",
-        NodeType::SvgPolyline => "polyline",
-        NodeType::SvgText(_) => "text",
-        NodeType::SvgTspan => "tspan",
-        NodeType::SvgTextPath => "textPath",
-        NodeType::SvgLinearGradient => "linearGradient",
-        NodeType::SvgRadialGradient => "radialGradient",
-        NodeType::SvgStop => "stop",
-        NodeType::SvgPattern => "pattern",
-        NodeType::SvgClipPathElement => "clipPath",
-        NodeType::SvgMask => "mask",
-        NodeType::SvgFilter => "filter",
-        NodeType::SvgImage(_) => "image",
-        NodeType::SvgForeignObject => "foreignObject",
-        NodeType::SvgTitle => "title",
-        NodeType::SvgA => "a",
-        NodeType::SvgMarker => "marker",
-        NodeType::Title => "title",
-        NodeType::Meta => "meta",
-        NodeType::Link => "link",
-        NodeType::Script => "script",
-        NodeType::Style => "style",
-        NodeType::Base => "base",
+        NodeType::Html => "html", NodeType::Head => "head", NodeType::Body => "body",
+        NodeType::Div => "div", NodeType::P => "p", NodeType::Article => "article",
+        NodeType::Section => "section", NodeType::Nav => "nav", NodeType::Aside => "aside",
+        NodeType::Header => "header", NodeType::Footer => "footer", NodeType::Main => "main",
+        NodeType::Figure => "figure", NodeType::FigCaption => "figcaption",
+        NodeType::H1 => "h1", NodeType::H2 => "h2", NodeType::H3 => "h3",
+        NodeType::H4 => "h4", NodeType::H5 => "h5", NodeType::H6 => "h6",
+        NodeType::Br => "br", NodeType::Hr => "hr", NodeType::Pre => "pre",
+        NodeType::BlockQuote => "blockquote", NodeType::Address => "address",
+        NodeType::Details => "details", NodeType::Summary => "summary", NodeType::Dialog => "dialog",
+        NodeType::Ul => "ul", NodeType::Ol => "ol", NodeType::Li => "li",
+        NodeType::Dl => "dl", NodeType::Dt => "dt", NodeType::Dd => "dd",
+        NodeType::Menu => "menu", NodeType::MenuItem => "menuitem", NodeType::Dir => "dir",
+        NodeType::Table => "table", NodeType::Caption => "caption", NodeType::THead => "thead",
+        NodeType::TBody => "tbody", NodeType::TFoot => "tfoot", NodeType::Tr => "tr",
+        NodeType::Th => "th", NodeType::Td => "td", NodeType::ColGroup => "colgroup",
+        NodeType::Col => "col", NodeType::Form => "form", NodeType::FieldSet => "fieldset",
+        NodeType::Legend => "legend", NodeType::Label => "label", NodeType::Input => "input",
+        NodeType::Button => "button", NodeType::Select => "select", NodeType::OptGroup => "optgroup",
+        NodeType::SelectOption => "option", NodeType::TextArea => "textarea",
+        NodeType::Output => "output", NodeType::Progress => "progress", NodeType::Meter => "meter",
+        NodeType::DataList => "datalist", NodeType::Span => "span", NodeType::A => "a",
+        NodeType::Em => "em", NodeType::Strong => "strong", NodeType::B => "b",
+        NodeType::I => "i", NodeType::U => "u", NodeType::S => "s", NodeType::Mark => "mark",
+        NodeType::Del => "del", NodeType::Ins => "ins", NodeType::Code => "code",
+        NodeType::Samp => "samp", NodeType::Kbd => "kbd", NodeType::Var => "var",
+        NodeType::Cite => "cite", NodeType::Dfn => "dfn", NodeType::Abbr => "abbr",
+        NodeType::Acronym => "acronym", NodeType::Q => "q", NodeType::Time => "time",
+        NodeType::Sub => "sub", NodeType::Sup => "sup", NodeType::Small => "small",
+        NodeType::Big => "big", NodeType::Bdo => "bdo", NodeType::Bdi => "bdi",
+        NodeType::Wbr => "wbr", NodeType::Ruby => "ruby", NodeType::Rt => "rt",
+        NodeType::Rtc => "rtc", NodeType::Rp => "rp", NodeType::Data => "data",
+        NodeType::Canvas => "canvas", NodeType::Object => "object", NodeType::Param => "param",
+        NodeType::Embed => "embed", NodeType::Audio => "audio", NodeType::Video => "video",
+        NodeType::Source => "source", NodeType::Track => "track", NodeType::Map => "map",
+        NodeType::Area => "area", NodeType::Image(_) => "img",
+        NodeType::Svg => "svg", NodeType::SvgG => "g", NodeType::SvgDefs => "defs",
+        NodeType::SvgSymbol => "symbol", NodeType::SvgUse => "use", NodeType::SvgSwitch => "switch",
+        NodeType::SvgPath => "path", NodeType::SvgCircle => "circle", NodeType::SvgRect => "rect",
+        NodeType::SvgEllipse => "ellipse", NodeType::SvgLine => "line",
+        NodeType::SvgPolygon => "polygon", NodeType::SvgPolyline => "polyline",
+        NodeType::SvgText(_) => "text", NodeType::SvgTspan => "tspan",
+        NodeType::SvgTextPath => "textPath", NodeType::SvgLinearGradient => "linearGradient",
+        NodeType::SvgRadialGradient => "radialGradient", NodeType::SvgStop => "stop",
+        NodeType::SvgPattern => "pattern", NodeType::SvgClipPathElement => "clipPath",
+        NodeType::SvgMask => "mask", NodeType::SvgFilter => "filter",
+        NodeType::SvgImage(_) => "image", NodeType::SvgForeignObject => "foreignObject",
+        NodeType::SvgTitle => "title", NodeType::SvgA => "a", NodeType::SvgMarker => "marker",
+        NodeType::Title => "title", NodeType::Meta => "meta", NodeType::Link => "link",
+        NodeType::Script => "script", NodeType::Style => "style", NodeType::Base => "base",
         NodeType::Before | NodeType::After | NodeType::Marker | NodeType::Placeholder => "span",
-        NodeType::Text(_) => "span",
-        NodeType::VirtualView => "div",
-        NodeType::Icon(_) => "span",
+        NodeType::Text(_) => "span", NodeType::VirtualView => "div", NodeType::Icon(_) => "span",
         _ => "div",
     }
 }
 
-/// Extract inline text content from a NodeType, if it has any.
 fn node_type_inline_text(node_type: &NodeType) -> Option<&str> {
     match node_type {
         NodeType::Text(s) => Some(s.as_str()),
@@ -532,16 +540,13 @@ fn node_type_inline_text(node_type: &NodeType) -> Option<&str> {
     }
 }
 
-/// Whether an HTML tag is a void element (self-closing, no end tag).
 fn is_void_element(tag: &str) -> bool {
-    matches!(
-        tag,
+    matches!(tag,
         "area" | "base" | "br" | "col" | "embed" | "hr" | "img"
             | "input" | "link" | "meta" | "param" | "source" | "track" | "wbr"
     )
 }
 
-/// Map an azul EventFilter to a JS event name.
 fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static str {
     use azul_core::events::{EventFilter, HoverEventFilter, FocusEventFilter};
     match event {
@@ -569,36 +574,22 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
     }
 }
 
-/// Escape HTML special characters in text content.
 fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
+        match c { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(c) }
     }
     out
 }
 
-/// Escape HTML attribute values.
 fn html_escape_attr(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '"' => out.push_str("&quot;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
+        match c { '&' => out.push_str("&amp;"), '"' => out.push_str("&quot;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(c) }
     }
     out
 }
 
-/// Minimal reset CSS for the web backend.
 const RESET_CSS: &str = r#"
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; }

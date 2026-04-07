@@ -380,6 +380,10 @@ pub struct LayoutWindow {
     /// Used to skip font chain resolution on frames where the font requirements
     /// haven't changed (e.g. scroll-only frames).
     font_stacks_hash: u64,
+    /// Snapshot of inline content before IME preedit injection.
+    /// Saved on first setMarkedText so each subsequent call injects into
+    /// clean original text instead of accumulating old preedits.
+    pre_preedit_content: Option<Vec<crate::text3::cache::InlineContent>>,
     /// Configurable input interpreter: maps raw events → SystemChange actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -483,6 +487,7 @@ impl LayoutWindow {
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
+            pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             #[cfg(feature = "icu")]
@@ -560,6 +565,7 @@ impl LayoutWindow {
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
+            pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             #[cfg(feature = "icu")]
@@ -636,6 +642,7 @@ impl LayoutWindow {
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
+            pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             #[cfg(feature = "icu")]
@@ -4940,8 +4947,8 @@ impl LayoutWindow {
         let preedit = match &self.text_edit_manager.preedit_text {
             Some(p) if !p.is_empty() => p.clone(),
             _ => {
-                // No preedit — restore original text from dirty_text_nodes or DOM
-                // (the preedit was just cleared by unmarkText/insertText)
+                // No preedit — restore original text and clear snapshot
+                self.pre_preedit_content = None;
                 self.reapply_dirty_text_node(dom_id, node_id);
                 return;
             }
@@ -4952,8 +4959,15 @@ impl LayoutWindow {
             None => return,
         };
 
-        // Get the base content (without preedit)
-        let mut content = self.get_text_before_textinput(dom_id, node_id);
+        // Save the original content on the FIRST preedit call so we always
+        // inject into clean text (prevents accumulation of old preedits).
+        if self.pre_preedit_content.is_none() {
+            let original = self.get_text_before_textinput(dom_id, node_id);
+            self.pre_preedit_content = Some(original);
+        }
+
+        // Clone the saved original — never modify it in place
+        let mut content = self.pre_preedit_content.clone().unwrap();
 
         // Insert preedit at cursor position
         let run_idx = cursor.cluster_id.source_run as usize;

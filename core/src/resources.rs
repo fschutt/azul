@@ -23,7 +23,7 @@ pub use crate::callbacks::{
     CoreImageCallback, CoreRenderImageCallback, CoreRenderImageCallbackType,
 };
 use crate::{
-    callbacks::VirtualViewCallback,
+    callbacks::{LayoutCallback, VirtualViewCallback},
     dom::{DomId, NodeData, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gl::{OptionGlContextPtr, Texture},
@@ -35,7 +35,7 @@ use crate::{
         NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState,
     },
     ui_solver::GlyphInstance,
-    window::OptionChar,
+    window::{AzStringPair, OptionChar, StringPairVec},
     xml::{
         ComponentDef, ComponentDefVec, ComponentId, ComponentLibrary, ComponentLibraryVec,
         ComponentSource, RegisterComponentFn, RegisterComponentLibraryFn,
@@ -272,6 +272,116 @@ impl_option!(
     [Debug, Clone]
 );
 
+/// A route mapping a URL pattern to a layout callback.
+///
+/// Routes are cross-platform: on desktop, switching routes swaps the
+/// active layout callback and triggers `RefreshDom`. On web, it also
+/// calls `history.pushState()` for browser navigation.
+///
+/// # Pattern syntax
+///
+/// - `"/"` — exact root
+/// - `"/about"` — exact path
+/// - `"/user/:id"` — parameterized segment, `/user/42` yields `id = "42"`
+///
+/// # C API
+/// ```c
+/// AzAppConfig_addRoute(&config, AzString_fromConstStr("/user/:id"), layout_user);
+/// ```
+#[repr(C)]
+pub struct Route {
+    /// URL pattern (e.g. `"/"`, `"/about"`, `"/user/:id"`)
+    pub pattern: AzString,
+    /// Layout callback invoked when this route is active
+    pub layout_callback: LayoutCallback,
+}
+
+impl Clone for Route {
+    fn clone(&self) -> Self {
+        Self { pattern: self.pattern.clone(), layout_callback: self.layout_callback.clone() }
+    }
+}
+impl fmt::Debug for Route {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Route")
+            .field("pattern", &self.pattern)
+            .field("layout_callback", &self.layout_callback)
+            .finish()
+    }
+}
+impl PartialEq for Route { fn eq(&self, o: &Self) -> bool { self.pattern == o.pattern && self.layout_callback == o.layout_callback } }
+impl Eq for Route {}
+impl PartialOrd for Route { fn partial_cmp(&self, o: &Self) -> Option<core::cmp::Ordering> { Some(self.cmp(o)) } }
+impl Ord for Route { fn cmp(&self, o: &Self) -> core::cmp::Ordering { self.pattern.cmp(&o.pattern).then_with(|| self.layout_callback.cmp(&o.layout_callback)) } }
+impl Hash for Route { fn hash<H: Hasher>(&self, state: &mut H) { self.pattern.hash(state); self.layout_callback.hash(state); } }
+
+impl_option!(Route, OptionRoute, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec!(Route, RouteVec, RouteVecDestructor, RouteVecDestructorType, RouteVecSlice, OptionRoute);
+impl_vec_mut!(Route, RouteVec);
+impl_vec_debug!(Route, RouteVec);
+impl_vec_clone!(Route, RouteVec, RouteVecDestructor);
+impl_vec_partialeq!(Route, RouteVec);
+impl_vec_eq!(Route, RouteVec);
+impl_vec_partialord!(Route, RouteVec);
+impl_vec_ord!(Route, RouteVec);
+impl_vec_hash!(Route, RouteVec);
+
+/// Result of matching a URL against a route pattern.
+///
+/// Stores the matched pattern and any extracted parameters.
+/// Available to layout callbacks via `LayoutCallbackInfo::get_route_param()`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct RouteMatch {
+    /// The matched route pattern (e.g. `"/user/:id"`)
+    pub pattern: AzString,
+    /// Extracted parameters (e.g. `[("id", "42")]`)
+    pub params: StringPairVec,
+}
+
+impl RouteMatch {
+    /// Get a route parameter by key.
+    pub fn get_param(&self, key: &str) -> Option<&AzString> {
+        self.params.get_key(key)
+    }
+}
+
+impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+/// Match a URL path against a route pattern, extracting parameters.
+///
+/// Returns `Some(RouteMatch)` with extracted params on match, `None` otherwise.
+///
+/// # Examples
+/// - pattern `"/user/:id"`, path `"/user/42"` → `Some(RouteMatch { params: [("id","42")] })`
+/// - pattern `"/"`, path `"/"` → `Some(RouteMatch { params: [] })`
+/// - pattern `"/about"`, path `"/settings"` → `None`
+pub fn match_route(pattern: &str, path: &str) -> Option<RouteMatch> {
+    let pat_segs: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    let path_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+    if pat_segs.len() != path_segs.len() {
+        return None;
+    }
+
+    let mut params = Vec::new();
+    for (pat, val) in pat_segs.iter().zip(path_segs.iter()) {
+        if let Some(param_name) = pat.strip_prefix(':') {
+            params.push(AzStringPair {
+                key: AzString::from(param_name.to_string()),
+                value: AzString::from(val.to_string()),
+            });
+        } else if pat != val {
+            return None;
+        }
+    }
+
+    Some(RouteMatch {
+        pattern: AzString::from(pattern.to_string()),
+        params: StringPairVec::from_vec(params),
+    })
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -328,6 +438,13 @@ pub struct AppConfig {
     /// `AppConfig::create()` via `register_builtin_components`.
     /// Additional libraries can be added with `add_component_library`.
     pub component_libraries: ComponentLibraryVec,
+    /// Registered routes mapping URL patterns to layout callbacks.
+    ///
+    /// Cross-platform: on desktop, the active route determines which layout
+    /// callback runs. On web, routes map to HTTP endpoints and browser URLs.
+    ///
+    /// The first route (or `"/"`) is the default. Use `add_route()` to register.
+    pub routes: RouteVec,
 }
 
 impl AppConfig {
@@ -349,6 +466,7 @@ impl AppConfig {
             mock_css_environment: OptionCssMockEnvironment::None,
             system_style,
             component_libraries: ComponentLibraryVec::from_const_slice(&[]),
+            routes: RouteVec::from_const_slice(&[]),
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
@@ -447,6 +565,44 @@ impl AppConfig {
         }
 
         self.component_libraries = ComponentLibraryVec::from_vec(libs);
+    }
+
+    /// Register a route mapping a URL pattern to a layout callback.
+    ///
+    /// On web: each route becomes an HTTP endpoint. On desktop: the first
+    /// route (or `"/"`) is the initial layout, and `CallbackInfo::switch_route()`
+    /// swaps the active callback.
+    ///
+    /// # C API
+    /// ```c
+    /// AzAppConfig_addRoute(&config, AzString_fromConstStr("/user/:id"), layout_user);
+    /// ```
+    pub fn add_route<P: Into<AzString>, L: Into<LayoutCallback>>(&mut self, pattern: P, layout_fn: L) {
+        let route = Route {
+            pattern: pattern.into(),
+            layout_callback: layout_fn.into(),
+        };
+        let empty = RouteVec::from_const_slice(&[]);
+        let mut routes = core::mem::replace(&mut self.routes, empty).into_library_owned_vec();
+        // Replace existing route with the same pattern
+        if let Some(existing) = routes.iter_mut().find(|r| r.pattern.as_str() == route.pattern.as_str()) {
+            *existing = route;
+        } else {
+            routes.push(route);
+        }
+        self.routes = RouteVec::from_vec(routes);
+    }
+
+    /// Find the route matching a given URL path.
+    ///
+    /// Returns the matched `Route` and a `RouteMatch` with extracted parameters.
+    pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
+        for route in self.routes.as_ref().iter() {
+            if let Some(m) = match_route(route.pattern.as_str(), path) {
+                return Some((route, m));
+            }
+        }
+        None
     }
 }
 

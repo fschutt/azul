@@ -1,45 +1,33 @@
 //! Generate the azul-loader.js bootstrap script.
 //!
-//! This is the ONLY JavaScript in the system. It:
-//! 1. Instantiates azul-mini.wasm (when available)
-//! 2. Loads callback .wasm modules
-//! 3. Registers global event listeners (mousemove, mousedown, keydown, etc.)
-//! 4. Hydrates the server-rendered HTML into the WASM layout tree
-//!
-//! Phase 0: The loader simply sets up server-side callback execution
-//! via fetch() POST requests, since no WASM is available yet.
+//! Phase 0: Server-side callback execution via fetch() POST.
+//! Includes routing support: intercepts `<a>` clicks with `data-az-route`
+//! and handles browser back/forward via `popstate`.
 
 use super::cb_gen::CallbackWasm;
 
 /// Generate the loader JavaScript for the current phase.
-///
-/// Phase 0 (stub transpiler): The loader sends callback invocations
-/// to the server via POST and replaces the page content with the response.
-///
-/// Phase 1+ (real transpiler): The loader instantiates WASM modules
-/// and runs callbacks client-side.
 pub fn generate_loader_js(
-    mini_wasm_hash: &str,
-    callbacks: &[CallbackWasm],
+    _mini_wasm_hash: &str,
+    _callbacks: &[CallbackWasm],
 ) -> String {
-    // Phase 0: server-side execution fallback
     generate_phase0_loader()
 }
 
 /// Phase 0 loader: all interaction goes through the server.
 ///
-/// Each element with an `data-az-cb` attribute gets a click handler
-/// that POSTs to the server, which runs the callback natively and
-/// returns updated HTML.
+/// Features:
+/// - Callback execution via POST /az/exec/{node_id}
+/// - Route navigation via GET /{path} (intercepts link clicks)
+/// - Browser back/forward support via popstate
 fn generate_phase0_loader() -> String {
     r#"(function(){
 'use strict';
 
-// Phase 0: Server-side callback execution
-// All callbacks POST to the server, which runs them natively
-// and returns the updated HTML for the page body.
+// Phase 0: Server-side callback + routing
 
 function azInit() {
+    // Attach callback handlers
     document.querySelectorAll('[data-az-cb]').forEach(function(el) {
         var cbId = el.getAttribute('data-az-cb');
         var evType = el.getAttribute('data-az-ev') || 'click';
@@ -58,8 +46,9 @@ function azInit() {
             .then(function(r) { return r.text(); })
             .then(function(html) {
                 if (html) {
-                    var body = document.getElementById('az-body');
-                    if (body) { body.innerHTML = html; azInit(); }
+                    document.open();
+                    document.write(html);
+                    document.close();
                 }
             })
             .catch(function(err) {
@@ -67,7 +56,47 @@ function azInit() {
             });
         });
     });
+
+    // Intercept internal link clicks for SPA-style navigation
+    document.querySelectorAll('a[href^="/"]').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            var href = el.getAttribute('href');
+            if (!href || href.startsWith('/az/')) return; // Don't intercept asset URLs
+            e.preventDefault();
+            azNavigate(href);
+        });
+    });
 }
+
+// Navigate to a route (SPA-style)
+function azNavigate(path) {
+    fetch(path)
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+        if (html) {
+            history.pushState(null, '', path);
+            document.open();
+            document.write(html);
+            document.close();
+        }
+    })
+    .catch(function(err) {
+        console.error('[azul-web] navigation error:', err);
+    });
+}
+
+// Browser back/forward
+window.addEventListener('popstate', function() {
+    fetch(location.pathname)
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+        if (html) {
+            document.open();
+            document.write(html);
+            document.close();
+        }
+    });
+});
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', azInit);
@@ -80,11 +109,10 @@ if (document.readyState === 'loading') {
 
 /// Content hash for the loader JS (for cache-busting).
 pub fn loader_js_hash(content: &str) -> String {
-    // Simple hash: first 8 hex chars of a basic hash
-    let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
+    let mut hash: u64 = 0xcbf29ce484222325;
     for byte in content.as_bytes() {
         hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3); // FNV prime
+        hash = hash.wrapping_mul(0x100000001b3);
     }
     format!("{:016x}", hash)
 }
