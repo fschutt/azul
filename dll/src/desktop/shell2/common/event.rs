@@ -2026,17 +2026,36 @@ pub trait PlatformWindow {
             // === Routing ===
 
             CallbackChange::SwitchRoute { pattern, params } => {
-                // Look up the route in AppConfig and swap the layout callback
-                // For now, this is a stub — the desktop event loop needs access
-                // to AppConfig.routes to resolve the pattern. The web backend
-                // handles this in server.rs.
-                // TODO: wire up AppConfig.routes lookup here
-                eprintln!(
-                    "[azul] SwitchRoute to '{}' with {} params (desktop handler stub)",
-                    pattern.as_str(),
-                    params.as_ref().len(),
-                );
-                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                // Look up the route in LayoutWindow.routes and swap the layout callback
+                let found_cb = self.get_layout_window().and_then(|lw| {
+                    lw.routes.as_ref().iter().find_map(|route| {
+                        if route.pattern.as_str() == pattern.as_str() {
+                            Some(route.layout_callback.clone())
+                        } else {
+                            None
+                        }
+                    })
+                });
+
+                if let Some(new_cb) = found_cb {
+                    // Swap layout callback
+                    self.get_current_window_state_mut().layout_callback = new_cb;
+                    // Store the active route match (pattern + params)
+                    self.get_current_window_state_mut().active_route =
+                        azul_core::resources::OptionRouteMatch::Some(
+                            azul_core::resources::RouteMatch {
+                                pattern: pattern.clone(),
+                                params: params.clone(),
+                            },
+                        );
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    eprintln!(
+                        "[azul] SwitchRoute: no route found for pattern '{}'",
+                        pattern.as_str(),
+                    );
+                    ProcessEventResult::DoNothing
+                }
             }
         }
     }
@@ -2309,15 +2328,9 @@ pub trait PlatformWindow {
             }
 
             SystemChange::SelectNextOccurrence { target } => {
-                // Ctrl+D: select next occurrence of current selection text
-                // For now, this is a stub — full implementation requires text search in inline content
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let dom_id = target.dom;
-                    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
-                        // If the primary selection is a cursor (no range), expand to word first
-                        // Then search forward for the next occurrence and add it as a new selection
-                        // TODO: implement word expansion and forward search in text content
-                        layout_window.text_edit_manager.mark_dirty();
+                    if layout_window.select_next_occurrence() {
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -3827,8 +3840,46 @@ pub trait PlatformWindow {
                                 synthetic_click_target = Some(target.clone());
                             }
 
-                            DefaultAction::ScrollFocusedContainer { .. } => {
-                                // TODO: Implement keyboard scrolling
+                            DefaultAction::ScrollFocusedContainer { direction, amount } => {
+                                use azul_core::events::{ScrollDirection, ScrollAmount};
+
+                                if let Some(lw) = self.get_layout_window_mut() {
+                                    if let Some(focused) = lw.focus_manager.focused_node {
+                                        if let Some(ancestor) = lw.find_scrollable_ancestor(focused) {
+                                            if let Some(anc_node) = ancestor.node.into_crate_internal() {
+                                                // Determine scroll delta based on amount
+                                                let line_px: f32 = 20.0;
+                                                let anc_bounds = lw.get_node_bounds(ancestor.dom, anc_node);
+                                                let vp_h = anc_bounds.map(|b| b.size.height as f32).unwrap_or(600.0);
+                                                let vp_w = anc_bounds.map(|b| b.size.width as f32).unwrap_or(800.0);
+
+                                                let magnitude = match amount {
+                                                    ScrollAmount::Line => line_px,
+                                                    ScrollAmount::Page => vp_h * 0.9,
+                                                    ScrollAmount::Document => 100_000.0,
+                                                };
+
+                                                let (dx, dy) = match direction {
+                                                    ScrollDirection::Up => (0.0, -magnitude),
+                                                    ScrollDirection::Down => (0.0, magnitude),
+                                                    ScrollDirection::Left => (-magnitude, 0.0),
+                                                    ScrollDirection::Right => (magnitude, 0.0),
+                                                };
+
+                                                let now: azul_core::task::Instant = std::time::Instant::now().into();
+                                                lw.scroll_manager.scroll_by(
+                                                    ancestor.dom,
+                                                    anc_node,
+                                                    azul_core::geom::LogicalPosition { x: dx, y: dy },
+                                                    std::time::Duration::from_millis(150).into(),
+                                                    azul_core::events::EasingFunction::EaseOut,
+                                                    now,
+                                                );
+                                                result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             DefaultAction::None => {}

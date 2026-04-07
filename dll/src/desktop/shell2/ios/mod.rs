@@ -190,7 +190,7 @@ impl IOSWindow {
     pub fn new(
         options: WindowCreateOptions,
         fc_cache: Arc<FcFontCache>,
-        _config: AppConfig,
+        config: AppConfig,
     ) -> Result<Self, WindowError> {
 
         // --- 1. Create native UI components ---
@@ -230,6 +230,7 @@ impl IOSWindow {
         let full_window_state = FullWindowState::new(options.state);
         let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone()).unwrap();
         layout_window.current_window_state = full_window_state.clone();
+        layout_window.routes = config.routes.clone();
 
         Ok(Self {
             ui_window,

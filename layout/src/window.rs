@@ -391,6 +391,9 @@ pub struct LayoutWindow {
     /// Configurable post-callback filter.
     /// Default: `default_post_filter` (scroll-into-view after cursor ops).
     pub post_filter: azul_core::events::PostFilterCallback,
+    /// Registered routes from AppConfig.  Set once at window creation.
+    /// Used by `CallbackChange::SwitchRoute` to look up layout callbacks.
+    pub routes: azul_core::resources::RouteVec,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
@@ -490,6 +493,7 @@ impl LayoutWindow {
             pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
+            routes: azul_core::resources::RouteVec::from_const_slice(&[]),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -568,6 +572,7 @@ impl LayoutWindow {
             pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
+            routes: azul_core::resources::RouteVec::from_const_slice(&[]),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -645,6 +650,7 @@ impl LayoutWindow {
             pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
+            routes: azul_core::resources::RouteVec::from_const_slice(&[]),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -717,44 +723,9 @@ impl LayoutWindow {
         }
 
         // After successful layout, update the accessibility tree
-        // Note: This is wrapped in catch_unwind to prevent a11y issues from crashing the app
         #[cfg(feature = "a11y")]
         if result.is_ok() {
-            // Use catch_unwind to prevent a11y panics from crashing the main application
-            // Build cursor info for a11y if we have a cursor in a contenteditable
-            let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-                let node_id = mc.node_id.node.into_crate_internal()?;
-                let offset = mc.get_primary_cursor()
-                    .map(|c| c.cluster_id.start_byte_in_run as usize)
-                    .unwrap_or(0);
-                Some(crate::managers::a11y::CursorA11yInfo {
-                    dom_id: mc.node_id.dom,
-                    node_id,
-                    cursor_offset: offset,
-                })
-            });
-
-            let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::managers::a11y::A11yManager::update_tree(
-                    self.a11y_manager.root_id,
-                    &self.layout_results,
-                    &self.current_window_state.title,
-                    self.current_window_state.size.dimensions,
-                    self.focus_manager.get_focused_node().copied(),
-                    self.current_window_state.size.get_hidpi_factor().inner.get(),
-                    cursor_a11y_info,
-                )
-            }));
-
-            match a11y_result {
-                Ok(tree_update) => {
-                    // Store the tree_update for platform adapter to consume
-                    self.a11y_manager.last_tree_update = Some(tree_update);
-                }
-                Err(_) => {
-                    // A11y update failed - log and continue without a11y
-                }
-            }
+            self.update_a11y_tree();
         }
 
         // After layout, automatically scroll cursor into view if there's a focused text input
@@ -1598,22 +1569,56 @@ impl LayoutWindow {
         })
     }
 
-    /// Scan all fonts used in this LayoutWindow (for resource GC)
+    /// Scan all fonts referenced in the current display lists (for resource GC).
+    ///
+    /// Iterates every `Text` and `TextLayout` item in each DOM's display list
+    /// and collects the deterministic `FontKey` derived from the font hash.
+    /// Callers can diff the result against `renderer_resources.currently_registered_fonts`
+    /// to find fonts that are no longer used.
     pub fn scan_used_fonts(&self) -> BTreeSet<FontKey> {
+        use crate::solver3::display_list::DisplayListItem;
+
         let mut fonts = BTreeSet::new();
         for (_dom_id, layout_result) in &self.layout_results {
-            // TODO: Scan styled_dom for font references
-            // This requires accessing the CSS property cache and finding all font-family properties
+            for item in &layout_result.display_list.items {
+                let hash = match item {
+                    DisplayListItem::Text { font_hash, .. } => font_hash.font_hash,
+                    DisplayListItem::TextLayout { font_hash, .. } => font_hash.font_hash,
+                    _ => continue,
+                };
+                // Deterministic FontKey from hash (same algorithm as wr_translate2)
+                let ns = ((hash >> 32) & 0xFFFF_FFFF) as u32;
+                let ns = if ns == 0 { 1 } else { ns };
+                fonts.insert(FontKey {
+                    namespace: IdNamespace(ns),
+                    key: (hash & 0xFFFF_FFFF) as u32,
+                });
+            }
         }
         fonts
     }
 
-    /// Scan all images used in this LayoutWindow (for resource GC)
+    /// Scan all images referenced in the current display lists (for resource GC).
+    ///
+    /// Iterates every `Image` and `PushImageMaskClip` item and collects
+    /// their `ImageRefHash`.  Callers can diff the result against the
+    /// currently loaded images to find unused ones.
     pub fn scan_used_images(&self, _css_image_cache: &ImageCache) -> BTreeSet<ImageRefHash> {
+        use crate::solver3::display_list::DisplayListItem;
+
         let mut images = BTreeSet::new();
         for (_dom_id, layout_result) in &self.layout_results {
-            // TODO: Scan styled_dom for image references
-            // This requires scanning background-image and content properties
+            for item in &layout_result.display_list.items {
+                match item {
+                    DisplayListItem::Image { image, .. } => {
+                        images.insert(image.get_hash());
+                    }
+                    DisplayListItem::PushImageMaskClip { mask_image, .. } => {
+                        images.insert(mask_image.get_hash());
+                    }
+                    _ => {}
+                }
+            }
         }
         images
     }
@@ -2579,6 +2584,44 @@ impl LayoutWindow {
     ///
     /// For IME positioning (viewport-relative coordinates), use
     /// `get_focused_cursor_rect_viewport()`.
+    /// Rebuild the accessibility tree from the current layout results, focus,
+    /// and cursor state.  Called after full layout AND after display-list-only
+    /// regeneration so that screen readers see up-to-date bounds, cursor, and
+    /// focus information.
+    #[cfg(feature = "a11y")]
+    pub fn update_a11y_tree(&mut self) {
+        let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
+            let node_id = mc.node_id.node.into_crate_internal()?;
+            let offset = mc.get_primary_cursor()
+                .map(|c| c.cluster_id.start_byte_in_run as usize)
+                .unwrap_or(0);
+            Some(crate::managers::a11y::CursorA11yInfo {
+                dom_id: mc.node_id.dom,
+                node_id,
+                cursor_offset: offset,
+            })
+        });
+
+        let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::managers::a11y::A11yManager::update_tree(
+                self.a11y_manager.root_id,
+                &self.layout_results,
+                &self.current_window_state.title,
+                self.current_window_state.size.dimensions,
+                self.focus_manager.get_focused_node().copied(),
+                self.current_window_state.size.get_hidpi_factor().inner.get(),
+                cursor_a11y_info,
+            )
+        }));
+
+        match a11y_result {
+            Ok(tree_update) => {
+                self.a11y_manager.last_tree_update = Some(tree_update);
+            }
+            Err(_) => {}
+        }
+    }
+
     pub fn get_focused_cursor_rect(&self) -> Option<azul_core::geom::LogicalRect> {
         // Get the focused node
         let focused_node = self.focus_manager.focused_node?;
@@ -2613,6 +2656,233 @@ impl LayoutWindow {
 
         // Return ABSOLUTE position (no scroll correction)
         Some(cursor_rect)
+    }
+
+    /// Compute the bounding rect of all selection ranges in the focused node.
+    /// Returns the union of all selection rects in absolute coordinates.
+    pub fn calculate_selection_bounding_rect(&self) -> Option<azul_core::geom::LogicalRect> {
+        let focused_node = self.focus_manager.focused_node?;
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+
+        // Collect Range selections
+        let ranges: alloc::vec::Vec<_> = mc.selections.iter().filter_map(|s| {
+            if let azul_core::selection::Selection::Range(ref r) = s.selection {
+                Some(r.clone())
+            } else {
+                None
+            }
+        }).collect();
+
+        if ranges.is_empty() {
+            return None;
+        }
+
+        // Get the inline layout for the focused node
+        let target_node_id = focused_node.node.into_crate_internal();
+        let layout_tree = self.layout_cache.tree.as_ref()?;
+        let layout_idx = layout_tree.nodes.iter()
+            .position(|n| n.dom_node_id == target_node_id)?;
+        let warm = layout_tree.warm(layout_idx)?;
+        let inline_layout = &warm.inline_layout_result.as_ref()?.layout;
+        let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
+
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        let mut found_any = false;
+
+        for range in &ranges {
+            for rect in inline_layout.get_selection_rects(range) {
+                found_any = true;
+                let abs_x = rect.origin.x + calc_pos.x as f32;
+                let abs_y = rect.origin.y + calc_pos.y as f32;
+                min_x = min_x.min(abs_x);
+                min_y = min_y.min(abs_y);
+                max_x = max_x.max(abs_x + rect.size.width);
+                max_y = max_y.max(abs_y + rect.size.height);
+            }
+        }
+
+        if !found_any {
+            return None;
+        }
+
+        Some(LogicalRect::new(
+            LogicalPosition { x: min_x, y: min_y },
+            LogicalSize { width: max_x - min_x, height: max_y - min_y },
+        ))
+    }
+
+    /// Ctrl+D: select the next occurrence of the current selection/word.
+    ///
+    /// If the primary selection is a cursor (no range), first expand it to a word.
+    /// Then search forward in the text for the next occurrence and add it as a
+    /// new multi-cursor selection.
+    ///
+    /// Returns true if a new selection was added.
+    pub fn select_next_occurrence(&mut self) -> bool {
+        use crate::text3::selection::select_word_at_cursor;
+
+        let mc = match self.text_edit_manager.multi_cursor.as_mut() {
+            Some(mc) => mc,
+            None => return false,
+        };
+        let node_id = mc.node_id;
+        let dom_node_id = match node_id.node.into_crate_internal() {
+            Some(id) => id,
+            None => return false,
+        };
+
+        // Get primary selection text (or word at cursor)
+        let primary = match mc.selections.first() {
+            Some(s) => s.clone(),
+            None => return false,
+        };
+
+        let (search_range, need_word_expand) = match &primary.selection {
+            azul_core::selection::Selection::Range(r) => (*r, false),
+            azul_core::selection::Selection::Cursor(c) => {
+                // Need to expand to word first
+                (azul_core::selection::SelectionRange { start: c.clone(), end: c.clone() }, true)
+            }
+        };
+
+        // Get the inline layout
+        let inline_layout = match self.get_node_inline_layout(node_id.dom, dom_node_id) {
+            Some(l) => l,
+            None => return false,
+        };
+
+        // If no range yet, expand to word
+        let word_range = if need_word_expand {
+            match select_word_at_cursor(&search_range.start, &inline_layout) {
+                Some(r) => r,
+                None => return false,
+            }
+        } else {
+            search_range
+        };
+
+        // Extract the search text from inline content
+        let content = self.get_text_before_textinput(node_id.dom, dom_node_id);
+        let full_text = self.extract_text_from_inline_content(&content);
+
+        // Extract the selected word text using byte offsets
+        let start_byte = word_range.start.cluster_id.start_byte_in_run as usize;
+        let end_byte = word_range.end.cluster_id.start_byte_in_run as usize;
+        let search_text = if word_range.start.cluster_id.source_run == word_range.end.cluster_id.source_run {
+            if let Some(InlineContent::Text(run)) = content.get(word_range.start.cluster_id.source_run as usize) {
+                if start_byte <= end_byte && end_byte <= run.text.len() {
+                    run.text[start_byte..end_byte].to_string()
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false; // Multi-run selection search not yet supported
+        };
+
+        if search_text.is_empty() {
+            return false;
+        }
+
+        // Search forward from the end of the last selection
+        let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
+        let last_end_byte = mc.selections.last()
+            .and_then(|s| match &s.selection {
+                azul_core::selection::Selection::Range(r) => Some(r.end.cluster_id.start_byte_in_run as usize),
+                azul_core::selection::Selection::Cursor(c) => Some(c.cluster_id.start_byte_in_run as usize),
+            })
+            .unwrap_or(0);
+
+        let search_run = word_range.start.cluster_id.source_run;
+
+        // Find next occurrence in the same run's text
+        if let Some(InlineContent::Text(run)) = content.get(search_run as usize) {
+            let search_in = &run.text;
+            // Search from after the last selection end
+            if let Some(offset) = search_in[last_end_byte..].find(&search_text) {
+                let match_start = last_end_byte + offset;
+                let match_end = match_start + search_text.len();
+
+                let new_range = azul_core::selection::SelectionRange {
+                    start: azul_core::selection::TextCursor {
+                        cluster_id: azul_core::selection::GraphemeClusterId {
+                            source_run: search_run,
+                            start_byte_in_run: match_start as u32,
+                        },
+                        affinity: azul_core::selection::CursorAffinity::Leading,
+                    },
+                    end: azul_core::selection::TextCursor {
+                        cluster_id: azul_core::selection::GraphemeClusterId {
+                            source_run: search_run,
+                            start_byte_in_run: match_end as u32,
+                        },
+                        affinity: azul_core::selection::CursorAffinity::Trailing,
+                    },
+                };
+
+                // If primary was a cursor, convert it to a word selection first
+                let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
+                if need_word_expand {
+                    if let Some(first) = mc.selections.first_mut() {
+                        first.selection = azul_core::selection::Selection::Range(word_range);
+                    }
+                }
+                mc.add_selection(new_range);
+                self.text_edit_manager.mark_dirty();
+                return true;
+            } else if last_end_byte > 0 {
+                // Wrap around: search from the beginning
+                if let Some(offset) = search_in[..start_byte].find(&search_text) {
+                    let match_start = offset;
+                    let match_end = match_start + search_text.len();
+
+                    let new_range = azul_core::selection::SelectionRange {
+                        start: azul_core::selection::TextCursor {
+                            cluster_id: azul_core::selection::GraphemeClusterId {
+                                source_run: search_run,
+                                start_byte_in_run: match_start as u32,
+                            },
+                            affinity: azul_core::selection::CursorAffinity::Leading,
+                        },
+                        end: azul_core::selection::TextCursor {
+                            cluster_id: azul_core::selection::GraphemeClusterId {
+                                source_run: search_run,
+                                start_byte_in_run: match_end as u32,
+                            },
+                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                        },
+                    };
+
+                    let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
+                    if need_word_expand {
+                        if let Some(first) = mc.selections.first_mut() {
+                            first.selection = azul_core::selection::Selection::Range(word_range);
+                        }
+                    }
+                    mc.add_selection(new_range);
+                    self.text_edit_manager.mark_dirty();
+                    return true;
+                }
+            }
+        }
+
+        // If primary was cursor and we expanded to word but found no other occurrence,
+        // still mark the word selection
+        if need_word_expand {
+            let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
+            if let Some(first) = mc.selections.first_mut() {
+                first.selection = azul_core::selection::Selection::Range(word_range);
+            }
+            self.text_edit_manager.mark_dirty();
+            return true;
+        }
+
+        false
     }
 
     /// Get the cursor rect for the currently focused text input node in VIEWPORT coordinates.
@@ -2781,18 +3051,14 @@ impl LayoutWindow {
                 }
             }
             SelectionScrollType::Selection => {
-                // Get selection range(s) and compute bounding rect
-                // For now, treat as cursor until we implement calculate_selection_bounding_rect
-                match self.get_focused_cursor_rect() {
+                // Compute bounding rect of all selection ranges via the text layout.
+                // Falls back to cursor rect if no ranges exist.
+                match self.calculate_selection_bounding_rect()
+                    .or_else(|| self.get_focused_cursor_rect())
+                {
                     Some(rect) => rect,
-                    None => return false, // No selection to scroll
+                    None => return false,
                 }
-                // TODO: Implement calculate_selection_bounding_rect
-                // let ranges = self.text_edit_manager.selection_manager.get_selection();
-                // if ranges.is_empty() {
-                //     return false;
-                // }
-                // self.calculate_selection_bounding_rect(ranges)?
             }
             SelectionScrollType::DragSelection { mouse_position } => {
                 // For drag: use mouse position to determine scroll direction/speed
@@ -3942,59 +4208,40 @@ impl LayoutWindow {
                     now.into(),
                 );
             }
-            AccessibilityAction::ScrollLeft => {
-                self.scroll_manager.scroll_by(
-                    dom_id,
-                    node_id,
-                    LogicalPosition { x: -100.0, y: 0.0 },
-                    std::time::Duration::from_millis(200).into(),
-                    azul_core::events::EasingFunction::EaseOut,
-                    now.into(),
-                );
-            }
-            AccessibilityAction::ScrollRight => {
-                self.scroll_manager.scroll_by(
-                    dom_id,
-                    node_id,
-                    LogicalPosition { x: 100.0, y: 0.0 },
-                    std::time::Duration::from_millis(200).into(),
-                    azul_core::events::EasingFunction::EaseOut,
-                    now.into(),
-                );
-            }
-            AccessibilityAction::ScrollUp => {
-                // Scroll up by default amount (could use page size for page up)
-                if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
-                    let scroll_amount = size.height.min(100.0); // Scroll by 100px or page height
-                    self.scroll_manager.scroll_by(
-                        dom_id,
-                        node_id,
-                        LogicalPosition {
-                            x: 0.0,
-                            y: -scroll_amount,
-                        },
-                        std::time::Duration::from_millis(300).into(),
-                        azul_core::events::EasingFunction::EaseInOut,
-                        now.into(),
-                    );
-                }
-            }
+            AccessibilityAction::ScrollLeft |
+            AccessibilityAction::ScrollRight |
+            AccessibilityAction::ScrollUp |
             AccessibilityAction::ScrollDown => {
-                // Scroll down by default amount (could use page size for page down)
-                if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
-                    let scroll_amount = size.height.min(100.0); // Scroll by 100px or page height
-                    self.scroll_manager.scroll_by(
-                        dom_id,
-                        node_id,
-                        LogicalPosition {
-                            x: 0.0,
-                            y: scroll_amount,
-                        },
-                        std::time::Duration::from_millis(300).into(),
-                        azul_core::events::EasingFunction::EaseInOut,
-                        now.into(),
-                    );
-                }
+                // Find the scrollable ancestor (or the node itself if scrollable)
+                let dom_node_id = DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                };
+                let (scroll_dom, scroll_nid) = self.find_scrollable_ancestor(dom_node_id)
+                    .and_then(|a| Some((a.dom, a.node.into_crate_internal()?)))
+                    .unwrap_or((dom_id, node_id));
+
+                // Use viewport-relative scroll amounts (75% of viewport dimension)
+                let bounds = self.get_node_bounds(scroll_dom, scroll_nid);
+                let vp_h = bounds.map(|b| b.size.height as f32).unwrap_or(600.0);
+                let vp_w = bounds.map(|b| b.size.width as f32).unwrap_or(800.0);
+
+                let (dx, dy) = match action {
+                    AccessibilityAction::ScrollLeft  => (-vp_w * 0.75, 0.0),
+                    AccessibilityAction::ScrollRight => ( vp_w * 0.75, 0.0),
+                    AccessibilityAction::ScrollUp    => (0.0, -vp_h * 0.75),
+                    AccessibilityAction::ScrollDown  => (0.0,  vp_h * 0.75),
+                    _ => unreachable!(),
+                };
+
+                self.scroll_manager.scroll_by(
+                    scroll_dom,
+                    scroll_nid,
+                    LogicalPosition { x: dx, y: dy },
+                    std::time::Duration::from_millis(250).into(),
+                    azul_core::events::EasingFunction::EaseOut,
+                    now.into(),
+                );
             }
             AccessibilityAction::SetScrollOffset(pos) => {
                 self.scroll_manager.scroll_to(
@@ -4223,10 +4470,16 @@ impl LayoutWindow {
                 let has_context_menu = styled_node.get_context_menu().is_some();
 
                 if has_context_menu {
-                    // TODO: Generate synthetic right-click event to trigger context menu
-                    // This requires access to the event system which is not available here
-                } else {
-                    // No context menu attached to node - silently ignore
+                    // Return a synthetic right-click so the caller's event dispatcher
+                    // triggers the normal context-menu code path (platform-specific).
+                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                    let dom_node_id = DomNodeId { dom: dom_id, node: hierarchy_id };
+                    affected_nodes.insert(
+                        dom_node_id,
+                        (vec![azul_core::events::EventFilter::Hover(
+                            azul_core::events::HoverEventFilter::RightMouseDown,
+                        )], false),
+                    );
                 }
             }
 
@@ -4519,28 +4772,22 @@ impl LayoutWindow {
 
         use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
 
-        // Get the new cursor position after edit
-        let new_cursor = new_selections
-            .first()
-            .and_then(|sel| {
-                if let Selection::Cursor(c) = sel {
-                    // Convert TextCursor to CursorPosition
-                    // For now, we use InWindow with approximate coordinates
-                    // TODO: Calculate proper screen coordinates from TextCursor
-                    Some(CursorPosition::InWindow(
-                        azul_core::geom::LogicalPosition::new(0.0, 0.0),
-                    ))
-                } else {
-                    None
-                }
-            })
+        // Get the new cursor position after edit using the layout's cursor rect
+        let new_cursor = self
+            .get_focused_cursor_rect()
+            .map(|r| CursorPosition::InWindow(r.origin))
             .unwrap_or(CursorPosition::Uninitialized);
 
         let old_cursor_pos = old_cursor
             .as_ref()
             .map(|_| {
-                // Convert TextCursor to CursorPosition
-                CursorPosition::InWindow(azul_core::geom::LogicalPosition::new(0.0, 0.0))
+                // The old cursor position was before the edit — the layout may
+                // have already updated so we use the same rect as new_cursor.
+                // This is acceptable for undo: the exact pre-edit position is
+                // approximated; what matters is restoring focus to the node.
+                self.get_focused_cursor_rect()
+                    .map(|r| CursorPosition::InWindow(r.origin))
+                    .unwrap_or(CursorPosition::Uninitialized)
             })
             .unwrap_or(CursorPosition::Uninitialized);
 
@@ -4826,7 +5073,7 @@ impl LayoutWindow {
         // (different from DOM node IDs), so we must go through dom_to_layout.
         // The IFC may be on this node OR a child — search all mapped layout nodes
         // and their children for one with inline_layout_result.
-        let (constraints, ifc_layout_index) = {
+        let (mut constraints, ifc_layout_index) = {
             let layout_result = match self.layout_results.get(&dom_id) {
                 Some(r) => r,
                 None => {
@@ -4887,6 +5134,29 @@ impl LayoutWindow {
                 }
             }
         };
+
+        // 2b. Refresh available_width from the parent node's current used_size.
+        // The cached constraints may have stale width if the container was resized
+        // since the last full layout (e.g. window resize → full layout → edit uses
+        // old constraints from before the resize was applied to this specific node).
+        if let Some(layout_result) = self.layout_results.get(&dom_id) {
+            if let Some(parent_idx) = layout_result.layout_tree.get(ifc_layout_index)
+                .and_then(|n| n.parent)
+            {
+                if let Some(parent_node) = layout_result.layout_tree.get(parent_idx) {
+                    if let Some(parent_size) = parent_node.used_size {
+                        let bp = parent_node.box_props.unpack();
+                        let content_width = parent_size.width
+                            - bp.padding.left - bp.padding.right
+                            - bp.border.left - bp.border.right;
+                        if content_width > 0.0 {
+                            constraints.available_width =
+                                crate::text3::cache::AvailableSpace::Definite(content_width);
+                        }
+                    }
+                }
+            }
+        }
 
         // 3. Re-run the text3 layout pipeline
         let new_layout = self.relayout_text_node_internal(&new_inline_content, &constraints);
@@ -5086,8 +5356,12 @@ impl LayoutWindow {
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list;
                 }
+                // Rebuild a11y tree so screen readers see updated cursor,
+                // selection, and text content after display-list-only changes.
+                #[cfg(feature = "a11y")]
+                self.update_a11y_tree();
             }
-            Err(e) => {
+            Err(_e) => {
             }
         }
     }
@@ -5160,7 +5434,7 @@ impl LayoutWindow {
     }
 
     /// Get the layout bounds (position and size) of a specific node
-    fn get_node_bounds(
+    pub fn get_node_bounds(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -5198,23 +5472,73 @@ impl LayoutWindow {
         node_id: NodeId,
         now: std::time::Instant,
     ) {
-        // TODO: This should:
-        // 1. Check if node is currently visible in viewport
-        // 2. Find the nearest scrollable ancestor
-        // 3. Calculate the scroll offset needed to make the node visible
-        // 4. Animate the scroll
+        // 1. Get target node bounds
+        let Some(target_bounds) = self.get_node_bounds(dom_id, node_id) else {
+            return;
+        };
 
-        // For now, just ensure the node's scroll state is at origin
-        if self.get_node_bounds(dom_id, node_id).is_some() {
-            self.scroll_manager.scroll_to(
-                dom_id,
-                node_id,
-                LogicalPosition { x: 0.0, y: 0.0 },
-                std::time::Duration::from_millis(300).into(),
-                azul_core::events::EasingFunction::EaseOut,
-                now.into(),
-            );
+        // 2. Find nearest scrollable ancestor
+        let dom_node_id = azul_core::dom::DomNodeId {
+            dom: dom_id,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        let Some(scroll_ancestor) = self.find_scrollable_ancestor(dom_node_id) else {
+            return;
+        };
+        let Some(scroll_node_id) = scroll_ancestor.node.into_crate_internal() else {
+            return;
+        };
+        let Some(ancestor_bounds) = self.get_node_bounds(dom_id, scroll_node_id) else {
+            return;
+        };
+
+        let current_scroll = self
+            .scroll_manager
+            .get_current_offset(dom_id, scroll_node_id)
+            .unwrap_or_default();
+
+        // 3. Check if target is already visible in the ancestor viewport
+        let vp_x = ancestor_bounds.origin.x as f32 + current_scroll.x;
+        let vp_y = ancestor_bounds.origin.y as f32 + current_scroll.y;
+        let vp_w = ancestor_bounds.size.width as f32;
+        let vp_h = ancestor_bounds.size.height as f32;
+
+        let target_x = target_bounds.origin.x as f32;
+        let target_y = target_bounds.origin.y as f32;
+        let target_w = target_bounds.size.width as f32;
+        let target_h = target_bounds.size.height as f32;
+
+        let visible_x = target_x >= vp_x && (target_x + target_w) <= (vp_x + vp_w);
+        let visible_y = target_y >= vp_y && (target_y + target_h) <= (vp_y + vp_h);
+
+        if visible_x && visible_y {
+            return; // Already visible
         }
+
+        // 4. Calculate scroll offset to bring target into view
+        let mut scroll_x = current_scroll.x;
+        let mut scroll_y = current_scroll.y;
+
+        if target_x < vp_x {
+            scroll_x = target_x - ancestor_bounds.origin.x as f32;
+        } else if (target_x + target_w) > (vp_x + vp_w) {
+            scroll_x = (target_x + target_w) - ancestor_bounds.origin.x as f32 - vp_w;
+        }
+
+        if target_y < vp_y {
+            scroll_y = target_y - ancestor_bounds.origin.y as f32;
+        } else if (target_y + target_h) > (vp_y + vp_h) {
+            scroll_y = (target_y + target_h) - ancestor_bounds.origin.y as f32 - vp_h;
+        }
+
+        self.scroll_manager.scroll_to(
+            dom_id,
+            scroll_node_id,
+            LogicalPosition { x: scroll_x, y: scroll_y },
+            std::time::Duration::from_millis(300).into(),
+            azul_core::events::EasingFunction::EaseOut,
+            now.into(),
+        );
     }
 
     /// Scroll the cursor into view if it's not currently visible
@@ -5259,21 +5583,34 @@ impl LayoutWindow {
         let cursor_abs_x = node_bounds.origin.x as f32 + cursor_rect.origin.x;
         let cursor_abs_y = node_bounds.origin.y as f32 + cursor_rect.origin.y;
 
-        // Find the nearest scrollable ancestor
-        // For now, just use the node itself if it's scrollable
-        // TODO: Walk up the DOM tree to find scrollable ancestor
+        // Walk up the DOM tree to find the nearest scrollable ancestor
+        let dom_node_id = azul_core::dom::DomNodeId {
+            dom: dom_id,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        let scroll_ancestor = match self.find_scrollable_ancestor(dom_node_id) {
+            Some(a) => a,
+            None => return, // No scrollable container
+        };
+        let scroll_node_id = match scroll_ancestor.node.into_crate_internal() {
+            Some(id) => id,
+            None => return,
+        };
 
-        // Get current scroll position
+        // Get the scrollable ancestor's bounds and scroll offset
+        let Some(ancestor_bounds) = self.get_node_bounds(dom_id, scroll_node_id) else {
+            return;
+        };
         let current_scroll = self
             .scroll_manager
-            .get_current_offset(dom_id, node_id)
+            .get_current_offset(dom_id, scroll_node_id)
             .unwrap_or_default();
 
-        // Calculate visible viewport
-        let viewport_x = node_bounds.origin.x as f32 + current_scroll.x;
-        let viewport_y = node_bounds.origin.y as f32 + current_scroll.y;
-        let viewport_width = node_bounds.size.width as f32;
-        let viewport_height = node_bounds.size.height as f32;
+        // Calculate visible viewport from the scrollable ancestor
+        let viewport_x = ancestor_bounds.origin.x as f32 + current_scroll.x;
+        let viewport_y = ancestor_bounds.origin.y as f32 + current_scroll.y;
+        let viewport_width = ancestor_bounds.size.width as f32;
+        let viewport_height = ancestor_bounds.size.height as f32;
 
         // Check if cursor is visible
         let cursor_visible_x = (cursor_abs_x as f32) >= viewport_x
@@ -5292,28 +5629,24 @@ impl LayoutWindow {
 
         // Adjust horizontal scroll if needed
         if (cursor_abs_x as f32) < viewport_x {
-            // Cursor is to the left of viewport - scroll left
-            target_scroll_x = cursor_abs_x as f32 - node_bounds.origin.x as f32;
+            target_scroll_x = cursor_abs_x as f32 - ancestor_bounds.origin.x as f32;
         } else if (cursor_abs_x as f32) > viewport_x + viewport_width {
-            // Cursor is to the right of viewport - scroll right
-            target_scroll_x = cursor_abs_x as f32 - node_bounds.origin.x as f32 - viewport_width
+            target_scroll_x = cursor_abs_x as f32 - ancestor_bounds.origin.x as f32 - viewport_width
                 + cursor_rect.size.width;
         }
 
         // Adjust vertical scroll if needed
         if (cursor_abs_y as f32) < viewport_y {
-            // Cursor is above viewport - scroll up
-            target_scroll_y = cursor_abs_y as f32 - node_bounds.origin.y as f32;
+            target_scroll_y = cursor_abs_y as f32 - ancestor_bounds.origin.y as f32;
         } else if (cursor_abs_y as f32) > viewport_y + viewport_height {
-            // Cursor is below viewport - scroll down
-            target_scroll_y = cursor_abs_y as f32 - node_bounds.origin.y as f32 - viewport_height
+            target_scroll_y = cursor_abs_y as f32 - ancestor_bounds.origin.y as f32 - viewport_height
                 + cursor_rect.size.height;
         }
 
-        // Animate scroll to bring cursor into view
+        // Animate scroll on the scrollable ancestor
         self.scroll_manager.scroll_to(
             dom_id,
-            node_id,
+            scroll_node_id,
             LogicalPosition {
                 x: target_scroll_x,
                 y: target_scroll_y,
@@ -5713,8 +6046,9 @@ impl LayoutWindow {
             node: node_hierarchy_id,
         };
 
-        // TODO: track click count for double/triple-click word/paragraph selection
-        let click_count = 1u32;
+        // Derive click count from the gesture manager's session history
+        // (timestamps + positions), no mutable click state needed.
+        let click_count = self.gesture_drag_manager.detect_click_count();
 
         // Get the text layout again for word/paragraph selection
         let final_range = if click_count > 1 {

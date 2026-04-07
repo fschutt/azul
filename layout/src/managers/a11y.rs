@@ -199,7 +199,24 @@ impl A11yManager {
                                     let char_lengths: Vec<u8> = text_content.chars()
                                         .map(|c| c.len_utf16() as u8)
                                         .collect();
-                                    node.set_character_lengths(char_lengths);
+                                    node.set_character_lengths(char_lengths.clone());
+
+                                    // Convert byte offset to UTF-16 character index
+                                    let char_idx = text_content
+                                        .char_indices()
+                                        .take_while(|(byte_idx, _)| *byte_idx < ci.cursor_offset)
+                                        .count();
+                                    let clamped_idx = char_idx.min(char_lengths.len());
+
+                                    // Expose caret position (degenerate selection: anchor == focus)
+                                    let pos = accesskit::TextPosition {
+                                        node: a11y_node_id,
+                                        character_index: clamped_idx,
+                                    };
+                                    node.set_text_selection(accesskit::TextSelection {
+                                        anchor: pos,
+                                        focus: pos,
+                                    });
                                 }
                             }
                         } else if !has_non_text_children {

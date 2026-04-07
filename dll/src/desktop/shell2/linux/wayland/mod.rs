@@ -826,9 +826,10 @@ impl WaylandWindow {
         unsafe { (wayland.wl_proxy_set_queue)(registry as _, event_queue) };
 
         // Initialize LayoutWindow
-        let layout_window = LayoutWindow::new((*resources.fc_cache).clone()).map_err(|e| {
+        let mut layout_window = LayoutWindow::new((*resources.fc_cache).clone()).map_err(|e| {
             WindowError::PlatformError(format!("LayoutWindow::new failed: {:?}", e))
         })?;
+        layout_window.routes = resources.config.routes.clone();
 
         let mut window = Self {
             wayland: wayland.clone(),
@@ -1129,6 +1130,7 @@ impl WaylandWindow {
                 }
                 layout_window.current_window_state = window.common.current_window_state.clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                layout_window.routes = window.resources.config.routes.clone();
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
                     *guard = crate::desktop::display::get_monitors();
@@ -1182,6 +1184,7 @@ impl WaylandWindow {
                     }
                     layout_window.current_window_state = window.common.current_window_state.clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                    layout_window.routes = window.resources.config.routes.clone();
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
                         *guard = crate::desktop::display::get_monitors();

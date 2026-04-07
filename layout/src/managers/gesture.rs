@@ -756,6 +756,78 @@ impl GestureAndDragManager {
         distance < self.config.double_click_distance_threshold
     }
 
+    /// Detect click count (1=single, 2=double, 3=triple) by examining
+    /// the recent ended sessions.  Uses only timestamps and positions
+    /// from the session history, so the result is fully deterministic
+    /// for any given sequence of `InputSession`s (easy to unit-test
+    /// with synthetic `CoreInstant`/`CoreDuration` values).
+    pub fn detect_click_count(&self) -> u32 {
+        let sessions = &self.input_sessions;
+        let n = sessions.len();
+        if n == 0 {
+            return 1;
+        }
+
+        // We need at least 2 ended sessions for double-click,
+        // 3 ended sessions for triple-click.
+        // Walk backwards from the most recent ended session and count
+        // how many consecutive clicks fall within the time+distance
+        // thresholds.
+
+        // Collect the last up-to-3 ended sessions (most-recent first).
+        let mut recent: Vec<&InputSession> = Vec::new();
+        for s in sessions.iter().rev() {
+            if !s.ended {
+                continue;
+            }
+            recent.push(s);
+            if recent.len() >= 3 {
+                break;
+            }
+        }
+
+        if recent.is_empty() {
+            return 1;
+        }
+
+        // recent[0] = most recent ended session
+        // recent[1] = previous ended session (if any)
+        // recent[2] = one before that (if any)
+        let mut count = 1u32;
+
+        for i in 0..recent.len() - 1 {
+            let later = recent[i];
+            let earlier = recent[i + 1];
+
+            let later_start = match later.first_sample() {
+                Some(s) => s,
+                None => break,
+            };
+            let earlier_start = match earlier.first_sample() {
+                Some(s) => s,
+                None => break,
+            };
+
+            let duration = later_start.timestamp.duration_since(&earlier_start.timestamp);
+            let time_delta_ms = duration_to_millis(duration);
+            if time_delta_ms > self.config.double_click_time_threshold_ms {
+                break;
+            }
+
+            let dx = later_start.position.x - earlier_start.position.x;
+            let dy = later_start.position.y - earlier_start.position.y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance >= self.config.double_click_distance_threshold {
+                break;
+            }
+
+            count += 1;
+        }
+
+        // Cap at 3 (triple-click selects paragraph, beyond that cycles back)
+        if count > 3 { 1 } else { count }
+    }
+
     /// Get the primary direction of current drag.
     pub fn get_drag_direction(&self) -> Option<GestureDirection> {
         let session = self.get_current_session()?;

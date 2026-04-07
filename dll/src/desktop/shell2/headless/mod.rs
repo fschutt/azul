@@ -371,6 +371,7 @@ impl HeadlessWindow {
         let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
+        layout_window.routes = config.routes.clone();
 
         let wake_condvar = Arc::new(Condvar::new());
         let wake_mutex = Arc::new(Mutex::new(WakeState { woken: false }));
