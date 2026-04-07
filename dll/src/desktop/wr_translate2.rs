@@ -206,6 +206,14 @@ pub fn default_renderer_options(
         // which is near-instant (<1ms per shader).
         precache_flags: ShaderPrecacheFlags::EMPTY,
         cached_programs,
+        // Enable partial present so WebRender computes per-frame dirty rects
+        // from tile invalidation. These rects are returned in RenderResults and
+        // forwarded to the OS compositor for per-region invalidation.
+        compositor_config: webrender::CompositorConfig::Draw {
+            max_partial_present_rects: 1,
+            draw_previous_partial_present_regions: false,
+            partial_present: None,
+        },
         ..WrRendererOptions::default()
     }
 }

@@ -478,9 +478,10 @@ impl CompositorState {
         let px_dy = (dy * dpi_factor).round() as i32;
         shift_pixbuf(&mut layer.pixbuf, px_dx, px_dy);
 
-        // Compute exposed strip and re-render it
-        let exposed = compute_exposed_rect(&layer.bounds, dx, dy);
-        if let Some(exposed_rect) = exposed {
+        // Compute exposed strips and re-render them.
+        // Diagonal scroll produces 2 rects (one vertical strip + one horizontal strip).
+        let exposed = compute_exposed_rects(&layer.bounds, dx, dy);
+        for exposed_rect in exposed {
             layer.damage.push(exposed_rect);
         }
 
@@ -691,12 +692,15 @@ fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     }
 }
 
-/// Compute the exposed rectangle after a scroll of (dx, dy) in logical coords.
-fn compute_exposed_rect(bounds: &LogicalRect, dx: f32, dy: f32) -> Option<LogicalRect> {
+/// Compute exposed rectangles after a scroll of (dx, dy) in logical coords.
+/// Returns 0, 1, or 2 rects: a vertical strip (top/bottom) and/or a horizontal
+/// strip (left/right). Diagonal scrolling produces both strips.
+fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalRect> {
     let w = bounds.size.width;
     let h = bounds.size.height;
+    let mut rects = Vec::new();
 
-    // Vertical exposed strip
+    // Vertical exposed strip (full width, covers top or bottom edge)
     if dy.abs() > 0.5 {
         let strip = if dy > 0.0 {
             // Scrolled down — top strip exposed
@@ -711,10 +715,10 @@ fn compute_exposed_rect(bounds: &LogicalRect, dx: f32, dy: f32) -> Option<Logica
                 size: LogicalSize { width: w, height: (-dy).min(h) },
             }
         };
-        return Some(strip);
+        rects.push(strip);
     }
 
-    // Horizontal exposed strip
+    // Horizontal exposed strip (full height, covers left or right edge)
     if dx.abs() > 0.5 {
         let strip = if dx > 0.0 {
             LogicalRect {
@@ -727,10 +731,10 @@ fn compute_exposed_rect(bounds: &LogicalRect, dx: f32, dy: f32) -> Option<Logica
                 size: LogicalSize { width: (-dx).min(w), height: h },
             }
         };
-        return Some(strip);
+        rects.push(strip);
     }
 
-    None
+    rects
 }
 
 /// Apply CSS filters to a pixbuf at composite time.

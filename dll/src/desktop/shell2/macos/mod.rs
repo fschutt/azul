@@ -5245,7 +5245,18 @@ impl MacOSWindow {
             };
             self.common.frame_needs_regeneration = false;
             // Layout was regenerated — rebuild display list unless layout result is identical
-            let needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
+            let mut needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
+            // If layout is unchanged but display_list_dirty is set (e.g. cursor blink
+            // toggled the display list without changing the DOM structure), we still
+            // need to rebuild the display list so the visual change reaches WebRender.
+            if !needs_rebuild && self.common.display_list_dirty {
+                if let Some(ref mut lw) = self.common.layout_window {
+                    let dom_id = azul_core::dom::DomId { inner: 0 };
+                    lw.regenerate_display_list_for_dom(dom_id);
+                }
+                needs_rebuild = true;
+            }
+            self.common.display_list_dirty = false;
             needs_rebuild
         } else if self.common.display_list_dirty {
             eprintln!("[RENDER] display_list_dirty=true, regenerating display list. preedit={:?}",

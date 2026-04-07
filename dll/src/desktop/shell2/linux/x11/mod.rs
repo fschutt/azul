@@ -1895,7 +1895,22 @@ impl X11Window {
         );
 
         match renderer.render(framebuffer_size, 0) {
-            Ok(_results) => {}
+            Ok(results) => {
+                // Store WebRender's dirty rects for per-rect Expose invalidation.
+                let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+                self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
+                    azul_core::geom::LogicalRect {
+                        origin: azul_core::geom::LogicalPosition {
+                            x: dr.min.x as f32 / dpi_scale,
+                            y: dr.min.y as f32 / dpi_scale,
+                        },
+                        size: azul_core::geom::LogicalSize {
+                            width: dr.width() as f32 / dpi_scale,
+                            height: dr.height() as f32 / dpi_scale,
+                        },
+                    }
+                }).collect();
+            }
             Err(errors) => {
                 log_warn!(LogCategory::Rendering, "[X11] Render errors: {:?}", errors);
                 return Err(WindowError::PlatformError(format!(

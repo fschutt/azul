@@ -2693,13 +2693,31 @@ impl WaylandWindow {
                         physical_size.width as i32,
                         physical_size.height as i32,
                     );
-                    if let Err(e) = renderer.render(device_size, 0) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[Wayland] WebRender render failed: {:?}",
-                            e
-                        );
-                        return;
+                    match renderer.render(device_size, 0) {
+                        Ok(results) => {
+                            // Store dirty rects for wl_surface_damage per-rect hints.
+                            let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+                            self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
+                                azul_core::geom::LogicalRect {
+                                    origin: azul_core::geom::LogicalPosition {
+                                        x: dr.min.x as f32 / dpi_scale,
+                                        y: dr.min.y as f32 / dpi_scale,
+                                    },
+                                    size: azul_core::geom::LogicalSize {
+                                        width: dr.width() as f32 / dpi_scale,
+                                        height: dr.height() as f32 / dpi_scale,
+                                    },
+                                }
+                            }).collect();
+                        }
+                        Err(e) => {
+                            log_error!(
+                                LogCategory::Rendering,
+                                "[Wayland] WebRender render failed: {:?}",
+                                e
+                            );
+                            return;
+                        }
                     }
 
                     // 3. Swap buffers

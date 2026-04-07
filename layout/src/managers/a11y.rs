@@ -26,15 +26,17 @@ use azul_css::AzString;
 
 use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 
-/// Cursor position info passed from CursorManager to the a11y tree builder.
+/// Cursor/selection info passed to the a11y tree builder.
 /// Used to set text_selection on contenteditable nodes so screen readers
-/// can announce the cursor position.
+/// can announce the cursor position and selection range.
 #[cfg(feature = "a11y")]
 pub struct CursorA11yInfo {
     pub dom_id: DomId,
     pub node_id: NodeId,
-    /// Character offset of the cursor in the text value
-    pub cursor_offset: usize,
+    /// Byte offset of the selection anchor (start of selection, or cursor pos if no range)
+    pub anchor_offset: usize,
+    /// Byte offset of the selection focus (end of selection, or same as anchor for cursor)
+    pub focus_offset: usize,
 }
 
 /// Manager for accessibility tree state and updates.
@@ -52,6 +54,9 @@ pub struct A11yManager {
     pub tree: Option<Tree>,
     /// The last generated tree update (for platform adapter consumption).
     pub last_tree_update: Option<TreeUpdate>,
+    /// Whether the full tree has been sent to the platform adapter at least once.
+    /// After initialization, incremental updates can use `tree: None`.
+    pub tree_initialized: bool,
 }
 
 #[cfg(feature = "a11y")]
@@ -63,6 +68,7 @@ impl A11yManager {
             root_id,
             tree: None,
             last_tree_update: None,
+            tree_initialized: false,
         }
     }
 
@@ -204,31 +210,34 @@ impl A11yManager {
                             node.add_action(Action::ReplaceSelectedText);
                             node.add_action(Action::SetValue);
 
-                            // If cursor is in this node, expose position info
+                            // If cursor/selection is in this node, expose to screen readers
                             if let Some(ref ci) = cursor_info {
                                 if ci.dom_id == *dom_id && ci.node_id == NodeId::new(dom_idx) {
-                                    // Set character_lengths in UTF-16 code units (accesskit spec).
-                                    // BMP chars = 1 code unit, supplementary plane = 2.
                                     let char_lengths: Vec<u8> = text_content.chars()
                                         .map(|c| c.len_utf16() as u8)
                                         .collect();
                                     node.set_character_lengths(char_lengths.clone());
 
-                                    // Convert byte offset to UTF-16 character index
-                                    let char_idx = text_content
-                                        .char_indices()
-                                        .take_while(|(byte_idx, _)| *byte_idx < ci.cursor_offset)
-                                        .count();
-                                    let clamped_idx = char_idx.min(char_lengths.len());
-
-                                    // Expose caret position (degenerate selection: anchor == focus)
-                                    let pos = accesskit::TextPosition {
-                                        node: a11y_node_id,
-                                        character_index: clamped_idx,
+                                    let byte_to_char_idx = |byte_off: usize| -> usize {
+                                        text_content
+                                            .char_indices()
+                                            .take_while(|(b, _)| *b < byte_off)
+                                            .count()
+                                            .min(char_lengths.len())
                                     };
+
+                                    let anchor_idx = byte_to_char_idx(ci.anchor_offset);
+                                    let focus_idx = byte_to_char_idx(ci.focus_offset);
+
                                     node.set_text_selection(accesskit::TextSelection {
-                                        anchor: pos,
-                                        focus: pos,
+                                        anchor: accesskit::TextPosition {
+                                            node: a11y_node_id,
+                                            character_index: anchor_idx,
+                                        },
+                                        focus: accesskit::TextPosition {
+                                            node: a11y_node_id,
+                                            character_index: focus_idx,
+                                        },
                                     });
                                 }
                             }

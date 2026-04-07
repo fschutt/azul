@@ -208,9 +208,15 @@ pub extern "C" fn cursor_blink_timer_callback(
     // Simply toggle cursor visibility
     info.set_cursor_visibility_toggle();
 
-    // Continue the timer and request a redraw
+    // Continue the timer and request a redraw.
+    // DoNothing here because the SetCursorVisibility change (queued above)
+    // already toggles blink state and returns ShouldUpdateDisplayListCurrentWindow,
+    // which sets display_list_dirty. RefreshDom would trigger a full DOM rebuild
+    // from the user callback; since the DOM is structurally unchanged (only cursor
+    // visibility differs), is_layout_equivalent() returns LayoutUnchanged and the
+    // display list change is lost.
     TimerCallbackReturn {
-        should_update: Update::RefreshDom,
+        should_update: Update::DoNothing,
         should_terminate: TerminateTimer::Continue,
     }
 }
@@ -2592,13 +2598,22 @@ impl LayoutWindow {
     pub fn update_a11y_tree(&mut self) {
         let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
             let node_id = mc.node_id.node.into_crate_internal()?;
-            let offset = mc.get_primary_cursor()
-                .map(|c| c.cluster_id.start_byte_in_run as usize)
-                .unwrap_or(0);
+            let primary = mc.get_primary()?;
+            let (anchor_offset, focus_offset) = match &primary.selection {
+                azul_core::selection::Selection::Cursor(c) => {
+                    let off = c.cluster_id.start_byte_in_run as usize;
+                    (off, off)
+                }
+                azul_core::selection::Selection::Range(r) => (
+                    r.start.cluster_id.start_byte_in_run as usize,
+                    r.end.cluster_id.start_byte_in_run as usize,
+                ),
+            };
             Some(crate::managers::a11y::CursorA11yInfo {
                 dom_id: mc.node_id.dom,
                 node_id,
-                cursor_offset: offset,
+                anchor_offset,
+                focus_offset,
             })
         });
 
@@ -2628,9 +2643,139 @@ impl LayoutWindow {
         match a11y_result {
             Ok(tree_update) => {
                 self.a11y_manager.last_tree_update = Some(tree_update);
+                self.a11y_manager.tree_initialized = true;
             }
             Err(_) => {}
         }
+    }
+
+    /// Incremental a11y update: only push the focused contenteditable node's
+    /// updated value + cursor/selection.  Falls back to full rebuild if the
+    /// tree hasn't been initialized yet or there's no active editing.
+    #[cfg(feature = "a11y")]
+    pub fn update_a11y_tree_incremental(&mut self) {
+        if !self.a11y_manager.tree_initialized {
+            // First time — need full tree
+            return self.update_a11y_tree();
+        }
+
+        // Only worth doing incremental if we have an active editing node
+        let mc = match self.text_edit_manager.multi_cursor.as_ref() {
+            Some(mc) => mc,
+            None => return, // No cursor — nothing to update incrementally
+        };
+
+        let dom_node_id = mc.node_id;
+        let node_id = match dom_node_id.node.into_crate_internal() {
+            Some(id) => id,
+            None => return,
+        };
+        let dom_id = dom_node_id.dom;
+
+        // Get current text content (from dirty overrides or StyledDom)
+        let text_content = if let Some(dirty) = self.dirty_text_nodes.get(&(dom_id, node_id)) {
+            self.extract_text_from_inline_content(&dirty.content)
+        } else {
+            // Fall back to StyledDom text
+            let lr = match self.layout_results.get(&dom_id) {
+                Some(lr) => lr,
+                None => return self.update_a11y_tree(),
+            };
+            let node_data = lr.styled_dom.node_data.as_ref();
+            let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
+            let mut text = String::new();
+            if let Some(item) = hierarchy.get(node_id.index()) {
+                let mut child = item.first_child_id(node_id);
+                while let Some(child_id) = child {
+                    if let Some(cd) = node_data.get(child_id.index()) {
+                        if let azul_core::dom::NodeType::Text(t) = &cd.node_type {
+                            if !text.is_empty() { text.push(' '); }
+                            text.push_str(t.as_str());
+                        }
+                    }
+                    if child_id.index() >= hierarchy.len() { break; }
+                    child = hierarchy[child_id.index()].next_sibling_id();
+                }
+            }
+            text
+        };
+
+        // Build the a11y node ID (same encoding as update_tree)
+        let a11y_node_id = accesskit::NodeId(
+            ((dom_id.inner as u64) << 32) | (node_id.index() as u64) + 1,
+        );
+
+        // Get the node data to determine role
+        let role = self.layout_results.get(&dom_id)
+            .and_then(|lr| lr.styled_dom.node_data.as_ref().get(node_id.index()))
+            .map(|nd| {
+                if nd.is_contenteditable() || matches!(nd.node_type, azul_core::dom::NodeType::TextArea) {
+                    accesskit::Role::MultilineTextInput
+                } else if matches!(nd.node_type, azul_core::dom::NodeType::Input) {
+                    accesskit::Role::TextInput
+                } else {
+                    accesskit::Role::GenericContainer
+                }
+            })
+            .unwrap_or(accesskit::Role::GenericContainer);
+
+        let mut node = accesskit::Node::new(role);
+        node.set_value(text_content.as_str());
+        node.add_action(accesskit::Action::SetTextSelection);
+        node.add_action(accesskit::Action::ReplaceSelectedText);
+        node.add_action(accesskit::Action::SetValue);
+
+        // Set cursor/selection
+        let primary = mc.get_primary();
+        if let Some(identified) = primary {
+            let (anchor_off, focus_off) = match &identified.selection {
+                azul_core::selection::Selection::Cursor(c) => {
+                    let off = c.cluster_id.start_byte_in_run as usize;
+                    (off, off)
+                }
+                azul_core::selection::Selection::Range(r) => (
+                    r.start.cluster_id.start_byte_in_run as usize,
+                    r.end.cluster_id.start_byte_in_run as usize,
+                ),
+            };
+
+            let char_lengths: Vec<u8> = text_content.chars()
+                .map(|c| c.len_utf16() as u8)
+                .collect();
+            node.set_character_lengths(char_lengths.clone());
+
+            let byte_to_char = |byte_off: usize| -> usize {
+                text_content.char_indices()
+                    .take_while(|(b, _)| *b < byte_off)
+                    .count()
+                    .min(char_lengths.len())
+            };
+
+            node.set_text_selection(accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: a11y_node_id,
+                    character_index: byte_to_char(anchor_off),
+                },
+                focus: accesskit::TextPosition {
+                    node: a11y_node_id,
+                    character_index: byte_to_char(focus_off),
+                },
+            });
+        }
+
+        // Focus: use the current focused node or root
+        let focus = self.focus_manager.get_focused_node().copied()
+            .and_then(|dn| {
+                let idx = dn.node.into_crate_internal()?.index();
+                Some(accesskit::NodeId(((dn.dom.inner as u64) << 32) | (idx as u64) + 1))
+            })
+            .unwrap_or(self.a11y_manager.root_id);
+
+        self.a11y_manager.last_tree_update = Some(accesskit::TreeUpdate {
+            nodes: vec![(a11y_node_id, node)],
+            tree: None, // Incremental — tree structure unchanged
+            focus,
+        });
     }
 
     pub fn get_focused_cursor_rect(&self) -> Option<azul_core::geom::LogicalRect> {
@@ -5367,10 +5512,10 @@ impl LayoutWindow {
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list;
                 }
-                // Rebuild a11y tree so screen readers see updated cursor,
-                // selection, and text content after display-list-only changes.
+                // Incremental a11y update: only push the edited node's
+                // updated value + cursor, not the entire tree.
                 #[cfg(feature = "a11y")]
-                self.update_a11y_tree();
+                self.update_a11y_tree_incremental();
             }
             Err(_e) => {
             }

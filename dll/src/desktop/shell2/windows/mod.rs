@@ -1041,9 +1041,24 @@ impl Win32Window {
             let framebuffer_size =
                 webrender::api::units::DeviceIntSize::new(width as i32, height as i32);
 
-            renderer
+            let results = renderer
                 .render(framebuffer_size, 0)
                 .map_err(|e| WindowError::PlatformError(format!("Render error: {:?}", e)))?;
+
+            // Store WebRender's dirty rects for per-rect InvalidateRect calls.
+            let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+            self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
+                azul_core::geom::LogicalRect {
+                    origin: azul_core::geom::LogicalPosition {
+                        x: dr.min.x as f32 / dpi_scale,
+                        y: dr.min.y as f32 / dpi_scale,
+                    },
+                    size: azul_core::geom::LogicalSize {
+                        width: dr.width() as f32 / dpi_scale,
+                        height: dr.height() as f32 / dpi_scale,
+                    },
+                }
+            }).collect();
 
             self.common.display_list_initialized = true;
 
