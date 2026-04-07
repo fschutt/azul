@@ -7730,9 +7730,13 @@ pub fn break_one_line<T: ParsedFontTrait>(
                     OverflowWrap::Anywhere | OverflowWrap::BreakWord => {
                         // Break the unbreakable sequence: fit as many clusters
                         // as possible on this line (grapheme clusters stay together).
+                        // Use at least 1px as the available width to prevent
+                        // one-character-per-line wrapping when total_available is 0
+                        // (can happen with stale constraints or zero-width containers).
+                        let effective_available = line_constraints.total_available.max(1.0);
                         for item in next_unit.iter() {
                             let item_w = get_item_measure(item, is_vertical);
-                            if !line_items.is_empty() && current_width + item_w > line_constraints.total_available {
+                            if !line_items.is_empty() && current_width + item_w > effective_available {
                                 break;
                             }
                             line_items.push(item.clone());
