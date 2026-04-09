@@ -90,7 +90,7 @@ fn discover_source_files(config: &AutoreviewConfig) -> Vec<PathBuf> {
     let root = &config.project_root;
     let mut files = Vec::new();
 
-    for dir in &["core/src", "css/src", "layout/src", "shell/src"] {
+    for dir in &["core/src", "css/src", "layout/src", "dll/src", "shell/src"] {
         let full = root.join(dir);
         if full.is_dir() {
             walk_rs_files(&full, root, &mut files);
@@ -167,32 +167,43 @@ Check every public struct, enum, function, constant, and type alias.
 Types exposed in the public API especially need doc comments.
 Flag items with no docs, and docs that no longer match the code.
 
-### 3. File Size
-- Under ~50 non-blank lines of real code → suggest merging with a related module.
-- Over ~800 lines → suggest splitting.  Consider semantic cohesion.
+### 3. Module-Level Documentation (`//!`)
+Check whether the file has a `//!` module doc comment at the top.
+Every module should have a brief `//!` block explaining:
+- What this module is responsible for
+- Key types / entry points it exports
+- How it fits into the larger crate (what depends on it, what it depends on)
+Flag files with no module doc, or with a module doc that doesn't match
+what the file actually contains.
 
-### 4. Outdated Comments
+### 4. File Size
+- Under ~50 non-blank lines of real code → suggest merging with a related module.
+- Over ~3000-4000 lines → *may* benefit from splitting, but only if the file
+  mixes unrelated concerns.  A large file is fine if its functions are small and
+  cohesive (e.g. `fc.rs`).  Do NOT suggest splitting just because a file is long.
+
+### 5. Outdated Comments
 For each comment that references a specific item, verify the reference still
 exists and is accurate.
 
-### 5. Obvious Bugs
+### 6. Obvious Bugs
 Logic errors, bad unwraps, off-by-one, incorrect type conversions, race
 conditions, unsafe misuse.
 
-### 6. Dead Code / Unwired Systems
+### 7. Dead Code / Unwired Systems
 For each public function and type, grep for call sites outside its own module.
 If zero results, flag it.  Check if the feature the file describes is actually
 wired into the rest of the codebase.
 
-### 7. Documentation Verbosity
+### 8. Documentation Verbosity
 Docs should be short and to-the-point.  Flag overly verbose doc comments.
 **Exception**: `refany.rs` is allowed to be verbose.
 
-### 8. Refactoring Opportunities
+### 9. Refactoring Opportunities
 Functions over ~100 LOC that should be split; repeated patterns that could be
 extracted; missing or unnecessary abstractions.
 
-### 9. Code Style
+### 10. Code Style
 - Prefer chaining (`iter().filter().map().collect()`)
 - Prefer early-return / guard clauses over deep nesting
 - Target 60–100 LOC per function; extract sub-functions for longer ones
@@ -200,12 +211,12 @@ extracted; missing or unnecessary abstractions.
   early returns, `?`, or `let … else`
 - Minimal indentation
 
-### 10. Vibe-Coding Hints
+### 11. Vibe-Coding Hints
 Search for: `FIX:`, `PHASE`, `TODO`, `FIXME`, `HACK`, `STEP X:`.
 These often come from AI agents working off phased plans.
 Also flag non-functional code samples in comments and placeholder stubs.
 
-### 11. Compiler Warnings / Unclean Patterns
+### 12. Compiler Warnings / Unclean Patterns
 Look for code that would trigger compiler warnings or clippy lints:
 - Direct casts of function pointers to integers (use `as *const ()` first)
 - Unused imports, variables, or `#[allow(unused)]` that could be cleaned up
@@ -215,7 +226,7 @@ Look for code that would trigger compiler warnings or clippy lints:
 - Missing `#[must_use]` on functions that return important values
 - Raw pointer arithmetic that could use safer abstractions
 
-### 12. System Documentation Needs
+### 13. System Documentation Needs
 If this file implements a *system* (event loop, rendering pipeline, layout
 solver, text shaping, etc.) rather than just helper functions:
 - Check whether `doc/guide/` already documents it.
