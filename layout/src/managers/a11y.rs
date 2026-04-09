@@ -327,6 +327,7 @@ impl A11yManager {
             nodes,
             tree: Some(Tree::new(root_id)),
             focus,
+            tree_id: accesskit::TreeId::ROOT,
         };
 
         tree_update
@@ -508,7 +509,7 @@ impl A11yManager {
             // === Text content ===
             NodeType::Text(_) => Role::Label,
             NodeType::P => Role::Paragraph,
-            NodeType::Pre => Role::Pre,
+            NodeType::Pre => Role::Code,
             NodeType::BlockQuote => Role::Blockquote,
             NodeType::Code => Role::Code,
             NodeType::Em | NodeType::I => Role::Emphasis,
@@ -558,8 +559,8 @@ impl A11yManager {
             NodeType::Ul | NodeType::Ol | NodeType::Dir => Role::List,
             NodeType::Li => Role::ListItem,
             NodeType::Dl => Role::DescriptionList,
-            NodeType::Dt => Role::DescriptionListTerm,
-            NodeType::Dd => Role::DescriptionListDetail,
+            NodeType::Dt => Role::Term,
+            NodeType::Dd => Role::Definition,
             NodeType::Menu => Role::Menu,
             NodeType::MenuItem => Role::MenuItem,
 
@@ -697,9 +698,9 @@ impl A11yManager {
         //
         // This encoding matches the format used in update_tree().
         let dom_id = DomId {
-            inner: (request.target.0 >> 32) as usize,
+            inner: (request.target_node.0 >> 32) as usize,
         };
-        let node_id = NodeId::new((request.target.0 & 0xFFFF_FFFF) as usize);
+        let node_id = NodeId::new((request.target_node.0 & 0xFFFF_FFFF) as usize);
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         let dom_node_id = DomNodeId {
             dom: dom_id,

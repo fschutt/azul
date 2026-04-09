@@ -28,7 +28,7 @@ image                   = { version = "0.25", default-features = false, optional
 zune-jpeg               = { version = "0.4", default-features = false, features = ["std"], optional = true }
 rust-fontconfig         = { version = "3.1.0", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
-accesskit               = { version = "0.21.1", default-features = false, optional = true }
+accesskit               = { version = "0.24", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
 agg-rust                = { package = "agg-rust-azul", version = "1.0.2", default-features = false, optional = true }

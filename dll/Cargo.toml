@@ -42,7 +42,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 
 # Accessibility
-accesskit = { version = "0.21.1", default-features = false, optional = true }
+accesskit = { version = "0.24", default-features = false, optional = true }
 
 # PNG encoding for screenshots
 png = { version = "0.18", default-features = false, optional = true }
@@ -62,7 +62,7 @@ cfg-if = "1.0"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 x11-clipboard = { version = "0.9.3", optional = true }
-accesskit_unix = { version = "0.17.2", optional = true }
+accesskit_unix = { version = "0.21", optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
 objc = "0.2"
@@ -81,7 +81,7 @@ winapi = { version = "0.3.9", default-features = false, features = [
     "commdlg"
 ] }
 clipboard-win = { version = "5.4", optional = true }
-accesskit_windows = { version = "0.29.2", optional = true }
+accesskit_windows = { version = "0.32", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cgl = "0.3.2"
@@ -92,7 +92,7 @@ objc-foundation = "0.1"
 objc_id = "0.1"
 block2 = "0.6.0"
 libloading = "0.8.6"
-accesskit_macos = { version = "0.22.2", optional = true }
+accesskit_macos = { version = "0.26", optional = true }
 objc2-core-foundation = { version = "0.3.0", default-features = true, features = [
     "std",
     "CFBase",

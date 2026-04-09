@@ -160,7 +160,7 @@ impl MacOSAccessibilityAdapter {
         // Try to receive action without blocking
         if let Ok(request) = self.action_receiver.try_recv() {
             // Decode the NodeId back to DomId + NodeId
-            let a11y_node_id: u64 = request.target.0.into();
+            let a11y_node_id: u64 = request.target_node.0.into();
             let dom_id = DomId {
                 inner: (a11y_node_id >> 32) as usize,
             };

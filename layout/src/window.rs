@@ -2775,6 +2775,7 @@ impl LayoutWindow {
             nodes: vec![(a11y_node_id, node)],
             tree: None, // Incremental — tree structure unchanged
             focus,
+            tree_id: accesskit::TreeId::ROOT,
         });
     }
 
