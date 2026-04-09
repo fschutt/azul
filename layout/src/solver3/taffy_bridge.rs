@@ -1839,29 +1839,25 @@ impl<'a, 'b, T: ParsedFontTrait> CacheTree for TaffyBridge<'a, 'b, T> {
     fn cache_get(
         &self,
         node_id: taffy::NodeId,
-        known_dimensions: Size<Option<f32>>,
-        available_space: Size<AvailableSpace>,
-        run_mode: RunMode,
+        input: &LayoutInput,
     ) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
         self.tree
             .warm(node_idx)?
             .taffy_cache
-            .get(known_dimensions, available_space, run_mode)
+            .get(input)
     }
 
     fn cache_store(
         &mut self,
         node_id: taffy::NodeId,
-        known_dimensions: Size<Option<f32>>,
-        available_space: Size<AvailableSpace>,
-        run_mode: RunMode,
+        input: &LayoutInput,
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
         if let Some(warm) = self.tree.warm_mut(node_idx) {
             warm.taffy_cache
-                .store(known_dimensions, available_space, run_mode, layout_output);
+                .store(input, layout_output);
         }
     }
 
