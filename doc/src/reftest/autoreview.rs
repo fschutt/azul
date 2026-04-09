@@ -658,10 +658,14 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
     // Even with --disallowedTools, rust-analyzer (from the user's IDE) or
     // agent sub-processes can trigger builds that lock up the machine when
     // dozens of agents run in parallel.
+    //
+    // IMPORTANT: use `pkill` without `-f` so we match only the process name,
+    // not the full command line.  With `-f`, `pkill -f cargo` would also kill
+    // claude agents whose argv contains "--disallowedTools Bash(cargo *)".
     let kill_loop = std::thread::spawn(|| {
         while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
             for proc in &["cargo", "rustc", "rust-analyzer", "ra-multiplex", "ra_multiplex"] {
-                let _ = Command::new("pkill").arg("-9").arg("-f").arg(proc).output();
+                let _ = Command::new("pkill").arg("-9").arg(proc).output();
             }
             std::thread::sleep(Duration::from_secs(5));
         }
