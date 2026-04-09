@@ -328,22 +328,22 @@ jobs:
           - os: ubuntu-22.04
             artifact_name: azul-linux-amd64
             artifact_path: |
-              target/release/libazul.so
-              target/release/libazul.a
-              target/release/azul.so
+              target/prod-release/libazul.so
+              target/prod-release/libazul.a
+              target/prod-release/azul.so
           - os: macos-14
             artifact_name: azul-macos-amd64
             artifact_path: |
-              target/release/libazul.dylib
-              target/release/libazul.a
-              target/release/azul.so
+              target/prod-release/libazul.dylib
+              target/prod-release/libazul.a
+              target/prod-release/azul.so
           - os: windows-2022
             artifact_name: azul-windows-amd64
             artifact_path: |
-              target/release/azul.dll
-              target/release/azul.lib
-              target/release/azul.dll.lib
-              target/release/azul.pyd
+              target/prod-release/azul.dll
+              target/prod-release/azul.lib
+              target/prod-release/azul.dll.lib
+              target/prod-release/azul.pyd
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -413,7 +413,7 @@ jobs:
           done
 
       - name: Build DLL (for C/C++ examples)
-        run: cargo build --release -p azul-dll --features="build-dll"
+        run: cargo build --profile prod-release -p azul-dll --features="build-dll"
 
       - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
@@ -478,29 +478,29 @@ jobs:
           ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Build Python extension
-        run: cargo build --release -p azul-dll --lib --features="python-extension"
+        run: cargo build --profile prod-release -p azul-dll --lib --features="python-extension"
 
       - name: Rename Python extension (Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
-        run: cp target/release/azul.dll target/release/azul.pyd
+        run: cp target/prod-release/azul.dll target/prod-release/azul.pyd
 
       - name: Rename Python extension (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cp target/release/libazul.so target/release/azul.so
+        run: cp target/prod-release/libazul.so target/prod-release/azul.so
 
       - name: Rename Python extension (macOS)
         if: matrix.os == 'macos-14'
-        run: cp target/release/libazul.dylib target/release/azul.so
+        run: cp target/prod-release/libazul.dylib target/prod-release/azul.so
 
       - name: Test Python extension import
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "windows-2022" ]; then
-            export PATH=$PATH:$(pwd)/target/release
-            python3 -c "import sys; sys.path.insert(0, 'target/release'); import azul; print('Python extension loaded!')"
+            export PATH=$PATH:$(pwd)/target/prod-release
+            python3 -c "import sys; sys.path.insert(0, 'target/prod-release'); import azul; print('Python extension loaded!')"
           else
-            cp target/release/azul.so examples/python/
+            cp target/prod-release/azul.so examples/python/
             cd examples/python && python3 -c "import azul; print('Python extension loaded!')"
           fi
 
@@ -516,8 +516,8 @@ jobs:
       - name: Debug - Tree before upload
         shell: bash
         run: |
-          echo "=== target/release ==="
-          ls -la target/release/ 2>/dev/null | head -30 || echo "Not found"
+          echo "=== target/prod-release ==="
+          ls -la target/prod-release/ 2>/dev/null | head -30 || echo "Not found"
           echo "=== target/codegen ==="
           ls -la target/codegen/ 2>/dev/null | head -20 || echo "Not found"
 

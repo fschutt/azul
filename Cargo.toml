@@ -22,9 +22,18 @@ gleam = "0.15.1"
 opt-level = 3
 debug = 1         # Line-level debug info only (smaller than full debug=2).
 strip = false     # Don't strip symbols so samply can resolve them.
-lto = false       # Disable LTO temporarily (saves disk space for profiling).
-codegen-units = 1 # Reduces parallel builds but allows better optimization.
+lto = false       # No LTO for faster local builds.
+codegen-units = 16 # Parallel codegen for faster local builds (~60s → ~20s for azul-layout).
 panic = "abort"   # Removes stack unwinding code (drastic size reduction).
+
+# CI / distribution profile: maximum optimization, slow to build.
+#   cargo build --profile prod-release -p azul-dll --features build-dll
+[profile.prod-release]
+inherits = "release"
+opt-level = 3
+lto = "thin"      # Thin LTO: good size/perf wins without full-LTO build cost.
+codegen-units = 1 # Single codegen unit for best optimization.
+strip = "symbols" # Strip symbols for smallest binary.
 
 [profile.coverage]
 inherits = "release"
@@ -34,3 +43,8 @@ lto = false       # Disable LTO so grcov can see individual object files.
 codegen-units = 16
 panic = "unwind"  # Tests need unwinding for #[should_panic] etc.
 
+# Unify allsorts: rust-fontconfig pulls registry allsorts, azul-layout uses
+# our git fork with pixel-snap hinting additions.  This patch makes both
+# resolve to the same crate, eliminating a ~13s duplicate compile.
+[patch.crates-io]
+allsorts = { git = "https://github.com/fschutt/allsorts.git", branch = "pixelsnap" }

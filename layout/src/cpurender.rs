@@ -1059,10 +1059,12 @@ impl AzulPixmap {
 
     /// Decode a PNG byte slice into an AzulPixmap.
     pub fn decode_png(png_bytes: &[u8]) -> Result<Self, String> {
-        let decoder = png::Decoder::new(png_bytes);
+        let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
         let mut reader = decoder.read_info()
             .map_err(|e| format!("PNG decode error: {}", e))?;
-        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let buf_size = reader.output_buffer_size()
+            .ok_or_else(|| "PNG: unknown output buffer size".to_string())?;
+        let mut buf = vec![0u8; buf_size];
         let info = reader.next_frame(&mut buf)
             .map_err(|e| format!("PNG frame error: {}", e))?;
         let width = info.width;
