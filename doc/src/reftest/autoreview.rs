@@ -575,6 +575,19 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
 
     executor::install_sigint_handler();
 
+    // Background thread: kill cargo / rustc / rust-analyzer processes every 5s.
+    // Even with --disallowedTools, rust-analyzer (from the user's IDE) or
+    // agent sub-processes can trigger builds that lock up the machine when
+    // dozens of agents run in parallel.
+    let kill_loop = std::thread::spawn(|| {
+        while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            for proc in &["cargo", "rustc", "rust-analyzer", "ra-multiplex", "ra_multiplex"] {
+                let _ = Command::new("pkill").arg("-9").arg("-f").arg(proc).output();
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    });
+
     let work_queue: Arc<Mutex<VecDeque<PathBuf>>> =
         Arc::new(Mutex::new(pending.into_iter().collect()));
 
@@ -649,6 +662,11 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
     for h in handles {
         let _ = h.join();
     }
+
+    // Stop the kill loop
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+    let _ = kill_loop.join();
+    SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
 
     let results = results.lock().unwrap();
     let total = results.len();
