@@ -236,13 +236,30 @@ whether the current implementation diverged from the plan.
 Look for code that would trigger compiler warnings or clippy lints:
 - Direct casts of function pointers to integers (use `as *const ()` first)
 - Unused imports, variables, or `#[allow(unused)]` that could be cleaned up
-- Unnecessary `unsafe` blocks, or `unsafe` that can be replaced with safe code
 - `as` casts that could silently truncate or lose sign — prefer `try_into()`
 - Deprecated API usage
 - Missing `#[must_use]` on functions that return important values
-- Raw pointer arithmetic that could use safer abstractions
 
-### 13. System Documentation Needs
+### 13. Unsafe Code, FFI & Security
+Review every `unsafe` block and FFI boundary in the file:
+- **Unnecessary unsafe**: can the block be rewritten with safe code?
+  E.g. `ptr::write` / `memset` / `copy_nonoverlapping` that could use
+  slices, `Vec::from_raw_parts` that could use `Vec::with_capacity` + push.
+- **Function pointer casts**: is the signature correct?  Does it match the
+  actual C / OS declaration?  Check argument count, types, and calling
+  convention (`extern "C"` vs `extern "system"`).
+- **Resource leaks**: unclosed file handles, sockets, library handles
+  (`dlopen` / `LoadLibrary` without matching close), leaked `Box::into_raw`.
+- **Dangling pointers**: raw pointers stored past the lifetime of the
+  referent, especially across callback boundaries or in long-lived structs.
+- **Platform API misuse**: wrong flags, missing error checks on OS calls,
+  wrong minimum OS version requirements (check if the API exists on the
+  minimum supported platform).
+- **Buffer overflows**: manual index arithmetic on raw pointers or slices
+  without bounds checking.
+- Raw pointer arithmetic that could use safer abstractions.
+
+### 14. System Documentation Needs
 If this file is *part of* a system (event loop, rendering pipeline, layout
 solver, text shaping, accessibility, windowing, etc.):
 - Name the system this file belongs to.
