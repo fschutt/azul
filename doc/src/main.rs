@@ -1245,6 +1245,13 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
+        ["autoreview", rest @ ..] => {
+            let config = reftest::autoreview::parse_autoreview_args(rest, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::autoreview::run_autoreview(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["spec", rest @ ..] => {
             let args: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
             spec::run_spec_command(&args, &project_root)
@@ -1716,6 +1723,20 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("                                  - Send prompt to Gemini API, print response");
     println!("    debug-regression statistics send -o <file>");
     println!("                                  - Send prompt to Gemini API, save to file");
+    println!();
+    println!("  AUTOREVIEW (code quality review with parallel agents):");
+    println!("    autoreview                    - Review all source files (20 agents)");
+    println!("    autoreview --agents=N         - Use N concurrent agents");
+    println!("    autoreview --file=PATTERN     - Only review files matching PATTERN");
+    println!("    autoreview --model=MODEL      - Override Claude model (e.g. opus)");
+    println!("    autoreview --timeout=SECS     - Agent timeout (default: 1200)");
+    println!("    autoreview --dry-run          - Generate prompts without running agents");
+    println!("    autoreview --status           - Show review progress");
+    println!("    autoreview --retry-failed     - Re-queue failed reviews");
+    println!("    autoreview merge              - Merge reports into a single checklist");
+    println!("    autoreview process            - Implement checklist items (one commit each)");
+    println!("    autoreview --collect          - Collect patches from process worktree");
+    println!("    autoreview --cleanup          - Remove process worktrees");
     println!();
     println!("  AUTOFIX (synchronize workspace types with api.json):");
     println!("    autofix                       - Analyze and generate patches for api.json");

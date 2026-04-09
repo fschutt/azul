@@ -2255,6 +2255,13 @@ pub fn create_worktree_pool_autodebug(
     create_worktree_pool_internal(workspace_root, count, "autodebug-agent")
 }
 
+pub fn create_worktree_pool_autoreview(
+    workspace_root: &Path,
+    count: usize,
+) -> Result<Vec<WorktreeSlot>, String> {
+    create_worktree_pool_internal(workspace_root, count, "autoreview-agent")
+}
+
 pub fn create_worktree_pool_internal(
     workspace_root: &Path,
     count: usize,
@@ -2344,6 +2351,10 @@ fn cleanup_worktrees(workspace_root: &Path) -> Result<(), String> {
 
 pub fn cleanup_worktrees_autodebug(workspace_root: &Path) -> Result<(), String> {
     cleanup_worktrees_internal(workspace_root, "autodebug-agent-*")
+}
+
+pub fn cleanup_worktrees_autoreview(workspace_root: &Path) -> Result<(), String> {
+    cleanup_worktrees_internal(workspace_root, "autoreview-agent-*")
 }
 
 pub fn cleanup_worktrees_internal(workspace_root: &Path, branch_pattern: &str) -> Result<(), String> {
@@ -2982,6 +2993,18 @@ fn run_agent_in_slot(
 }
 
 pub fn run_agent_in_slot_autodebug(
+    slot: &WorktreeSlot,
+    slot_index: usize,
+    prompt_path: &Path,
+    timeout: Duration,
+    base_sha: &str,
+    model: Option<&str>,
+    on_progress: &dyn Fn(&str),
+) -> AgentResult {
+    run_agent_in_slot_internal(slot, slot_index, prompt_path, timeout, base_sha, model, on_progress, true)
+}
+
+pub fn run_agent_in_slot_autoreview(
     slot: &WorktreeSlot,
     slot_index: usize,
     prompt_path: &Path,

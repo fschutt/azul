@@ -32,6 +32,7 @@ use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
 pub mod autodebug;
+pub mod autoreview;
 pub mod pipeline;
 pub mod debug;
 pub mod regression;
