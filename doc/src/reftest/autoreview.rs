@@ -259,7 +259,31 @@ Review every `unsafe` block and FFI boundary in the file:
   without bounds checking.
 - Raw pointer arithmetic that could use safer abstractions.
 
-### 14. System Documentation Needs
+### 14. Known Bug Patterns
+These patterns have caused real bugs in this codebase before — check for them:
+- **Return value silently ignored**: a function builds a result (display list,
+  transaction, re-render flag) but the caller never uses or sends it.
+  Look for unused `let _result = ...` or missing `.send()` / `.push()`.
+- **Null vs empty in FFI**: passing an empty string (`""`) where the C/Win32/
+  Cocoa API expects a null pointer (`NULL` / `std::ptr::null()`), or vice versa.
+- **CSS box-model mix-ups**: using margin-box dimensions where padding-box or
+  content-box is needed, or mapping `auto` to `0` instead of preserving its
+  semantics.
+- **Missing event/listener registration**: a system is wired up but one
+  listener or event handler is never registered (e.g. missing
+  `xdg_toplevel.add_listener`, missing callback registration).
+- **Callbacks invoked with null context**: callback functions receive a null
+  data/context pointer because the registration forgot to pass the context.
+- **Lossy type conversions**: converting a larger ID/hash to a smaller integer
+  via bit shifts or truncation, losing entropy (e.g. `TypeId` → `u64`).
+- **Overly broad conditions**: a check matches too many cases (e.g. "is
+  titlebar" returning true for any element, "is focusable" matching too broadly).
+- **Ignoring event struct fields**: reading some fields of an event struct but
+  ignoring others that carry important state (e.g. modifier keys, button state).
+- **Counter/bookkeeping drift**: an estimated or cached count (total children,
+  node count, length) that gets out of sync with the actual collection.
+
+### 15. System Documentation Needs
 If this file is *part of* a system (event loop, rendering pipeline, layout
 solver, text shaping, accessibility, windowing, etc.):
 - Name the system this file belongs to.
