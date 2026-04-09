@@ -205,7 +205,17 @@ Search for: `FIX:`, `PHASE`, `TODO`, `FIXME`, `HACK`, `STEP X:`.
 These often come from AI agents working off phased plans.
 Also flag non-functional code samples in comments and placeholder stubs.
 
-### 11. System Documentation Needs
+### 11. Compiler Warnings / Unclean Patterns
+Look for code that would trigger compiler warnings or clippy lints:
+- Direct casts of function pointers to integers (use `as *const ()` first)
+- Unused imports, variables, or `#[allow(unused)]` that could be cleaned up
+- Unnecessary `unsafe` blocks, or `unsafe` that can be replaced with safe code
+- `as` casts that could silently truncate or lose sign — prefer `try_into()`
+- Deprecated API usage
+- Missing `#[must_use]` on functions that return important values
+- Raw pointer arithmetic that could use safer abstractions
+
+### 12. System Documentation Needs
 If this file implements a *system* (event loop, rendering pipeline, layout
 solver, text shaping, etc.) rather than just helper functions:
 - Check whether `doc/guide/` already documents it.
