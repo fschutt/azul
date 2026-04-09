@@ -190,6 +190,16 @@ exists and is accurate.
 Logic errors, bad unwraps, off-by-one, incorrect type conversions, race
 conditions, unsafe misuse.
 
+Also specifically check for:
+- **Stub code**: `todo!()`, `unimplemented!()`, `"in a real implementation"`,
+  `"placeholder"`, `"dummy"`, `"stub"` — anything that was never finished.
+- **Hard-coded magic numbers**: numeric literals that should be named constants
+  or ideally configurable via a parameter / config struct.
+- **`..Default::default()`** in struct construction — this is a common source of
+  bugs because it silently zero-initialises fields that may need real values.
+  For every `..Default::default()` usage, check the `Default` impl and verify
+  the defaulted fields are genuinely safe to leave at their default.
+
 ### 7. Dead Code / Unwired Systems
 For each public function and type, grep for call sites outside its own module.
 If zero results, flag it.  Check if the feature the file describes is actually
@@ -211,10 +221,16 @@ extracted; missing or unnecessary abstractions.
   early returns, `?`, or `let … else`
 - Minimal indentation
 
-### 11. Vibe-Coding Hints
-Search for: `FIX:`, `PHASE`, `TODO`, `FIXME`, `HACK`, `STEP X:`.
+### 11. Vibe-Coding Hints & Stub Code
+Search for: `FIX:`, `PHASE`, `TODO`, `FIXME`, `HACK`, `STEP X:`,
+`in a real implementation`, `placeholder`, `dummy`, `stub`,
+`todo!()`, `unimplemented!()`, `0.0 /* */`, `// temporary`.
 These often come from AI agents working off phased plans.
 Also flag non-functional code samples in comments and placeholder stubs.
+
+Check the `scripts/` directory for any planning documents related to the
+file's feature area — these can reveal the original design intent and
+whether the current implementation diverged from the plan.
 
 ### 12. Compiler Warnings / Unclean Patterns
 Look for code that would trigger compiler warnings or clippy lints:
@@ -227,12 +243,14 @@ Look for code that would trigger compiler warnings or clippy lints:
 - Raw pointer arithmetic that could use safer abstractions
 
 ### 13. System Documentation Needs
-If this file implements a *system* (event loop, rendering pipeline, layout
-solver, text shaping, etc.) rather than just helper functions:
-- Check whether `doc/guide/` already documents it.
+If this file is *part of* a system (event loop, rendering pipeline, layout
+solver, text shaping, accessibility, windowing, etc.):
+- Name the system this file belongs to.
+- Check whether `doc/guide/` already has a document for that system.
   Existing guide files: {guide_listing}
-- If not, flag that a system doc is needed covering:
-  (a) contributor introduction, (b) internals reference.
+- If no guide exists, add it to the report's System Documentation section.
+  Many files will belong to the same undocumented system — that is expected;
+  the merge step will consolidate these into a single list.
 
 ---
 
@@ -286,14 +304,21 @@ r#"# Merge Autoreview Reports
 
 Read every `.md` report in `{rd}` and produce a single merged checklist.
 
+**CRITICAL: Do NOT drop any issues.**  Every finding from every report must
+appear in the output — either as its own checklist item or merged into a
+group that references the source report.  When in doubt, keep it separate.
+
 ## Steps
 1. Glob for `{rd}/*.md` — read each one.
-2. Group related findings across files (e.g. many unused functions → one entry).
+2. Group *identical* findings across files (e.g. 15 files all missing module
+   docs → one entry listing all 15 files).
 3. Sort by severity: HIGH → MEDIUM → LOW.
-4. De-duplicate: if the same issue appears in multiple reports, merge into one
-   entry that lists all affected files.
-5. Identify cross-cutting architectural concerns.
-6. Write the result to `{cp}`.
+4. For each group, list all affected files and reference the source report(s).
+5. Do NOT summarise or paraphrase — keep the concrete details (line numbers,
+   function names, evidence) from the original reports.
+6. Collect all "System Documentation Needed" entries into a single deduplicated
+   section at the end.
+7. Write the result to `{cp}`.
 
 ## Output format
 
@@ -301,11 +326,12 @@ Read every `.md` report in `{rd}` and produce a single merged checklist.
 # Autoreview Checklist
 
 Reports analysed: N
+Total findings: N (X high, Y medium, Z low)
 
 ## HIGH Priority
 
 ### 1. [Category] Brief description
-- **Files**: file1.rs, file2.rs, …
+- **Files**: file1.rs:123, file2.rs:456, …
 - **Details**: what needs to be done
 - **Source reports**: report1.md, report2.md
 - [ ] Action item (concrete, actionable sentence)
@@ -319,14 +345,15 @@ Reports analysed: N
 …
 
 ## System Documentation Needed
-- [ ] `doc/guide/xxx.md` — description
+Deduplicated list of systems that need guide documentation:
+- [ ] `doc/guide/xxx.md` — system name — which files implement it
 …
 
 ## Architecture Notes
 Cross-cutting observations, suggested module reorganisations, etc.
 ```
 
-Keep it concise — one line per action item where possible.
+One line per `- [ ]` action item.  The checklist may be long — that is fine.
 "#
     )
 }
