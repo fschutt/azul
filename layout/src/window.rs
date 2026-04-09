@@ -5291,23 +5291,52 @@ impl LayoutWindow {
             }
         };
 
-        // 2b. Refresh available_width from the parent node's current used_size.
-        // The cached constraints may have stale width if the container was resized
-        // since the last full layout (e.g. window resize → full layout → edit uses
-        // old constraints from before the resize was applied to this specific node).
+        // 2b. Refresh available_width from the containing block's used_size.
+        //
+        // The IFC root's `.parent` in the layout tree may point to a grandparent
+        // (e.g. body) rather than the actual CSS containing block (the contenteditable
+        // div) — layout tree parentage doesn't always match DOM parentage.
+        //
+        // Use `node_id` (the contenteditable DOM element) via dom_to_layout to find
+        // the correct containing block. Its content-box width is what constrains text.
         if let Some(layout_result) = self.layout_results.get(&dom_id) {
-            if let Some(parent_idx) = layout_result.layout_tree.get(ifc_layout_index)
-                .and_then(|n| n.parent)
-            {
-                if let Some(parent_node) = layout_result.layout_tree.get(parent_idx) {
-                    if let Some(parent_size) = parent_node.used_size {
-                        let bp = parent_node.box_props.unpack();
-                        let content_width = parent_size.width
-                            - bp.padding.left - bp.padding.right
-                            - bp.border.left - bp.border.right;
-                        if content_width > 0.0 {
-                            constraints.available_width =
-                                crate::text3::cache::AvailableSpace::Definite(content_width);
+            let mut found_width = false;
+
+            // Look up the contenteditable div's layout node directly via DOM mapping
+            if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                for &idx in layout_indices {
+                    if let Some(container_node) = layout_result.layout_tree.get(idx) {
+                        if let Some(container_size) = container_node.used_size {
+                            let bp = container_node.box_props.unpack();
+                            let content_width = container_size.width
+                                - bp.padding.left - bp.padding.right
+                                - bp.border.left - bp.border.right;
+                            if content_width > 0.0 {
+                                constraints.available_width =
+                                    crate::text3::cache::AvailableSpace::Definite(content_width);
+                                found_width = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: walk up the IFC's ancestors in the layout tree
+            if !found_width {
+                if let Some(parent_idx) = layout_result.layout_tree.get(ifc_layout_index)
+                    .and_then(|n| n.parent)
+                {
+                    if let Some(parent_node) = layout_result.layout_tree.get(parent_idx) {
+                        if let Some(parent_size) = parent_node.used_size {
+                            let bp = parent_node.box_props.unpack();
+                            let content_width = parent_size.width
+                                - bp.padding.left - bp.padding.right
+                                - bp.border.left - bp.border.right;
+                            if content_width > 0.0 {
+                                constraints.available_width =
+                                    crate::text3::cache::AvailableSpace::Definite(content_width);
+                            }
                         }
                     }
                 }

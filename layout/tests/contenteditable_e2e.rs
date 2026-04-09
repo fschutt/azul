@@ -728,3 +728,125 @@ fn contenteditable_incremental_render_matches_full() {
     );
     eprintln!("  [verify] PASS: Consecutive renders are identical");
 }
+
+// =========================================================================
+// Test 7: Long word overflow wraps correctly — new chars go to next line,
+//         NOT "push start of word down one char at a time"
+// =========================================================================
+
+/// Reproduces the bug where typing past the container edge causes:
+///   WRONG:  "a\nbcdefghijx"  (first char stranded on line 1)
+///   RIGHT:  "abcdefghij\nx"  (word fills line 1, overflow goes to line 2)
+///
+/// Uses a narrow 100px editor (88px content area).
+/// At ~8px per glyph (16px sans-serif), ~11 chars fill the line.
+/// We start with "abcdefghij" (10 chars, ~80px) which fits.
+/// Typing "x" then "y" should eventually push overflow to line 2.
+#[test]
+fn contenteditable_overflow_wraps_at_end_not_start() {
+    // 100px CSS width with box-sizing: border-box
+    // Content area = 100 - 2*4 padding - 2*1 border = 88px
+    // At ~8px/char, ~11 chars fit.
+    const NARROW_CSS: &str = r#"
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { width: 200px; height: 200px; font-family: sans-serif; font-size: 16px; background: #ffffff; }
+        .editor {
+            width: 100px;
+            padding: 4px;
+            border: 1px solid #333;
+            min-height: 60px;
+            background: #f0f0f0;
+            font-size: 16px;
+            overflow-wrap: break-word;
+        }
+    "#;
+
+    let mut h = ContentEditableHarness::new(200.0, 200.0);
+
+    // Start with a word that fills (or nearly fills) one line
+    let initial_text = "abcdefghij";
+
+    let mut editor = Dom::create_div();
+    editor = editor.with_ids_and_classes(cls("editor").into());
+    editor.set_contenteditable(true);
+    editor.set_tab_index(TabIndex::Auto);
+    editor = editor.with_child(Dom::create_text(initial_text));
+
+    let dom = Dom::create_body().with_child(editor);
+    h.layout_dom(dom, NARROW_CSS);
+
+    let frame_before = h.render();
+    save_screenshot(&frame_before, "07a_long_word_before_typing");
+
+    // Focus and type additional characters
+    let ce_nodes = h.find_contenteditable_nodes();
+    assert!(!ce_nodes.is_empty());
+    h.focus_node(DomId { inner: 0 }, ce_nodes[0]);
+
+    // Type chars one at a time to push past the container edge.
+    // At ~8px/char, "abcdefghij" (10 chars) ≈ 80px in 88px container.
+    // After "klmno" (5 more chars) we're at 15 chars ≈ 120px — well past 88px.
+    for ch in ['k', 'l', 'm', 'n', 'o'] {
+        h.type_text(&ch.to_string());
+    }
+    let frame_after = h.render();
+    save_screenshot(&frame_after, "07b_long_word_after_typing");
+
+    // VERIFICATION: The first line should still start with "a", not be a single
+    // stranded character.  We check this by examining the layout tree's inline
+    // layout result — the first PositionedItem on line 0 should be "a" (or the
+    // first cluster of the word), and items on line 0 should span most of the
+    // line width, not just one character.
+    let lw = h.layout_window.as_ref().unwrap();
+    let dom_id = DomId { inner: 0 };
+    let layout_result = lw.layout_results.get(&dom_id).unwrap();
+
+    // Find the inline layout result (on the text child or the contenteditable div)
+    let mut inline_layout = None;
+    for idx in 0..layout_result.layout_tree.nodes.len() {
+        if let Some(w) = layout_result.layout_tree.warm(idx) {
+            if let Some(ref cached) = w.inline_layout_result {
+                inline_layout = Some(cached.layout.clone());
+                break;
+            }
+        }
+    }
+    let layout = inline_layout.expect("Must have inline layout result after text edit");
+
+    // Count items per line
+    let mut items_per_line: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
+    for item in &layout.items {
+        if let azul_layout::text3::cache::ShapedItem::Cluster(c) = &item.item {
+            items_per_line.entry(item.line_index)
+                .or_default()
+                .push(c.text.clone());
+        }
+    }
+
+    eprintln!("  [verify] Lines after typing 'klmno':");
+    for (line_idx, chars) in &items_per_line {
+        let line_text: String = chars.iter().cloned().collect();
+        eprintln!("    Line {}: '{}' ({} chars)", line_idx, line_text, chars.len());
+    }
+
+    // Line 0 must have more than 1 character — the bug was that line 0
+    // had only "a" (or even just a space) while all other content was
+    // pushed to line 1.
+    let line_0_chars = items_per_line.get(&0).map(|v| v.len()).unwrap_or(0);
+    assert!(
+        line_0_chars > 3,
+        "BUG: Line 0 has only {} char(s) — the word start is being pushed down \
+         instead of wrapping at the end.  Expected the first line to be mostly filled.",
+        line_0_chars,
+    );
+
+    // The overflow characters ("xy") should be on a subsequent line
+    let has_multiple_lines = items_per_line.len() > 1;
+    assert!(
+        has_multiple_lines,
+        "After adding chars past the container width, text should span multiple lines"
+    );
+
+    eprintln!("  [verify] PASS: Line 0 has {} chars, total {} lines",
+        line_0_chars, items_per_line.len());
+}

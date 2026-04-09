@@ -126,17 +126,22 @@ use crate::text3::script::{script_to_language, Language, Script};
 /// where the available space may be indefinite during the measure phase.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AvailableSpace {
-    /// A specific amount of space is available (in pixels)
+    /// A specific amount of space is available (in pixels).
+    /// Must be >= 0.  A value of 0.0 means "genuinely zero-width container"
+    /// (e.g. `width: 0px`), NOT "unresolved".
     Definite(f32),
     /// The node should be laid out under a min-content constraint
     MinContent,
-    /// The node should be laid out under a max-content constraint  
+    /// The node should be laid out under a max-content constraint.
+    /// This is the correct default: "lay out to natural width, no constraint".
     MaxContent,
 }
 
 impl Default for AvailableSpace {
+    /// Default is `MaxContent` — the absence of a width constraint.
+    /// Never `Definite(0.0)`, which would make every word overflow.
     fn default() -> Self {
-        AvailableSpace::Definite(0.0)
+        AvailableSpace::MaxContent
     }
 }
 
@@ -7728,21 +7733,31 @@ pub fn break_one_line<T: ParsedFontTrait>(
             if line_items.is_empty() {
                 match overflow_wrap {
                     OverflowWrap::Anywhere | OverflowWrap::BreakWord => {
-                        // Break the unbreakable sequence: fit as many clusters
-                        // as possible on this line (grapheme clusters stay together).
-                        // Use at least 1px as the available width to prevent
-                        // one-character-per-line wrapping when total_available is 0
-                        // (can happen with stale constraints or zero-width containers).
-                        let effective_available = line_constraints.total_available.max(1.0);
+                        // Emergency break: fit as many clusters as possible on
+                        // this line.  Grapheme clusters stay together.
+                        //
+                        // Per CSS Text 3 §5.5: "an otherwise unbreakable sequence
+                        // of characters may be broken at an arbitrary point" when
+                        // overflow-wrap is anywhere/break-word.
+                        let avail = line_constraints.total_available;
                         for item in next_unit.iter() {
                             let item_w = get_item_measure(item, is_vertical);
-                            if !line_items.is_empty() && current_width + item_w > effective_available {
+                            // Break BEFORE this item if adding it would overflow,
+                            // but only if we already have at least one item on the
+                            // line (must always make progress).
+                            if !line_items.is_empty() && avail > 0.0 && current_width + item_w > avail {
                                 break;
                             }
                             line_items.push(item.clone());
                             current_width += item_w;
+                            // If container is zero-width (avail <= 0), place all
+                            // items on one line — there's nowhere to break TO,
+                            // content just overflows.  This matches browser
+                            // behavior for `width: 0` containers.
+                            if avail <= 0.0 {
+                                continue; // Keep adding — can't break into nothing
+                            }
                         }
-                        // Must consume at least one to avoid infinite loop
                         let consumed = line_items.len().max(1);
                         if line_items.is_empty() {
                             line_items.push(next_unit[0].clone());

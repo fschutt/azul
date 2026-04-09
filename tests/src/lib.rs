@@ -12,13 +12,13 @@ mod dom;
 mod font_gc;
 #[path = "./layout-test.rs"]
 mod layout_test;
-#[path = "./pagination.rs"]
-mod pagination;
 #[path = "./script.rs"]
 mod script;
 #[path = "./text-layout.rs"]
 mod text_layout;
 #[path = "./ui.rs"]
 mod ui;
+#[path = "./word-wrap.rs"]
+mod word_wrap;
 #[path = "./xml.rs"]
 mod xml;

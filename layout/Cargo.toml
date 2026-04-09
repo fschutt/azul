@@ -260,6 +260,11 @@ path = "tests/svg_render.rs"
 name = "svg_xml_dom"
 path = "tests/svg_xml_dom.rs"
 
+[[test]]
+name = "contenteditable_e2e"
+path = "tests/contenteditable_e2e.rs"
+required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widgets"]
+
 [[bench]]
 name = "fast_dom_bench"
 harness = false

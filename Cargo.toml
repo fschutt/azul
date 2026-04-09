@@ -8,10 +8,10 @@ members = [
     "layout", # layout depends on core + css
     "core", # core depends on css
     "css", # CSS parser, does not depend on anything else
-    # "workbench", # azul workbench, HTML to Rust compiler
 ]
 exclude = [
     ".claude-agents",
+    "tests",
 ]
 
 [workspace.dependencies]
