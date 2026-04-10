@@ -163,6 +163,22 @@ fn configure_dynamic_linking(target: &str) {
 
         let src = dir.join(lib_filename(target));
 
+        // Inform the user which library we're linking against
+        let dir_str = dir.display().to_string();
+        let kind = if *is_system {
+            "system"
+        } else if dir_str.contains("/debug") || dir_str.ends_with("/debug") {
+            "local (debug)"
+        } else {
+            "local"
+        };
+        println!("cargo:warning=Linking against {} [{}]: {}", lib_filename(target), kind, dir_str);
+
+        if dir_str.contains("/debug") && !dir_str.contains("/release") {
+            println!("cargo:warning=Note: linking against debug build of libazul — \
+                consider building with: cargo build --release -p azul-dll --features build-dll");
+        }
+
         if *is_system {
             // System library: link directly, no rpath, no copy.
             // At runtime the system linker finds it in the standard paths.
@@ -208,8 +224,8 @@ fn configure_dynamic_linking(target: &str) {
     for (dir, _) in &dirs {
         if dir.join(sname).exists() {
             println!(
-                "cargo:warning=No {} found; linking statically against {} in {}",
-                lib_filename(target), sname, dir.display(),
+                "cargo:warning=Linking against {} [static fallback]: {}",
+                sname, dir.display(),
             );
             println!("cargo:rustc-link-search=native={}", dir.display());
             println!("cargo:rustc-link-lib=static=azul");
