@@ -91,6 +91,7 @@ impl std::fmt::Debug for DbusAction {
 
 /// org.gtk.Actions protocol handler
 pub struct ActionsProtocol {
+    /// Map of action name to action descriptor, shared across threads
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 }
 
@@ -108,7 +109,9 @@ impl ActionsProtocol {
     ///
     /// Stores actions for later invocation by GNOME Shell.
     pub fn register_actions(&self, actions: Vec<DbusAction>) -> Result<(), GnomeMenuError> {
-        let mut action_map = self.actions.lock().unwrap();
+        let mut action_map = self.actions.lock().map_err(|e| {
+            GnomeMenuError::ActionRegistrationFailed(format!("mutex poisoned: {}", e))
+        })?;
 
         action_map.clear();
         for action in actions {
@@ -127,7 +130,9 @@ impl ActionsProtocol {
     ///
     /// Returns all action names.
     pub fn handle_list(&self) -> Result<Vec<String>, GnomeMenuError> {
-        let actions = self.actions.lock().unwrap();
+        let actions = self.actions.lock().map_err(|e| {
+            GnomeMenuError::ActionRegistrationFailed(format!("mutex poisoned: {}", e))
+        })?;
         let names: Vec<String> = actions.keys().cloned().collect();
 
         debug_log(&format!(
@@ -144,7 +149,9 @@ impl ActionsProtocol {
         &self,
         action_name: &str,
     ) -> Result<(bool, String, Vec<String>), GnomeMenuError> {
-        let actions = self.actions.lock().unwrap();
+        let actions = self.actions.lock().map_err(|e| {
+            GnomeMenuError::ActionRegistrationFailed(format!("mutex poisoned: {}", e))
+        })?;
 
         if let Some(action) = actions.get(action_name) {
             let param_type = action.parameter_type.clone().unwrap_or_default();
@@ -174,7 +181,9 @@ impl ActionsProtocol {
     pub fn handle_describe_all(
         &self,
     ) -> Result<HashMap<String, (bool, String, Vec<String>)>, GnomeMenuError> {
-        let actions = self.actions.lock().unwrap();
+        let actions = self.actions.lock().map_err(|e| {
+            GnomeMenuError::ActionRegistrationFailed(format!("mutex poisoned: {}", e))
+        })?;
         let mut result = HashMap::new();
 
         for (name, action) in actions.iter() {
@@ -203,7 +212,9 @@ impl ActionsProtocol {
         action_name: &str,
         parameter: Option<String>,
     ) -> Result<(), GnomeMenuError> {
-        let actions = self.actions.lock().unwrap();
+        let actions = self.actions.lock().map_err(|e| {
+            GnomeMenuError::ActionRegistrationFailed(format!("mutex poisoned: {}", e))
+        })?;
 
         if let Some(action) = actions.get(action_name) {
             debug_log(&format!(
@@ -238,6 +249,7 @@ impl ActionsProtocol {
     }
 }
 
+/// Note: `default()` calls `new()`, which emits a `debug_log` side effect.
 impl Default for ActionsProtocol {
     fn default() -> Self {
         Self::new()
