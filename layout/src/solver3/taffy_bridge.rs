@@ -1,3 +1,12 @@
+//! Bridge between Azul's CSS style system and the Taffy layout engine.
+//!
+//! This module translates Azul CSS properties into Taffy's `Style` struct and
+//! implements Taffy's `TraversePartialTree`, `LayoutPartialTree`, `CacheTree`,
+//! `LayoutFlexboxContainer`, and `LayoutGridContainer` traits via the
+//! [`TaffyBridge`] struct. The main entry point is [`layout_taffy_subtree`],
+//! which is called from `fc.rs` when a flex or grid formatting context is
+//! encountered during layout.
+
 use crate::solver3::calc::CalcResolveContext;
 use crate::solver3::getters::{get_overflow_x, get_overflow_y};
 use azul_core::dom::FormattingContext;
@@ -91,20 +100,7 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
     // Helper to resolve PixelValue to absolute pixels (handles em, rem, but not %)
     // Grid track sizing in Taffy doesn't support % - only absolute values
     let px_to_float = |pv: PixelValue| -> f32 {
-        // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
-        // TODO: Add proper context for em/rem resolution
-        match pv.metric {
-            SizeMetric::Px => pv.number.get(),
-            SizeMetric::Pt => pv.number.get() * PT_TO_PX,
-            SizeMetric::In => pv.number.get() * 96.0,
-            SizeMetric::Cm => pv.number.get() * 96.0 / 2.54,
-            SizeMetric::Mm => pv.number.get() * 96.0 / 25.4,
-            // For em/rem, use DEFAULT_FONT_SIZE as fallback
-            SizeMetric::Em | SizeMetric::Rem => pv.number.get() * DEFAULT_FONT_SIZE,
-            SizeMetric::Percent => 0.0, // Not supported in grid tracks
-            // Viewport units: Cannot resolve without viewport context, default to 0
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => 0.0,
-        }
+        pixel_value_to_pixels_fallback(&pv).unwrap_or(0.0)
     };
 
     match track {
@@ -170,10 +166,10 @@ pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
 pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutPosition::Absolute => taffy::Position::Absolute,
-        LayoutPosition::Fixed => taffy::Position::Absolute, // Taffy kennt kein Fixed
+        LayoutPosition::Fixed => taffy::Position::Absolute, // Taffy has no Fixed variant
         LayoutPosition::Relative => taffy::Position::Relative,
         LayoutPosition::Static => taffy::Position::Relative,
-        LayoutPosition::Sticky => taffy::Position::Relative, // Sticky wird als Relative behandelt
+        LayoutPosition::Sticky => taffy::Position::Relative, // Sticky treated as Relative
     }
 }
 
@@ -294,8 +290,8 @@ pub fn layout_justify_items_to_taffy(
     }
 }
 
-// TODO: gap, grid, visibility, z_index, flex_basis, etc. analog ergänzen
-// --- CSS <-> Taffy Übersetzungsfunktionen ---
+// TODO: visibility, z_index still missing
+// --- CSS <-> Taffy conversion functions ---
 
 use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
@@ -1611,7 +1607,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             azul_css::props::style::StyleTextAlign::End => FcTextAlign::End,
         };
 
-        // SAFETY: text_cache pointer is valid for the lifetime of TaffyBridge
+        // SAFETY: `self.text_cache` was derived from `&mut TextLayoutCache` in
+        // `layout_taffy_subtree` and no other reference to it exists at this point.
+        // The raw pointer is necessary because we already hold `&mut self` (which
+        // borrows `ctx` and `tree`), and Rust's borrow checker cannot express the
+        // disjointness of text_cache from ctx/tree.
         let text_cache = unsafe { &mut *self.text_cache };
 
         let constraints = LayoutConstraints {
@@ -1974,42 +1974,6 @@ fn store_calc_and_make_dimension(
     Dimension::calc(ptr as *const ())
 }
 
-fn from_pixel_value_lp(val: PixelValue) -> LengthPercentage {
-    match pixel_value_to_pixels_fallback(&val) {
-        Some(px) => LengthPercentage::length(px),
-        None => match val.to_percent() {
-            Some(p) => LengthPercentage::percent(p.get()), // p is already normalized (0.0-1.0)
-            None => LengthPercentage::length(0.0),         /* Fallback to 0 if neither px nor
-                                                             * percent */
-        },
-    }
-}
-
-fn from_pixel_value_lpa(val: PixelValue) -> LengthPercentageAuto {
-    match pixel_value_to_pixels_fallback(&val) {
-        Some(px) => LengthPercentageAuto::length(px),
-        None => match val.to_percent() {
-            Some(p) => LengthPercentageAuto::percent(p.get()), // p is already normalized (0.0-1.0)
-            None => LengthPercentageAuto::auto(),
-        },
-    }
-}
-
-fn from_taffy_size(val: Size<f32>) -> azul_core::geom::LogicalSize {
-    azul_core::geom::LogicalSize {
-        width: val.width,
-        height: val.height,
-    }
-}
-
-#[allow(dead_code)]
-fn from_logical_size(val: azul_core::geom::LogicalSize) -> Size<AvailableSpace> {
-    Size {
-        width: AvailableSpace::Definite(val.width),
-        height: AvailableSpace::Definite(val.height),
-    }
-}
-
 fn from_layout_position(val: LayoutPosition) -> Position {
     match val {
         LayoutPosition::Static => Position::Relative, // Taffy treats Static as Relative
@@ -2020,57 +1984,3 @@ fn from_layout_position(val: LayoutPosition) -> Position {
     }
 }
 
-fn from_taffy_point(val: taffy::Point<f32>) -> azul_core::geom::LogicalPosition {
-    azul_core::geom::LogicalPosition { x: val.x, y: val.y }
-}
-
-fn from_flex_wrap(val: LayoutFlexWrap) -> FlexWrap {
-    match val {
-        LayoutFlexWrap::NoWrap => FlexWrap::NoWrap,
-        LayoutFlexWrap::Wrap => FlexWrap::Wrap,
-        LayoutFlexWrap::WrapReverse => FlexWrap::WrapReverse,
-    }
-}
-
-fn from_flex_direction(val: LayoutFlexDirection) -> FlexDirection {
-    match val {
-        LayoutFlexDirection::Row => FlexDirection::Row,
-        LayoutFlexDirection::RowReverse => FlexDirection::RowReverse,
-        LayoutFlexDirection::Column => FlexDirection::Column,
-        LayoutFlexDirection::ColumnReverse => FlexDirection::ColumnReverse,
-    }
-}
-
-fn from_align_items(val: LayoutAlignItems) -> AlignItems {
-    match val {
-        LayoutAlignItems::Start => AlignItems::FlexStart,
-        LayoutAlignItems::End => AlignItems::FlexEnd,
-        LayoutAlignItems::Center => AlignItems::Center,
-        LayoutAlignItems::Baseline => AlignItems::Baseline,
-        LayoutAlignItems::Stretch => AlignItems::Stretch,
-    }
-}
-
-fn from_align_self(val: LayoutAlignSelf) -> AlignSelf {
-    match val {
-        LayoutAlignSelf::Auto => AlignSelf::FlexStart, // Taffy doesn't have Auto for AlignSelf
-        LayoutAlignSelf::Start => AlignSelf::FlexStart,
-        LayoutAlignSelf::End => AlignSelf::FlexEnd,
-        LayoutAlignSelf::Center => AlignSelf::Center,
-        LayoutAlignSelf::Baseline => AlignSelf::Baseline,
-        LayoutAlignSelf::Stretch => AlignSelf::Stretch,
-    }
-}
-
-fn from_justify_content(val: LayoutJustifyContent) -> JustifyContent {
-    match val {
-        LayoutJustifyContent::FlexStart => JustifyContent::FlexStart,
-        LayoutJustifyContent::FlexEnd => JustifyContent::FlexEnd,
-        LayoutJustifyContent::Start => JustifyContent::Start,
-        LayoutJustifyContent::End => JustifyContent::End,
-        LayoutJustifyContent::Center => JustifyContent::Center,
-        LayoutJustifyContent::SpaceBetween => JustifyContent::SpaceBetween,
-        LayoutJustifyContent::SpaceAround => JustifyContent::SpaceAround,
-        LayoutJustifyContent::SpaceEvenly => JustifyContent::SpaceEvenly,
-    }
-}
