@@ -1,4 +1,8 @@
 //! Internal macros for reducing boilerplate in property definitions.
+//!
+//! - `impl_pixel_value!` — adds unit constructors (`px`, `em`, `pt`, …) to structs wrapping `PixelValue`
+//! - `impl_percentage_value!` — adds constructors and `Display`/`Debug` impls for percentage wrappers
+//! - `css_property_from_type!` — maps `CssPropertyType` variants to `CssProperty` enum values (used by `property.rs`)
 
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
 /// `PixelValue` as its `self.inner` field.
