@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write, BufRead, BufReader};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use azul_core::callbacks::LayoutCallback;
 use azul_core::refany::RefAny;
@@ -23,31 +24,42 @@ use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use super::cb_gen::CallbackWasm;
-use super::html_render::{CollectedImage, CollectedFont, RenderOutput};
+use super::html_render::{CollectedImage, CollectedFont};
 use super::loader_js;
 
 /// Pre-rendered route data.
 pub struct RenderedRoute {
+    /// Route pattern (e.g. `"/users/{id}"`).
     pub pattern: String,
+    /// Pre-rendered HTML for this route.
     pub html: String,
+    /// Layout callback associated with this route.
     pub layout_callback: LayoutCallback,
 }
 
 /// Shared state for the web server.
 pub struct WebServerState {
+    /// Application data shared across all request handlers.
     pub app_data: Arc<Mutex<RefAny>>,
+    /// Application configuration (fonts, theming, etc.).
     pub config: AppConfig,
+    /// Font cache used for layout and text shaping.
     pub fc_cache: Arc<FcFontCache>,
+    /// Optional font registry for system font lookup.
     pub font_registry: Option<Arc<FcFontRegistry>>,
+    /// Window state used when re-rendering layouts.
     pub window_state: FullWindowState,
+    /// Compiled framework WASM module served at `/az/mini.{hash}.wasm`.
     pub mini_wasm: Vec<u8>,
+    /// Per-callback WASM modules served under `/az/cb/`.
     pub cb_wasms: Vec<CallbackWasm>,
+    /// Default layout callback used by `re_render_body`.
     pub layout_callback: LayoutCallback,
-    /// Pre-rendered routes: pattern → HTML
+    /// Pre-rendered routes: pattern → HTML.
     pub rendered_routes: HashMap<String, RenderedRoute>,
-    /// Collected images (shared across all routes)
+    /// Collected images (shared across all routes).
     pub images: Vec<CollectedImage>,
-    /// Collected fonts (shared across all routes)
+    /// Collected fonts (shared across all routes).
     pub fonts: Vec<CollectedFont>,
 }
 
@@ -91,6 +103,8 @@ fn handle_connection(
     state: &WebServerState,
     loader_js: &str,
 ) -> Result<(), String> {
+    stream.set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| format!("set_read_timeout: {}", e))?;
     let mut reader = BufReader::new(&stream);
 
     // Read the request line
@@ -108,12 +122,16 @@ fn handle_connection(
         if trimmed.is_empty() {
             break;
         }
-        if let Some(val) = trimmed.strip_prefix("Content-Length:") {
+        let lower = trimmed.to_ascii_lowercase();
+        if let Some(val) = lower.strip_prefix("content-length:") {
             content_length = val.trim().parse().unwrap_or(0);
         }
-        if let Some(val) = trimmed.strip_prefix("content-length:") {
-            content_length = val.trim().parse().unwrap_or(0);
-        }
+    }
+
+    // Reject oversized payloads (16 MB limit)
+    const MAX_BODY: usize = 16 * 1024 * 1024;
+    if content_length > MAX_BODY {
+        return send_response(&mut stream, 413, "text/plain", b"Payload Too Large");
     }
 
     // Parse method and path
@@ -223,7 +241,8 @@ fn handle_connection(
 
 /// Re-render the page body by calling the layout callback again.
 fn re_render_body(state: &WebServerState) -> String {
-    let app_data = state.app_data.lock().unwrap();
+    let app_data = state.app_data.lock()
+        .unwrap_or_else(|e| e.into_inner());
     let output = super::html_render::render_initial_page(
         &app_data,
         &state.layout_callback,
@@ -250,6 +269,7 @@ fn send_response(
         204 => "No Content",
         400 => "Bad Request",
         404 => "Not Found",
+        413 => "Payload Too Large",
         500 => "Internal Server Error",
         _ => "Unknown",
     };
