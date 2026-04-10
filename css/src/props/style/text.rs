@@ -1,4 +1,8 @@
 //! CSS properties for styling text.
+//!
+//! Each property type implements `PrintAsCssValue` for CSS serialization and
+//! (behind the `parser` feature) has a corresponding `parse_style_*` function
+//! with borrowed/owned error type pairs.
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -459,7 +463,9 @@ impl PrintAsCssValue for StyleTextAlignLast {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleDirection {
+    /// Left-to-right text direction
     Ltr,
+    /// Right-to-left text direction
     Rtl,
 }
 impl Default for StyleDirection {
@@ -890,8 +896,8 @@ impl PrintAsCssValue for StyleTextIndent {
 impl crate::format_rust_code::FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
-            "StyleTextIndent {{ inner: PixelValue::const_px(0) /* {} */, each_line: {}, hanging: {} }}",
-            self.inner, self.each_line, self.hanging
+            "StyleTextIndent {{ inner: {}, each_line: {}, hanging: {} }}",
+            self.inner.format_as_rust_code(0), self.each_line, self.hanging
         )
     }
 }
@@ -2362,11 +2368,17 @@ mod tests {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleUnicodeBidi {
+    /// No additional level of embedding
     Normal,
+    /// Open an additional level of embedding
     Embed,
+    /// Isolate the element from surrounding bidirectional text
     Isolate,
+    /// Override the bidirectional algorithm for inline content
     BidiOverride,
+    /// Combine isolation and override
     IsolateOverride,
+    /// Determine paragraph direction from content without bidi algorithm
     Plaintext,
 }
 impl Default for StyleUnicodeBidi {
@@ -2452,9 +2464,13 @@ pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUn
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleTextBoxTrim {
+    /// No trimming
     None,
+    /// Trim leading over the first formatted line
     TrimStart,
+    /// Trim leading under the last formatted line
     TrimEnd,
+    /// Trim both start and end
     TrimBoth,
 }
 impl Default for StyleTextBoxTrim {
@@ -2539,9 +2555,13 @@ pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleT
 #[repr(C)]
 pub enum StyleTextBoxEdge {
     // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as text
+    /// Use the line-fit-edge value (initial: text)
     Auto,
+    /// Use the text-over / text-under baselines
     TextEdge,
+    /// Use the cap-height baseline
     CapHeight,
+    /// Use the x-height baseline
     ExHeight,
 }
 impl Default for StyleTextBoxEdge {
@@ -2623,14 +2643,23 @@ pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleT
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleDominantBaseline {
+    /// Use the dominant baseline of the parent
     Auto,
+    /// Use the text-under baseline
     TextBottom,
+    /// Use the alphabetic baseline
     Alphabetic,
+    /// Use the ideographic baseline
     Ideographic,
+    /// Use the middle baseline
     Middle,
+    /// Use the central baseline
     Central,
+    /// Use the mathematical baseline
     Mathematical,
+    /// Use the hanging baseline
     Hanging,
+    /// Use the text-over baseline
     TextTop,
 }
 impl Default for StyleDominantBaseline {
@@ -2726,13 +2755,21 @@ pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaselin
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleAlignmentBaseline {
+    /// Use the dominant baseline of the parent
     Baseline,
+    /// Align to the text-under baseline
     TextBottom,
+    /// Align to the alphabetic baseline
     Alphabetic,
+    /// Align to the ideographic baseline
     Ideographic,
+    /// Align to the middle baseline
     Middle,
+    /// Align to the central baseline
     Central,
+    /// Align to the mathematical baseline
     Mathematical,
+    /// Align to the text-over baseline
     TextTop,
 }
 impl Default for StyleAlignmentBaseline {
@@ -2822,9 +2859,13 @@ pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBasel
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleInitialLetterAlign {
+    /// Automatically determine alignment based on script
     Auto,
+    /// Align to the alphabetic baseline
     Alphabetic,
+    /// Align to the hanging baseline
     Hanging,
+    /// Align to the ideographic baseline
     Ideographic,
 }
 impl Default for StyleInitialLetterAlign {
@@ -2906,9 +2947,13 @@ pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLette
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleInitialLetterWrap {
+    /// No special wrapping around the initial letter
     None,
+    /// Wrap only the first line adjacent to the initial letter
     First,
+    /// Wrap all lines adjacent to the initial letter
     All,
+    /// Wrap using a grid-based layout
     Grid,
 }
 impl Default for StyleInitialLetterWrap {
