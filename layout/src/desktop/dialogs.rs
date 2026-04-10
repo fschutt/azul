@@ -1,3 +1,6 @@
+//! Native OS dialog wrappers (message boxes, file open/save, color picker)
+//! built on top of the `tfd` (tiny-file-dialogs) crate.
+
 #![allow(missing_copy_implementations)]
 
 use core::ffi::c_void;
@@ -126,6 +129,9 @@ pub fn msg_box_yes_no(title: &str, message: &str, icon: MessageBoxIcon, default:
 }
 
 /// "Ok" MsgBox (title, message, icon)
+///
+/// Note: quotes are stripped from the message to work around `tfd`
+/// misinterpreting them as shell metacharacters on some platforms.
 pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
     let mut msg = message.to_string();
 
