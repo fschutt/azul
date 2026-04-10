@@ -1733,6 +1733,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview --dry-run          - Generate prompts without running agents");
     println!("    autoreview --status           - Show review progress");
     println!("    autoreview --retry-failed     - Re-queue failed reviews");
+    println!("    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor bugs)");
     println!("    autoreview merge              - Merge reports into a single checklist");
     println!("    autoreview process            - Implement checklist items (one commit each)");
     println!("    autoreview --collect          - Collect patches from process worktree");

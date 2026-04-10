@@ -37,6 +37,7 @@ pub enum AutoreviewSubcommand {
     Run,
     Merge,
     Process,
+    SmallFixes,
 }
 
 // ── Output directory layout ────────────────────────────────────────────
@@ -59,6 +60,10 @@ fn merge_dir(project_root: &Path) -> PathBuf {
 
 fn process_prompts_dir(project_root: &Path) -> PathBuf {
     output_dir(project_root).join("process/prompts")
+}
+
+fn smallfixes_prompts_dir(project_root: &Path) -> PathBuf {
+    output_dir(project_root).join("small-fixes/prompts")
 }
 
 // ── File discovery ─────────────────────────────────────────────────────
@@ -442,6 +447,271 @@ Categories: `fix`, `refactor`, `docs`, `cleanup`, `style`
     )
 }
 
+// ── Small-fixes prompt builder ─────────────────────────────────────────
+
+fn build_smallfixes_prompt(
+    source_file: &Path,     // relative, e.g. "core/src/dom.rs"
+    report_abs_path: &Path, // absolute path to the review report
+    project_root: &Path,
+) -> String {
+    let src = source_file.display();
+    let rpt = report_abs_path.display();
+    let abs_src = project_root.join(source_file).display().to_string();
+
+    // Read report and source so the agent doesn't need to do Read calls.
+    let report_content = fs::read_to_string(report_abs_path)
+        .unwrap_or_else(|e| format!("(failed to read report: {})", e));
+    let source_content = fs::read_to_string(project_root.join(source_file))
+        .unwrap_or_else(|e| format!("(failed to read source: {})", e));
+
+    format!(
+r#"# Small Fixes: {src}
+
+You are fixing small issues in `{src}` based on its review report.
+
+## Source file: `{abs_src}`
+
+```rust
+{source_content}
+```
+
+## Review report: `{rpt}`
+
+```markdown
+{report_content}
+```
+
+## Instructions
+
+1. Read the review report above (already included).
+2. Identify findings that are **small fixes** — things you can fix by editing
+   ONLY the file `{abs_src}`.  Small fixes include:
+   - Missing or outdated doc comments (`///` or `//!`)
+   - Code style issues (deep nesting → early return, unnecessary bindings, etc.)
+   - Removing clearly dead private helper functions (private to this file only)
+   - Fixing obvious typos in comments or strings
+   - Removing redundant `..Default::default()` where all fields are set
+   - Adding `#[must_use]`, removing stacked duplicate attributes
+   - Minor obvious bug fixes that don't change public API or require changes
+     in other files
+3. **Skip** anything that:
+   - Requires editing other files (cross-file refactoring, wiring up dead code)
+   - Changes public API signatures
+   - Is a "HIGH" severity bug that needs careful multi-file refactoring
+   - Requires adding tests
+   - Is subjective or debatable
+4. If there are **zero** small fixes to make, output exactly:
+   `NO_SMALL_FIXES` and stop immediately.
+5. Otherwise, apply all small fixes to `{abs_src}` using the Edit tool.
+6. After editing, update the report at `{rpt}`:
+   - **Remove** every finding section (`### [SEVERITY] ...`) that you fixed.
+   - **Update** the Summary line counts (findings: X high, Y medium, Z low).
+   - Keep all unfixed findings exactly as they are.
+   - If all findings were fixed, replace the Findings section with:
+     `All findings resolved by small-fixes pass.`
+7. Create exactly **one git commit** with message format:
+   ```
+   docs/style: small fixes for {src}
+   ```
+   Stage ONLY `{abs_src}` and `{rpt}` — nothing else.
+   Use `git add <file1> <file2> && git commit -m "..."`.
+
+## Rules
+
+- Edit ONLY `{abs_src}` (source) and `{rpt}` (report).  No other files.
+- Do NOT run `cargo build`, `cargo test`, `cargo check`, or any compilation.
+- Do NOT create new files.
+- Do NOT modify `// +spec` comments.
+- Keep changes minimal and mechanical.
+- If unsure whether a fix is safe, skip it.
+"#
+    )
+}
+
+// ── Small-fixes agent runner (main tree, can edit) ────────────────────
+
+/// Spawn a Claude agent on the main tree that can edit exactly one source
+/// file and its corresponding report.  No worktree needed.
+fn run_smallfixes_agent(
+    project_root: &Path,
+    slot_index: usize,
+    prompt_path: &Path,
+    timeout: Duration,
+    model: Option<&str>,
+    on_progress: &dyn Fn(&str),
+) -> AgentResult {
+    let taken_path  = prompt_path.with_extension("md.taken");
+    let result_path = prompt_path.with_extension("md.result");
+    let done_path   = prompt_path.with_extension("md.done");
+    let failed_path = prompt_path.with_extension("md.failed");
+
+    let prompt_text = match fs::read_to_string(prompt_path) {
+        Ok(c) => c,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to read prompt: {}", e)),
+        },
+    };
+
+    let result_file = match fs::File::create(&result_path) {
+        Ok(f) => f,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to create .result file: {}", e)),
+        },
+    };
+    let result_file_err = match result_file.try_clone() {
+        Ok(f) => f,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to clone file handle: {}", e)),
+        },
+    };
+
+    // Allow Edit (for source + report), but block compilation and MCP.
+    let mut cmd_args: Vec<&str> = vec![
+        "-p",
+        "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format", "stream-json",
+        // Block compilation
+        "--disallowedTools", "Bash(cargo *)",
+        "--disallowedTools", "Bash(rustc *)",
+        "--disallowedTools", "Bash(clang *)",
+        "--disallowedTools", "Bash(gcc *)",
+        "--disallowedTools", "Bash(make *)",
+        "--disallowedTools", "Bash(cmake *)",
+        // Block MCP / LSP leaks
+        "--disallowedTools", "mcp__*",
+        "--disallowedTools", "rust-analyzer-lsp",
+    ];
+    if let Some(m) = model {
+        cmd_args.push("--model");
+        cmd_args.push(m);
+    }
+
+    let mut child = match Command::new("claude")
+        .args(&cmd_args)
+        .env_remove("CLAUDECODE")
+        .current_dir(project_root)
+        .stdin(Stdio::piped())
+        .stdout(result_file)
+        .stderr(result_file_err)
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to spawn claude: {}", e)),
+        },
+    };
+
+    let pid = child.id();
+    if let Err(e) = executor::write_taken_file(&taken_path, slot_index, pid) {
+        let _ = child.kill();
+        return AgentResult { success: false, patches: 0, error: Some(e) };
+    }
+
+    // Send prompt via stdin then close
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt_text.as_bytes());
+    }
+
+    let progress_path = prompt_path.with_extension("md.progress");
+
+    // Poll loop
+    let start = Instant::now();
+    let exit_status = loop {
+        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&taken_path);
+            let _ = fs::remove_file(&progress_path);
+            return AgentResult {
+                success: false, patches: 0,
+                error: Some("Shutdown requested".into()),
+            };
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = fs::remove_file(&taken_path);
+                    let _ = fs::remove_file(&progress_path);
+                    let partial = fs::read_to_string(&result_path).unwrap_or_default();
+                    let _ = fs::write(
+                        &failed_path,
+                        format!(
+                            "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
+                            timeout.as_secs(), slot_index, partial,
+                        ),
+                    );
+                    return AgentResult {
+                        success: false, patches: 0,
+                        error: Some("Timeout".into()),
+                    };
+                }
+                let elapsed = start.elapsed().as_secs();
+                let activity = executor::read_stream_json_activity(&result_path);
+                let status_line = format!(
+                    "{}:{:02} | {}",
+                    elapsed / 60, elapsed % 60,
+                    if activity.is_empty() { "working..." } else { &activity },
+                );
+                on_progress(&status_line);
+                let _ = fs::write(&progress_path, &status_line);
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            Err(e) => {
+                let _ = fs::remove_file(&taken_path);
+                let _ = fs::remove_file(&progress_path);
+                let _ = fs::write(&failed_path, format!("Wait error: {}\n", e));
+                return AgentResult {
+                    success: false, patches: 0,
+                    error: Some(format!("Wait error: {}", e)),
+                };
+            }
+        }
+    };
+
+    let _ = fs::remove_file(&progress_path);
+    let _ = fs::remove_file(&taken_path);
+
+    // Check result — treat exit code 1 as success if the agent produced output
+    // (claude CLI often exits 1 after context compression).
+    let result_content = executor::extract_result_text(&result_path);
+    let elapsed = start.elapsed();
+
+    if !exit_status.success() && result_content.trim().is_empty() {
+        let code = exit_status.code().unwrap_or(-1);
+        let _ = fs::write(
+            &failed_path,
+            format!(
+                "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
+                code, elapsed.as_secs(), slot_index, result_content,
+            ),
+        );
+        return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Exit code {}", code)),
+        };
+    }
+
+    // Success (or exit-1-with-output, which we treat as success)
+    let _ = fs::write(
+        &done_path,
+        format!(
+            "action=SMALL_FIXES\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
+            slot_index, elapsed.as_secs(), result_content,
+        ),
+    );
+
+    AgentResult { success: true, patches: 0, error: None }
+}
+
 // ── Review-agent runner (no worktree) ──────────────────────────────────
 
 /// Spawn a single Claude CLI process against the project root (read-only)
@@ -630,6 +900,31 @@ fn run_review_agent(
     AgentResult { success: true, patches: 0, error: None }
 }
 
+// ── Cargo / rust-analyzer kill loop ───────────────────────────────────
+
+/// Spawn a background thread that kills cargo / rustc / rust-analyzer every 5s.
+///
+/// Even with `--disallowedTools`, rust-analyzer (from the user's IDE) or
+/// agent sub-processes can trigger builds that lock up the machine when
+/// dozens of agents run in parallel.
+///
+/// Uses `pkill` without `-f` so we match only the process name, not the
+/// full command line (otherwise `pkill -f cargo` would also kill claude
+/// agents whose argv contains `--disallowedTools Bash(cargo *)`).
+///
+/// Returns the `JoinHandle`.  The caller must set `SHUTDOWN_REQUESTED`
+/// and join the handle when done.
+fn spawn_cargo_kill_loop() -> std::thread::JoinHandle<()> {
+    std::thread::spawn(|| {
+        while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            for proc in &["cargo", "rustc", "rust-analyzer", "ra-multiplex", "ra_multiplex"] {
+                let _ = Command::new("pkill").arg("-9").arg(proc).output();
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    })
+}
+
 // ── Dispatch ───────────────────────────────────────────────────────────
 
 fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
@@ -653,23 +948,7 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
     println!("Launching {} concurrent review agents...\n", agent_count);
 
     executor::install_sigint_handler();
-
-    // Background thread: kill cargo / rustc / rust-analyzer processes every 5s.
-    // Even with --disallowedTools, rust-analyzer (from the user's IDE) or
-    // agent sub-processes can trigger builds that lock up the machine when
-    // dozens of agents run in parallel.
-    //
-    // IMPORTANT: use `pkill` without `-f` so we match only the process name,
-    // not the full command line.  With `-f`, `pkill -f cargo` would also kill
-    // claude agents whose argv contains "--disallowedTools Bash(cargo *)".
-    let kill_loop = std::thread::spawn(|| {
-        while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
-            for proc in &["cargo", "rustc", "rust-analyzer", "ra-multiplex", "ra_multiplex"] {
-                let _ = Command::new("pkill").arg("-9").arg(proc).output();
-            }
-            std::thread::sleep(Duration::from_secs(5));
-        }
-    });
+    let kill_loop = spawn_cargo_kill_loop();
 
     let work_queue: Arc<Mutex<VecDeque<PathBuf>>> =
         Arc::new(Mutex::new(pending.into_iter().collect()));
@@ -996,6 +1275,223 @@ fn run_process(config: AutoreviewConfig) -> Result<(), String> {
     Ok(())
 }
 
+// ── Subcommand: small-fixes ───────────────────────────────────────────
+
+fn run_small_fixes(config: AutoreviewConfig) -> Result<(), String> {
+    let project_root = config.project_root.clone();
+    let reports = reports_dir(&project_root);
+    let sf_prompts = smallfixes_prompts_dir(&project_root);
+
+    if config.status_only {
+        return show_status(&project_root, config.retry_failed);
+    }
+
+    if !reports.is_dir() {
+        return Err("No reports directory. Run `autoreview` first.".into());
+    }
+
+    preflight_checks(&project_root, config.dry_run)?;
+
+    fs::create_dir_all(&sf_prompts)
+        .map_err(|e| format!("Failed to create small-fixes dir: {}", e))?;
+
+    // Phase 1: discover report files and generate prompts
+    println!("\n=== Phase 1: Generating small-fixes prompts ===\n");
+
+    let mut prompt_count = 0;
+
+    let mut report_entries: Vec<_> = fs::read_dir(&reports)
+        .map_err(|e| format!("Failed to read reports dir: {}", e))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|x| x == "md").unwrap_or(false))
+        .collect();
+    report_entries.sort_by_key(|e| e.file_name());
+
+    for entry in &report_entries {
+        let report_path = entry.path();
+        let safe_name = report_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
+        // Convert safe name back to source path: core__src__dom → core/src/dom.rs
+        let source_rel = safe_name.replace("__", "/") + ".rs";
+        let source_path = PathBuf::from(&source_rel);
+
+        // Verify source file exists
+        if !project_root.join(&source_path).exists() {
+            continue;
+        }
+
+        let prompt_path = sf_prompts.join(format!("{}.md", safe_name));
+
+        // Skip already-done prompts
+        let status = executor::classify_prompt(&prompt_path, config.retry_failed);
+        match status {
+            executor::PromptStatus::Done | executor::PromptStatus::Taken { .. } => continue,
+            _ => {}
+        }
+
+        // Apply file filter if specified
+        if let Some(ref filter) = config.file_filter {
+            if !source_rel.contains(filter.as_str()) {
+                continue;
+            }
+        }
+
+        let prompt_text = build_smallfixes_prompt(
+            &source_path,
+            &report_path,
+            &project_root,
+        );
+        fs::write(&prompt_path, &prompt_text)
+            .map_err(|e| format!("Failed to write prompt: {}", e))?;
+        prompt_count += 1;
+    }
+
+    println!("Generated {} small-fixes prompts", prompt_count);
+
+    if config.dry_run {
+        println!("\n--dry-run: stopping after prompt generation.");
+        return Ok(());
+    }
+
+    // Phase 2: dispatch agents
+    println!("\n=== Phase 2: Dispatching small-fixes agents ===\n");
+    dispatch_smallfixes_agents(&config)?;
+
+    // Phase 3: summary
+    println!("\n=== Phase 3: Summary ===\n");
+
+    let (pending, done, failed, taken) =
+        executor::scan_prompts_dir(&sf_prompts, false);
+    let total = pending.len() + done + failed + taken;
+
+    println!("Small-fixes Status");
+    println!("==================\n");
+    println!("  Total:    {}", total);
+    println!("  Done:     {}", done);
+    println!("  Failed:   {}", failed);
+    println!("  Pending:  {}", pending.len());
+
+    Ok(())
+}
+
+fn dispatch_smallfixes_agents(config: &AutoreviewConfig) -> Result<(), String> {
+    let project_root = &config.project_root;
+    let prompts = smallfixes_prompts_dir(project_root);
+
+    let (pending, done, failed, taken) =
+        executor::scan_prompts_dir(&prompts, config.retry_failed);
+
+    println!(
+        "Prompt status: {} pending, {} done, {} failed, {} in-progress",
+        pending.len(), done, failed, taken,
+    );
+
+    if pending.is_empty() {
+        println!("No pending prompts to process.");
+        return Ok(());
+    }
+
+    let agent_count = config.agents.min(pending.len());
+    println!("Launching {} concurrent small-fixes agents...\n", agent_count);
+
+    executor::install_sigint_handler();
+    let kill_loop = spawn_cargo_kill_loop();
+
+    let work_queue: Arc<Mutex<VecDeque<PathBuf>>> =
+        Arc::new(Mutex::new(pending.into_iter().collect()));
+
+    let spinner = nanospinner::MultiSpinner::new().start();
+    let slot_spinners: Vec<_> = (0..agent_count)
+        .map(|i| spinner.add(format!("[FIX {:03}] idle", i)))
+        .collect();
+
+    let results: Arc<Mutex<Vec<(String, AgentResult)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+
+    let mut handles = Vec::with_capacity(agent_count);
+
+    for (slot_idx, line) in slot_spinners.into_iter().enumerate() {
+        let work_queue = Arc::clone(&work_queue);
+        let results = Arc::clone(&results);
+        let timeout = config.timeout;
+        let model = config.model.clone();
+        let project_root = project_root.clone();
+
+        let handle = std::thread::spawn(move || {
+            loop {
+                if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                let prompt_path = {
+                    let mut q = work_queue.lock().unwrap();
+                    q.pop_front()
+                };
+                let prompt_path = match prompt_path {
+                    Some(p) => p,
+                    None => break,
+                };
+
+                let name = prompt_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                line.update(format!("[FIX {:03}] {}", slot_idx, name));
+
+                let result = run_smallfixes_agent(
+                    &project_root,
+                    slot_idx,
+                    &prompt_path,
+                    timeout,
+                    model.as_deref(),
+                    &|status| {
+                        line.update(format!(
+                            "[FIX {:03}] {} | {}", slot_idx, name, status,
+                        ));
+                    },
+                );
+
+                let msg = if result.success {
+                    format!("{}: done", name)
+                } else {
+                    format!("{}: FAILED ({})",
+                        name, result.error.as_deref().unwrap_or("unknown"))
+                };
+                line.update(format!("[FIX {:03}] {}", slot_idx, msg));
+
+                results.lock().unwrap().push((name, result));
+            }
+            line.update(format!("[FIX {:03}] finished", slot_idx));
+        });
+        handles.push(handle);
+    }
+
+    for h in handles {
+        let _ = h.join();
+    }
+
+    // Stop the kill loop
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+    let _ = kill_loop.join();
+    SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
+
+    let results = results.lock().unwrap();
+    let total = results.len();
+    let success = results.iter().filter(|(_, r)| r.success).count();
+
+    println!("\n\nSmall-fixes execution complete:");
+    println!("  Total:   {}", total);
+    println!("  Success: {}", success);
+    println!("  Failed:  {}", total - success);
+
+    Ok(())
+}
+
 // ── Collect patches from process worktree ──────────────────────────────
 
 fn collect_process_patches(project_root: &Path) -> Result<(), String> {
@@ -1161,6 +1657,7 @@ pub fn parse_autoreview_args(
         match *arg {
             "merge"          => config.subcommand = AutoreviewSubcommand::Merge,
             "process"        => config.subcommand = AutoreviewSubcommand::Process,
+            "small-fixes"    => config.subcommand = AutoreviewSubcommand::SmallFixes,
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
             "--status"       => config.status_only = true,
@@ -1204,8 +1701,9 @@ pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
     }
 
     match config.subcommand {
-        AutoreviewSubcommand::Run     => run_review(config),
-        AutoreviewSubcommand::Merge   => run_merge(config),
-        AutoreviewSubcommand::Process => run_process(config),
+        AutoreviewSubcommand::Run        => run_review(config),
+        AutoreviewSubcommand::Merge      => run_merge(config),
+        AutoreviewSubcommand::Process    => run_process(config),
+        AutoreviewSubcommand::SmallFixes => run_small_fixes(config),
     }
 }
