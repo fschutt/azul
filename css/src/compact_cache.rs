@@ -238,8 +238,8 @@ pub fn layout_position_to_u8(v: LayoutPosition) -> u8 {
     }
 }
 
-#[inline(always)]
 /// Decode float from u8. **0 = None** (CSS initial value).
+#[inline(always)]
 pub fn layout_float_from_u8(v: u8) -> LayoutFloat {
     match v {
         0 => LayoutFloat::None,            // default when bits unset
@@ -259,8 +259,8 @@ pub fn layout_float_to_u8(v: LayoutFloat) -> u8 {
     }
 }
 
-#[inline(always)]
 /// Decode overflow from u8. **0 = Visible** (CSS initial value).
+#[inline(always)]
 pub fn layout_overflow_from_u8(v: u8) -> LayoutOverflow {
     match v {
         0 => LayoutOverflow::Visible,      // default when bits unset
@@ -272,8 +272,8 @@ pub fn layout_overflow_from_u8(v: u8) -> LayoutOverflow {
     }
 }
 
-#[inline(always)]
 /// Encode overflow to u8. **0 = Visible** (CSS initial value).
+#[inline(always)]
 pub fn layout_overflow_to_u8(v: LayoutOverflow) -> u8 {
     match v {
         LayoutOverflow::Visible => 0,      // 0 = default when bits unset
@@ -322,8 +322,8 @@ pub fn layout_flex_direction_to_u8(v: LayoutFlexDirection) -> u8 {
     }
 }
 
-#[inline(always)]
 /// 0 = NoWrap (CSS initial value for flex-wrap)
+#[inline(always)]
 pub fn layout_flex_wrap_from_u8(v: u8) -> LayoutFlexWrap {
     match v {
         0 => LayoutFlexWrap::NoWrap,       // CSS initial
@@ -627,7 +627,9 @@ pub fn style_vertical_align_to_u8(v: StyleVerticalAlign) -> u8 {
         StyleVerticalAlign::Superscript => 5,
         StyleVerticalAlign::TextTop => 6,
         StyleVerticalAlign::TextBottom => 7,
-        // Percentage/Length cannot be stored in compact cache; fall back to 0 (Baseline)
+        // Percentage/Length cannot be stored in the 3-bit compact cache field;
+        // fall back to 0 (Baseline). Callers must use the slow cascade path
+        // for vertical-align values with length/percentage units.
         StyleVerticalAlign::Percentage(_) | StyleVerticalAlign::Length(_) => 0,
     }
 }
@@ -721,7 +723,11 @@ pub fn encode_color_u32(c: &ColorU) -> u32 {
     ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32)
 }
 
-/// Decode a u32 back to ColorU. Returns None if sentinel (0x00000000).
+/// Decode a u32 back to ColorU. Returns `None` if sentinel (`0x00000000`).
+///
+/// **Limitation:** `rgba(0,0,0,0)` (fully transparent black) also encodes as
+/// `0x00000000` and will be decoded as `None` (unset). This is acceptable
+/// because fully transparent black is visually indistinguishable from unset.
 #[inline(always)]
 pub fn decode_color_u32(v: u32) -> Option<ColorU> {
     if v == 0 { return None; }
