@@ -1,13 +1,15 @@
 //! JSON parsing module for C API
 //!
 //! Re-exports the data types and serde_json implementations from `azul_core::json`.
-//! Adds RefAny serialization support on top.
+//! Adds RefAny serialization support on top, including C API wrapper functions
+//! (`refany_serialize_to_json`, `json_deserialize_to_refany`) and function pointer
+//! types (`RefAnySerializeFnType`, `RefAnyDeserializeFnType`).
 
 // Re-export all data types and methods from core
 pub use azul_core::json::*;
 
 use alloc::string::String;
-use azul_css::{AzString, impl_option, impl_option_inner};
+use azul_css::AzString;
 
 // ============================================================================
 // Public API Functions
@@ -15,12 +17,14 @@ use azul_css::{AzString, impl_option, impl_option_inner};
 
 /// Parse a JSON string
 #[cfg(feature = "json")]
+#[must_use]
 pub fn json_parse(s: &str) -> Result<Json, JsonParseError> {
     Json::parse(s)
 }
 
 /// Parse JSON from bytes
 #[cfg(feature = "json")]
+#[must_use]
 pub fn json_parse_bytes(bytes: &[u8]) -> Result<Json, JsonParseError> {
     Json::parse_bytes(bytes)
 }
@@ -53,17 +57,18 @@ pub enum ResultRefAnyString {
     Err(AzString),
 }
 
-impl_option!(ResultRefAnyString, OptionResultRefAnyString, copy = false, [Debug, Clone]);
-
 impl ResultRefAnyString {
+    /// Returns `true` if this is the `Ok` variant.
     pub fn is_ok(&self) -> bool {
         matches!(self, ResultRefAnyString::Ok(_))
     }
 
+    /// Returns `true` if this is the `Err` variant.
     pub fn is_err(&self) -> bool {
         matches!(self, ResultRefAnyString::Err(_))
     }
 
+    /// Converts into `Option<RefAny>`, discarding any error.
     pub fn ok(self) -> Option<RefAny> {
         match self {
             ResultRefAnyString::Ok(r) => Some(r),
@@ -71,6 +76,7 @@ impl ResultRefAnyString {
         }
     }
 
+    /// Converts into `Option<AzString>`, discarding any success value.
     pub fn err(self) -> Option<AzString> {
         match self {
             ResultRefAnyString::Ok(_) => None,
@@ -87,12 +93,15 @@ pub type RefAnyDeserializeFnType = extern "C" fn(Json) -> ResultRefAnyString;
 
 /// Serialize a RefAny to JSON using its registered serialize function.
 #[cfg(feature = "json")]
+#[must_use]
 pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
     let serialize_fn = refany.get_serialize_fn();
     if serialize_fn == 0 {
         return None;
     }
 
+    // Safety: `serialize_fn` is a valid `extern "C" fn(RefAny) -> Json` pointer,
+    // set via `RefAny::set_serialize_fn`. The `!= 0` check above guards against null.
     let func: RefAnySerializeFnType = unsafe {
         core::mem::transmute(serialize_fn)
     };
@@ -107,6 +116,7 @@ pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
 
 /// Deserialize JSON into a RefAny using the provided deserialize function.
 #[cfg(feature = "json")]
+#[must_use]
 pub fn deserialize_refany_from_json(
     json: Json,
     deserialize_fn: usize
@@ -115,6 +125,8 @@ pub fn deserialize_refany_from_json(
         return Err("Type does not support JSON deserialization".to_string());
     }
 
+    // Safety: `deserialize_fn` is a valid `extern "C" fn(Json) -> ResultRefAnyString` pointer,
+    // set via `RefAny::set_deserialize_fn`. The `== 0` check above guards against null.
     let func: RefAnyDeserializeFnType = unsafe {
         core::mem::transmute(deserialize_fn)
     };
@@ -131,16 +143,6 @@ impl From<Result<RefAny, String>> for ResultRefAnyString {
             Ok(refany) => ResultRefAnyString::Ok(refany),
             Err(msg) => ResultRefAnyString::Err(AzString::from(msg)),
         }
-    }
-}
-
-impl ResultRefAnyString {
-    pub fn ok_result(refany: RefAny) -> Self {
-        ResultRefAnyString::Ok(refany)
-    }
-
-    pub fn err_result(message: AzString) -> Self {
-        ResultRefAnyString::Err(message)
     }
 }
 
