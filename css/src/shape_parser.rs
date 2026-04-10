@@ -145,6 +145,9 @@ fn parse_ellipse(args: &str) -> Result<CssShape, ShapeParseError> {
 
 /// Parses a polygon: `polygon([fill-rule,] x1 y1, x2 y2, ...)`
 ///
+/// Note: the optional fill-rule (`nonzero` or `evenodd`) is parsed but
+/// currently ignored — the scanline rasterizer always uses even-odd fill.
+///
 /// Examples:
 /// - `polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)` - rectangle
 /// - `polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)` - diamond
