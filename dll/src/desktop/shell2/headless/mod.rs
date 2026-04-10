@@ -287,7 +287,11 @@ impl CpuBackend {
                 display_list, dpi_factor, renderer_resources,
                 Some(&layout_window.font_manager), &mut self.glyph_cache,
             ) {
-                eprintln!("[CpuBackend] render_layers error: {}", e);
+                log_error!(
+                    LogCategory::Render,
+                    "[CpuBackend] render_layers error: {}",
+                    e
+                );
             }
             compositor.composite_frame(&mut output, dpi_factor);
         }
@@ -914,11 +918,11 @@ mod tests {
         );
         assert!(results.is_empty());
     }
-}
 
-extern "C" fn test_timer_callback(
-    _data: RefAny,
-    _info: azul_layout::timer::TimerCallbackInfo,
-) -> azul_core::callbacks::TimerCallbackReturn {
-    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+    extern "C" fn test_timer_callback(
+        _data: RefAny,
+        _info: azul_layout::timer::TimerCallbackInfo,
+    ) -> azul_core::callbacks::TimerCallbackReturn {
+        azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+    }
 }
