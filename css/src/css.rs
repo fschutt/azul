@@ -1,4 +1,13 @@
-//! Types and methods used to describe the style of an application
+//! Types and methods used to describe the style of an application.
+//!
+//! This module defines the core CSS data model:
+//!
+//! - [`Css`] contains one or more [`Stylesheet`]s, each holding [`CssRuleBlock`]s.
+//! - A [`CssRuleBlock`] pairs a [`CssPath`] (selector) with [`CssDeclaration`]s (properties).
+//! - [`CssPropertyValue<T>`] wraps individual property values with CSS keywords
+//!   (`auto`, `inherit`, `initial`, etc.).
+//! - [`BoxOrStatic<T>`] is a smart-pointer enum for heap-allocated or static CSS values.
+//! - [`NodeTypeTag`] enumerates all recognized HTML/SVG element types for selector matching.
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 
@@ -227,11 +236,21 @@ impl<T> BoxOrStatic<T> {
     }
 
     /// Return a reference to the inner value.
+    ///
+    /// # Safety invariant
+    /// The inner pointer must be non-null. This is guaranteed by [`heap`](Self::heap)
+    /// and the `Static` constructor (which should always point to valid data).
     #[inline]
     pub fn as_ref(&self) -> &T {
         match self {
-            BoxOrStatic::Boxed(ptr) => unsafe { &**ptr },
-            BoxOrStatic::Static(ptr) => unsafe { &**ptr },
+            BoxOrStatic::Boxed(ptr) => unsafe {
+                debug_assert!(!ptr.is_null(), "BoxOrStatic::Boxed contained a null pointer");
+                &**ptr
+            },
+            BoxOrStatic::Static(ptr) => unsafe {
+                debug_assert!(!ptr.is_null(), "BoxOrStatic::Static contained a null pointer");
+                &**ptr
+            },
         }
     }
 
@@ -347,6 +366,8 @@ pub type BoxOrStaticStyleBoxShadow = BoxOrStatic<crate::props::style::box_shadow
 /// Type alias: `BoxOrStatic<AzString>` — used by NodeType::Text and NodeType::Icon.
 pub type BoxOrStaticString = BoxOrStatic<crate::AzString>;
 
+/// A CSS property value that may be an explicit value or a CSS-wide keyword
+/// (`auto`, `none`, `initial`, `inherit`, `revert`, `unset`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)] // necessary for ABI stability
 pub enum CssPropertyValue<T> {
@@ -359,6 +380,7 @@ pub enum CssPropertyValue<T> {
     Exact(T),
 }
 
+/// Trait for types that can format themselves as a CSS property value string.
 pub trait PrintAsCssValue {
     fn print_as_css_value(&self) -> String;
 }
@@ -566,6 +588,7 @@ impl CssRuleBlock {
     }
 }
 
+/// A group of CSS path selectors, used during selector matching.
 pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 
 /// Signifies the type of a DOM node without carrying any associated data
@@ -857,6 +880,7 @@ pub enum NodeTypeTag {
     Placeholder,
 }
 
+/// Error returned when a CSS tag name string cannot be mapped to a [`NodeTypeTag`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NodeTypeTagParseError<'a> {
     Invalid(&'a str),
@@ -870,6 +894,7 @@ impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
     }
 }
 
+/// Owned version of [`NodeTypeTagParseError`] for storage across lifetime boundaries.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum NodeTypeTagParseErrorOwned {
@@ -1474,6 +1499,7 @@ pub enum CssPathPseudoSelector {
     DragOver,
 }
 
+/// Selector for the `:nth-child()` CSS pseudo-class.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssNthChildSelector {
@@ -1483,6 +1509,7 @@ pub enum CssNthChildSelector {
     Pattern(CssNthChildPattern),
 }
 
+/// Pattern for `:nth-child(An+B)` selectors, where `pattern_repeat` is A and `offset` is B.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct CssNthChildPattern {
@@ -1542,6 +1569,7 @@ impl Css {
     }
 }
 
+/// Iterator over all [`CssRuleBlock`]s across all stylesheets in a [`Css`].
 pub struct RuleIterator<'a> {
     current_stylesheet: usize,
     current_rule: usize,
