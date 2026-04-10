@@ -90,6 +90,7 @@ impl SvgLine {
         }
     }
 
+    /// Computes the outward-facing normal vector for this line (opposite of `inwards_normal`).
     pub fn outwards_normal(&self) -> Option<SvgPoint> {
         let inwards = self.inwards_normal()?;
         Some(SvgPoint {
@@ -98,18 +99,22 @@ impl SvgLine {
         })
     }
 
+    /// Reverses the direction of the line by swapping start and end points.
     pub fn reverse(&mut self) {
         let temp = self.start;
         self.start = self.end;
         self.end = temp;
     }
+    /// Returns the start point of the line.
     pub fn get_start(&self) -> SvgPoint {
         self.start
     }
+    /// Returns the end point of the line.
     pub fn get_end(&self) -> SvgPoint {
         self.end
     }
 
+    /// Returns the parametric `t` value (0.0–1.0) at the given arc-length offset.
     pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         offset / self.get_length()
     }
@@ -127,20 +132,24 @@ impl SvgLine {
         .normalize()
     }
 
+    /// Returns the X coordinate at parametric position `t` (0.0 = start, 1.0 = end).
     pub fn get_x_at_t(&self, t: f64) -> f64 {
         self.start.x as f64 + (self.end.x as f64 - self.start.x as f64) * t
     }
 
+    /// Returns the Y coordinate at parametric position `t` (0.0 = start, 1.0 = end).
     pub fn get_y_at_t(&self, t: f64) -> f64 {
         self.start.y as f64 + (self.end.y as f64 - self.start.y as f64) * t
     }
 
+    /// Returns the Euclidean length of the line segment.
     pub fn get_length(&self) -> f64 {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
         libm::hypotf(dx, dy) as f64
     }
 
+    /// Returns the axis-aligned bounding rectangle of this line segment.
     pub fn get_bounds(&self) -> SvgRect {
         let min_x = self.start.x.min(self.end.x);
         let max_x = self.start.x.max(self.end.x);
@@ -156,7 +165,10 @@ impl SvgLine {
             height,
             x: min_x,
             y: min_y,
-            ..SvgRect::default()
+            radius_top_left: 0.0,
+            radius_top_right: 0.0,
+            radius_bottom_left: 0.0,
+            radius_bottom_right: 0.0,
         }
     }
 }
@@ -194,6 +206,7 @@ impl SvgPathElement {
         SvgPathElement::CubicCurve(cc)
     }
 
+    /// Sets the end point of this path element.
     pub fn set_last(&mut self, point: SvgPoint) {
         match self {
             SvgPathElement::Line(l) => l.end = point,
@@ -202,6 +215,7 @@ impl SvgPathElement {
         }
     }
 
+    /// Sets the start point of this path element.
     pub fn set_first(&mut self, point: SvgPoint) {
         match self {
             SvgPathElement::Line(l) => l.start = point,
@@ -210,6 +224,7 @@ impl SvgPathElement {
         }
     }
 
+    /// Reverses the direction of this path element.
     pub fn reverse(&mut self) {
         match self {
             SvgPathElement::Line(l) => l.reverse(),
@@ -217,6 +232,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.reverse(),
         }
     }
+    /// Returns the start point of this path element.
     pub fn get_start(&self) -> SvgPoint {
         match self {
             SvgPathElement::Line(l) => l.get_start(),
@@ -224,6 +240,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_start(),
         }
     }
+    /// Returns the end point of this path element.
     pub fn get_end(&self) -> SvgPoint {
         match self {
             SvgPathElement::Line(l) => l.get_end(),
@@ -231,6 +248,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_end(),
         }
     }
+    /// Returns the axis-aligned bounding rectangle of this path element.
     pub fn get_bounds(&self) -> SvgRect {
         match self {
             SvgPathElement::Line(l) => l.get_bounds(),
@@ -238,6 +256,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_bounds(),
         }
     }
+    /// Returns the arc length of this path element.
     pub fn get_length(&self) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_length(),
@@ -245,6 +264,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_length(),
         }
     }
+    /// Returns the parametric `t` value at the given arc-length offset.
     pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_t_at_offset(offset),
@@ -252,6 +272,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_t_at_offset(offset),
         }
     }
+    /// Returns the normalized tangent vector at parametric position `t`.
     pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         match self {
             SvgPathElement::Line(l) => l.get_tangent_vector_at_t(),
@@ -259,6 +280,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_tangent_vector_at_t(t),
         }
     }
+    /// Returns the X coordinate at parametric position `t`.
     pub fn get_x_at_t(&self, t: f64) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_x_at_t(t),
@@ -266,6 +288,7 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_x_at_t(t),
         }
     }
+    /// Returns the Y coordinate at parametric position `t`.
     pub fn get_y_at_t(&self, t: f64) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_y_at_t(t),
@@ -305,14 +328,17 @@ impl SvgPath {
         Self { items }
     }
 
+    /// Returns the start point of the first element, or `None` if the path is empty.
     pub fn get_start(&self) -> Option<SvgPoint> {
         self.items.as_ref().first().map(|s| s.get_start())
     }
 
+    /// Returns the end point of the last element, or `None` if the path is empty.
     pub fn get_end(&self) -> Option<SvgPoint> {
         self.items.as_ref().last().map(|s| s.get_end())
     }
 
+    /// Closes the path by appending a line from the last point to the first point, if needed.
     pub fn close(&mut self) {
         let first = match self.items.as_ref().first() {
             Some(s) => s,
@@ -332,6 +358,7 @@ impl SvgPath {
         }
     }
 
+    /// Returns `true` if the path's first start point equals its last end point.
     pub fn is_closed(&self) -> bool {
         let first = self.items.as_ref().first();
         let last = self.items.as_ref().last();
@@ -341,7 +368,7 @@ impl SvgPath {
         }
     }
 
-    // reverses the order of elements in the path
+    /// Reverses the order and direction of all elements in the path.
     pub fn reverse(&mut self) {
         // swap self.items with a default vec
         let mut vec = SvgPathElementVec::from_const_slice(&[]);
@@ -362,6 +389,7 @@ impl SvgPath {
         core::mem::swap(&mut vec, &mut self.items);
     }
 
+    /// Joins another path onto the end of this one, interpolating the join point.
     pub fn join_with(&mut self, mut path: Self) -> Option<()> {
         let self_last_point = self.items.as_ref().last()?.get_end();
         let other_start_point = path.items.as_ref().first()?.get_start();
@@ -390,6 +418,7 @@ impl SvgPath {
 
         Some(())
     }
+    /// Returns the axis-aligned bounding rectangle of the entire path.
     pub fn get_bounds(&self) -> SvgRect {
         let mut first_bounds = match self.items.as_ref().get(0) {
             Some(s) => s.get_bounds(),
@@ -427,6 +456,7 @@ impl SvgMultiPolygon {
         Self { rings }
     }
 
+    /// Returns the axis-aligned bounding rectangle of all rings in this multi-polygon.
     pub fn get_bounds(&self) -> SvgRect {
         let mut first_bounds = match self
             .rings
@@ -502,6 +532,7 @@ impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
 
 impl SvgSimpleNode {
+    /// Returns the axis-aligned bounding rectangle of this node.
     pub fn get_bounds(&self) -> SvgRect {
         match self {
             SvgSimpleNode::Path(a) => a.get_bounds(),
@@ -511,6 +542,7 @@ impl SvgSimpleNode {
             SvgSimpleNode::RectHole(a) => a.clone(),
         }
     }
+    /// Returns `true` if this node represents a closed shape.
     pub fn is_closed(&self) -> bool {
         match self {
             SvgSimpleNode::Path(a) => a.is_closed(),
@@ -523,6 +555,7 @@ impl SvgSimpleNode {
 }
 
 impl SvgNode {
+    /// Returns the axis-aligned bounding rectangle of this SVG node.
     pub fn get_bounds(&self) -> SvgRect {
         match self {
             SvgNode::MultiPolygonCollection(a) => {
@@ -555,6 +588,7 @@ impl SvgNode {
             SvgNode::Rect(a) => a.clone(),
         }
     }
+    /// Returns `true` if all sub-paths in this node are closed.
     pub fn is_closed(&self) -> bool {
         match self {
             SvgNode::MultiPolygonCollection(a) => {
@@ -593,6 +627,7 @@ impl SvgNode {
     }
 }
 
+/// An SVG node paired with its visual style (fill or stroke).
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 #[repr(C)]
 pub struct SvgStyledNode {
@@ -600,6 +635,7 @@ pub struct SvgStyledNode {
     pub style: SvgStyle,
 }
 
+/// A 2D vertex used in tessellated SVG geometry.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 #[repr(C)]
 pub struct SvgVertex {
@@ -627,6 +663,7 @@ impl VertexLayoutDescription for SvgVertex {
     }
 }
 
+/// A 3D vertex with per-vertex RGBA color, used in multi-colored SVG tessellation.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 #[repr(C)]
 pub struct SvgColoredVertex {
@@ -667,6 +704,7 @@ impl VertexLayoutDescription for SvgColoredVertex {
     }
 }
 
+/// A circle defined by center coordinates and radius.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 #[repr(C)]
 pub struct SvgCircle {
@@ -676,11 +714,13 @@ pub struct SvgCircle {
 }
 
 impl SvgCircle {
+    /// Returns `true` if the given point lies inside the circle.
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
         let x_diff = libm::fabsf(x - self.center_x);
         let y_diff = libm::fabsf(y - self.center_y);
         (x_diff * x_diff) + (y_diff * y_diff) < (self.radius * self.radius)
     }
+    /// Returns the axis-aligned bounding rectangle of this circle.
     pub fn get_bounds(&self) -> SvgRect {
         SvgRect {
             width: self.radius * 2.0,
@@ -1045,6 +1085,7 @@ impl SvgStyle {
         }
     }
 }
+/// SVG fill rule for determining the interior of a shape.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub enum SvgFillRule {
@@ -1195,6 +1236,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
 
+/// The shape used at the end of open sub-paths when they are stroked.
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
 pub enum SvgLineCap {
@@ -1209,6 +1251,7 @@ impl Default for SvgLineCap {
     }
 }
 
+/// The shape used at the corners of stroked paths.
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
 pub enum SvgLineJoin {
@@ -1224,10 +1267,7 @@ impl Default for SvgLineJoin {
     }
 }
 
-#[allow(non_camel_case_types)]
-pub enum c_void {}
-
-pub type GlyphId = u16;
+pub use core::ffi::c_void;
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -1243,6 +1283,7 @@ pub struct Svg {
     pub run_destructor: bool,
 }
 
+/// SVG `shape-rendering` property controlling quality vs speed tradeoffs.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum ShapeRendering {
@@ -1251,6 +1292,7 @@ pub enum ShapeRendering {
     GeometricPrecision,
 }
 
+/// SVG `image-rendering` property controlling image quality vs speed.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum ImageRendering {
@@ -1258,6 +1300,7 @@ pub enum ImageRendering {
     OptimizeSpeed,
 }
 
+/// SVG `text-rendering` property controlling text quality vs speed.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum TextRendering {
@@ -1266,6 +1309,7 @@ pub enum TextRendering {
     GeometricPrecision,
 }
 
+/// Font database source for SVG text rendering.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum FontDatabase {
@@ -1422,6 +1466,7 @@ impl_result!(
     [Debug, Clone]
 );
 
+/// Indentation style for SVG XML serialization.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum Indent {
