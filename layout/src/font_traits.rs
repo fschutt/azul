@@ -2,6 +2,9 @@
 //!
 //! These traits define the interface between the layout solver and the font system.
 //! The actual implementations live in text3/cache.rs when text_layout feature is enabled.
+//!
+//! When `text_layout` + `font_loading` features are disabled, a stub module provides
+//! minimal placeholder types so that downstream code can still reference these names.
 
 use azul_core::geom::LogicalSize;
 
@@ -36,6 +39,7 @@ pub trait ShallowClone {
 /// This trait abstracts over the actual font parsing implementation, allowing
 /// the layout solver to work with different font backends.
 pub trait ParsedFontTrait: Send + Clone + ShallowClone {
+    /// Shape the given text into a sequence of glyphs using the font's shaping tables.
     fn shape_text(
         &self,
         text: &str,
@@ -48,18 +52,25 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
     fn get_hash(&self) -> u64;
 
+    /// Returns the size of a glyph at the given font size, or `None` if the glyph is missing.
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize>;
 
+    /// Returns the glyph ID and horizontal advance of the hyphen character at the given font size.
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
 
+    /// Returns the glyph ID and horizontal advance of the kashida (tatweel) character.
     fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
 
+    /// Returns whether the font contains a glyph for the given Unicode codepoint.
     fn has_glyph(&self, codepoint: u32) -> bool;
 
+    /// Returns vertical metrics (ascent, descent, line gap) for a specific glyph.
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics>;
 
+    /// Returns the global font metrics (ascent, descent, units per em, etc.).
     fn get_font_metrics(&self) -> LayoutFontMetrics;
 
+    /// Returns the total number of glyphs in the font.
     fn num_glyphs(&self) -> u16;
 
     /// Returns the advance width of the space character (U+0020) in font units,
@@ -125,12 +136,6 @@ mod stub {
         Normal,
         Italic,
         Oblique,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum TextDirection {
-        LeftToRight,
-        RightToLeft,
     }
 
     /// Stub for BidiDirection when text_layout is disabled
