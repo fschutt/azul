@@ -1,4 +1,8 @@
 //! CSS properties for controlling fragmentation (page/column breaks).
+//!
+//! Defines [`PageBreak`], [`BreakInside`], [`Widows`], [`Orphans`], and
+//! [`BoxDecorationBreak`]. The `parser` sub-module (behind the `parser`
+//! feature) provides CSS-value parsing for each type.
 
 use alloc::string::{String, ToString};
 
@@ -208,6 +212,7 @@ pub mod parser {
 
     // -- PageBreak parser (`break-before`, `break-after`)
 
+    /// Error returned when parsing a `break-before` or `break-after` value.
     #[derive(Clone, PartialEq)]
     pub enum PageBreakParseError<'a> {
         InvalidValue(&'a str),
@@ -218,6 +223,7 @@ pub mod parser {
         InvalidValue(v) => format!("Invalid break value: \"{}\"", v),
     }}
 
+    /// Owned version of [`PageBreakParseError`] for FFI and storage.
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum PageBreakParseErrorOwned {
@@ -260,6 +266,7 @@ pub mod parser {
 
     // -- BreakInside parser
 
+    /// Error returned when parsing a `break-inside` value.
     #[derive(Clone, PartialEq)]
     pub enum BreakInsideParseError<'a> {
         InvalidValue(&'a str),
@@ -270,6 +277,7 @@ pub mod parser {
         InvalidValue(v) => format!("Invalid break-inside value: \"{}\"", v),
     }}
 
+    /// Owned version of [`BreakInsideParseError`] for FFI and storage.
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum BreakInsideParseErrorOwned {
@@ -374,6 +382,7 @@ pub mod parser {
 
     // -- BoxDecorationBreak parser
 
+    /// Error returned when parsing a `box-decoration-break` value.
     #[derive(Clone, PartialEq)]
     pub enum BoxDecorationBreakParseError<'a> {
         InvalidValue(&'a str),
@@ -384,6 +393,7 @@ pub mod parser {
         InvalidValue(v) => format!("Invalid box-decoration-break value: \"{}\"", v),
     }}
 
+    /// Owned version of [`BoxDecorationBreakParseError`] for FFI and storage.
     #[derive(Debug, Clone, PartialEq)]
     #[repr(C, u8)]
     pub enum BoxDecorationBreakParseErrorOwned {
