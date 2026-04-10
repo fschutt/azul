@@ -91,13 +91,8 @@ impl LanguageGenerator for RustDynamicGenerator {
         builder.line("// --- Extern C Function Declarations ---");
         builder.blank();
 
-        // Get link library name
-        let link_library = match &config.cabi_functions {
-            CAbiFunctionMode::ExternalBindings { link_library } => link_library.clone(),
-            _ => "azul".to_string(),
-        };
-
-        builder.line(&format!("#[link(name = \"{}\")]", link_library));
+        // No #[link(name = "...")] — build.rs handles cargo:rustc-link-lib
+        // to avoid self-linking when azul-dll is compiled in a workspace.
         builder.line("extern \"C\" {");
         builder.indent();
 

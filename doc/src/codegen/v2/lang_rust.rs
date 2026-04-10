@@ -180,8 +180,11 @@ impl LanguageGenerator for RustGenerator {
                     self.generate_function_definition(&mut builder, func, ir, config, *no_mangle);
                 }
             }
-            CAbiFunctionMode::ExternalBindings { link_library } => {
-                builder.line(&format!("#[link(name = \"{}\")]", link_library));
+            CAbiFunctionMode::ExternalBindings { .. } => {
+                // No #[link(name = "...")] here — the build.rs handles
+                // cargo:rustc-link-lib so it can skip it when azul-dll
+                // itself is being compiled (avoids "can't link a dylib
+                // with itself" error in workspace builds).
                 builder.line("extern \"C\" {");
                 builder.indent();
 
