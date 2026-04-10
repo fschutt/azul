@@ -191,12 +191,14 @@ mod windows {
     }
 
     const MONITORINFOF_PRIMARY: u32 = 0x00000001;
-    const MONITOR_DEFAULTTONEAREST: u32 = 0x00000002;
 
     type HMONITOR = *mut std::ffi::c_void;
     type HDC = *mut std::ffi::c_void;
     type HWND = *mut std::ffi::c_void;
 
+    // NOTE: DEVMODEW contains a union at offset 44 (position/orientation for displays
+    // vs. printer fields). We flatten it to display-only fields since we only query
+    // display settings via ENUM_CURRENT_SETTINGS.
     #[repr(C)]
     struct DEVMODEW {
         dm_device_name: [u16; 32],
@@ -248,17 +250,20 @@ mod windows {
 
         fn GetMonitorInfoW(hmonitor: HMONITOR, lpmi: *mut MONITORINFO) -> i32;
 
+        fn EnumDisplaySettingsW(
+            lpsz_device_name: *const u16,
+            i_mode_num: u32,
+            lp_dev_mode: *mut DEVMODEW,
+        ) -> i32;
+    }
+
+    #[link(name = "shcore")]
+    extern "system" {
         fn GetDpiForMonitor(
             hmonitor: HMONITOR,
             dpi_type: u32,
             dpi_x: *mut u32,
             dpi_y: *mut u32,
-        ) -> i32;
-
-        fn EnumDisplaySettingsW(
-            lpsz_device_name: *const u16,
-            i_mode_num: u32,
-            lp_dev_mode: *mut DEVMODEW,
         ) -> i32;
     }
 
@@ -445,38 +450,14 @@ mod macos {
     use super::*;
 
     pub fn get_displays() -> Vec<DisplayInfo> {
-        log_debug!(
-            LogCategory::General,
-            "[get_displays] Starting monitor enumeration..."
-        );
         let mtm = MainThreadMarker::new().expect("Must be called on main thread");
-        log_debug!(LogCategory::General, "[get_displays] Got MainThreadMarker");
-
         let screens = NSScreen::screens(mtm);
-        log_debug!(
-            LogCategory::General,
-            "[get_displays] Got {} screens",
-            screens.len()
-        );
-
         let mut displays = Vec::new();
 
         for (i, screen) in screens.iter().enumerate() {
-            log_debug!(
-                LogCategory::General,
-                "[get_displays] Processing screen {}...",
-                i
-            );
             let frame = screen.frame();
             let visible_frame = screen.visibleFrame();
             let scale = screen.backingScaleFactor();
-            log_debug!(
-                LogCategory::General,
-                "[get_displays] Screen {} frame: {}x{}",
-                i,
-                frame.size.width,
-                frame.size.height
-            );
 
             // macOS uses flipped coordinates (origin at bottom-left)
             // Convert to top-left origin
@@ -495,19 +476,8 @@ mod macos {
 
             // Get refresh rate from NSScreen (macOS 10.15+)
             // maximumFramesPerSecond returns refresh rate in Hz
-            log_debug!(
-                LogCategory::General,
-                "[get_displays] Getting refresh rate for screen {}...",
-                i
-            );
             let refresh_rate = unsafe {
                 let fps: i64 = msg_send![&**screen, maximumFramesPerSecond];
-                log_debug!(
-                    LogCategory::General,
-                    "[get_displays] Screen {} refresh rate: {} Hz",
-                    i,
-                    fps
-                );
                 if fps > 0 {
                     fps as u16
                 } else {
@@ -515,18 +485,7 @@ mod macos {
                 }
             };
 
-            log_debug!(
-                LogCategory::General,
-                "[get_displays] Getting localized name for screen {}...",
-                i
-            );
             let name = screen.localizedName().to_string();
-            log_debug!(
-                LogCategory::General,
-                "[get_displays] Screen {} name: {}",
-                i,
-                name
-            );
 
             displays.push(DisplayInfo {
                 name,
@@ -540,16 +499,11 @@ mod macos {
                     refresh_rate,
                 }],
             });
-            log_debug!(
-                LogCategory::General,
-                "[get_displays] Screen {} added to displays list",
-                i
-            );
         }
 
         log_debug!(
             LogCategory::General,
-            "[get_displays] Returning {} displays",
+            "[get_displays] Detected {} macOS display(s)",
             displays.len()
         );
         displays
@@ -559,6 +513,10 @@ mod macos {
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux {
     use super::*;
+
+    /// Fallback panel/taskbar height (in pixels) subtracted from display bounds
+    /// to approximate the work area when the real value is unavailable.
+    const FALLBACK_PANEL_HEIGHT: f32 = 24.0;
 
     pub fn get_displays() -> Vec<DisplayInfo> {
         // Try X11 first, then Wayland
@@ -729,7 +687,7 @@ mod linux {
                         LogicalPosition::new(crtc_info.x as f32, crtc_info.y as f32),
                         LogicalSize::new(
                             crtc_info.width as f32,
-                            (crtc_info.height.saturating_sub(24)) as f32,
+                            (crtc_info.height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
                         ),
                     );
 
@@ -747,7 +705,7 @@ mod linux {
                                 let v_total = mode.v_total as u64;
                                 if h_total > 0 && v_total > 0 {
                                     let refresh =
-                                        (mode.dot_clock as u64 * 1000) / (h_total * v_total);
+                                        (mode.dot_clock as u64) / (h_total * v_total);
                                     refresh as u16
                                 } else {
                                     60
@@ -838,7 +796,7 @@ mod linux {
                 // Approximate work area by subtracting common panel height (24px)
                 let work_area = LogicalRect::new(
                     LogicalPosition::zero(),
-                    LogicalSize::new(width_px as f32, (height_px - 24).max(0) as f32),
+                    LogicalSize::new(width_px as f32, (height_px as f32 - FALLBACK_PANEL_HEIGHT).max(0.0)),
                 );
 
                 vec![DisplayInfo {
@@ -862,7 +820,7 @@ mod linux {
 
             let work_area = LogicalRect::new(
                 LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1056.0), // 1080 - 24
+                LogicalSize::new(1920.0, 1080.0 - FALLBACK_PANEL_HEIGHT),
             );
 
             vec![DisplayInfo {
@@ -927,7 +885,7 @@ mod linux {
 
             let work_area = LogicalRect::new(
                 LogicalPosition::zero(),
-                LogicalSize::new(width as f32, (height - 24).max(0) as f32),
+                LogicalSize::new(width as f32, (height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0)),
             );
 
             vec![DisplayInfo {
@@ -998,7 +956,7 @@ mod linux {
                         ),
                         work_area: LogicalRect::new(
                             LogicalPosition::new(o.rect.x, o.rect.y),
-                            LogicalSize::new(o.rect.width, (o.rect.height - 24.0).max(0.0)),
+                            LogicalSize::new(o.rect.width, (o.rect.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.primary,
@@ -1033,6 +991,11 @@ mod linux {
 
         // --- Hyprland/hyprctl Implementation ---
         fn try_hyprctl() -> Result<Vec<DisplayInfo>, ()> {
+            // Only run if HYPRLAND_INSTANCE_SIGNATURE is set, which is specific to Hyprland
+            if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
+                return Err(());
+            }
+
             let output = Command::new("hyprctl")
                 .arg("monitors")
                 .arg("-j")
@@ -1073,7 +1036,7 @@ mod linux {
                         ),
                         work_area: LogicalRect::new(
                             LogicalPosition::new(o.x, o.y),
-                            LogicalSize::new(o.width, (o.height - 24.0).max(0.0)),
+                            LogicalSize::new(o.width, (o.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.focused,
@@ -1161,7 +1124,7 @@ mod linux {
                         ),
                         work_area: LogicalRect::new(
                             LogicalPosition::new(o.geometry.x, o.geometry.y),
-                            LogicalSize::new(o.geometry.width, (o.geometry.height - 24.0).max(0.0)),
+                            LogicalSize::new(o.geometry.width, (o.geometry.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.primary,
@@ -1289,7 +1252,7 @@ mod linux {
                                 ),
                                 work_area: LogicalRect::new(
                                     LogicalPosition::new(x, y),
-                                    LogicalSize::new(width, (height - 24.0).max(0.0)),
+                                    LogicalSize::new(width, (height - FALLBACK_PANEL_HEIGHT).max(0.0)),
                                 ),
                                 scale_factor: scale,
                                 is_primary: is_focused || (x == 0.0 && y == 0.0),
