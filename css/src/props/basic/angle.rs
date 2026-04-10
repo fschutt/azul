@@ -71,37 +71,44 @@ impl PrintAsCssValue for AngleValue {
 }
 
 impl AngleValue {
+    /// Returns an angle of zero degrees.
     #[inline]
     pub const fn zero() -> Self {
         const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
         ZERO_DEG
     }
 
+    /// Creates a const angle value in degrees from an integer.
     #[inline]
     pub const fn const_deg(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Degree, value)
     }
 
+    /// Creates a const angle value in radians from an integer.
     #[inline]
     pub const fn const_rad(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Radians, value)
     }
 
+    /// Creates a const angle value in gradians from an integer.
     #[inline]
     pub const fn const_grad(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Grad, value)
     }
 
+    /// Creates a const angle value in turns from an integer.
     #[inline]
     pub const fn const_turn(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Turn, value)
     }
 
+    /// Creates a const angle value in percent from an integer.
     #[inline]
     pub const fn const_percent(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Percent, value)
     }
 
+    /// Creates a const angle value with the given metric from an integer.
     #[inline]
     pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
         Self {
@@ -110,31 +117,37 @@ impl AngleValue {
         }
     }
 
+    /// Creates an angle value in degrees.
     #[inline]
     pub fn deg(value: f32) -> Self {
         Self::from_metric(AngleMetric::Degree, value)
     }
 
+    /// Creates an angle value in radians.
     #[inline]
     pub fn rad(value: f32) -> Self {
         Self::from_metric(AngleMetric::Radians, value)
     }
 
+    /// Creates an angle value in gradians.
     #[inline]
     pub fn grad(value: f32) -> Self {
         Self::from_metric(AngleMetric::Grad, value)
     }
 
+    /// Creates an angle value in turns.
     #[inline]
     pub fn turn(value: f32) -> Self {
         Self::from_metric(AngleMetric::Turn, value)
     }
 
+    /// Creates an angle value in percent.
     #[inline]
     pub fn percent(value: f32) -> Self {
         Self::from_metric(AngleMetric::Percent, value)
     }
 
+    /// Creates an angle value with the given metric.
     #[inline]
     pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
         Self {
