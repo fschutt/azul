@@ -1,6 +1,10 @@
 //! Windows clipboard integration
 //!
-//! Uses clipboard-win crate to interface with Windows clipboard API
+//! Uses the `clipboard-win` crate to interface with the Windows clipboard API.
+//!
+//! - [`sync_clipboard`]: writes pending copy content from the [`ClipboardManager`]
+//!   to the system clipboard and clears the manager state.
+//! - [`get_clipboard_content`]: reads the current text content from the system clipboard.
 
 use azul_layout::managers::clipboard::ClipboardManager;
 
@@ -14,12 +18,13 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
 
     // Check if there's pending content to copy
     if let Some(content) = clipboard_manager.get_copy_content() {
-        // Write plain text to clipboard
-        let _ = set_clipboard(formats::Unicode, &content.plain_text);
+        // Write plain text to clipboard, only clear on success
+        if set_clipboard(formats::Unicode, &content.plain_text).is_ok() {
+            clipboard_manager.clear();
+        }
+    } else {
+        clipboard_manager.clear();
     }
-
-    // Clear the clipboard manager after sync
-    clipboard_manager.clear();
 }
 
 /// Read content from Windows system clipboard
