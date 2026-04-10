@@ -72,7 +72,9 @@ fn duration_to_millis(duration: CoreDuration) -> u64 {
             system_diff.secs * 1000 + (system_diff.nanos / 1_000_000) as u64
         }
         CoreDuration::Tick(tick_diff) => {
-            // Assume tick = 1ms for simplicity (platform-specific)
+            // WARNING: assumes 1 tick = 1 ms. This is correct for platforms
+            // that use a millisecond tick counter, but will silently produce
+            // wrong timing on platforms with a different tick resolution.
             tick_diff.tick_diff
         }
     }
@@ -89,6 +91,11 @@ pub const MAX_SAMPLES_PER_SESSION: usize = 1000;
 /// Samples older than this are automatically removed to prevent
 /// memory leaks and stale gesture detection.
 pub const DEFAULT_SAMPLE_TIMEOUT_MS: u64 = 2000;
+
+/// Number of samples to drain at once when the session exceeds `MAX_SAMPLES_PER_SESSION`.
+///
+/// Batch draining avoids per-sample overhead on every new sample.
+const DRAIN_BATCH_SIZE: usize = 100;
 
 /// Configuration for gesture detection thresholds
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -545,7 +552,7 @@ impl GestureAndDragManager {
         // Enforce max samples limit
         if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
             // Remove oldest samples, keeping the most recent ones
-            let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + 100;
+            let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
             session.samples.drain(0..remove_count);
         }
 
@@ -837,18 +844,11 @@ impl GestureAndDragManager {
         let dx = last.position.x - first.position.x;
         let dy = last.position.y - first.position.y;
 
-        let direction = if dx.abs() > dy.abs() {
-            if dx > 0.0 {
-                GestureDirection::Right
-            } else {
-                GestureDirection::Left
-            }
-        } else {
-            if dy > 0.0 {
-                GestureDirection::Down
-            } else {
-                GestureDirection::Up
-            }
+        let direction = match (dx.abs() > dy.abs(), dx > 0.0, dy > 0.0) {
+            (true, true, _) => GestureDirection::Right,
+            (true, false, _) => GestureDirection::Left,
+            (false, _, true) => GestureDirection::Down,
+            (false, _, false) => GestureDirection::Up,
         };
         Some(direction)
     }
