@@ -186,7 +186,7 @@ pub struct Node {
     // pub first_child: Option<NodeId>,
 }
 
-// Node that initializes a Dom
+/// Node that initializes a Dom.
 pub const ROOT_NODE: Node = Node {
     parent: None,
     previous_sibling: None,
@@ -793,10 +793,10 @@ impl<'a> Iterator for AzReverseChildren<'a> {
 }
 
 impl NodeId {
-    // Traverse up through the hierarchy a node matching the predicate is found
-    //
-    // Necessary to resolve the last positioned (= relative)
-    // element of an absolute ndoe
+    /// Traverse up through the hierarchy until a node matching the predicate is found.
+    ///
+    /// Necessary to resolve the last positioned (= relative)
+    /// element of an absolute node.
     pub fn get_nearest_matching_parent<'a, F>(
         self,
         node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
