@@ -2,11 +2,12 @@
 //!
 //! Handles connection to the DBus session bus and service registration.
 
-use std::{
-    ffi::CString,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+#[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+use std::ffi::CString;
+#[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+use std::rc::Rc;
+#[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+use std::sync::{Arc, Mutex};
 
 use super::{debug_log, GnomeMenuError};
 #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
@@ -102,7 +103,9 @@ impl DbusConnection {
                 )
             };
 
-            if result < 0 {
+            // DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER = 1 is the only
+            // success value when using DBUS_NAME_FLAG_DO_NOT_QUEUE.
+            if result != 1 {
                 let error_msg = if !error.message.is_null() {
                     let c_str = unsafe { std::ffi::CStr::from_ptr(error.message) };
                     c_str.to_string_lossy().into_owned()
