@@ -1,4 +1,9 @@
 //! CSS properties for graphical effects like blur, drop-shadow, etc.
+//!
+//! Defines [`StyleFilter`] and [`StyleFilterVec`] for CSS filter functions
+//! (blur, opacity, drop-shadow, color-matrix, brightness, contrast, etc.).
+//! Filters are applied via the WebRender compositor (`compositor2`) or the
+//! software CPU renderer (`cpurender`).
 
 use alloc::{
     string::{String, ToString},
