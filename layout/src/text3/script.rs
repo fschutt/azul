@@ -603,8 +603,6 @@ fn detect_devanagari_language(text: &str) -> Language {
 }
 
 fn detect_greek_language(text: &str) -> Language {
-    let mut has_polytonic = false;
-
     for c in text.chars() {
         match c {
             // Coptic has higher priority. Return immediately.
@@ -621,7 +619,7 @@ fn detect_greek_language(text: &str) -> Language {
 fn detect_latin_language(text: &str) -> Language {
     // Flags for languages checked near the end of the original if-else chain.
     let mut has_french_c = false;
-    let mut has_portugese_o = false;
+    let mut has_portuguese_o = false;
     let mut has_portuguese_a = false;
 
     for c in text.chars() {
@@ -649,7 +647,7 @@ fn detect_latin_language(text: &str) -> Language {
 
             // NOTE: 'õ' is used by both Estonian and Portuguese
             // Since Estonian is checked first, it takes precedence.
-            'õ' => has_portugese_o = true,
+            'õ' => has_portuguese_o = true,
             'ã' => has_portuguese_a = true,
 
             // --- Flag-setting Cases ---
@@ -662,15 +660,15 @@ fn detect_latin_language(text: &str) -> Language {
 
     // decide between portuguese, estonian and french
 
-    if has_french_c && !has_portugese_o && !has_portuguese_a {
+    if has_french_c && !has_portuguese_o && !has_portuguese_a {
         return Language::French;
     }
 
-    if has_portugese_o && !has_french_c && !has_portuguese_a {
+    if has_portuguese_o && !has_french_c && !has_portuguese_a {
         return Language::Estonian;
     }
 
-    if has_portugese_o || has_portuguese_a || has_french_c {
+    if has_portuguese_o || has_portuguese_a || has_french_c {
         return Language::Portuguese;
     }
 
@@ -854,7 +852,7 @@ pub fn is_malayalam(ch: char) -> bool {
     matches!(ch, '\u{0D00}'..='\u{0D7F}')
 }
 
-// Based on: https://en.wikipedia.org/wiki/Malayalam_(Unicode_block)
+// Based on: https://en.wikipedia.org/wiki/Oriya_(Unicode_block)
 pub fn is_oriya(ch: char) -> bool {
     matches!(ch, '\u{0B00}'..='\u{0B7F}')
 }
