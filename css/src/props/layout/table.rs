@@ -148,7 +148,6 @@ impl LayoutBorderSpacing {
             vertical,
         }
     }
-
 }
 
 impl PrintAsCssValue for LayoutBorderSpacing {
