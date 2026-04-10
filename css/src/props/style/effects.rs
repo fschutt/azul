@@ -17,7 +17,7 @@ use crate::props::{
 // -- Opacity --
 
 /// Represents an `opacity` attribute, a value from 0.0 to 1.0.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleOpacity {
     pub inner: PercentageValue,
