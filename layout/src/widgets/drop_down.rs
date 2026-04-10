@@ -1,3 +1,9 @@
+//! Native drop-down / select widget.
+//!
+//! Renders a clickable trigger (label + arrow icon) that opens a native
+//! menu popup for item selection.  Depends on [`azul_core::menu`] for
+//! popup rendering.
+
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
@@ -6,6 +12,7 @@ use azul_core::{
     },
     menu::{Menu, MenuItem, MenuPopupPosition, StringMenuItem},
     refany::RefAny,
+    window::ContextMenuMouseButton,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
@@ -26,6 +33,9 @@ use crate::callbacks::{Callback, CallbackInfo};
 
 // -- Callback type via macro --
 
+/// Callback signature invoked when the user selects a new choice.
+///
+/// The `usize` argument is the zero-based index of the chosen item.
 pub type DropDownOnChoiceChangeCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
     DropDownOnChoiceChange,
@@ -182,11 +192,16 @@ static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
 // Widget struct and API
 // ============================================================================
 
+/// A drop-down / select widget that displays the currently selected item
+/// and opens a native menu popup when focused.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct DropDown {
+    /// The list of choices presented in the popup menu.
     pub choices: StringVec,
+    /// Zero-based index of the currently selected choice.
     pub selected: usize,
+    /// Optional callback invoked when the user picks a different choice.
     pub on_choice_change: OptionDropDownOnChoiceChange,
 }
 
@@ -201,6 +216,7 @@ impl Default for DropDown {
 }
 
 impl DropDown {
+    /// Creates a new `DropDown` with the given choices and no callback.
     pub fn new(choices: StringVec) -> Self {
         Self {
             choices,
@@ -209,6 +225,7 @@ impl DropDown {
         }
     }
 
+    /// Sets the callback invoked when the user selects a different choice.
     pub fn set_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(&mut self, data: RefAny, callback: C) {
         self.on_choice_change = Some(DropDownOnChoiceChange {
             callback: callback.into(),
@@ -216,17 +233,20 @@ impl DropDown {
         }).into();
     }
 
+    /// Builder variant of [`Self::set_on_choice_change`].
     pub fn with_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(mut self, data: RefAny, callback: C) -> Self {
         self.set_on_choice_change(data, callback);
         self
     }
 
+    /// Replaces `self` with the default value and returns the original.
     pub fn swap_with_default(&mut self) -> Self {
         let mut m = DropDown::default();
         core::mem::swap(&mut m, self);
         m
     }
 
+    /// Builds the DOM tree for this drop-down widget.
     pub fn dom(self) -> Dom {
         let selected_text = self.choices
             .as_slice()
@@ -308,7 +328,7 @@ extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> U
     let menu = Menu {
         items: menu_items.into(),
         position: MenuPopupPosition::BottomOfHitRect,
-        ..Default::default()
+        context_mouse_btn: ContextMenuMouseButton::Right,
     };
 
     info.open_menu_for_hit_node(menu);
