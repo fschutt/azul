@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "a11y")]
 use accesskit::{
-    Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
-    Node as AccesskitNode, NodeId as AccesskitNodeId, Role, Tree, TreeUpdate,
+    ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate,
 };
 #[cfg(feature = "a11y")]
 use accesskit_unix::Adapter;
@@ -37,7 +36,7 @@ impl LinuxAccessibilityAdapter {
     ///
     /// This must be called after the window is created to start
     /// the AT-SPI connection.
-    pub fn initialize(&mut self, window_name: &str) -> Result<(), String> {
+    pub fn initialize(&mut self, _window_name: &str) -> Result<(), String> {
         let pending_actions = Arc::clone(&self.pending_actions);
 
         // Create handlers
@@ -84,9 +83,13 @@ impl LinuxAccessibilityAdapter {
 
         if let Some(adapter) = guard.as_mut() {
             // Wrap in catch_unwind to prevent panics from crashing the app
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                adapter.update_if_active(|| tree_update);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                adapter.update_if_active(|| tree_update)
             }));
+            // Raise queued events so screen readers receive AT-SPI notifications
+            if let Ok(Some(events)) = result {
+                events.raise();
+            }
         }
     }
 
