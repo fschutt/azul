@@ -172,10 +172,10 @@ const DATE_SHORTDATE:  u32 = 0x0000_0001;
 const DATE_LONGDATE:   u32 = 0x0000_0002;
 const TIME_NOSECONDS:  u32 = 0x0000_0002;
 
-// CompareStringEx return values
+// CompareStringEx return values (0 = failure)
 const CSTR_LESS_THAN:    i32 = 1;
 const CSTR_EQUAL:        i32 = 2;
-// CSTR_GREATER_THAN == 3
+const CSTR_GREATER_THAN: i32 = 3;
 
 // ─── CLDR plural rules ────────────────────────────────────────────────────────
 //
@@ -326,6 +326,31 @@ fn join_list(items: &[AzString], conjunction: &str) -> String {
     }
 }
 
+// ─── NLS collation helper ─────────────────────────────────────────────────────
+
+/// Compare two strings using `CompareStringEx`.
+/// Falls back to lexicographic comparison if the NLS call fails (returns 0).
+fn compare_nls(f: &NlsFns, locale_wide: &[u16], a: &str, b: &str) -> Ordering {
+    let a_w = to_wide(a);
+    let b_w = to_wide(b);
+    // Pass -1 to let NLS measure the null-terminated strings itself.
+    let result = unsafe {
+        (f.compare_string_ex)(
+            locale_wide.as_ptr(), 0,
+            a_w.as_ptr(), -1,
+            b_w.as_ptr(), -1,
+            core::ptr::null_mut(), core::ptr::null_mut(), 0,
+        )
+    };
+    match result {
+        CSTR_LESS_THAN    => Ordering::Less,
+        CSTR_EQUAL        => Ordering::Equal,
+        CSTR_GREATER_THAN => Ordering::Greater,
+        // 0 means the API call failed; fall back to lexicographic order.
+        _ => a.cmp(b),
+    }
+}
+
 // ─── IcuLocalizer ─────────────────────────────────────────────────────────────
 
 /// Windows NLS-based locale formatter.
@@ -402,15 +427,13 @@ impl IcuLocalizer {
     }
 
     pub fn format_decimal(&mut self, integer_part: i64, decimal_places: i16) -> AzString {
-        let Some(f) = nls() else {
-            let dp = decimal_places.max(0) as usize;
-            let v = integer_part as f64 * 10f64.powi(-(decimal_places as i32));
-            return AzString::from(alloc::format!("{v:.dp$}"));
-        };
+        // Build the numeric string with a period as decimal separator (required by NLS).
         let dp = decimal_places.max(0) as usize;
         let v = integer_part as f64 * 10f64.powi(-(decimal_places as i32));
-        // Build the numeric string with a period as decimal separator (required by NLS).
         let value_str = alloc::format!("{v:.dp$}");
+        let Some(f) = nls() else {
+            return AzString::from(value_str);
+        };
         let value_w = to_wide(&value_str);
         let locale_ptr = self.locale_wide.as_ptr();
         let result = fmt_buf(|buf, len| unsafe {
@@ -527,23 +550,7 @@ impl IcuLocalizer {
         let Some(f) = nls() else {
             return a.cmp(b);
         };
-        let a_w = to_wide(a);
-        let b_w = to_wide(b);
-        let locale_ptr = self.locale_wide.as_ptr();
-        // Pass -1 to let NLS measure the null-terminated strings itself.
-        let result = unsafe {
-            (f.compare_string_ex)(
-                locale_ptr, 0,
-                a_w.as_ptr(), -1,
-                b_w.as_ptr(), -1,
-                core::ptr::null_mut(), core::ptr::null_mut(), 0,
-            )
-        };
-        match result {
-            CSTR_LESS_THAN => Ordering::Less,
-            CSTR_EQUAL     => Ordering::Equal,
-            _              => Ordering::Greater,
-        }
+        compare_nls(f, &self.locale_wide, a, b)
     }
 
     pub fn sort_strings(&mut self, strings: &mut [AzString]) {
@@ -551,20 +558,7 @@ impl IcuLocalizer {
         let locale_wide = self.locale_wide.clone();
         if let Some(f) = nls() {
             strings.sort_by(|a, b| {
-                let aw = to_wide(a.as_str());
-                let bw = to_wide(b.as_str());
-                let r = unsafe {
-                    (f.compare_string_ex)(
-                        locale_wide.as_ptr(), 0,
-                        aw.as_ptr(), -1, bw.as_ptr(), -1,
-                        core::ptr::null_mut(), core::ptr::null_mut(), 0,
-                    )
-                };
-                match r {
-                    CSTR_LESS_THAN => Ordering::Less,
-                    CSTR_EQUAL     => Ordering::Equal,
-                    _              => Ordering::Greater,
-                }
+                compare_nls(f, &locale_wide, a.as_str(), b.as_str())
             });
         } else {
             strings.sort_by(|a, b| a.as_str().cmp(b.as_str()));
