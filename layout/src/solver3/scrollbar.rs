@@ -1,3 +1,14 @@
+//! Scrollbar geometry computation — single source of truth for the layout solver.
+//!
+//! Provides [`ScrollbarRequirements`] (whether scrollbars are needed and how much
+//! space they reserve) and [`ScrollbarGeometry`] (track, thumb, and button rects).
+//!
+//! The main entry point is [`compute_scrollbar_geometry`], whose output is consumed by:
+//! - Display list painting (`paint_scrollbars`)
+//! - GPU transform updates (`update_scrollbar_transforms`)
+//! - Hit-testing (`hit_test_component`)
+//! - Drag delta conversion (`handle_scrollbar_drag`)
+
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::dom::ScrollbarOrientation;
 
