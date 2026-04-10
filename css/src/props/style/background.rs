@@ -59,6 +59,7 @@ impl Default for ExtendMode {
 
 // -- Main Background Content Type --
 
+/// A single CSS background layer: a solid color, image URL, or gradient.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleBackgroundContent {
@@ -176,6 +177,7 @@ impl PrintAsCssValue for StyleBackgroundContentVec {
 
 // -- Gradient Types --
 
+/// A CSS `linear-gradient()` or `repeating-linear-gradient()` value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LinearGradient {
@@ -209,6 +211,7 @@ impl PrintAsCssValue for LinearGradient {
     }
 }
 
+/// A CSS `radial-gradient()` or `repeating-radial-gradient()` value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RadialGradient {
@@ -247,6 +250,7 @@ impl PrintAsCssValue for RadialGradient {
     }
 }
 
+/// A CSS `conic-gradient()` or `repeating-conic-gradient()` value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ConicGradient {
@@ -284,6 +288,7 @@ impl PrintAsCssValue for ConicGradient {
 
 // -- Gradient Sub-types --
 
+/// The shape of a radial gradient: `circle` or `ellipse`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum Shape {
@@ -308,6 +313,7 @@ impl fmt::Display for Shape {
     }
 }
 
+/// The sizing keyword for a radial gradient (e.g. `closest-side`, `farthest-corner`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum RadialGradientSize {
@@ -488,6 +494,7 @@ pub struct RadialColorStop {
 
 // -- Other Background Properties --
 
+/// The `background-position` property (horizontal + vertical components).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleBackgroundPosition {
@@ -556,6 +563,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundPositionVec {
     }
 }
 
+/// Horizontal component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum BackgroundPositionHorizontal {
@@ -567,11 +575,8 @@ pub enum BackgroundPositionHorizontal {
 
 impl BackgroundPositionHorizontal {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        match self {
-            BackgroundPositionHorizontal::Exact(s) => {
-                s.scale_for_dpi(scale_factor);
-            }
-            _ => {}
+        if let BackgroundPositionHorizontal::Exact(s) = self {
+            s.scale_for_dpi(scale_factor);
         }
     }
 }
@@ -587,6 +592,7 @@ impl PrintAsCssValue for BackgroundPositionHorizontal {
     }
 }
 
+/// Vertical component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum BackgroundPositionVertical {
@@ -598,11 +604,8 @@ pub enum BackgroundPositionVertical {
 
 impl BackgroundPositionVertical {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        match self {
-            BackgroundPositionVertical::Exact(s) => {
-                s.scale_for_dpi(scale_factor);
-            }
-            _ => {}
+        if let BackgroundPositionVertical::Exact(s) = self {
+            s.scale_for_dpi(scale_factor);
         }
     }
 }
@@ -618,6 +621,7 @@ impl PrintAsCssValue for BackgroundPositionVertical {
     }
 }
 
+/// The `background-size` property: `contain`, `cover`, or an exact size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleBackgroundSize {
@@ -662,12 +666,9 @@ impl Default for StyleBackgroundSize {
 
 impl StyleBackgroundSize {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        match self {
-            StyleBackgroundSize::ExactSize(size) => {
-                size.width.scale_for_dpi(scale_factor);
-                size.height.scale_for_dpi(scale_factor);
-            }
-            _ => {}
+        if let StyleBackgroundSize::ExactSize(size) = self {
+            size.width.scale_for_dpi(scale_factor);
+            size.height.scale_for_dpi(scale_factor);
         }
     }
 }
@@ -696,6 +697,7 @@ impl PrintAsCssValue for StyleBackgroundSizeVec {
     }
 }
 
+/// The `background-repeat` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleBackgroundRepeat {
