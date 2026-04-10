@@ -1,5 +1,5 @@
-//! File input button, same as `Button`, but selects and
-//! opens a file dialog instead
+//! File input button, same as `Button`, but triggers a
+//! user-supplied path-change callback when clicked
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
@@ -78,6 +78,7 @@ impl Default for FileInputStateWrapper {
     }
 }
 
+/// Current state of the file input (selected path)
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct FileInputState {
@@ -90,6 +91,7 @@ impl Default for FileInputState {
     }
 }
 
+/// Callback type invoked when the file input path changes
 pub type FileInputOnPathChangeCallbackType =
     extern "C" fn(RefAny, CallbackInfo, FileInputState) -> Update;
 
@@ -104,10 +106,7 @@ impl FileInput {
     pub fn create(path: OptionString) -> Self {
         Self {
             file_input_state: FileInputStateWrapper {
-                inner: FileInputState {
-                    path,
-                    ..Default::default()
-                },
+                inner: FileInputState { path },
                 ..Default::default()
             },
             ..Default::default()
@@ -206,6 +205,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
         None => return Update::DoNothing,
     };
 
+    // Force at least a DOM refresh so the displayed filename updates
     result.max_self(Update::RefreshDom);
 
     result
