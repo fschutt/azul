@@ -17,19 +17,17 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     resources::RendererResources,
-    selection::{SelectionState, TextSelection},
+    selection::TextSelection,
     styled_dom::StyledDom,
 };
 use azul_css::LayoutDebugMessage;
 
 use crate::{
     font_traits::{ParsedFontTrait, TextLayoutCache},
-    fragmentation::PageMargins,
     paged::FragmentationContext,
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
-        getters::{get_break_after, get_break_before, get_break_inside},
         pagination::FakePageConfig,
         LayoutContext, LayoutError, Result,
     },
@@ -163,7 +161,6 @@ where
         let already_loaded = font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
 
-
         if !fonts_to_load.is_empty() {
             let load_result =
                 load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
@@ -180,7 +177,6 @@ where
         }
         font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
-
 
     // Get page dimensions from fragmentation context
     let page_content_height = fragmentation_context.page_content_height();
@@ -256,7 +252,6 @@ where
     )?;
     let compute_ms = t_compute.elapsed().as_secs_f64() * 1000.0;
 
-
     // Get the layout tree and positions
     let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
     let calculated_positions = &cache.calculated_positions;
@@ -329,7 +324,6 @@ where
     )?;
     let displist_ms = t_displist.elapsed().as_secs_f64() * 1000.0;
 
-
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Generated master display list with {} items",
@@ -371,7 +365,6 @@ where
             compute_ms, displist_ms, paginate_ms, total_layout_ms, pages.len());
     }
 
-
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Paginated into {} pages with CSS break support",
@@ -402,10 +395,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     print_timing: bool,
 ) -> Result<FragmentationLayoutResult> {
-    use crate::solver3::{
-        cache, getters::get_writing_mode,
-        layout_tree::DirtyFlag,
-    };
+    use crate::solver3::cache;
 
     // Create temporary context without counters for tree generation
     let mut counter_values = HashMap::new();
@@ -590,7 +580,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         break;
     }
 
-
     // --- Step 3: Adjust Positions ---
     let layout_loop_ms = t_layout_loop.elapsed().as_secs_f64() * 1000.0;
     let t_position = std::time::Instant::now();
@@ -614,7 +603,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
             tree_build_ms, layout_loop_ms, position_ms,
             new_dom.node_data.as_container().len(), new_tree.nodes.len());
     }
-
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     use crate::window::LayoutWindow;
