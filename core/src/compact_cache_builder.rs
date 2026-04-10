@@ -589,7 +589,6 @@ impl CssPropertyCache {
             // UA defaults have lowest cascade priority — overridden by author CSS below.
             // This replaces the separate apply_ua_css() pass + cascaded_props + sort.
             {
-                use azul_css::props::property::CssPropertyType as PT;
                 // Apply ALL UA CSS defaults for this node type.
                 // Use apply_css_property_to_compact for consistent encoding.
                 // This replaces the incomplete property list that missed overflow, position, etc.
@@ -941,7 +940,11 @@ fn apply_css_property_to_compact(
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
                 let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                text.line_height = pct_x10.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                if pct_x10 >= -32768 && pct_x10 < I16_SENTINEL_THRESHOLD as i32 {
+                    text.line_height = pct_x10 as i16;
+                } else {
+                    text.line_height = I16_SENTINEL;
+                }
             }
         }
         CssProperty::LetterSpacing(v) => { text.letter_spacing = encode_css_pixel_as_i16(v); }
