@@ -102,12 +102,19 @@ impl X11Properties {
         value: &[u8],
     ) -> Result<(), GnomeMenuError> {
         use std::os::raw::{c_int, c_ulong};
+        use crate::desktop::shell2::linux::x11::defines::PropModeReplace;
+
+        if display.is_null() {
+            return Err(GnomeMenuError::X11PropertyFailed(
+                "Display pointer is null".to_string(),
+            ));
+        }
 
         // Intern the atom for this property
         let property_cstr = CString::new(property_name)
             .map_err(|e| GnomeMenuError::X11PropertyFailed(e.to_string()))?;
 
-        let atom = unsafe { (xlib.XInternAtom)(display as *mut _, property_cstr.as_ptr(), 0) };
+        let atom = unsafe { (xlib.XInternAtom)(display, property_cstr.as_ptr(), 0) };
 
         if atom == 0 {
             return Err(GnomeMenuError::X11PropertyFailed(format!(
@@ -116,22 +123,29 @@ impl X11Properties {
             )));
         }
 
-        // Property type atom (STRING)
-        const XA_STRING: c_ulong = 31;
-        const PROP_MODE_REPLACE: c_int = 0;
+        // Intern UTF8_STRING atom (correct type for _GTK_* properties)
+        let utf8_cstr = CString::new("UTF8_STRING").unwrap();
+        let utf8_string_atom = unsafe { (xlib.XInternAtom)(display, utf8_cstr.as_ptr(), 0) };
 
         // Set the property
-        unsafe {
+        let result = unsafe {
             (xlib.XChangeProperty)(
-                display as *mut _,
+                display,
                 window_id as c_ulong,
                 atom,
-                XA_STRING,
+                utf8_string_atom,
                 8, // 8-bit format (char)
-                PROP_MODE_REPLACE,
+                PropModeReplace,
                 value.as_ptr(),
                 value.len() as c_int,
-            );
+            )
+        };
+
+        if result != 0 {
+            return Err(GnomeMenuError::X11PropertyFailed(format!(
+                "XChangeProperty failed for: {}",
+                property_name
+            )));
         }
 
         debug_log(&format!(
