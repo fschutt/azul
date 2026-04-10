@@ -1,28 +1,31 @@
 //! X11 menu handling - Proper StyledDom rendering using Azul's window system
 //!
-//! This module implements menu popups as proper Azul windows with StyledDom rendering.
-//! Each menu popup is a real window with its own layout callback that uses menu_renderer.
+//! This module implements menu popups as proper Azul windows with StyledDom rendering
+//! for the X11 platform.
 //!
 //! Architecture:
 //! - Menu popups are created using WindowCreateOptions with LayoutCallback
 //! - The layout callback uses menu_renderer::create_menu_styled_dom() for rendering
 //! - Menu data (Menu struct) is passed as RefAny to the layout callback
 //! - Events are handled through normal Azul callback system
-//! - This works identically across all platforms (X11, Wayland, macOS, Windows)
 
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
     geom::LogicalSize,
     menu::Menu,
     refany::RefAny,
-    styled_dom::StyledDom,
     window::WindowPosition,
 };
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
 use super::super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_error;
+
+/// Default height of a single menu item in logical pixels
+const MENU_ITEM_HEIGHT: usize = 25;
+/// Default width of the menu popup in logical pixels
+const MENU_WIDTH: u32 = 200;
 
 /// Data passed to the menu layout callback
 #[derive(Debug, Clone)]
@@ -82,10 +85,7 @@ pub fn create_menu_window_options(
     y: i32,
 ) -> WindowCreateOptions {
     // Calculate menu size based on items
-    // TODO: Use actual font metrics for accurate sizing
-    let item_height = 25;
-    let menu_width = 200;
-    let menu_height = (menu.items.len() * item_height) as u32;
+    let menu_height = (menu.items.len() * MENU_ITEM_HEIGHT) as u32;
 
     // Create menu layout data
     let menu_data = MenuLayoutData {
@@ -101,7 +101,7 @@ pub fn create_menu_window_options(
         WindowPosition::Initialized(azul_core::geom::PhysicalPosition { x, y });
 
     // Set window size
-    options.window_state.size.dimensions = LogicalSize::new(menu_width as f32, menu_height as f32);
+    options.window_state.size.dimensions = LogicalSize::new(MENU_WIDTH as f32, menu_height as f32);
 
     // Configure window flags for popup behavior
     options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
