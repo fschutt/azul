@@ -48,6 +48,7 @@ impl Default for Void {
 
 impl Void {
     /// Create a new Void value (equivalent to `()`)
+    #[must_use]
     pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
@@ -335,6 +336,37 @@ impl AzString {
         U8Vec::from_vec(result)
     }
 
+    /// Shared implementation for UTF-16 decoding with a caller-supplied byte-order function.
+    ///
+    /// # Safety
+    /// - `ptr` must be valid for reading `len` bytes
+    /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
+    unsafe fn from_utf16_with_byte_order(
+        ptr: *const u8,
+        len: usize,
+        from_bytes: fn([u8; 2]) -> u16,
+    ) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::default();
+        }
+
+        // UTF-16 requires pairs of bytes
+        if len % 2 != 0 {
+            return Self::default();
+        }
+
+        let byte_slice = core::slice::from_raw_parts(ptr, len);
+        let code_units: Vec<u16> = byte_slice
+            .chunks_exact(2)
+            .map(|chunk| from_bytes([chunk[0], chunk[1]]))
+            .collect();
+
+        match String::from_utf16(&code_units) {
+            Ok(s) => Self::from_string(s),
+            Err(_) => Self::default(),
+        }
+    }
+
     /// Creates a new AzString from UTF-16 encoded bytes (little-endian).
     /// Returns an empty string if the input is invalid UTF-16 or has odd length.
     ///
@@ -347,25 +379,7 @@ impl AzString {
     /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
     #[inline]
     pub unsafe fn from_utf16_le(ptr: *const u8, len: usize) -> Self {
-        if ptr.is_null() || len == 0 {
-            return Self::default();
-        }
-        
-        // UTF-16 requires pairs of bytes
-        if len % 2 != 0 {
-            return Self::default();
-        }
-        
-        let byte_slice = core::slice::from_raw_parts(ptr, len);
-        let code_units: Vec<u16> = byte_slice
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect();
-        
-        match String::from_utf16(&code_units) {
-            Ok(s) => Self::from_string(s),
-            Err(_) => Self::default(),
-        }
+        Self::from_utf16_with_byte_order(ptr, len, u16::from_le_bytes)
     }
 
     /// Creates a new AzString from UTF-16 encoded bytes (big-endian).
@@ -380,25 +394,7 @@ impl AzString {
     /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
     #[inline]
     pub unsafe fn from_utf16_be(ptr: *const u8, len: usize) -> Self {
-        if ptr.is_null() || len == 0 {
-            return Self::default();
-        }
-        
-        // UTF-16 requires pairs of bytes
-        if len % 2 != 0 {
-            return Self::default();
-        }
-        
-        let byte_slice = core::slice::from_raw_parts(ptr, len);
-        let code_units: Vec<u16> = byte_slice
-            .chunks_exact(2)
-            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
-            .collect();
-        
-        match String::from_utf16(&code_units) {
-            Ok(s) => Self::from_string(s),
-            Err(_) => Self::default(),
-        }
+        Self::from_utf16_with_byte_order(ptr, len, u16::from_be_bytes)
     }
 
     /// Creates a new AzString from UTF-8 bytes with lossy conversion.
