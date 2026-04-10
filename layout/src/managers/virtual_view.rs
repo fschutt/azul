@@ -6,7 +6,6 @@
 //! - Nested DOM ID management
 
 use alloc::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use azul_core::{
     callbacks::{EdgeType, VirtualViewCallbackReason},
@@ -16,8 +15,6 @@ use azul_core::{
 };
 
 use crate::managers::scroll_state::ScrollManager;
-
-static NEXT_PIPELINE_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Distance in pixels from edge that triggers edge-scrolled callback
 const EDGE_THRESHOLD: f32 = 200.0;
@@ -331,7 +328,7 @@ impl VirtualViewState {
     }
 
     /// Determines if the VirtualView callback should be re-invoked based on
-    // scroll position
+    /// scroll position
     ///
     /// Checks two conditions:
     /// 1. Container bounds expanded beyond content size
