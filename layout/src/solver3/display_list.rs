@@ -1,8 +1,20 @@
-//! Generates a renderer-agnostic display list from a laid-out tree
+//! Generates a renderer-agnostic display list from a laid-out tree.
+//!
+//! This module is the bridge between the layout solver and the compositor/renderer.
+//! Key types:
+//! - [`DisplayList`] — flat, paint-order-sorted list of drawing commands
+//! - [`DisplayListItem`] — a single drawing primitive or state-management command
+//! - [`DisplayListBuilder`] — internal builder that accumulates items during generation
+//!
+//! Entry points:
+//! - [`generate_display_list`] — converts a laid-out [`LayoutTree`] into a [`DisplayList`]
+//! - [`paginate_display_list_with_slicer_and_breaks`] — slices a display list into pages
+//!
+//! Coordinates are in **absolute window-logical pixels** ([`WindowLogicalRect`]).
+//! HiDPI scaling and scroll-offset conversion happen in the compositor.
 
 use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
-use allsorts::glyph_position;
 use azul_core::{
     dom::{DomId, FormattingContext, NodeId, NodeType, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -350,11 +362,6 @@ impl DisplayList {
         container_origin: LogicalPosition,
         affected_line: usize,
     ) -> LogicalRect {
-        let mut min_x = f32::MAX;
-        let mut min_y = f32::MAX;
-        let mut max_x = f32::MIN;
-        let mut max_y = f32::MIN;
-
         let expand = |items: &[super::super::text3::cache::PositionedItem]| -> (f32, f32, f32, f32) {
             let mut lx = f32::MAX;
             let mut ly = f32::MAX;
@@ -376,10 +383,10 @@ impl DisplayList {
 
         let (olx, oly, orx, ory) = expand(old_items);
         let (nlx, nly, nrx, nry) = expand(new_items);
-        min_x = olx.min(nlx);
-        min_y = oly.min(nly);
-        max_x = orx.max(nrx);
-        max_y = ory.max(nry);
+        let min_x = olx.min(nlx);
+        let min_y = oly.min(nly);
+        let max_x = orx.max(nrx);
+        let max_y = ory.max(nry);
 
         if min_x > max_x || min_y > max_y {
             return LogicalRect::default();
@@ -2065,7 +2072,6 @@ where
             let is_primary = primary_idx_for_this_node == Some(i);
             if is_primary {
                 if let Some(ref preedit) = self.ctx.preedit_text {
-                    eprintln!("[PAINT] preedit='{}' is_primary={} cursor_rect=({},{}) node_index={}", preedit, is_primary, rect.origin.x, rect.origin.y, node_index);
                     if !preedit.is_empty() {
                         let char_count = preedit.chars().count() as f32;
                         let approx_char_width = style.width.max(8.0);
@@ -2998,7 +3004,7 @@ where
         );
 
         let needs_clip =
-            overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
+            overflow_x.is_clipped() || overflow_y.is_clipped();
 
         let is_virtual_view = self.is_virtual_view_node(dom_id);
 
@@ -3266,10 +3272,7 @@ where
                 self.ctx.image_cache,
             );
 
-            simple_border_radius
-        } else {
-            BorderRadius::default()
-        };
+        }
 
         Ok(())
     }
