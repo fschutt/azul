@@ -1,4 +1,6 @@
-//! Dynamic loading for X11 and related libraries.
+//! Dynamic loading for X11 and related libraries (Xlib, EGL, xkbcommon,
+//! GTK3 IM, XRender). Types such as `Xkb`, `Gtk3Im`, and `GtkIMContext`
+//! are re-exported by the Wayland subsystem.
 
 use std::{
     ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void, CStr, CString},
@@ -22,7 +24,7 @@ macro_rules! load_symbol {
     };
 }
 
-// Wrapper for dlopen, dlsym, dlclose
+/// Wrapper for dlopen, dlsym, dlclose.
 pub struct Library {
     handle: *mut c_void,
 }
@@ -53,6 +55,11 @@ impl DynamicLibraryTrait for Library {
                 suggestion: "Symbol not found in library".to_string(),
             })
         } else {
+            assert_eq!(
+                std::mem::size_of::<T>(),
+                std::mem::size_of::<*mut c_void>(),
+                "get_symbol: size mismatch between target type and pointer"
+            );
             Ok(std::mem::transmute_copy(&sym))
         }
     }
