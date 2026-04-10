@@ -91,7 +91,7 @@ extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackIn
 ///
 /// Builds a [`Titlebar`] in full-CSD mode (`dom_with_buttons`),
 /// then styles it with the CSD stylesheet from `SystemStyle`.
-pub fn create_titlebar_styled_dom(
+pub(crate) fn create_titlebar_styled_dom(
     title: &str,
     system_style: &SystemStyle,
 ) -> StyledDom {
