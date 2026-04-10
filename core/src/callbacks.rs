@@ -1,4 +1,24 @@
-#![allow(dead_code)]
+//! Callback types for the Azul UI framework.
+//!
+//! This module defines the callback infrastructure used by the event system,
+//! layout engine, and virtual view rendering. Key design patterns:
+//!
+//! - **Core vs Layout callback split**: `CoreCallbackType` and
+//!   `CoreRenderImageCallbackType` store function pointers as `usize` to avoid
+//!   circular dependencies between `azul-core` and `azul-layout`. The actual
+//!   function pointer types are defined in `azul-layout` and transmuted at
+//!   invocation time.
+//!
+//! - **FFI callable pattern**: Callback structs carry an optional
+//!   `ctx: OptionRefAny` field that holds a foreign callable (e.g. a Python
+//!   function object). The `extern "C"` trampoline stored in `cb` extracts
+//!   both the user data and the foreign callable from `RefAny` and dispatches
+//!   the call. Native Rust code sets `ctx` to `None`.
+//!
+//! - **Info structs**: `LayoutCallbackInfo`, `VirtualViewCallbackInfo`, and
+//!   the layout-side `CallbackInfo` provide read-only access to framework
+//!   resources (fonts, images, GL context, window size) during callback
+//!   invocation.
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -165,7 +185,7 @@ pub enum VirtualViewCallbackReason {
     DomRecreated,
     /// Window/VirtualView bounds expanded beyond current scroll_size
     BoundsExpanded,
-    /// Scroll position is near an edge (within 200px threshold)
+    /// Scroll position is near an edge (within `EDGE_THRESHOLD`, currently 200px)
     EdgeScrolled(EdgeType),
     /// Scroll position extends beyond current scroll_size
     ScrollBeyondContent,
@@ -279,7 +299,7 @@ impl VirtualViewCallbackInfo {
 /// - `virtual_scroll_size` / `virtual_scroll_offset`: Size for scrollbar representation
 ///
 /// The callback is re-invoked on: initial render, parent DOM recreation, window expansion
-/// beyond `scroll_size`, or scrolling near content edges (200px threshold).
+/// beyond `scroll_size`, or scrolling near content edges (`EDGE_THRESHOLD`, currently 200px).
 ///
 /// Return `OptionDom::None` to keep the current DOM and only update scroll bounds.
 #[derive(Debug, Clone, PartialEq)]
@@ -553,7 +573,8 @@ impl LayoutCallbackInfo {
         Self {
             // SAFETY: We cast away the lifetime 'a to 'static because LayoutCallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
-            ref_data: unsafe { core::mem::transmute(ref_data) },
+            ref_data: ref_data as *const LayoutCallbackInfoRefData<'a>
+                as *const LayoutCallbackInfoRefData<'static>,
             window_size,
             theme,
             callable_ptr: core::ptr::null(),

@@ -51,11 +51,17 @@ pub struct GpuValueCache {
     pub css_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current CSS transform values (keyed by node ID)
     pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// CSS opacity keys (keyed by node ID)
     pub opacity_keys: HashMap<NodeId, OpacityKey>,
+    /// Current CSS opacity values (keyed by node ID)
     pub current_opacity_values: HashMap<NodeId, f32>,
+    /// Vertical scrollbar opacity keys (keyed by DOM ID and scrollable node ID)
     pub scrollbar_v_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
+    /// Horizontal scrollbar opacity keys (keyed by DOM ID and scrollable node ID)
     pub scrollbar_h_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
+    /// Current vertical scrollbar opacity values
     pub scrollbar_v_opacity_values: HashMap<(DomId, NodeId), f32>,
+    /// Current horizontal scrollbar opacity values
     pub scrollbar_h_opacity_values: HashMap<(DomId, NodeId), f32>,
 }
 
@@ -87,7 +93,7 @@ impl GpuValueCache {
     /// Synchronizes the cache with the current `StyledDom`, generating change events
     /// for CSS transform and opacity additions, modifications, and removals.
     #[must_use]
-    pub fn synchronize<'a>(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
+    pub fn synchronize(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_data = styled_dom.node_data.as_container();
         let node_states = styled_dom.styled_nodes.as_container();
@@ -114,7 +120,6 @@ impl GpuValueCache {
 
         // calculate the transform values of every single node that has a non-default transform
         let all_current_transform_events = (0..styled_dom.node_data.len())
-            .into_iter()
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
@@ -188,7 +193,6 @@ impl GpuValueCache {
 
         // calculate the opacity of every single node that has a non-default opacity
         let all_current_opacity_events = (0..styled_dom.node_data.len())
-            .into_iter()
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
@@ -304,9 +308,16 @@ impl GpuEventChanges {
     }
 }
 
+/// Represents a change to a GPU opacity key.
+///
+/// These events are generated when synchronizing the cache with the `StyledDom`
+/// and are used to update WebRender's opacity state efficiently.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum GpuOpacityKeyEvent {
+    /// A new opacity was added to a node
     Added(NodeId, OpacityKey, f32),
+    /// An existing opacity was modified (includes old and new values)
     Changed(NodeId, OpacityKey, f32, f32),
+    /// An opacity was removed from a node
     Removed(NodeId, OpacityKey),
 }
