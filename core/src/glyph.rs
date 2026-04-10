@@ -114,7 +114,7 @@ pub enum Placement {
     ///
     /// This mark is shown at the same position as the base glyph.
     ///
-    /// Fields: (base glyph index in `Vec<GlyphInfo>`)
+    /// Fields: (base glyph index in `GlyphInfoVec`)
     MarkOverprint(usize),
     CursiveAnchor(CursiveAnchorPlacement),
 }
@@ -125,7 +125,7 @@ pub enum Placement {
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct CursiveAnchorPlacement {
-    /// exit glyph index in the `Vec<GlyphInfo>`
+    /// exit glyph index in the `GlyphInfoVec`
     pub exit_glyph_index: usize,
     /// RIGHT_TO_LEFT flag from lookup table
     pub right_to_left: bool,
@@ -141,7 +141,7 @@ pub struct CursiveAnchorPlacement {
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct MarkAnchorPlacement {
-    /// base glyph index in `Vec<GlyphInfo>`
+    /// base glyph index in `GlyphInfoVec`
     pub base_glyph_index: usize,
     /// base glyph anchor
     pub base_glyph_anchor: Anchor,
@@ -191,6 +191,9 @@ impl RawGlyph {
 pub struct GlyphInfo {
     pub glyph: RawGlyph,
     pub size: Advance,
+    /// GPOS kerning adjustment applied during shaping, in font design units.
+    /// Distinct from `Advance::kerning`, which stores the base kern value
+    /// used when calculating the total advance width.
     pub kerning: i16,
     pub placement: Placement,
 }
