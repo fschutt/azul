@@ -299,9 +299,156 @@ impl RustGenerator {
         );
 
         if is_external_bindings {
-            // For link-dynamic: RefAny::new and downcast are NOT available
-            // Users must use the pre-built DLL which doesn't support generic Rust types
-            // Don't generate an empty impl block - just skip RefAny generic methods entirely
+            // For link-dynamic: implement RefAny generics using C-API functions
+            // instead of transmute (no access to azul_core).
+
+            // First, generate Ref<T> and RefMut<T> RAII borrow guards
+            builder.line("/// RAII guard for a shared borrow from RefAny.");
+            builder.line("#[repr(C)]");
+            builder.line(&format!("pub struct {}Ref<'a, T> {{", prefix));
+            builder.indent();
+            builder.line(&format!("ptr: &'a T,"));
+            builder.line(&format!("sharing_info: {}RefCount,", prefix));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line(&format!("impl<'a, T> Drop for {}Ref<'a, T> {{", prefix));
+            builder.indent();
+            builder.line("fn drop(&mut self) { self.sharing_info.decrease_ref(); }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line(&format!("impl<'a, T> core::ops::Deref for {}Ref<'a, T> {{", prefix));
+            builder.indent();
+            builder.line("type Target = T;");
+            builder.line("fn deref(&self) -> &T { self.ptr }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            builder.line("/// RAII guard for a mutable borrow from RefAny.");
+            builder.line("#[repr(C)]");
+            builder.line(&format!("pub struct {}RefMut<'a, T> {{", prefix));
+            builder.indent();
+            builder.line(&format!("ptr: &'a mut T,"));
+            builder.line(&format!("sharing_info: {}RefCount,", prefix));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line(&format!("impl<'a, T> Drop for {}RefMut<'a, T> {{", prefix));
+            builder.indent();
+            builder.line("fn drop(&mut self) { self.sharing_info.decrease_refmut(); }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line(&format!("impl<'a, T> core::ops::Deref for {}RefMut<'a, T> {{", prefix));
+            builder.indent();
+            builder.line("type Target = T;");
+            builder.line("fn deref(&self) -> &T { &*self.ptr }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line(&format!("impl<'a, T> core::ops::DerefMut for {}RefMut<'a, T> {{", prefix));
+            builder.indent();
+            builder.line("fn deref_mut(&mut self) -> &mut T { self.ptr }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // RefAny generic methods using C-API
+            builder.line(&format!("impl {}RefAny {{", prefix));
+            builder.indent();
+
+            // get_type_id_static<T> — hash TypeId to u64
+            builder.line("fn get_type_id_static<T: 'static>() -> u64 {");
+            builder.indent();
+            builder.line("use core::any::TypeId;");
+            builder.line("let t = TypeId::of::<T>();");
+            builder.line("let bytes = unsafe { core::slice::from_raw_parts((&t as *const TypeId) as *const u8, core::mem::size_of::<TypeId>()) };");
+            builder.line("bytes.iter().enumerate().take(8).map(|(i, b)| (*b as u64) << (i * 8)).sum()");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // new<T>
+            builder.line("/// Creates a new type-erased RefAny containing the given value.");
+            builder.line("pub fn new<T: 'static>(value: T) -> Self {");
+            builder.indent();
+            builder.line("extern \"C\" fn destructor<U: 'static>(ptr: *mut c_void) {");
+            builder.indent();
+            builder.line("unsafe {");
+            builder.indent();
+            builder.line("let mut stack = core::mem::MaybeUninit::<U>::uninit();");
+            builder.line("core::ptr::copy_nonoverlapping(ptr as *const U, stack.as_mut_ptr(), 1);");
+            builder.line("core::mem::drop(stack.assume_init());");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line("let type_name = core::any::type_name::<T>();");
+            builder.line("let type_id = Self::get_type_id_static::<T>();");
+            builder.line(&format!("let st = {}String::from(type_name);", prefix));
+            builder.line("let s = Self::new_c(");
+            builder.indent();
+            builder.line(&format!("{}GlVoidPtrConst {{ ptr: (&value as *const T) as *const c_void, run_destructor: true }},", prefix));
+            builder.line("core::mem::size_of::<T>(),");
+            builder.line("core::mem::align_of::<T>(),");
+            builder.line("type_id,");
+            builder.line("st,");
+            builder.line("destructor::<T>,");
+            builder.line("0, 0,");
+            builder.dedent();
+            builder.line(");");
+            builder.line("core::mem::forget(value);");
+            builder.line("s");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // downcast_ref<T>
+            builder.line(&format!(
+                "pub fn downcast_ref<'a, T: 'static>(&'a mut self) -> Option<{}Ref<'a, T>> {{", prefix
+            ));
+            builder.indent();
+            builder.line("let type_id = Self::get_type_id_static::<T>();");
+            builder.line("if !self.is_type(type_id) { return None; }");
+            builder.line("if !self.sharing_info.can_be_shared() { return None; }");
+            builder.line("let ptr = self.get_data_ptr();");
+            builder.line("if ptr.is_null() { return None; }");
+            builder.line("self.sharing_info.increase_ref();");
+            builder.line(&format!("Some({}Ref {{", prefix));
+            builder.indent();
+            builder.line("ptr: unsafe { &*(ptr as *const T) },");
+            builder.line(&format!("sharing_info: {}RefCount::clone(&self.sharing_info),", prefix));
+            builder.dedent();
+            builder.line("})");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // downcast_mut<T>
+            builder.line(&format!(
+                "pub fn downcast_mut<'a, T: 'static>(&'a mut self) -> Option<{}RefMut<'a, T>> {{", prefix
+            ));
+            builder.indent();
+            builder.line("let type_id = Self::get_type_id_static::<T>();");
+            builder.line("if !self.is_type(type_id) { return None; }");
+            builder.line("if !self.sharing_info.can_be_shared_mut() { return None; }");
+            builder.line("let ptr = self.get_data_ptr();");
+            builder.line("if ptr.is_null() { return None; }");
+            builder.line("self.sharing_info.increase_refmut();");
+            builder.line(&format!("Some({}RefMut {{", prefix));
+            builder.indent();
+            builder.line("ptr: unsafe { &mut *(ptr as *mut T) },");
+            builder.line(&format!("sharing_info: {}RefCount::clone(&self.sharing_info),", prefix));
+            builder.dedent();
+            builder.line("})");
+            builder.dedent();
+            builder.line("}");
+
+            builder.dedent();
+            builder.line("}");
             builder.blank();
         } else {
             // For internal bindings (build-dll/link-static): use transmute to azul_core
