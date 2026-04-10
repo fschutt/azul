@@ -1,6 +1,16 @@
 //! solver3/layout_tree.rs
 //!
-//! Layout tree generation and anonymous box handling
+//! Layout tree generation and anonymous box handling.
+//!
+//! Key types:
+//! - [`LayoutTree`]: The complete layout tree using struct-of-arrays (SoA) storage
+//!   split into hot/warm/cold tiers for cache performance.
+//! - [`LayoutNode`]: Monolithic node representation used during construction.
+//! - [`LayoutTreeBuilder`]: Builds a `LayoutTree` from a `StyledDom`, generating
+//!   anonymous boxes for CSS table fixup and inline/block wrapping.
+//!
+//! This module is called by `generate_layout_tree()` during the tree construction
+//! phase of the layout pipeline (before sizing and positioning).
 use std::{
     collections::{BTreeMap, HashMap},
     hash::{Hash, Hasher},
@@ -334,12 +344,17 @@ impl CachedInlineLayout {
         self.width_constraint_matches(new_width)
     }
 
+    /// Tolerance for comparing definite layout widths (in logical pixels).
+    /// Sub-pixel differences below this threshold are treated as identical
+    /// to avoid unnecessary relayout from floating-point rounding.
+    const LAYOUT_WIDTH_EPSILON: f32 = 0.1;
+
     /// Checks if the width constraint matches.
     fn width_constraint_matches(&self, new_width: AvailableSpace) -> bool {
         match (self.available_width, new_width) {
             // Definite widths must match within a small epsilon
             (AvailableSpace::Definite(old), AvailableSpace::Definite(new)) => {
-                (old - new).abs() < 0.1
+                (old - new).abs() < Self::LAYOUT_WIDTH_EPSILON
             }
             // MinContent matches MinContent
             (AvailableSpace::MinContent, AvailableSpace::MinContent) => true,
@@ -763,7 +778,7 @@ impl LayoutTree {
     #[inline]
     pub fn children(&self, index: usize) -> &[usize] {
         if let Some(&(start, len)) = self.children_offsets.get(index) {
-            &self.children_arena[start as usize..(start + len) as usize]
+            &self.children_arena[(start as usize)..((start as usize) + (len as usize))]
         } else {
             &[]
         }
@@ -990,6 +1005,12 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
     Ok(layout_tree)
 }
 
+/// Incrementally builds a [`LayoutTree`] from a [`StyledDom`].
+///
+/// Usage: create via [`LayoutTreeBuilder::new`], call [`process_node`](Self::process_node)
+/// on the root DOM node, then call [`build`](Self::build) to produce the final
+/// SoA-split `LayoutTree`. During `process_node`, anonymous boxes are generated
+/// as required by CSS 2.2 §9.2.1.1 (inline wrappers) and §17.2.1 (table fixup).
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
     dom_to_layout: HashMap<NodeId, Vec<usize>>,
@@ -2478,77 +2499,6 @@ fn is_proper_table_child(display: LayoutDisplay) -> bool {
             | LayoutDisplay::TableColumn
             | LayoutDisplay::TableCaption
     )
-}
-
-
-// +spec:display-property:77cba8 - Anonymous table object generation (CSS 2.2 §17.2.1) and table wrapper box BFC (§17.4)
-/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 3:
-/// "Generate missing parents. For each table-cell box C in a sequence of consecutive
-// +spec:table-layout:511e7c - Stage 3: generate missing parents for misparented table elements
-/// table-cell boxes (that are not part of a table-row), an anonymous table-row box
-/// is generated around C and its consecutive table-cell siblings.
-///
-/// For each proper table child C in a sequence of consecutive proper table children
-/// that are misparented (i.e., their parent is not a table element), an anonymous
-/// table box is generated around C and its consecutive siblings."
-///
-/// This function checks if a node needs a parent wrapper and returns the appropriate
-/// anonymous box type, or None if no wrapper is needed.
-// +spec:display-property:1a3a52 - anonymous wrapper boxes for layout-internal display types in incompatible parents
-// +spec:table-layout:dfcc05 - wrapper boxes generated when parent is not the correct table-internal type
-fn needs_table_parent_wrapper(
-    styled_dom: &StyledDom,
-    node_id: NodeId,
-    parent_display: LayoutDisplay,
-) -> Option<AnonymousBoxType> {
-    let child_display = get_display_type(styled_dom, node_id);
-
-    // CSS 2.2 Section 17.2.1, Stage 3 - Generate missing parents:
-    // "For each 'table-cell' box C, if C's parent is not a 'table-row'
-    // then generate an anonymous 'table-row' box."
-    if child_display == LayoutDisplay::TableCell {
-        match parent_display {
-            LayoutDisplay::TableRow => None,
-            _ => Some(AnonymousBoxType::TableRow),
-        }
-    }
-    // "A 'table-row' is misparented if its parent is neither a row group box
-    // nor a 'table' or 'inline-table' box."
-    else if matches!(child_display, LayoutDisplay::TableRow) {
-        match parent_display {
-            LayoutDisplay::Table
-            | LayoutDisplay::InlineTable
-            | LayoutDisplay::TableRowGroup
-            | LayoutDisplay::TableHeaderGroup
-            | LayoutDisplay::TableFooterGroup => None,
-            _ => Some(AnonymousBoxType::TableWrapper),
-        }
-    }
-    // "A 'table-column' box is misparented if its parent is neither a
-    // 'table-column-group' box nor a 'table' or 'inline-table' box."
-    else if matches!(child_display, LayoutDisplay::TableColumn) {
-        match parent_display {
-            LayoutDisplay::Table
-            | LayoutDisplay::InlineTable
-            | LayoutDisplay::TableColumnGroup => None,
-            _ => Some(AnonymousBoxType::TableWrapper),
-        }
-    }
-    else if matches!(
-        child_display,
-        LayoutDisplay::TableRowGroup
-            | LayoutDisplay::TableHeaderGroup
-            | LayoutDisplay::TableFooterGroup
-            | LayoutDisplay::TableColumnGroup
-            | LayoutDisplay::TableCaption
-    ) {
-        match parent_display {
-            LayoutDisplay::Table | LayoutDisplay::InlineTable => None,
-            _ => Some(AnonymousBoxType::TableWrapper),
-        }
-    } else {
-        None
-    }
 }
 
 // Determines the display type of a node based on its tag and CSS properties.
