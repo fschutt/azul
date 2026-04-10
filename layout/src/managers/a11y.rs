@@ -131,7 +131,7 @@ impl A11yManager {
                 }
 
                 // Generate stable A11yNodeId: offset by 1 to avoid collision with root_id(0)
-                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | (dom_idx as u64) + 1);
+                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | ((dom_idx as u64) + 1));
 
                 // Get layout info: absolute position from calculated_positions,
                 // size from layout node. Uses dom_to_layout to map DOM → layout index.
@@ -377,10 +377,6 @@ impl A11yManager {
         if let Some(value) = node_data.get_accessible_value() {
             builder.set_value(value);
         }
-        if let Some(placeholder) = node_data.get_placeholder() {
-            builder.set_placeholder(placeholder);
-        }
-
         // Text node: set as label
         if let NodeType::Text(text) = &node_data.node_type {
             builder.set_label(text.as_str());
@@ -687,8 +683,6 @@ impl A11yManager {
         &self,
         request: ActionRequest,
     ) -> Option<(DomNodeId, AccessibilityAction)> {
-        use azul_css::{props::basic::FloatValue, AzString};
-
         // Decode the A11yNodeId back into DomId + NodeId.
         //
         // The A11yNodeId encodes both values in a single u64:
@@ -700,7 +694,7 @@ impl A11yManager {
         let dom_id = DomId {
             inner: (request.target_node.0 >> 32) as usize,
         };
-        let node_id = NodeId::new((request.target_node.0 & 0xFFFF_FFFF) as usize);
+        let node_id = NodeId::new(((request.target_node.0 & 0xFFFF_FFFF) - 1) as usize);
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         let dom_node_id = DomNodeId {
             dom: dom_id,
