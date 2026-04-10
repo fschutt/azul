@@ -51,12 +51,22 @@ impl TextureSlotKey {
     /// Generate a deterministic ExternalImageId from this key.
     /// This ensures the same DOM node always gets the same ExternalImageId.
     pub fn to_external_image_id(&self) -> ExternalImageId {
-        // Combine dom_id and node_id into a single u64
         let dom = self.dom_id.inner as u64;
         let node = self.node_id.index() as u64;
+        debug_assert!(dom <= u32::MAX as u64, "DomId exceeds 32-bit range");
+        debug_assert!(node <= u32::MAX as u64, "NodeId exceeds 32-bit range");
         // High 32 bits: dom_id, Low 32 bits: node_id
         let combined = (dom << 32) | (node & 0xFFFFFFFF);
         ExternalImageId { inner: combined }
+    }
+
+    /// Decode a TextureSlotKey from an ExternalImageId.
+    /// Reverse of `to_external_image_id()`.
+    pub fn from_external_image_id(id: &ExternalImageId) -> Self {
+        Self {
+            dom_id: DomId { inner: (id.inner >> 32) as usize },
+            node_id: NodeId::new((id.inner & 0xFFFFFFFF) as usize),
+        }
     }
 }
 
@@ -75,21 +85,8 @@ static mut TEXTURE_CACHE: Option<FastHashMap<DocumentId, GlTextureStorage>> = No
 
 /// Insert or update a texture in the cache for a specific DOM node.
 ///
-/// Returns the stable ExternalImageId for this texture slot.
-/// The ExternalImageId is deterministic based on (dom_id, node_id),
+/// Returns a stable ExternalImageId that is deterministic based on (dom_id, node_id),
 /// so it remains constant across frames for the same DOM node.
-///
-/// # Arguments
-///
-/// * `document_id` - The WebRender document this texture belongs to
-/// * `dom_id` - The DOM containing this node
-/// * `node_id` - The node within the DOM
-/// * `epoch` - The frame epoch when this texture was created
-/// * `texture` - The OpenGL texture to store
-///
-/// # Returns
-///
-/// A stable ExternalImageId that will always be the same for this (dom_id, node_id) pair.
 pub fn insert_texture_for_node(
     document_id: DocumentId,
     dom_id: DomId,
@@ -129,10 +126,7 @@ pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -
         let document_storage = cache.entry(document_id).or_insert_with(FastHashMap::new);
         
         // Use a pseudo-key based on the external_image_id (not stable, but backwards compatible)
-        let pseudo_key = TextureSlotKey {
-            dom_id: DomId { inner: (external_image_id.inner >> 32) as usize },
-            node_id: NodeId::new((external_image_id.inner & 0xFFFFFFFF) as usize),
-        };
+        let pseudo_key = TextureSlotKey::from_external_image_id(&external_image_id);
         document_storage.insert(pseudo_key, TextureEntry { texture, epoch });
     }
 
@@ -206,10 +200,7 @@ pub fn remove_document(document_id: &DocumentId) {
 /// Since ExternalImageId is deterministically generated from (DomId, NodeId),
 /// we decode the key from the ID and look it up directly.
 pub fn get_texture(external_image_id: &ExternalImageId) -> Option<(u32, (f32, f32))> {
-    // Extract the key from the ExternalImageId
-    let dom_id = DomId { inner: (external_image_id.inner >> 32) as usize };
-    let node_id = NodeId::new((external_image_id.inner & 0xFFFFFFFF) as usize);
-    let key = TextureSlotKey::new(dom_id, node_id);
+    let key = TextureSlotKey::from_external_image_id(external_image_id);
     
     unsafe {
         let cache = TEXTURE_CACHE.as_ref()?;
@@ -267,11 +258,10 @@ mod tests {
         let ext_id = key.to_external_image_id();
         
         // Decode
-        let decoded_dom = DomId { inner: (ext_id.inner >> 32) as usize };
-        let decoded_node = NodeId::new((ext_id.inner & 0xFFFFFFFF) as usize);
-        
-        assert_eq!(decoded_dom, dom_id);
-        assert_eq!(decoded_node, node_id);
+        let decoded = TextureSlotKey::from_external_image_id(&ext_id);
+
+        assert_eq!(decoded.dom_id, dom_id);
+        assert_eq!(decoded.node_id, node_id);
     }
 
     #[test]
