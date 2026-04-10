@@ -11,7 +11,7 @@
 //! - [`dynamic_selector`]: Runtime selector matching helpers.
 //! - [`compact_cache`]: Compact caching utilities for resolved styles.
 //! - [`corety`]: Core type aliases re-exported at crate root.
-#![allow(warnings)]
+#![allow(unused)]
 
 // #![no_std]
 
