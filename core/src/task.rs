@@ -447,8 +447,10 @@ impl From<InstantPtr> for StdInstant {
 
 impl Drop for InstantPtr {
     fn drop(&mut self) {
-        self.run_destructor = false;
-        (self.destructor.cb)(self);
+        if self.run_destructor {
+            self.run_destructor = false;
+            (self.destructor.cb)(self);
+        }
     }
 }
 
@@ -585,7 +587,8 @@ pub struct SystemTickDiff {
 }
 
 impl SystemTickDiff {
-    /// Divide duration A by duration B
+    /// Divide duration A by duration B.
+    /// Returns `Inf` or `NaN` if `other` is zero.
     pub fn div(&self, other: &Self) -> f64 {
         self.tick_diff as f64 / other.tick_diff as f64
     }
@@ -600,7 +603,8 @@ pub struct SystemTimeDiff {
 }
 
 impl SystemTimeDiff {
-    /// Divide duration A by duration B
+    /// Divide duration A by duration B.
+    /// Returns `Inf` or `NaN` if `other` is zero.
     pub fn div(&self, other: &Self) -> f64 {
         self.as_secs_f64() / other.as_secs_f64()
     }
