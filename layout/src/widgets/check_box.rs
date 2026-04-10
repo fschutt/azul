@@ -1,3 +1,7 @@
+//! Checkbox widget with toggle callback support and default native-like styling.
+//!
+//! Key types: [`CheckBox`], [`CheckBoxState`], [`CheckBoxOnToggle`].
+
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
@@ -23,6 +27,7 @@ static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-content",
 ))];
 
+/// Callback function type invoked when the checkbox is toggled.
 pub type CheckBoxOnToggleCallbackType =
     extern "C" fn(RefAny, CallbackInfo, CheckBoxState) -> Update;
 impl_widget_callback!(
@@ -32,6 +37,7 @@ impl_widget_callback!(
     CheckBoxOnToggleCallbackType
 );
 
+/// A toggleable checkbox widget with customizable styling and toggle callback.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct CheckBox {
@@ -51,6 +57,7 @@ pub struct CheckBoxStateWrapper {
     pub on_toggle: OptionCheckBoxOnToggle,
 }
 
+/// The checked/unchecked state of a [`CheckBox`].
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct CheckBoxState {
@@ -157,7 +164,6 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
-    // padding: 2px
 ];
 
 static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
@@ -165,7 +171,6 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
-    // padding: 2px
 ];
 
 impl CheckBox {
