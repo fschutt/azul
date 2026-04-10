@@ -1,4 +1,16 @@
 //! X11 implementation for Linux using the shell2 architecture.
+//!
+//! The main type is [`X11Window`], which implements [`PlatformWindow`] and
+//! manages the X11 display connection, event dispatch, rendering (GPU via
+//! EGL/WebRender or CPU fallback), IME, tooltips, and native GNOME menus.
+//!
+//! Event loop entry points:
+//! - [`X11Window::poll_event`] — non-blocking event poll used in the active
+//!   rendering loop.
+//! - [`X11Window::wait_for_events`] — blocking poll (via `poll(2)`) used when
+//!   idle, also watches timerfd file descriptors.
+//! - [`X11Window::render_and_present`] — full render cycle: layout
+//!   regeneration, WebRender update, and buffer swap (GPU) or XPutImage (CPU).
 
 use crate::impl_platform_window_getters;
 
@@ -57,6 +69,13 @@ use crate::desktop::{
     wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
 };
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+
+/// Common responsive breakpoints (in logical pixels) for detecting viewport
+/// breakpoint crossings on resize.
+const CSS_BREAKPOINTS: &[f32] = &[320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+
+/// Fallback background color (blue) used when CPU rendering is not available.
+const CPU_FALLBACK_BG_COLOR: u64 = 0x0000FF;
 
 /// X11 error handler to prevent application crashes
 ///
@@ -330,6 +349,10 @@ pub enum X11Event {
 
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl X11Window {
+    /// Poll for the next X11 event without blocking.
+    ///
+    /// Checks timers/threads first, then drains the X11 event queue.
+    /// Returns `Some(X11Event::Close)` if the window was closed, otherwise `None`.
     pub fn poll_event(&mut self) -> Option<X11Event> {
         // Check timers and threads before processing X11 events
         self.check_timers_and_threads();
@@ -407,11 +430,9 @@ impl X11Window {
                         };
 
                         // Check if any CSS breakpoints were crossed
-                        let breakpoints =
-                            [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
                         if old_context.viewport_breakpoint_changed(
                             &self.dynamic_selector_context,
-                            &breakpoints,
+                            CSS_BREAKPOINTS,
                         ) {
                             log_debug!(
                                 LogCategory::Layout,
@@ -520,6 +541,7 @@ impl X11Window {
         None
     }
 
+    /// Swap buffers (GPU) or flush (CPU) to present the current frame.
     pub fn present(&mut self) -> Result<(), WindowError> {
         match &self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
@@ -542,6 +564,10 @@ impl X11Window {
         Ok(())
     }
 
+    /// Request a window redraw by sending an Expose event.
+    ///
+    /// If GPU damage rects are available, sends per-rect Expose events
+    /// for incremental invalidation; otherwise sends a full-surface Expose.
     pub fn request_redraw(&mut self) {
         // Use per-rect Expose events when damage rects available
         if !self.gpu_damage_rects.is_empty() {
@@ -576,6 +602,7 @@ impl X11Window {
         }
     }
 
+    /// Synchronize the clipboard state with the system clipboard.
     pub fn sync_clipboard(
         &mut self,
         clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
@@ -583,6 +610,7 @@ impl X11Window {
         clipboard::sync_clipboard(clipboard_manager);
     }
 
+    /// Destroy the X11 window, free the ARGB colormap, and close the display.
     pub fn close(&mut self) {
         if self.is_open {
             self.is_open = false;
@@ -597,6 +625,7 @@ impl X11Window {
         }
     }
 
+    /// Returns `true` if the window has not been closed.
     pub fn is_open(&self) -> bool {
         self.is_open
     }
@@ -1292,6 +1321,10 @@ impl X11Window {
         }
     }
 
+    /// Block until an X11 event arrives or a timerfd fires.
+    ///
+    /// Uses `poll(2)` to wait on both the X11 connection fd and any active
+    /// timerfd file descriptors simultaneously.
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
         use super::super::common::event::PlatformWindow;
         use std::mem;
@@ -1332,8 +1365,9 @@ impl X11Window {
                 }
             }
 
-            // If no timers, use -1 (block indefinitely), otherwise block until something fires
-            let timeout_ms = if self.timer_fds.is_empty() { -1 } else { -1 };
+            // Block indefinitely — timerfd's are in the pollfd set, so poll()
+            // will wake when any timer fires (no finite timeout needed).
+            let timeout_ms: i32 = -1;
 
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
@@ -1731,9 +1765,9 @@ impl X11Window {
                     }
 
                     if !rendered {
-                        // Fallback to blue rectangle if CPU rendering not yet available
+                        // Fallback to solid rectangle if CPU rendering not yet available
                         unsafe {
-                            (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
+                            (self.xlib.XSetForeground)(self.display, *gc, CPU_FALLBACK_BG_COLOR);
                             let physical_size =
                                 self.common.current_window_state.size.get_physical_size();
                             (self.xlib.XFillRectangle)(
@@ -1753,7 +1787,7 @@ impl X11Window {
                 unsafe {
                     let physical_size =
                         self.common.current_window_state.size.get_physical_size();
-                    (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
+                    (self.xlib.XSetForeground)(self.display, *gc, CPU_FALLBACK_BG_COLOR);
                     (self.xlib.XFillRectangle)(
                         self.display,
                         self.window,
