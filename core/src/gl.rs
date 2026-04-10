@@ -1,3 +1,6 @@
+//! OpenGL context wrappers, texture cache management, shader compilation,
+//! vertex buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
+
 #![allow(unused_variables)]
 use alloc::{
     boxed::Box,
@@ -87,7 +90,7 @@ impl Clone for GlVoidPtrMut {
     }
 }
 
-// &str
+/// FFI-safe wrapper for `&str`.
 #[repr(C)]
 pub struct Refstr {
     pub ptr: *const u8,
@@ -124,7 +127,7 @@ impl From<&str> for Refstr {
     }
 }
 
-// &[&str]
+/// FFI-safe wrapper for `&[&str]`.
 #[repr(C)]
 pub struct RefstrVecRef {
     pub ptr: *const Refstr,
@@ -161,7 +164,7 @@ impl From<&[Refstr]> for RefstrVecRef {
     }
 }
 
-// &mut [GLint64]
+/// FFI-safe wrapper for `&mut [GLint64]`.
 #[repr(C)]
 pub struct GLint64VecRefMut {
     pub ptr: *mut i64,
@@ -201,7 +204,7 @@ impl GLint64VecRefMut {
     }
 }
 
-// &mut [GLfloat]
+/// FFI-safe wrapper for `&mut [GLfloat]`.
 #[repr(C)]
 pub struct GLfloatVecRefMut {
     pub ptr: *mut f32,
@@ -241,7 +244,7 @@ impl GLfloatVecRefMut {
     }
 }
 
-// &mut [GLint]
+/// FFI-safe wrapper for `&mut [GLint]`.
 #[repr(C)]
 pub struct GLintVecRefMut {
     pub ptr: *mut i32,
@@ -281,7 +284,7 @@ impl GLintVecRefMut {
     }
 }
 
-// &[GLuint]
+/// FFI-safe wrapper for `&[GLuint]`.
 #[repr(C)]
 pub struct GLuintVecRef {
     pub ptr: *const u32,
@@ -318,7 +321,7 @@ impl GLuintVecRef {
     }
 }
 
-// &[GLenum]
+/// FFI-safe wrapper for `&[GLenum]`.
 #[repr(C)]
 pub struct GLenumVecRef {
     pub ptr: *const u32,
@@ -355,7 +358,7 @@ impl GLenumVecRef {
     }
 }
 
-// &[u8]
+/// FFI-safe wrapper for `&[u8]`.
 #[repr(C)]
 pub struct U8VecRef {
     pub ptr: *const u8,
@@ -421,7 +424,7 @@ impl core::hash::Hash for U8VecRef {
     }
 }
 
-// &[f32]
+/// FFI-safe wrapper for `&[f32]`.
 #[repr(C)]
 pub struct F32VecRef {
     pub ptr: *const f32,
@@ -458,7 +461,7 @@ impl F32VecRef {
     }
 }
 
-// &[i32]
+/// FFI-safe wrapper for `&[i32]`.
 #[repr(C)]
 pub struct I32VecRef {
     pub ptr: *const i32,
@@ -495,7 +498,7 @@ impl I32VecRef {
     }
 }
 
-// &mut [u8]
+/// FFI-safe wrapper for `&mut [GLboolean]` (i.e. `&mut [u8]`).
 #[repr(C)]
 pub struct GLbooleanVecRefMut {
     pub ptr: *mut u8,
@@ -535,7 +538,7 @@ impl GLbooleanVecRefMut {
     }
 }
 
-// &mut [u8]
+/// FFI-safe wrapper for `&mut [u8]`.
 #[repr(C)]
 pub struct U8VecRefMut {
     pub ptr: *mut u8,
@@ -2549,6 +2552,7 @@ impl Texture {
             size,
             background,
             gl_context,
+            // Format is BGRA8 for WebRender integration, despite the GL upload using RGBA
             RawImageFormat::BGRA8,
         )
     }
@@ -3203,9 +3207,12 @@ impl GlApiVersion {
         let mut minor = [0];
         gl_context.get_integer_v(gl::MINOR_VERSION, (&mut minor[..]).into());
 
-        GlApiVersion::Gl {
-            major: major[0] as usize,
-            minor: minor[0] as usize,
+        let major = major[0] as usize;
+        let minor = minor[0] as usize;
+
+        match gl_context.get_type() {
+            GlType::Gl => GlApiVersion::Gl { major, minor },
+            GlType::Gles => GlApiVersion::GlEs { major, minor },
         }
     }
 }
