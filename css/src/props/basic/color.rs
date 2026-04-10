@@ -211,15 +211,19 @@ impl ColorU {
     }
     
     /// Lighten a color by a percentage (0.0 to 1.0).
-    /// Returns a new color blended towards white.
+    /// Returns a new color blended towards white, preserving the original alpha.
     pub fn lighten(&self, amount: f32) -> Self {
-        self.interpolate(&Self::WHITE, amount.clamp(0.0, 1.0))
+        let mut c = self.interpolate(&Self::WHITE, amount.clamp(0.0, 1.0));
+        c.a = self.a;
+        c
     }
-    
+
     /// Darken a color by a percentage (0.0 to 1.0).
-    /// Returns a new color blended towards black.
+    /// Returns a new color blended towards black, preserving the original alpha.
     pub fn darken(&self, amount: f32) -> Self {
-        self.interpolate(&Self::BLACK, amount.clamp(0.0, 1.0))
+        let mut c = self.interpolate(&Self::BLACK, amount.clamp(0.0, 1.0));
+        c.a = self.a;
+        c
     }
     
     /// Mix two colors together with a given ratio (0.0 = self, 1.0 = other).
@@ -230,18 +234,18 @@ impl ColorU {
     /// Create a hover variant (slightly lighter for dark colors, darker for light colors).
     /// This is useful for button hover states.
     pub fn hover_variant(&self) -> Self {
-        let luminance = self.luminance();
+        let luminance = self.relative_luminance();
         if luminance > 0.5 {
             self.darken(0.08)
         } else {
             self.lighten(0.12)
         }
     }
-    
+
     /// Create an active/pressed variant (darker than hover).
     /// This is useful for button active states.
     pub fn active_variant(&self) -> Self {
-        let luminance = self.luminance();
+        let luminance = self.relative_luminance();
         if luminance > 0.5 {
             self.darken(0.15)
         } else {
@@ -249,22 +253,21 @@ impl ColorU {
         }
     }
     
-    /// Calculate relative luminance (0.0 = black, 1.0 = white).
-    /// Uses the sRGB luminance formula.
+    /// Calculate approximate luminance (0.0 = black, 1.0 = white).
+    ///
+    /// **Note:** This applies BT.709 coefficients directly to gamma-encoded sRGB
+    /// values without linearizing first, so it is only an approximation.
+    /// For accurate results (e.g. WCAG contrast checks), use [`relative_luminance()`].
     pub fn luminance(&self) -> f32 {
         let r = (self.r as f32) / 255.0;
         let g = (self.g as f32) / 255.0;
         let b = (self.b as f32) / 255.0;
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
-    
+
     /// Returns white or black text color for best contrast on this background.
     pub fn contrast_text(&self) -> Self {
-        if self.luminance() > 0.5 {
-            Self::BLACK
-        } else {
-            Self::WHITE
-        }
+        self.best_contrast_text()
     }
     
     // ============================================================
@@ -329,15 +332,15 @@ impl ColorU {
         self.contrast_ratio(other) >= 4.5
     }
     
-    /// Returns true if this color is considered "light" (luminance > 0.5).
+    /// Returns true if this color is considered "light" (relative luminance > 0.5).
     /// Useful for determining if dark or light text should be used.
     pub fn is_light(&self) -> bool {
-        self.luminance() > 0.5
+        self.relative_luminance() > 0.5
     }
-    
-    /// Returns true if this color is considered "dark" (luminance <= 0.5).
+
+    /// Returns true if this color is considered "dark" (relative luminance <= 0.5).
     pub fn is_dark(&self) -> bool {
-        self.luminance() <= 0.5
+        self.relative_luminance() <= 0.5
     }
     
     /// Suggest the best text color (black or white) for this background,
