@@ -47,58 +47,14 @@ use crate::{
     },
 };
 
-/// Resolves a percentage value against an available size, accounting for the CSS box model.
+/// Resolves a percentage value against the containing block dimension.
 ///
-/// According to CSS 2.1 Section 10.2, percentages are resolved against the containing block's
-/// dimensions. However, when an element has margins, borders, or padding, these must be
-/// subtracted from the containing block size to get the "available" space that the percentage
-/// resolves against.
+/// Per CSS 2.1 Section 10.2, percentages resolve directly against the containing
+/// block's width or height. The margin/border/padding parameters are accepted for
+/// call-site convenience but are intentionally unused — percentage resolution does
+/// not subtract box-model extras in content-box sizing.
 ///
-/// This is critical for correct layout calculations, especially when elements use percentage
-/// widths/heights combined with margins. Without this adjustment, elements overflow their
-/// containing blocks.
-///
-/// # Arguments
-///
-/// * `containing_block_dimension` - The full dimension of the containing block (width or height)
-/// * `percentage` - The percentage value to resolve (e.g., 100% = 1.0, 50% = 0.5)
-/// * `margins` - The two margins in the relevant axis (left+right for width, top+bottom for height)
-/// * `borders` - The two borders in the relevant axis
-/// * `paddings` - The two paddings in the relevant axis
-///
-/// # Returns
-///
-/// The resolved pixel value, which is:
-/// `percentage * (containing_block_dimension - margins - borders - paddings)`
-///
-/// The result is clamped to a minimum of 0.0 to prevent negative sizes.
-///
-/// # Example
-///
-/// ```text
-/// // Body element: width: 100%, margin: 20px
-/// // Containing block (html): 595px wide
-/// // Expected body width: 595 - 20 - 20 = 555px
-///
-/// let body_width = resolve_percentage_with_box_model(
-///     595.0,           // containing block width
-///     1.0,             // 100%
-///     (20.0, 20.0),    // left and right margins
-///     (0.0, 0.0),      // no borders
-///     (0.0, 0.0),      // no paddings
-/// );
-/// assert_eq!(body_width, 555.0);
-/// ```
-///
-/// # CSS Specification
-///
-/// From CSS 2.1 Section 10.2: "If the width is set to a percentage, it is calculated
-/// with respect to the width of the generated box's containing block."
-///
-/// The percentage is resolved against the containing block dimension directly.
-/// Margins, borders, and padding are NOT subtracted from the base for percentage
-/// resolution in content-box sizing. They may cause overflow if the total exceeds
-/// the containing block width.
+/// Returns `(containing_block_dimension * percentage).max(0.0)`.
 // +spec:containing-block:43c719 - percentages resolved against containing block width/height
 // +spec:containing-block:723eee - Percentages specify sizing with respect to the containing block
 // +spec:containing-block:8ad6f4 - Percentage resolution against containing block (editorial note: transferred percentages)
@@ -153,10 +109,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         tree: &mut LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
-        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 50 == 0 {}
-
         let node = tree
             .get(node_index)
             .cloned()
@@ -789,134 +741,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         }
     }
 
-    fn calculate_inline_intrinsic_sizes(
-        &mut self,
-        tree: &LayoutTree,
-        node_index: usize,
-    ) -> Result<IntrinsicSizes> {
-
-        
-        self.ctx.debug_log(&format!(
-            "Calculating inline intrinsic sizes for node {}",
-            node_index
-        ));
-
-        // This call is now valid because we added the function to fc.rs
-        let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
-
-        if inline_content.is_empty() {
-            self.ctx
-                .debug_log("No inline content found, returning default sizes");
-            return Ok(IntrinsicSizes::default());
-        }
-
-        self.ctx.debug_log(&format!(
-            "Found {} inline content items",
-            inline_content.len()
-        ));
-
-        // Layout with "min-content" constraints (effectively zero width).
-        // This forces all possible line breaks, giving the width of the longest unbreakable unit.
-        let min_fragments = vec![LayoutFragment {
-            id: "min".to_string(),
-            constraints: UnifiedConstraints {
-                available_width: AvailableSpace::MinContent,
-                ..Default::default()
-            },
-        }];
-
-        // Get pre-loaded fonts from font manager
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
-
-        let min_layout = match self.text_cache.layout_flow(
-            &inline_content,
-            &[],
-            &min_fragments,
-            &self.ctx.font_manager.font_chain_cache,
-            &self.ctx.font_manager.fc_cache,
-            &loaded_fonts,
-            self.ctx.debug_messages,
-        ) {
-            Ok(layout) => layout,
-            Err(e) => {
-                self.ctx.debug_log(&format!(
-                    "Warning: Sizing failed during min-content layout: {:?}",
-                    e
-                ));
-                self.ctx
-                    .debug_log("Using fallback: returning default intrinsic sizes");
-                // Return reasonable defaults instead of crashing
-                return Ok(IntrinsicSizes {
-                    min_content_width: 100.0, // Arbitrary fallback width
-                    max_content_width: 300.0,
-                    preferred_width: None,
-                    min_content_height: 20.0, // Arbitrary fallback height
-                    max_content_height: 20.0,
-                    preferred_height: None,
-                });
-            }
-        };
-
-        // Layout with "max-content" constraints (infinite width).
-        // This produces a single, long line, giving the natural width of the content.
-        let max_fragments = vec![LayoutFragment {
-            id: "max".to_string(),
-            constraints: UnifiedConstraints {
-                available_width: AvailableSpace::MaxContent,
-                ..Default::default()
-            },
-        }];
-
-        let max_layout = match self.text_cache.layout_flow(
-            &inline_content,
-            &[],
-            &max_fragments,
-            &self.ctx.font_manager.font_chain_cache,
-            &self.ctx.font_manager.fc_cache,
-            &loaded_fonts,
-            self.ctx.debug_messages,
-        ) {
-            Ok(layout) => layout,
-            Err(e) => {
-                self.ctx.debug_log(&format!(
-                    "Warning: Sizing failed during max-content layout: {:?}",
-                    e
-                ));
-                self.ctx.debug_log("Using fallback from min-content layout");
-                // If max-content fails but min-content succeeded, use min as fallback
-                min_layout.clone()
-            }
-        };
-
-        let min_width = min_layout
-            .fragment_layouts
-            .get("min")
-            .map(|l| l.bounds().width)
-            .unwrap_or(0.0);
-
-        let max_width = max_layout
-            .fragment_layouts
-            .get("max")
-            .map(|l| l.bounds().width)
-            .unwrap_or(0.0);
-
-        // The height is typically calculated at the max_content_width.
-        let height = max_layout
-            .fragment_layouts
-            .get("max")
-            .map(|l| l.bounds().height)
-            .unwrap_or(0.0);
-
-        Ok(IntrinsicSizes {
-            min_content_width: min_width,
-            max_content_width: max_width,
-            preferred_width: None, // preferred_width comes from CSS, not content.
-            min_content_height: height, // Height can change with width, but this is a common model.
-            max_content_height: height,
-            preferred_height: None,
-        })
-    }
-
     /// Calculate intrinsic sizes for a table element by aggregating cell content
     /// widths per column and row heights.
     /// +spec:table-layout:93b13c - shrink-to-fit for tables uses intrinsic sizing
@@ -1251,136 +1075,6 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     collect_inline_content_for_sizing(ctx, tree, ifc_root_index)
-}
-
-fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
-    ctx: &mut LayoutContext<'_, T>,
-    tree: &mut LayoutTree,
-    node_index: usize,
-) -> Result<IntrinsicSizes> {
-    let node = tree
-        .get(node_index)
-        .cloned()
-        .ok_or(LayoutError::InvalidTree)?;
-
-    // Out-of-flow elements do not contribute to their parent's intrinsic size.
-    let position = get_position_type(ctx.styled_dom, node.dom_node_id);
-    if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
-        if let Some(n) = tree.warm_mut(node_index) {
-            n.intrinsic_sizes = Some(IntrinsicSizes::default());
-        }
-        return Ok(IntrinsicSizes::default());
-    }
-
-    // First, calculate children's intrinsic sizes
-    let mut child_intrinsics = BTreeMap::new();
-    let children = tree.children(node_index).to_vec();
-    for &child_index in &children {
-        let child_intrinsic = calculate_intrinsic_recursive(ctx, tree, child_index)?;
-        child_intrinsics.insert(child_index, child_intrinsic);
-    }
-
-    // Then calculate this node's intrinsic size based on its children
-    let intrinsic = calculate_node_intrinsic_sizes_stub(ctx, &node, &child_intrinsics);
-
-    if let Some(n) = tree.warm_mut(node_index) {
-        n.intrinsic_sizes = Some(intrinsic.clone());
-    }
-
-    Ok(intrinsic)
-}
-
-/// Calculates intrinsic sizes for a node based on its children and formatting context.
-///
-/// CSS Intrinsic & Extrinsic Sizing (§ 4/5):
-/// - **Block (vertical stacking):** The intrinsic width is the *maximum* child width
-///   (children stack vertically, so the widest child determines the parent's width).
-///   The intrinsic height is the *sum* of child heights.
-/// - **Inline / Flex-row (horizontal stacking):** The intrinsic width is the *sum*
-///   of child widths. The intrinsic height is the *maximum* child height.
-/// - **Flex-column:** Same as block for width (max), height is sum.
-fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
-    _ctx: &LayoutContext<'_, T>,
-    _node: &LayoutNodeHot,
-    child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
-) -> IntrinsicSizes {
-    use azul_core::dom::FormattingContext;
-
-    // Determine stacking direction from the node's formatting context.
-    // "horizontal" means children are laid out side-by-side (inline, flex-row).
-    // "vertical" means children stack top-to-bottom (block, flex-column).
-    // max-content = sum of items' max-content contributions;
-    // min-content (single-line) = sum of items' min-content contributions;
-    // min-content (multi-line) = largest of items' min-content contributions.
-    // Auto margins on flex items treated as 0 for this computation.
-    let is_horizontal = match &_node.formatting_context {
-        FormattingContext::Flex => {
-            // Flex containers: check if the main axis is horizontal.
-            // NOTE: flex-direction not yet queried; assumes row (horizontal main axis).
-            true
-        }
-        FormattingContext::Inline | FormattingContext::InlineBlock | FormattingContext::Grid => true,
-        // Block, Table, and everything else stacks vertically
-        _ => false,
-    };
-
-    let mut max_width: f32 = 0.0;
-    let mut max_height: f32 = 0.0;
-    let mut total_width: f32 = 0.0;
-    let mut total_height: f32 = 0.0;
-    let mut max_min_width: f32 = 0.0;
-    let mut max_min_height: f32 = 0.0;
-    let mut total_min_width: f32 = 0.0;
-    let mut total_min_height: f32 = 0.0;
-
-    for intrinsic in child_intrinsics.values() {
-        max_width = max_width.max(intrinsic.max_content_width);
-        max_height = max_height.max(intrinsic.max_content_height);
-        total_width += intrinsic.max_content_width;
-        total_height += intrinsic.max_content_height;
-        max_min_width = max_min_width.max(intrinsic.min_content_width);
-        max_min_height = max_min_height.max(intrinsic.min_content_height);
-        total_min_width += intrinsic.min_content_width;
-        total_min_height += intrinsic.min_content_height;
-    }
-
-    let is_flex = matches!(&_node.formatting_context, FormattingContext::Flex);
-
-    if is_horizontal {
-        // max-content width = sum of items' max-content width contributions
-        // min-content width: single-line flex = sum, multi-line = largest, inline = largest
-        // NOTE: flex-wrap not yet queried; defaults to nowrap (single-line), so use sum for flex.
-        let min_w = if is_flex {
-            total_min_width  // single-line flex: sum of min-content contributions
-        } else {
-            max_min_width    // inline: largest min-content item
-        };
-        IntrinsicSizes {
-            min_content_width: min_w,
-            min_content_height: max_min_height,
-            max_content_width: total_width,  // all children side-by-side
-            max_content_height: max_height,
-            preferred_width: None,
-            preferred_height: None,
-        }
-    } else {
-        // Vertical stacking (Block / flex-column)
-        // max-content height = sum of items' max-content height contributions
-        // min-content height: single-line flex = sum, block = largest
-        let min_h = if is_flex {
-            total_min_height  // single-line flex-column: sum of min-content contributions
-        } else {
-            max_min_height    // block: tallest single child as min
-        };
-        IntrinsicSizes {
-            min_content_width: max_min_width,
-            min_content_height: min_h,
-            max_content_width: max_width,    // widest child determines width
-            max_content_height: total_height, // all children stacked
-            preferred_width: None,
-            preferred_height: None,
-        }
-    }
 }
 
 // +spec:height-calculation:1c899b - width and height properties specify the preferred size of the box
@@ -1970,8 +1664,6 @@ pub fn calculate_used_size_for_node(
     };
 
     // Step 6: Construct the final LogicalSize from the logical dimensions.
-    let wm = writing_mode.unwrap_or_default();
-    let result = LogicalSize::from_main_cross(main_size, cross_size, wm);
     // +spec:min-max-sizing:2f66a6 - direction-dependent layout rules abstracted to logical start/end via writing mode
     let result =
         LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
@@ -2359,11 +2051,5 @@ pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
         NodeType::Text(text_data) => Some(text_data.as_str().to_string()),
         _ => None,
-    }
-}
-
-fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {
-    if let Some(messages) = debug_messages {
-        messages.push(LayoutDebugMessage::info(message));
     }
 }
