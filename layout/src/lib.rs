@@ -1,10 +1,15 @@
+//! Layout crate for the Azul GUI framework.
+//!
+//! Provides the layout solver (`solver3`), text shaping (`text3`), font
+//! management (`font`), hit testing, page fragmentation, and widget support.
+//! Integrates with `azul-core` for DOM types and `azul-css` for style
+//! properties.
+
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
 #![allow(warnings)]
-
-// #![no_std]
 
 #[macro_use]
 extern crate alloc;
@@ -208,31 +213,25 @@ pub use window::{CursorBlinkTimerAction, LayoutWindow, ScrollbarDragState};
 #[cfg(feature = "text_layout")]
 pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 
-// #[cfg(feature = "text_layout")]
-// pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
 #[cfg(feature = "text_layout")]
+/// Parses raw font bytes into a [`FontRef`](azul_css::props::basic::FontRef)
+/// suitable for use in the layout system.
 pub fn parse_font_fn(
     source: azul_core::resources::LoadedFontSource,
 ) -> Option<azul_css::props::basic::FontRef> {
-    use core::ffi::c_void;
-
     use crate::font::parsed::ParsedFont;
-
-    fn parsed_font_destructor(ptr: *mut c_void) {
-        unsafe {
-            let _ = Box::from_raw(ptr as *mut ParsedFont);
-        }
-    }
 
     ParsedFont::from_bytes(
         source.data.as_ref(),
         source.index as usize,
         &mut Vec::new(), // Ignore warnings for now
     )
-    .map(|parsed_font| parsed_font_to_font_ref(parsed_font))
+    .map(parsed_font_to_font_ref)
 }
 
 #[cfg(feature = "text_layout")]
+/// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),
+/// transferring ownership to the returned handle.
 pub fn parsed_font_to_font_ref(
     parsed_font: crate::font::parsed::ParsedFont,
 ) -> azul_css::props::basic::FontRef {
@@ -250,8 +249,15 @@ pub fn parsed_font_to_font_ref(
 }
 
 #[cfg(feature = "text_layout")]
+/// Recovers a reference to the [`ParsedFont`] stored inside a [`FontRef`](azul_css::props::basic::FontRef).
+///
+/// # Safety contract
+/// The `font_ref` must have been created by [`parsed_font_to_font_ref`],
+/// so that `font_ref.parsed` points to a valid `ParsedFont`.
 pub fn font_ref_to_parsed_font(
     font_ref: &azul_css::props::basic::FontRef,
 ) -> &crate::font::parsed::ParsedFont {
+    // SAFETY: `font_ref.parsed` was created by `parsed_font_to_font_ref`
+    // via `Box::into_raw`, so it points to a valid, aligned `ParsedFont`.
     unsafe { &*(font_ref.parsed as *const crate::font::parsed::ParsedFont) }
 }
