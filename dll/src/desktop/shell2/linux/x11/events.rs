@@ -9,9 +9,10 @@
 //! 6. Process callback results (DOM regeneration, window state changes, etc.)
 //!
 //! Includes full IME (XIM) support for international text input.
+//! Also provides `keysym_to_virtual_keycode()` for X11 keysym → VirtualKeyCode mapping (shared with Wayland).
 
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     rc::Rc,
 };
 
@@ -32,6 +33,11 @@ use crate::desktop::shell2::common::event::PlatformWindow;
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+
+/// Pixels per discrete X11 scroll tick (button 4/5). X11 scroll events are
+/// unitless discrete steps; this constant converts them to pixel deltas for
+/// the scroll physics system.
+const X11_SCROLL_TICK_PIXELS: f32 = 20.0;
 
 // IME Support (X Input Method)
 
@@ -122,11 +128,10 @@ impl ImeManager {
         };
 
         let chars = if count > 0 {
-            Some(unsafe {
-                CStr::from_ptr(buffer.as_ptr())
-                    .to_string_lossy()
-                    .into_owned()
-            })
+            // Use count to slice the buffer rather than CStr::from_ptr, which would
+            // read past the buffer if X11 fills all 32 bytes with no null terminator.
+            let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
+            Some(String::from_utf8_lossy(&bytes).into_owned())
         } else {
             None
         };
@@ -260,19 +265,9 @@ impl X11Window {
 
         // Record input sample for gesture detection (movement during button press)
         // X11 provides x_root/y_root as native screen-absolute coordinates
-        let button_state = if self.common.current_window_state.mouse_state.left_down {
-            0x01
-        } else {
-            0x00
-        } | if self.common.current_window_state.mouse_state.right_down {
-            0x02
-        } else {
-            0x00
-        } | if self.common.current_window_state.mouse_state.middle_down {
-            0x04
-        } else {
-            0x00
-        };
+        let ms = &self.common.current_window_state.mouse_state;
+        let button_state =
+            (ms.left_down as u8) | ((ms.right_down as u8) << 1) | ((ms.middle_down as u8) << 2);
         let screen_pos = LogicalPosition::new(event.x_root as f32, event.y_root as f32);
         self.record_input_sample(position, button_state, false, false, Some(screen_pos));
 
@@ -355,8 +350,8 @@ impl X11Window {
 
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
-                        -delta_x * 20.0,
-                        -delta_y * 20.0,
+                        -delta_x * X11_SCROLL_TICK_PIXELS,
+                        -delta_y * X11_SCROLL_TICK_PIXELS,
                         ScrollInputSource::WheelDiscrete,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
@@ -424,11 +419,10 @@ impl X11Window {
                 )
             };
             let chars = if count > 0 {
-                unsafe {
-                    CStr::from_ptr(buffer.as_ptr())
-                        .to_string_lossy()
-                        .into_owned()
-                }
+                // Use count to slice the buffer rather than CStr::from_ptr, which would
+                // read past the buffer if all 32 bytes are filled with no null terminator.
+                let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
+                String::from_utf8_lossy(&bytes).into_owned()
             } else {
                 String::new()
             };
@@ -617,24 +611,7 @@ impl X11Window {
             .next()
     }
 
-    /// Get raw window handle for callbacks
-    fn get_raw_window_handle(&self) -> azul_core::window::RawWindowHandle {
-        azul_core::window::RawWindowHandle::Xlib(azul_core::window::XlibHandle {
-            window: self.window as u64,
-            display: self.display as *mut std::ffi::c_void,
-        })
-    }
-
-    // Scrollbar Handling (from Windows/macOS)
-
-    /// Query WebRender hit-tester for scrollbar hits at given position
-    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindow trait as default methods.
-    // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event.rs for the implementation.
-    //
-    // X11-specific note: X11 doesn't have native mouse capture like Windows/macOS,
-    // so we rely on the event loop to deliver motion events during drag.
+    // Scrollbar methods provided by PlatformWindow trait (see common/event.rs)
 
     // Context Menu Support
 
@@ -724,19 +701,6 @@ impl X11Window {
             position.y
         );
         self.pending_window_creates.push(menu_options);
-    }
-}
-
-// Extension Trait for Callback Conversion
-
-trait CallbackExt {
-    fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self;
-}
-
-impl CallbackExt for azul_layout::callbacks::Callback {
-    fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self {
-        // Use the existing safe wrapper method from Callback
-        azul_layout::callbacks::Callback::from_core(core_callback)
     }
 }
 
