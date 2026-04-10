@@ -1,4 +1,5 @@
-// Win32 event handling
+//! Win32 keyboard event handling: VK code translation, scancode processing,
+//! and cursor management. Adapted from winit.
 //
 // Copied and modified from:
 // https://github.com/rust-windowing/winit/blob/1c4d6e7613c3a3870cecb4cfa0eecc97409d45ff/src/platform_impl/windows/event.rs
@@ -220,81 +221,6 @@ use winapi::{
     shared::minwindef::{HKL, HKL__, LPARAM, UINT, WPARAM},
     um::winuser,
 };
-
-fn key_pressed(vkey: i32) -> bool {
-    unsafe { (winuser::GetKeyState(vkey) & (1 << 15)) == (1 << 15) }
-}
-
-/*
-    pub fn get_key_mods() -> ModifiersState {
-        let filter_out_altgr = layout_uses_altgr() && key_pressed(winuser::VK_RMENU);
-
-        let mut mods = ModifiersState::empty();
-        mods.set(ModifiersState::SHIFT, key_pressed(winuser::VK_SHIFT));
-        mods.set(
-            ModifiersState::CTRL,
-            key_pressed(winuser::VK_CONTROL) && !filter_out_altgr,
-        );
-        mods.set(
-            ModifiersState::ALT,
-            key_pressed(winuser::VK_MENU) && !filter_out_altgr,
-        );
-        mods.set(
-            ModifiersState::LOGO,
-            key_pressed(winuser::VK_LWIN) || key_pressed(winuser::VK_RWIN),
-        );
-        mods
-    }
-
-    bitflags! {
-        #[derive(Default)]
-        pub struct ModifiersStateSide: u32 {
-            const LSHIFT = 0b010 << 0;
-            const RSHIFT = 0b001 << 0;
-
-            const LCTRL = 0b010 << 3;
-            const RCTRL = 0b001 << 3;
-
-            const LALT = 0b010 << 6;
-            const RALT = 0b001 << 6;
-
-            const LLOGO = 0b010 << 9;
-            const RLOGO = 0b001 << 9;
-        }
-    }
-
-    impl ModifiersStateSide {
-        pub fn filter_out_altgr(&self) -> ModifiersStateSide {
-            match layout_uses_altgr() && self.contains(Self::RALT) {
-                false => *self,
-                true => *self & !(Self::LCTRL | Self::RCTRL | Self::LALT | Self::RALT),
-            }
-        }
-    }
-
-    impl From<ModifiersStateSide> for ModifiersState {
-        fn from(side: ModifiersStateSide) -> Self {
-            let mut state = ModifiersState::default();
-            state.set(
-                Self::SHIFT,
-                side.intersects(ModifiersStateSide::LSHIFT | ModifiersStateSide::RSHIFT),
-            );
-            state.set(
-                Self::CTRL,
-                side.intersects(ModifiersStateSide::LCTRL | ModifiersStateSide::RCTRL),
-            );
-            state.set(
-                Self::ALT,
-                side.intersects(ModifiersStateSide::LALT | ModifiersStateSide::RALT),
-            );
-            state.set(
-                Self::LOGO,
-                side.intersects(ModifiersStateSide::LLOGO | ModifiersStateSide::RLOGO),
-            );
-            state
-        }
-    }
-*/
 
 pub fn get_pressed_keys() -> impl Iterator<Item = i32> {
     let mut keyboard_state = vec![0u8; 256];
