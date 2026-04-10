@@ -509,12 +509,20 @@ You are fixing small issues in `{src}` based on its review report.
    - Keep all unfixed findings exactly as they are.
    - If all findings were fixed, replace the Findings section with:
      `All findings resolved by small-fixes pass.`
-7. Create exactly **one git commit** with message format:
+7. Create exactly **one git commit**.  Stage ONLY `{abs_src}` and `{rpt}`.
+   Use `git add <file1> <file2> && git commit -m "..."`.
+
+   **Commit message format** — first line is the subject, then a blank line,
+   then a body summarising what was actually changed:
    ```
    docs/style: small fixes for {src}
+
+   - <one line per fix, e.g. "add module-level //! doc comment">
+   - <e.g. "remove unused import `Foo`">
+   - <e.g. "flatten nested if-let into early return">
    ```
-   Stage ONLY `{abs_src}` and `{rpt}` — nothing else.
-   Use `git add <file1> <file2> && git commit -m "..."`.
+   Keep it concise but specific — the body should let a reviewer understand
+   what changed without reading the diff.
 
 ## Rules
 
