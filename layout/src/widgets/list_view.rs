@@ -1,3 +1,5 @@
+//! Native list view widget with column headers, row selection, and sorting indicators.
+
 use alloc::vec::Vec;
 
 use azul_core::{
@@ -1660,7 +1662,6 @@ impl ListView {
                             .map(|row| {
                                 Dom::create_div()
                                     .with_css_props(CSS_MATCH_7894335449545988724)
-                                    .with_tab_index(TabIndex::Auto)
                                     .with_ids_and_classes(ROW_CLASS.clone())
                                     .with_tab_index(TabIndex::Auto)
                                     .with_children(
