@@ -1737,8 +1737,6 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)");
     println!("    autoreview merge              - Merge reports into a single checklist");
     println!("    autoreview process            - Implement checklist items (one commit each)");
-    println!("    autoreview --collect          - Collect patches from process worktree");
-    println!("    autoreview --cleanup          - Remove process worktrees");
     println!();
     println!("  AUTOFIX (synchronize workspace types with api.json):");
     println!("    autofix                       - Analyze and generate patches for api.json");

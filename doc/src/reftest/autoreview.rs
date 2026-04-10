@@ -28,8 +28,6 @@ pub struct AutoreviewConfig {
     pub retry_failed: bool,
     pub dry_run: bool,
     pub status_only: bool,
-    pub collect_only: bool,
-    pub cleanup: bool,
     pub subcommand: AutoreviewSubcommand,
 }
 
@@ -412,31 +410,57 @@ One line per `- [ ]` action item.  The checklist may be long — that is fine.
 fn build_process_prompt(checklist_path: &Path) -> String {
     let cp = checklist_path.display();
 
+    // Read the checklist so the agent has it immediately.
+    let checklist_content = fs::read_to_string(checklist_path)
+        .unwrap_or_else(|e| format!("(failed to read checklist: {})", e));
+
     format!(
 r#"# Autoreview: Process Checklist
 
-Read the checklist at `{cp}` and implement improvements one task at a time.
+You are implementing architectural improvements from the merged checklist.
+
+## Checklist: `{cp}`
+
+```markdown
+{checklist_content}
+```
 
 ## Workflow
 
-1. Read the checklist.
-2. For each unchecked `- [ ]` item, starting from the top (highest priority):
-   a. Read the relevant source files.
-   b. **Bug fix?** → Write a minimal test that demonstrates the bug first
-      (red), then fix (green).  If a proper test isn't feasible, at least
-      describe the reproduction in the commit message.
-   c. **Refactoring?** → Use Grep to find every call site before changing
+1. Read the checklist above (already included).
+2. Pick the **next unchecked `- [ ]` item**, starting from the top (highest priority).
+3. Implement the fix:
+   a. **Bug fix?** → Read the relevant source files, fix the bug.
+      If a proper test is feasible, add one.
+   b. **Refactoring?** → Use Grep to find every call site before changing
       any signature.  Update all callers.
-   d. **Documentation?** → Add or update doc comments / guide files.
-   e. Create exactly **one commit** for this item.
-3. Move to the next item.  Skip items that need more context than you have.
+   c. **Documentation?** → Add or update doc comments / guide files.
+4. After editing, verify the build compiles:
+   ```
+   cargo build --release -p azul-dll --features build-dll
+   ```
+   If it fails, fix the compilation errors before proceeding.
+5. If you changed any public API types (structs/enums that are `#[repr(C)]`),
+   regenerate the API bindings:
+   ```
+   cargo run --release -p azul-doc -- autofix
+   cargo run --release -p azul-doc -- codegen all
+   ```
+   Then re-verify the build compiles.
+6. Create exactly **one git commit** for this item.
+   Stage only the files you changed: `git add <file1> <file2> ...`
+   Do NOT use `git add -A` or `git add .`.
+7. After committing, update the checklist at `{cp}`:
+   change `- [ ]` to `- [x]` for the item you just completed.
+8. Move to the next unchecked item.  Skip items that need more context
+   than you have.
 
 ## Commit message format
 
 ```
 category: brief description
 
-Details.
+- details of what changed
 Autoreview item: #N
 ```
 
@@ -445,9 +469,10 @@ Categories: `fix`, `refactor`, `docs`, `cleanup`, `style`
 ## Rules
 
 - One commit per checklist item — do NOT batch.
+- All public API types must be `#[repr(C)]`.  Do NOT remove `#[repr(C)]`.
 - Never edit or remove `// +spec` comments.
-- Do NOT run `cargo build` or `cargo test`.
 - Keep changes minimal and focused.
+- The build MUST compile after your changes.
 "#
     )
 }
@@ -1074,12 +1099,6 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
 fn run_review(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = config.project_root.clone();
 
-    if config.cleanup {
-        println!("Cleaning up autoreview worktrees...");
-        executor::cleanup_worktrees_autoreview(&project_root)?;
-        return Ok(());
-    }
-
     if config.status_only {
         return show_status(&project_root, config.retry_failed);
     }
@@ -1230,18 +1249,18 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
 // ── Subcommand: process ────────────────────────────────────────────────
 
 fn run_process(config: AutoreviewConfig) -> Result<(), String> {
-    let project_root = &config.project_root;
-    let checklist_path = merge_dir(project_root).join("checklist.md");
+    let project_root = config.project_root.clone();
+    let checklist_path = merge_dir(&project_root).join("checklist.md");
 
     if !checklist_path.exists() {
         return Err("No checklist found. Run `autoreview merge` first.".into());
     }
 
-    preflight_checks(project_root, config.dry_run)?;
+    preflight_checks(&project_root, config.dry_run)?;
 
     let prompt_text = build_process_prompt(&checklist_path);
 
-    let pdir = process_prompts_dir(project_root);
+    let pdir = process_prompts_dir(&project_root);
     fs::create_dir_all(&pdir)
         .map_err(|e| format!("Failed to create process dir: {}", e))?;
 
@@ -1254,48 +1273,29 @@ fn run_process(config: AutoreviewConfig) -> Result<(), String> {
         return Ok(());
     }
 
-    println!("\nDispatching process agent (this will create commits)...\n");
-
-    // The process agent needs to edit code, so we use a worktree so that
-    // commits don't land directly on the user's branch until reviewed.
-    let slots = executor::create_worktree_pool_autoreview(project_root, 1)?;
-    let base_sha = executor::get_head_sha(project_root)?;
-    println!("Base SHA: {}", &base_sha[..12]);
+    println!("\nDispatching process agent on main tree...\n");
 
     executor::install_sigint_handler();
 
-    let spinner = nanospinner::MultiSpinner::new().start();
-    let line = spinner.add("[PROCESS] working...".to_string());
-
     let process_timeout = Duration::from_secs(3600).max(config.timeout);
 
-    let result = executor::run_agent_in_slot_autoreview(
-        &slots[0],
+    let result = run_midlevel_agent(
+        &project_root,
         0,
         &process_prompt_path,
         process_timeout,
-        &base_sha,
         config.model.as_deref(),
-        &|status| { line.update(format!("[PROCESS] {}", status)); },
+        &|status| {
+            print!("\r  [PROCESS] {} ", status);
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+        },
     );
 
     if result.success {
-        line.update("[PROCESS] done".to_string());
         println!("\n\nProcess complete!");
-        println!("Patches created: {}", result.patches);
-        if result.patches > 0 {
-            println!(
-                "Commits are in worktree: {}",
-                slots[0].path.display(),
-            );
-            println!("Review with: git -C {} log --oneline {}..HEAD",
-                slots[0].path.display(), &base_sha[..12]);
-            println!("Collect with: azul-doc autoreview --collect");
-        }
     } else {
-        line.update(format!(
-            "[PROCESS] FAILED: {}", result.error.as_deref().unwrap_or("unknown"),
-        ));
+        println!("\n\nProcess FAILED: {}",
+            result.error.as_deref().unwrap_or("unknown"));
         return Err("Process agent failed".into());
     }
 
@@ -1933,40 +1933,6 @@ fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
     Ok(())
 }
 
-// ── Collect patches from process worktree ──────────────────────────────
-
-fn collect_process_patches(project_root: &Path) -> Result<(), String> {
-    let pdir = process_prompts_dir(project_root);
-    if !pdir.exists() {
-        return Err("No process directory. Run `autoreview process` first.".into());
-    }
-
-    let patches_dir = output_dir(project_root).join("patches");
-    fs::create_dir_all(&patches_dir)
-        .map_err(|e| format!("Failed to create patches dir: {}", e))?;
-
-    let mut collected = 0usize;
-    if let Ok(entries) = fs::read_dir(&pdir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.to_string_lossy().contains(".md.done.")
-                && p.extension().map(|e| e == "patch").unwrap_or(false)
-            {
-                let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let dest = patches_dir.join(&name);
-                if !dest.exists() {
-                    fs::copy(&p, &dest)
-                        .map_err(|e| format!("Failed to copy patch: {}", e))?;
-                    collected += 1;
-                }
-            }
-        }
-    }
-
-    println!("Collected {} patches to {}", collected, patches_dir.display());
-    Ok(())
-}
-
 // ── Status ─────────────────────────────────────────────────────────────
 
 fn show_status(project_root: &Path, retry_failed: bool) -> Result<(), String> {
@@ -2089,8 +2055,6 @@ pub fn parse_autoreview_args(
         retry_failed: false,
         dry_run: false,
         status_only: false,
-        collect_only: false,
-        cleanup: false,
         subcommand: AutoreviewSubcommand::Run,
     };
 
@@ -2103,8 +2067,6 @@ pub fn parse_autoreview_args(
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
             "--status"       => config.status_only = true,
-            "--collect"      => config.collect_only = true,
-            "--cleanup"      => config.cleanup = true,
             _ if arg.starts_with("--agents=") => {
                 let n = arg.strip_prefix("--agents=").unwrap();
                 config.agents = n.parse()
@@ -2137,11 +2099,6 @@ pub fn parse_autoreview_args(
 }
 
 pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
-    // Handle --collect regardless of subcommand
-    if config.collect_only {
-        return collect_process_patches(&config.project_root);
-    }
-
     match config.subcommand {
         AutoreviewSubcommand::Run        => run_review(config),
         AutoreviewSubcommand::Merge      => run_merge(config),
