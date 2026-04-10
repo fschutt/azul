@@ -117,10 +117,16 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
 
 // ── Minimal D-Bus message builder ────────────────────────────────────────
 
+/// Argument types supported by [`build_dbus_method_call`].
 enum DValue<'a> {
     String(&'a str),
 }
 
+/// Build a little-endian D-Bus `METHOD_CALL` message with string arguments.
+///
+/// Encodes the 12-byte fixed header, header fields (PATH, INTERFACE, MEMBER,
+/// DESTINATION, and optionally SIGNATURE), and a body of NUL-terminated,
+/// 4-byte-aligned strings per the D-Bus wire protocol specification.
 fn build_dbus_method_call(
     destination: &str,
     path: &str,
@@ -159,12 +165,21 @@ fn build_dbus_method_call(
     append_header_field(&mut header_fields, 6, 's', destination);
     // SIGNATURE (8) — if we have arguments
     if !sig.is_empty() {
-        // Signature header: code=8, variant sig='g', then sig bytes
+        // Signature header field (code 8).  The value is a VARIANT whose
+        // contained type is SIGNATURE ('g').  Layout:
+        //   [8-byte aligned struct start]
+        //   u8  field code (8)
+        //   u8  variant-sig length (1)
+        //   u8  'g'              — the variant carries a SIGNATURE value
+        //   u8  NUL terminator for the variant signature
+        //   u8  body-sig length
+        //   ... body-sig bytes
+        //   u8  NUL terminator for the body signature
         while header_fields.len() % 8 != 0 { header_fields.push(0); }
         header_fields.push(8); // field code
-        header_fields.push(1); // variant signature: 1 byte 'g'
-        header_fields.push(b'g');
-        header_fields.push(0); // padding
+        header_fields.push(1); // variant signature length: 1 byte
+        header_fields.push(b'g'); // variant signature: SIGNATURE type
+        header_fields.push(0); // NUL terminator for variant signature
         let sig_bytes = sig.as_bytes();
         header_fields.push(sig_bytes.len() as u8);
         header_fields.extend_from_slice(sig_bytes);
@@ -195,6 +210,8 @@ fn build_dbus_method_call(
     msg
 }
 
+/// Append a single D-Bus header field (struct aligned to 8 bytes) whose
+/// value is a VARIANT containing a string or object-path.
 fn append_header_field(buf: &mut alloc::vec::Vec<u8>, code: u8, sig: char, value: &str) {
     // Align to 8 bytes (start of struct)
     while buf.len() % 8 != 0 { buf.push(0); }
@@ -211,6 +228,9 @@ fn append_header_field(buf: &mut alloc::vec::Vec<u8>, code: u8, sig: char, value
     buf.push(0);
 }
 
+/// Extract a `uint32` from a D-Bus method-return whose body is
+/// `variant(variant(uint32))`.  Uses a heuristic: reads the last 4 bytes
+/// of the body and accepts values 0–2 (the defined colour-scheme range).
 fn parse_uint32_from_variant_response(data: &[u8]) -> Option<u32> {
     // Very simplified: scan backwards for a plausible uint32 value (0, 1, or 2)
     // in the response body.  A full parser is overkill for this single value.
@@ -231,6 +251,10 @@ fn parse_uint32_from_variant_response(data: &[u8]) -> Option<u32> {
     None
 }
 
+/// Parse an `(f64, f64, f64)` accent colour from a D-Bus variant response.
+///
+/// Currently a stub — the `(ddd)` D-Bus struct is non-trivial to decode
+/// from raw bytes.  Returns `None` so the caller falls back to GTK accent.
 fn parse_rgb_from_variant_response(_data: &[u8]) -> Option<(f64, f64, f64)> {
     // accent-color is a (ddd) struct — complex to parse from raw bytes.
     // For now, return None and let the caller fall back to the GTK accent.
@@ -240,6 +264,10 @@ fn parse_rgb_from_variant_response(_data: &[u8]) -> Option<(f64, f64, f64)> {
 extern "C" { fn getuid() -> u32; }
 unsafe fn libc_getuid() -> u32 { getuid() }
 
+/// Hex-encode a UID for the D-Bus `AUTH EXTERNAL` handshake.
+///
+/// Each ASCII digit of the decimal UID is converted to its two-char hex
+/// representation (e.g. UID 1000 → "31303030").
 fn hex_encode_uid(uid: u32) -> String {
     let uid_str = alloc::format!("{}", uid);
     let mut hex = String::new();
@@ -251,6 +279,7 @@ fn hex_encode_uid(uid: u32) -> String {
 
 // ── GSettings / CLI fallback helpers ─────────────────────────────────────
 
+/// Run `gsettings get <schema> <key>` and return the trimmed, unquoted value.
 #[cfg(feature = "io")]
 fn gsettings_get(schema: &str, key: &str) -> Option<String> {
     use std::process::{Command, Stdio};
@@ -267,6 +296,8 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
     }
 }
 
+/// Populate additional Linux-specific fields in `style` via `gsettings` CLI
+/// queries and environment-variable fallbacks.
 #[cfg(feature = "io")]
 fn discover_linux_extras(style: &mut super::SystemStyle) {
     // Icon theme
