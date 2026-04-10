@@ -1,3 +1,6 @@
+//! Button widget with Bootstrap-inspired type-based styling (`ButtonType`)
+//! and platform-adaptive native appearance (Windows, Linux/GTK, macOS).
+
 use std::vec::Vec;
 
 use azul_core::{
@@ -172,7 +175,7 @@ const WINDOWS_FOCUS_BORDER: ColorU = ColorU {
     a: 255,
 };
 
-const BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
+const BUTTON_NORMAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(RGB_239),
@@ -182,7 +185,6 @@ const BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
         color: ColorOrSystem::color(RGB_229),
     },
 ];
-// Temporarily use simple color for testing inline rendering
 const BUTTON_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(RGB_229)];
 
@@ -920,6 +922,7 @@ fn build_button_label_style() -> Vec<CssPropertyWithConditions> {
 }
 
 impl Button {
+    /// Create a button with `ButtonType::Default` styling.
     #[inline]
     pub fn create(label: AzString) -> Self {
         Self::with_type(label, ButtonType::Default)
