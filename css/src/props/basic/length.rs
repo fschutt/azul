@@ -35,8 +35,8 @@ impl fmt::Display for PercentageValue {
 }
 
 impl PercentageValue {
-    /// Same as `PercentageValue::new()`, but only accepts whole numbers,
-    /// since using `f32` in const fn is not yet stabilized.
+    /// Same as `PercentageValue::new()`, but only accepts whole numbers.
+    /// Uses isize arithmetic to avoid floating-point in const context.
     #[inline]
     pub const fn const_new(value: isize) -> Self {
         Self {
@@ -112,8 +112,8 @@ impl Default for FloatValue {
 }
 
 impl FloatValue {
-    /// Same as `FloatValue::new()`, but only accepts whole numbers,
-    /// since using `f32` in const fn is not yet stabilized.
+    /// Same as `FloatValue::new()`, but only accepts whole numbers.
+    /// Uses isize arithmetic to avoid floating-point in const context.
     #[inline]
     pub const fn const_new(value: isize) -> Self {
         Self {
@@ -123,8 +123,8 @@ impl FloatValue {
 
     /// Creates a FloatValue from a fractional number in const context.
     ///
-    /// This is needed because f32 operations are not allowed in const fn,
-    /// but we still want to represent values like 1.5, 0.83, etc.
+    /// This uses integer arithmetic to represent fractional values like 1.5, 0.83, etc.
+    /// in const context without relying on f32 operations.
     ///
     /// The function automatically detects the number of decimal places in `post_comma`
     /// and supports up to 3 decimal places. If more digits are provided, only the first
