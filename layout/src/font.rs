@@ -1,3 +1,10 @@
+//! Font parsing, metrics extraction, and subsetting.
+//!
+//! This module provides the core font infrastructure for text layout and PDF generation:
+//! - `loading`: System font cache construction and font reload errors
+//! - `mock`: Mock font implementation for testing without real font files
+//! - `parsed`: Full font parsing via allsorts (outlines, metrics, shaping tables, subsetting)
+
 #![cfg(feature = "font_loading")]
 
 use azul_css::{AzString, U8Vec};
@@ -391,6 +398,8 @@ pub mod parsed {
     }
 
     impl PdfFontMetrics {
+        /// Returns zeroed metrics with `units_per_em` set to 1000 (standard PostScript default)
+        /// to avoid division-by-zero in scaling calculations.
         pub const fn zero() -> Self {
             PdfFontMetrics {
                 units_per_em: 1000,
@@ -445,6 +454,9 @@ pub mod parsed {
         }
     }
 
+    /// Hash-based equality: two fonts are considered equal if their content hash matches.
+    /// This is a performance optimization — hash collisions are possible but vanishingly
+    /// unlikely (~1/2^64).
     impl PartialEq for ParsedFont {
         fn eq(&self, other: &Self) -> bool {
             self.hash == other.hash
@@ -588,12 +600,7 @@ pub mod parsed {
 
             let scope = ReadScope::new(font_bytes);
             let font_file = match scope.read::<FontData<'_>>() {
-                Ok(ff) => {
-                    warnings.push(FontParseWarning::info(
-                        "Successfully read font data".to_string(),
-                    ));
-                    ff
-                }
+                Ok(ff) => ff,
                 Err(e) => {
                     warnings.push(FontParseWarning::error(format!(
                         "Failed to read font data: {}",
@@ -603,13 +610,7 @@ pub mod parsed {
                 }
             };
             let provider = match font_file.table_provider(font_index) {
-                Ok(p) => {
-                    warnings.push(FontParseWarning::info(format!(
-                        "Successfully loaded font at index {}",
-                        font_index
-                    )));
-                    p
-                }
+                Ok(p) => p,
                 Err(e) => {
                     warnings.push(FontParseWarning::error(format!(
                         "Failed to get table provider for font index {}: {}",
@@ -663,11 +664,11 @@ pub mod parsed {
                 .ok()
                 .and_then(|vhea_data| ReadScope::new(&vhea_data?).read::<HheaTable>().ok());
 
+            // hhea is required per the OpenType spec; return None if missing
             let hhea_table = provider
                 .table_data(tag::HHEA)
                 .ok()
-                .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())
-                .unwrap_or(unsafe { std::mem::zeroed() });
+                .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())?;
 
             // Build layout-specific font metrics
             let font_metrics = LayoutFontMetrics {
@@ -693,9 +694,6 @@ pub mod parsed {
             let has_glyf = provider.has_table(tag::GLYF) && provider.has_table(tag::LOCA);
 
             let glyph_records_decoded: BTreeMap<u16, OwnedGlyph> = if has_glyf {
-                warnings.push(FontParseWarning::info(
-                    "Parsing glyph outlines via allsorts OutlineBuilder (composite-safe)".to_string(),
-                ));
 
                 // Load LocaGlyf for the visitor
                 match LocaGlyf::load(&provider) {
@@ -794,10 +792,6 @@ pub mod parsed {
                 }
             } else {
                 // CFF fonts or fonts without glyf table: Parse metrics only from hmtx
-                warnings.push(FontParseWarning::info(format!(
-                    "Using hmtx-only fallback for {} glyphs (CFF font or no glyf table)",
-                    num_glyphs
-                )));
                 (0..num_glyphs.min(u16::MAX as usize))
                     .map(|glyph_index| {
                         let gid = glyph_index as u16;
@@ -1403,8 +1397,7 @@ pub mod parsed {
             &self,
             glyph_id: u16,
         ) -> Option<crate::text3::cache::VerticalMetrics> {
-            // Default implementation - can be enhanced later
-            None
+            self.get_vertical_metrics(glyph_id)
         }
 
         fn get_font_metrics(&self) -> crate::text3::cache::LayoutFontMetrics {
