@@ -1,18 +1,10 @@
 //! Dynamic library loading abstraction.
-
-use core::ffi::c_void;
+//!
+//! Provides the [`DynamicLibrary`] trait for platform backends (X11, Wayland,
+//! dbus, Win32) and the [`load_first_available`] helper for trying multiple
+//! library names in order (e.g. `libX11.so.6` then `libX11.so`).
 
 use super::error::DlError;
-
-/// Platform-specific dynamic library handle.
-#[cfg(target_os = "linux")]
-pub type LibraryHandle = *mut c_void;
-
-#[cfg(target_os = "windows")]
-pub type LibraryHandle = *mut c_void; // HMODULE
-
-#[cfg(target_os = "macos")]
-pub type LibraryHandle = *mut c_void; // Not used - static linking
 
 /// Dynamic library loading trait.
 pub trait DynamicLibrary {
@@ -50,22 +42,9 @@ pub fn load_first_available<L: DynamicLibrary>(names: &[&str]) -> Result<L, DlEr
     }
 
     Err(DlError::LibraryNotFound {
-        name: names[0].to_string(),
+        name: names.first().unwrap_or(&"<unknown>").to_string(),
         tried: names.iter().map(|s| s.to_string()).collect(),
         suggestion: format!("Install the required system libraries. Tried: {:?}", names),
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_library_handle_size() {
-        // Ensure LibraryHandle is pointer-sized
-        assert_eq!(
-            core::mem::size_of::<LibraryHandle>(),
-            core::mem::size_of::<usize>()
-        );
-    }
-}
