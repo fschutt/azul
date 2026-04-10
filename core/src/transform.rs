@@ -511,6 +511,8 @@ impl ComputedTransform3D {
         }
     }
 
+    /// Creates a scaling matrix with independent scale factors per axis.
+    #[must_use]
     #[inline]
     pub const fn new_scale(x: f32, y: f32, z: f32) -> Self {
         Self::new(
@@ -518,6 +520,8 @@ impl ComputedTransform3D {
         )
     }
 
+    /// Creates a translation matrix that moves by `(x, y, z)`.
+    #[must_use]
     #[inline]
     pub const fn new_translation(x: f32, y: f32, z: f32) -> Self {
         Self::new(
@@ -525,6 +529,8 @@ impl ComputedTransform3D {
         )
     }
 
+    /// Creates a perspective projection matrix with distance `d`.
+    #[must_use]
     #[inline]
     pub fn new_perspective(d: f32) -> Self {
         Self::new(
@@ -549,6 +555,7 @@ impl ComputedTransform3D {
 
     /// Create a 3d rotation transform from an angle / axis.
     /// The supplied axis must be normalized.
+    #[must_use]
     #[inline]
     pub fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
         let xx = x * x;
@@ -579,6 +586,8 @@ impl ComputedTransform3D {
         )
     }
 
+    /// Creates a 2D skew matrix from angles in degrees.
+    #[must_use]
     #[inline]
     pub fn new_skew(alpha: f32, beta: f32) -> Self {
         let (sx, sy) = (beta.to_radians().tan(), alpha.to_radians().tan());
@@ -587,6 +596,7 @@ impl ComputedTransform3D {
         )
     }
 
+    /// Returns this matrix transposed to column-major layout.
     #[must_use]
     pub fn get_column_major(&self) -> Self {
         ComputedTransform3D::new(
@@ -627,6 +637,7 @@ impl ComputedTransform3D {
         Some(LogicalPosition { x: x / w, y: y / w })
     }
 
+    /// Scales the translation components of this matrix by `scale_factor` for DPI adjustment.
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         // only scale the translation, don't scale anything else
         self.m[3][0] *= scale_factor;
@@ -784,6 +795,7 @@ impl ComputedTransform3D {
         mem::transmute(result)
     }
 
+    /// Multiplies this matrix by `other` using SSE instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     pub unsafe fn then_sse(&self, other: &Self) -> Self {
@@ -797,7 +809,7 @@ impl ComputedTransform3D {
         }
     }
 
-    // dual linear combination using AVX instructions on YMM regs
+    /// Dual linear combination using AVX instructions on YMM registers.
     #[cfg(target_arch = "x86_64")]
     pub unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
@@ -836,6 +848,7 @@ impl ComputedTransform3D {
         result
     }
 
+    /// Multiplies this matrix by `other` using AVX instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     pub unsafe fn then_avx8(&self, other: &Self) -> Self {
@@ -862,8 +875,8 @@ impl ComputedTransform3D {
         out
     }
 
-    // NOTE: webrenders RENDERING has a different
-    // rotation mode (positive / negative angle)
+    /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
+    #[must_use]
     #[inline]
     pub fn make_rotation(
         rotation_origin: (f32, f32),
