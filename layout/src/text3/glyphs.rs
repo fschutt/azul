@@ -1,11 +1,9 @@
 //! A helper module to extract final, absolute glyph positions from a layout.
 //! This is useful for renderers that work with simple lists of glyphs.
 
-use std::sync::Arc;
-
 use azul_core::{
     dom::NodeId,
-    geom::{LogicalPosition, LogicalSize},
+    geom::LogicalPosition,
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
@@ -307,12 +305,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
                 process_glyphs(&cluster.glyphs, item.position.x, writing_mode);
             }
             // This is a rare case for tate-chu-yoko (mixed horizontal+vertical text)
-            ShapedItem::CombinedBlock {
-                glyphs,
-                source,
-                bounds,
-                baseline_offset,
-            } => {
+            ShapedItem::CombinedBlock { glyphs, .. } => {
                 for g in glyphs {
                     let writing_mode = g.style.writing_mode;
                     process_glyphs(&[g.clone()], item.position.x, writing_mode);
@@ -537,7 +530,6 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             // Advance pen position - DON'T add kerning here because it's already
             // included in the positioned_item.position.x from the layout engine!
             // We only advance by the base advance to track our position within this cluster
-            let old_pen_x = pen_x;
             pen_x += glyph.advance + glyph.kerning;
         }
     }
@@ -661,7 +653,7 @@ impl LineBoxMetrics {
     // +spec:display-property:a15ae9 - line-height determines inline box layout bounds (contribution to line box height)
     // +spec:font-metrics:5c5f79 - leading value: ascent/descent plus positive half-leading sizes line box
     // +spec:font-metrics:3d59af - leading value uses half-leading; margin/padding/border ignored for line box sizing
-    /// // +spec:line-height:b3be30 - half-leading distributed above/below; line box grows to accommodate overflow
+    // +spec:line-height:b3be30 - half-leading distributed above/below; line box grows to accommodate overflow
     // +spec:overflow:196059 - half-leading model: L = line-height - AD, half added above A and below D
     pub fn add_item(&mut self, ascent: f32, descent: f32, line_height: f32) {
         let content_height = ascent + descent;
