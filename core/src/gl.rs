@@ -979,8 +979,7 @@ static SVG_MULTICOLOR_FRAGMENT_SHADER: &[u8] = b"#version 150
 precision highp float;
 
 #if __VERSION__ != 100
-    #define varying out
-    #define attribute in
+    #define varying in
 #endif
 
 #if __VERSION__ == 100
@@ -989,7 +988,7 @@ precision highp float;
     out vec4 oFragColor;
 #endif
 
-attribute vec4 fColor;
+varying vec4 fColor;
 
 void main() {
     oFragColor = fColor;
@@ -2260,7 +2259,7 @@ impl GlContextPtr {
                 message: d.message.into(),
                 source: d.source,
                 ty: d.ty,
-                id: d.ty,
+                id: d.id,
                 severity: d.severity,
             })
             .collect();
@@ -2605,7 +2604,7 @@ impl Texture {
             self.size.width as i32,
             self.size.height as i32,
             0,
-            gl::RGBA, // gl::BRGA?
+            gl::RGBA, // gl::BGRA?
             gl::UNSIGNED_BYTE,
             None.into(),
         );
@@ -3115,13 +3114,8 @@ impl VertexBuffer {
 
         // Save the OpenGL state
         let mut current_vertex_array = [0_i32];
-        // let mut current_vertex_buffer = [0_i32];
-        // let mut current_index_buffer = [0_i32];
 
         gl_context.get_integer_v(gl::VERTEX_ARRAY, (&mut current_vertex_array[..]).into());
-        // gl_context.get_integer_v(gl::ARRAY_BUFFER, (&mut current_vertex_buffer[..]).into());
-        // gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, (&mut
-        // current_index_buffer[..]).into());
 
         let vertex_array_object = gl_context.gen_vertex_arrays(1);
         let vertex_array_object = vertex_array_object.get(0).unwrap();
@@ -3162,8 +3156,6 @@ impl VertexBuffer {
         vertex_description.bind(&gl_context.ptr.ptr, shader_program_id);
 
         // Reset the OpenGL state
-        // gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
-        // gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
         gl_context.bind_vertex_array(current_vertex_array[0] as u32);
 
         Self::new_raw(
@@ -3590,7 +3582,7 @@ impl GlShader {
             texture_size.width as i32,
             texture_size.height as i32,
             0,
-            gl::RGBA, // gl::BRGA?
+            gl::RGBA, // gl::BGRA?
             gl::UNSIGNED_BYTE,
             None.into(),
         );
@@ -3644,9 +3636,6 @@ impl GlShader {
                 }
                 gl::FRAMEBUFFER_UNSUPPORTED => {
                     println!("GL_FRAMEBUFFER_UNSUPPORTED");
-                }
-                gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
-                    println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
                 }
                 gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
                     println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
