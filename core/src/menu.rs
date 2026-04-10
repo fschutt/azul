@@ -54,6 +54,7 @@ impl Menu {
     /// Creates a new menu with the given items.
     ///
     /// Uses default position (AutoCursor) and right mouse button for context menus.
+    #[must_use]
     pub fn create(items: MenuItemVec) -> Self {
         Self {
             items,
@@ -63,6 +64,7 @@ impl Menu {
     }
 
     /// Builder method to set the popup position.
+    #[must_use]
     pub fn with_position(mut self, position: MenuPopupPosition) -> Self {
         self.position = position;
         self
@@ -71,6 +73,7 @@ impl Menu {
     /// Swaps this menu with a default menu and returns the previous contents.
     ///
     /// This is useful for taking ownership of the menu's contents without cloning.
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut new = Self::default();
         core::mem::swap(&mut new, self);
@@ -80,6 +83,7 @@ impl Menu {
     /// Computes a 64-bit hash of this menu using the HighwayHash algorithm.
     ///
     /// This is used to detect changes in menu structure for caching and optimization.
+    #[must_use]
     pub fn get_hash(&self) -> u64 {
         use highway::{HighwayHash, HighwayHasher, Key};
         let mut hasher = HighwayHasher::new(Key([0; 4]));
@@ -182,7 +186,6 @@ impl_vec_ord!(MenuItem, MenuItemVec);
 /// - An optional icon (checkbox or image)
 /// - A state (normal, greyed, or disabled)
 /// - Child menu items (for sub-menus)
-///
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct StringMenuItem {
@@ -205,6 +208,7 @@ pub struct StringMenuItem {
 impl StringMenuItem {
     /// Creates a new menu item with the given label.
     /// All optional fields default to `None` / `Normal`.
+    #[must_use]
     pub const fn create(label: AzString) -> Self {
         StringMenuItem {
             label,
@@ -219,6 +223,7 @@ impl StringMenuItem {
     /// Swaps this menu item with a default item and returns the previous contents.
     ///
     /// This is useful for taking ownership without cloning.
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self {
             label: AzString::from_const_str(""),
@@ -233,12 +238,14 @@ impl StringMenuItem {
     }
 
     /// Sets the child menu items for this item, creating a sub-menu.
+    #[must_use]
     pub fn with_children(mut self, children: MenuItemVec) -> Self {
         self.children = children;
         self
     }
 
     /// Adds a single child menu item to this item.
+    #[must_use]
     pub fn with_child(mut self, child: MenuItem) -> Self {
         let mut children = self.children.into_library_owned_vec();
         children.push(child);
@@ -257,6 +264,7 @@ impl StringMenuItem {
     ///
     /// This uses `CoreCallbackType` (usize) instead of a real function pointer
     /// to avoid circular dependencies. The conversion happens in azul-layout.
+    #[must_use]
     pub fn with_callback<I: Into<CoreCallback>>(mut self, data: RefAny, callback: I) -> Self {
         self.callback = Some(CoreMenuCallback {
             refany: data,
