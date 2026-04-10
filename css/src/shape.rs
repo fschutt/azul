@@ -176,7 +176,8 @@ impl Ord for ShapeInset {
     }
 }
 
-/// An SVG-like path (for future use)
+/// An SVG-like path for shape definitions.
+/// TODO: path parsing is not yet implemented — `data` is stored but not interpreted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct ShapePath {
@@ -361,6 +362,7 @@ pub struct ShapeRect {
 }
 
 impl ShapeRect {
+    /// Creates a new rectangle from an origin point and dimensions.
     pub const fn new(origin: ShapePoint, width: f32, height: f32) -> Self {
         Self {
             origin,
@@ -369,6 +371,7 @@ impl ShapeRect {
         }
     }
 
+    /// Returns a zero-sized rectangle at the origin.
     pub const fn zero() -> Self {
         Self {
             origin: ShapePoint::zero(),
