@@ -1,8 +1,13 @@
 //! Win32 menu bar implementation
+//!
+//! Provides [`WindowsMenuBar`] for creating native Win32 menus from Azul
+//! [`Menu`] structures, and [`set_menu_bar`] for attaching / updating /
+//! removing the menu bar on a window.  Uses Win32 function pointers from
+//! [`super::dlopen::Win32Libraries`].
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
-    mem, ptr,
+    ptr,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 
@@ -53,18 +58,7 @@ impl WindowsMenuBar {
         command_map: &mut BTreeMap<u16, CoreMenuCallback>,
         win32: &Win32Libraries,
     ) {
-        /// Converts a UTF-8 string to UTF-16 null-terminated wide string
-        fn convert_widestring(input: &str) -> Vec<u16> {
-            let mut v: Vec<u16> = input
-                .chars()
-                .filter_map(|s| {
-                    use core::convert::TryInto;
-                    (s as u32).try_into().ok()
-                })
-                .collect();
-            v.push(0);
-            v
-        }
+        use super::dlopen::encode_wide;
 
         // Win32 menu flags
         const MF_STRING: u32 = 0x00000000;
@@ -80,8 +74,13 @@ impl WindowsMenuBar {
                         let command = match mi.callback.as_ref() {
                             None => 0,
                             Some(c) => {
-                                let new_command_id =
-                                    Self::get_new_command_id().min(core::u16::MAX as usize) as u16;
+                                let raw_id = Self::get_new_command_id() % (core::u16::MAX as usize);
+                                // Skip 0 since it means "no command"
+                                let new_command_id = if raw_id == 0 {
+                                    Self::get_new_command_id() % (core::u16::MAX as usize)
+                                } else {
+                                    raw_id
+                                } as u16;
                                 command_map.insert(new_command_id, c.clone() as CoreMenuCallback);
                                 new_command_id as usize
                             }
@@ -91,7 +90,7 @@ impl WindowsMenuBar {
                                 *menu,
                                 MF_STRING,
                                 command,
-                                convert_widestring(mi.label.as_str()).as_ptr(),
+                                encode_wide(mi.label.as_str()).as_ptr(),
                             )
                         };
                     } else {
@@ -108,7 +107,7 @@ impl WindowsMenuBar {
                                 *menu,
                                 MF_POPUP,
                                 submenu as usize,
-                                convert_widestring(mi.label.as_str()).as_ptr(),
+                                encode_wide(mi.label.as_str()).as_ptr(),
                             )
                         };
                     }
