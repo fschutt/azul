@@ -117,12 +117,6 @@ macro_rules! debug_display_type {
     };
 }
 
-// Test modules commented out until they are implemented
-// #[cfg(test)]
-// mod tests;
-// #[cfg(test)]
-// mod tests_arabic;
-
 use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
 use azul_core::{
@@ -137,6 +131,11 @@ use azul_core::{
 /// Sentinel value for "position not yet computed". No real position is ever f32::MIN.
 pub const POSITION_UNSET: LogicalPosition = LogicalPosition { x: f32::MIN, y: f32::MIN };
 
+/// Maximum number of scrollbar-induced reflow iterations before layout gives up.
+/// Scrollbar appearance can change container size, which may trigger further scrollbar
+/// changes. This limit prevents infinite loops in pathological layouts.
+const MAX_SCROLLBAR_REFLOW_ITERATIONS: usize = 10;
+
 /// Vec-based position storage indexed by layout-tree node index.
 /// Replaces `BTreeMap<usize, LogicalPosition>` for O(1) access and cache-friendly iteration.
 pub type PositionVec = Vec<LogicalPosition>;
@@ -148,6 +147,10 @@ pub fn new_position_vec(num_nodes: usize) -> PositionVec {
 }
 
 /// Get position for node index, returning None if unset.
+///
+/// Note: only the `x` component is checked against the sentinel. This is sufficient
+/// because `POSITION_UNSET` always sets both `x` and `y` to `f32::MIN`, and `pos_set`
+/// always writes both components together.
 #[inline(always)]
 pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
     positions.get(idx).copied().filter(|p| p.x != f32::MIN)
@@ -511,7 +514,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // --- Step 1.5: Early Exit Optimization ---
     if recon_result.is_clean() {
-        ctx.debug_log("No changes, returning existing display list");
+        debug_log!(ctx, "No changes, returning existing display list");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
         // Use cached scroll IDs if available, otherwise compute them
@@ -544,8 +547,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let mut loop_count = 0;
     loop {
         loop_count += 1;
-        if loop_count > 10 {
-            // Safety limit to prevent infinite loops
+        if loop_count > MAX_SCROLLBAR_REFLOW_ITERATIONS {
+            debug_warning!(ctx, "Scrollbar reflow loop hit limit of {} iterations, breaking to avoid infinite loop", MAX_SCROLLBAR_REFLOW_ITERATIONS);
             break;
         }
 
@@ -680,10 +683,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         );
 
         if reflow_needed_for_scrollbars {
-            ctx.debug_log(&format!(
+            debug_log!(ctx,
                 "Scrollbars changed container size, starting full reflow (loop {})",
                 loop_count
-            ));
+            );
             recon_result.layout_roots.clear();
             recon_result.layout_roots.insert(new_tree.root);
             recon_result.intrinsic_dirty = (0..new_tree.nodes.len()).collect();
