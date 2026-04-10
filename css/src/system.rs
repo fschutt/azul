@@ -2308,7 +2308,7 @@ fn detect_macos_reduced_motion() -> crate::dynamic_selector::BoolCondition {
     
     if let Ok(output) = run_command_with_timeout(
         "defaults",
-        &["read", "-g", "com.apple.universalaccess", "reduceMotion"],
+        &["read", "com.apple.universalaccess", "reduceMotion"],
         Duration::from_secs(1),
     ) {
         if output.trim() == "1" {
@@ -2325,7 +2325,7 @@ fn detect_macos_high_contrast() -> crate::dynamic_selector::BoolCondition {
     
     if let Ok(output) = run_command_with_timeout(
         "defaults",
-        &["read", "-g", "com.apple.universalaccess", "increaseContrast"],
+        &["read", "com.apple.universalaccess", "increaseContrast"],
         Duration::from_secs(1),
     ) {
         if output.trim() == "1" {
@@ -2540,11 +2540,6 @@ fn run_command_with_timeout(program: &str, args: &[&str], timeout: Duration) -> 
     }
 }
 
-/// Loads an application-specific stylesheet from a conventional path.
-///
-/// Looks for `<config_dir>/azul/styles/<exe_name>.css`.
-/// Returns `None` if the file doesn't exist, can't be read, or is empty.
-#[cfg(feature = "io")]
 /// Loads an application-specific stylesheet from a conventional path.
 ///
 /// Looks for `<config_dir>/azul/styles/<exe_name>.css`.
@@ -2891,6 +2886,7 @@ pub mod defaults {
 
     // --- Windows Styles ---
 
+    /// Windows 11 light mode defaults (Segoe UI Variable, WinUI 3 colors).
     pub fn windows_11_light() -> SystemStyle {
         SystemStyle {
             theme: Theme::Light,
@@ -2929,6 +2925,7 @@ pub mod defaults {
         }
     }
 
+    /// Windows 11 dark mode defaults (Segoe UI Variable, WinUI 3 dark colors).
     pub fn windows_11_dark() -> SystemStyle {
         SystemStyle {
             theme: Theme::Dark,
@@ -2967,6 +2964,7 @@ pub mod defaults {
         }
     }
 
+    /// Windows 7 Aero theme defaults (Segoe UI, classic Aero colors).
     pub fn windows_7_aero() -> SystemStyle {
         SystemStyle {
             theme: Theme::Light,
@@ -3005,6 +3003,7 @@ pub mod defaults {
         }
     }
 
+    /// Windows XP Luna theme defaults (Tahoma, classic Luna blue).
     pub fn windows_xp_luna() -> SystemStyle {
         SystemStyle {
             theme: Theme::Light,
@@ -3045,6 +3044,7 @@ pub mod defaults {
 
     // --- macOS Styles ---
 
+    /// Modern macOS light mode defaults (SF Pro, rounded corners).
     pub fn macos_modern_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
@@ -3084,6 +3084,7 @@ pub mod defaults {
         }
     }
 
+    /// Modern macOS dark mode defaults (SF Pro, dark background).
     pub fn macos_modern_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
@@ -3130,6 +3131,7 @@ pub mod defaults {
         }
     }
 
+    /// Classic macOS Aqua theme defaults (Lucida Grande, gel scrollbars).
     pub fn macos_aqua() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
@@ -3169,6 +3171,7 @@ pub mod defaults {
 
     // --- Linux Styles ---
 
+    /// GNOME Adwaita light theme defaults (Cantarell font).
     pub fn gnome_adwaita_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
@@ -3204,6 +3207,7 @@ pub mod defaults {
         }
     }
 
+    /// GNOME Adwaita dark theme defaults (Cantarell font, dark background).
     pub fn gnome_adwaita_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
@@ -3239,6 +3243,7 @@ pub mod defaults {
         }
     }
 
+    /// GTK2 Clearlooks theme defaults (DejaVu Sans, orange accent).
     pub fn gtk2_clearlooks() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
@@ -3273,6 +3278,7 @@ pub mod defaults {
         }
     }
 
+    /// KDE Breeze light theme defaults (Noto Sans, Oxygen scrollbars).
     pub fn kde_breeze_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
@@ -3309,6 +3315,7 @@ pub mod defaults {
 
     // --- Mobile Styles ---
 
+    /// Android Material Design light theme defaults (Roboto font).
     pub fn android_material_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
@@ -3344,6 +3351,7 @@ pub mod defaults {
         }
     }
 
+    /// Android Holo dark theme defaults (Roboto font, dark background).
     pub fn android_holo_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
@@ -3379,6 +3387,7 @@ pub mod defaults {
         }
     }
 
+    /// iOS light theme defaults (SF UI font, rounded corners).
     pub fn ios_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Ios,
