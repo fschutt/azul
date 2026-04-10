@@ -118,12 +118,13 @@ impl MenuProtocol {
     /// Handle End method call
     ///
     /// Called by GNOME Shell to unsubscribe from menu groups.
+    /// Currently a no-op: Azul does not track per-group subscriptions or
+    /// emit `Changed` signals, so there is nothing to release.
     pub fn handle_end(&self, subscriptions: Vec<u32>) -> Result<(), GnomeMenuError> {
         debug_log(&format!(
             "End method called with subscriptions: {:?}",
             subscriptions
         ));
-        // In a simple implementation, we don't need to do anything here
         Ok(())
     }
 }
