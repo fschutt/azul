@@ -2,6 +2,9 @@
 //!
 //! This module handles the integration between Azul's accessibility tree
 //! and macOS's NSAccessibility API through accesskit_macos.
+//!
+//! When the `a11y` feature is disabled, a no-op stub implementation is
+//! provided so that call sites compile without conditional logic.
 
 #[cfg(feature = "a11y")]
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -252,24 +255,26 @@ impl MacOSAccessibilityAdapter {
     }
 }
 
-// Stub for when accessibility feature is disabled
+/// No-op stub used when the `a11y` feature is disabled.
 #[cfg(not(feature = "a11y"))]
 #[derive(Clone, Copy)]
 pub struct MacOSAccessibilityAdapter;
 
 #[cfg(not(feature = "a11y"))]
 impl MacOSAccessibilityAdapter {
-    pub fn new(_view: *mut std::ffi::c_void, _initial_tree: ()) -> Self {
+    /// Create a no-op accessibility adapter (a11y feature disabled).
+    pub fn new(_view: *mut std::ffi::c_void) -> Self {
         Self
     }
 
-    pub fn update_tree(&self, _tree_update: ()) {}
+    /// No-op: accessibility tree updates are ignored without the `a11y` feature.
+    pub fn update_tree(&mut self, _tree_update: ()) {}
 
+    /// No-op: focus state updates are ignored without the `a11y` feature.
+    pub fn update_view_focus_state(&mut self, _is_focused: bool) {}
+
+    /// No-op: always returns `None` without the `a11y` feature.
     pub fn poll_action(&self) -> Option<()> {
         None
-    }
-
-    pub fn view(&self) -> *mut std::ffi::c_void {
-        std::ptr::null_mut()
     }
 }
