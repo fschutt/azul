@@ -4,7 +4,7 @@
 
 use azul_css::AzString;
 
-/// Manager for cursor state and hovered file tracking
+/// Manager for file drop state and hovered file tracking
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileDropManager {
     /// File being hovered during drag-and-drop operation
@@ -20,7 +20,7 @@ impl Default for FileDropManager {
 }
 
 impl FileDropManager {
-    /// Create a new cursor manager
+    /// Create a new file drop manager
     pub fn new() -> Self {
         Self {
             hovered_file: None,
