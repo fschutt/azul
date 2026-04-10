@@ -39,27 +39,13 @@ use azul_core::{
     callbacks::FocusTarget,
     dom::{DomId, DomNodeId, NodeId},
     events::{DefaultAction, DefaultActionResult, EventType, ScrollAmount, ScrollDirection, SyntheticEvent},
-    styled_dom::NodeHierarchyItemId,
     window::{KeyboardState, VirtualKeyCode},
 };
 use crate::window::DomLayoutResult;
 use std::collections::BTreeMap;
 
-/// Determine the default action for a keyboard event.
-///
-/// This function examines the keyboard state and focused element to determine
-/// what default action (if any) should be performed.
-///
-/// # Arguments
-///
-/// * `keyboard_state` - Current keyboard state with pressed key
-/// * `focused_node` - Currently focused node (if any)
-/// * `layout_results` - DOM layout information for querying node properties
-/// * `prevented` - Whether `prevent_default()` was called during event dispatch
-///
-/// # Returns
-///
-/// A `DefaultActionResult` indicating what action to perform, or `None` if prevented.
+/// Determine the default action for a keyboard event based on the
+/// current key, focused element, and whether `prevent_default()` was called.
 pub fn determine_keyboard_default_action(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,
@@ -144,41 +130,21 @@ pub fn determine_keyboard_default_action(
         }
 
         // Arrow keys - scroll or navigate
-        VirtualKeyCode::Up => {
-            if focused_node.is_some() && !is_text_input(&focused_node.as_ref().unwrap(), layout_results) {
-                DefaultAction::ScrollFocusedContainer {
-                    direction: ScrollDirection::Up,
-                    amount: ScrollAmount::Line,
-                }
-            } else {
-                DefaultAction::None
-            }
-        }
-        VirtualKeyCode::Down => {
-            if focused_node.is_some() && !is_text_input(&focused_node.as_ref().unwrap(), layout_results) {
-                DefaultAction::ScrollFocusedContainer {
-                    direction: ScrollDirection::Down,
-                    amount: ScrollAmount::Line,
-                }
-            } else {
-                DefaultAction::None
-            }
-        }
-        VirtualKeyCode::Left => {
-            if focused_node.is_some() && !is_text_input(&focused_node.as_ref().unwrap(), layout_results) {
-                DefaultAction::ScrollFocusedContainer {
-                    direction: ScrollDirection::Left,
-                    amount: ScrollAmount::Line,
-                }
-            } else {
-                DefaultAction::None
-            }
-        }
-        VirtualKeyCode::Right => {
-            if focused_node.is_some() && !is_text_input(&focused_node.as_ref().unwrap(), layout_results) {
-                DefaultAction::ScrollFocusedContainer {
-                    direction: ScrollDirection::Right,
-                    amount: ScrollAmount::Line,
+        VirtualKeyCode::Up | VirtualKeyCode::Down | VirtualKeyCode::Left | VirtualKeyCode::Right => {
+            let direction = match current_key {
+                VirtualKeyCode::Up => ScrollDirection::Up,
+                VirtualKeyCode::Down => ScrollDirection::Down,
+                VirtualKeyCode::Left => ScrollDirection::Left,
+                _ => ScrollDirection::Right,
+            };
+            if let Some(ref focus) = focused_node {
+                if !is_text_input(focus, layout_results) {
+                    DefaultAction::ScrollFocusedContainer {
+                        direction,
+                        amount: ScrollAmount::Line,
+                    }
+                } else {
+                    DefaultAction::None
                 }
             } else {
                 DefaultAction::None
@@ -303,6 +269,7 @@ pub fn create_activation_click_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use azul_core::styled_dom::NodeHierarchyItemId;
 
     #[test]
     fn test_tab_focus_next() {
