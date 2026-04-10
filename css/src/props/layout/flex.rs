@@ -678,8 +678,8 @@ pub fn parse_layout_align_content<'a>(
     match input.trim() {
         "stretch" => Ok(LayoutAlignContent::Stretch),
         "center" => Ok(LayoutAlignContent::Center),
-        "flex-start" => Ok(LayoutAlignContent::Start),
-        "flex-end" => Ok(LayoutAlignContent::End),
+        "start" | "flex-start" => Ok(LayoutAlignContent::Start),
+        "end" | "flex-end" => Ok(LayoutAlignContent::End),
         "space-between" => Ok(LayoutAlignContent::SpaceBetween),
         "space-around" => Ok(LayoutAlignContent::SpaceAround),
         _ => Err(AlignContentParseError::InvalidValue(input)),
@@ -783,8 +783,8 @@ pub fn parse_layout_align_self<'a>(
         "auto" => Ok(LayoutAlignSelf::Auto),
         "stretch" => Ok(LayoutAlignSelf::Stretch),
         "center" => Ok(LayoutAlignSelf::Center),
-        "flex-start" => Ok(LayoutAlignSelf::Start),
-        "flex-end" => Ok(LayoutAlignSelf::End),
+        "start" | "flex-start" => Ok(LayoutAlignSelf::Start),
+        "end" | "flex-end" => Ok(LayoutAlignSelf::End),
         "baseline" => Ok(LayoutAlignSelf::Baseline),
         _ => Err(AlignSelfParseError::InvalidValue(input)),
     }
