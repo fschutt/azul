@@ -1,14 +1,14 @@
-//! Global window registry for multi-window support on Linux
+//! Global window registry for multi-window support on Linux (X11)
 //!
-//! Similar to Windows registry, this allows us to look up window pointers
-//! by their X11 Window ID or Wayland surface, enabling proper event dispatching
+//! Similar to the Windows and macOS registries, this allows us to look up
+//! window pointers by their X11 Window ID, enabling proper event dispatching
 //! across multiple windows.
 //!
 //! This also stores owned menu windows to prevent them from being dropped.
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
 use once_cell::sync::Lazy;
