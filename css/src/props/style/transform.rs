@@ -247,6 +247,7 @@ impl PrintAsCssValue for StyleTransform {
     }
 }
 
+/// Represents a CSS `matrix(a, b, c, d, tx, ty)` 2D transform function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformMatrix2D {
@@ -271,6 +272,7 @@ impl Default for StyleTransformMatrix2D {
     }
 }
 
+/// Represents a CSS `matrix3d(...)` 3D transform function (4x4 matrix).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformMatrix3D {
@@ -315,6 +317,7 @@ impl Default for StyleTransformMatrix3D {
     }
 }
 
+/// Represents a CSS `translate(x, y)` 2D translation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformTranslate2D {
@@ -322,6 +325,7 @@ pub struct StyleTransformTranslate2D {
     pub y: PixelValue,
 }
 
+/// Represents a CSS `translate3d(x, y, z)` 3D translation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformTranslate3D {
@@ -330,6 +334,7 @@ pub struct StyleTransformTranslate3D {
     pub z: PixelValue,
 }
 
+/// Represents a CSS `rotate3d(x, y, z, angle)` 3D rotation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformRotate3D {
@@ -339,6 +344,7 @@ pub struct StyleTransformRotate3D {
     pub angle: AngleValue,
 }
 
+/// Represents a CSS `scale(x, y)` 2D scaling.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformScale2D {
@@ -346,6 +352,7 @@ pub struct StyleTransformScale2D {
     pub y: FloatValue,
 }
 
+/// Represents a CSS `scale3d(x, y, z)` 3D scaling.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformScale3D {
@@ -354,6 +361,7 @@ pub struct StyleTransformScale3D {
     pub z: FloatValue,
 }
 
+/// Represents a CSS `skew(x, y)` 2D skew transformation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformSkew2D {
@@ -1013,12 +1021,12 @@ mod tests {
         assert_eq!(result.y, PixelValue::percent(50.0));
 
         let result = parse_style_transform_origin("left top").unwrap();
-        assert_eq!(result.x, PixelValue::percent(0.0)); // keywords not yet supported, but parse as 0px
+        assert_eq!(result.x, PixelValue::percent(0.0));
         assert_eq!(result.y, PixelValue::percent(0.0));
 
         let result = parse_style_transform_origin("20px bottom").unwrap();
         assert_eq!(result.x, PixelValue::px(20.0));
-        assert_eq!(result.y, PixelValue::percent(100.0)); // keywords not yet supported
+        assert_eq!(result.y, PixelValue::percent(100.0));
     }
 
     #[test]
