@@ -17,7 +17,10 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 /// When a menu item is clicked, its tag is pushed here and can be retrieved by the event loop
 static PENDING_MENU_ACTIONS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
-/// Internal state for AzulMenuTarget
+/// Ivars type required by `define_class!` for `AzulMenuTarget`.
+///
+/// No actual instance data is needed — the struct exists solely to satisfy
+/// the `#[ivars = ...]` requirement of the `define_class!` macro.
 pub struct AzulMenuTargetIvars {
     _private: u8,
 }
@@ -48,8 +51,9 @@ define_class!(
                 log_debug!(LogCategory::Input, "[AzulMenuTarget] Menu item clicked with tag: {}", tag);
 
                 // Push tag to global queue
-                if let Ok(mut queue) = PENDING_MENU_ACTIONS.lock() {
-                    queue.push(tag);
+                match PENDING_MENU_ACTIONS.lock() {
+                    Ok(mut queue) => queue.push(tag),
+                    Err(e) => log_warn!(LogCategory::Input, "[AzulMenuTarget] Menu action mutex poisoned: {}", e),
                 }
             }
         }
@@ -175,7 +179,7 @@ fn build_menu_items(
     mtm: MainThreadMarker,
 ) {
     let items = items.as_slice();
-    for (index, item) in items.iter().enumerate() {
+    for item in items.iter() {
         match item {
             MenuItem::String(string_item) => {
                 if string_item.children.is_empty() {
