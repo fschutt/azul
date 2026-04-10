@@ -8,8 +8,8 @@
 //!
 //! # Memory Layout
 //!
-//! `NodeId` uses `NonZeroUsize` internally, allowing `Option<NodeId>` to be the same
-//! size as `NodeId` (pointer-sized). This is crucial for memory efficiency in large DOMs.
+//! `NodeId` stores a plain `usize` index internally. For FFI structs that need
+//! `Option<NodeId>`, a manual 1-based encoding is used (0 = None, n > 0 = Some(n-1)).
 //!
 //! # Performance
 //!
@@ -19,7 +19,6 @@
 
 use alloc::vec::Vec;
 use core::{
-    num::NonZeroUsize,
     ops::{Index, IndexMut},
     slice::Iter,
 };
@@ -29,9 +28,6 @@ use crate::styled_dom::NodeHierarchyItem;
 
 /// Type alias for depth-first traversal results: (depth, node_id) pairs
 pub type NodeDepths = Vec<(usize, NodeId)>;
-
-#[cfg(not(feature = "std"))]
-use alloc::string::ToString;
 
 // Simple FFI-safe NodeId - just a wrapper around usize
 pub mod node_id {
@@ -173,7 +169,7 @@ pub mod node_id {
     }
 }
 
-/// Hierarchical information about a node (stores the indicies of the parent / child nodes).
+/// Hierarchical information about a node (stores the indices of the parent / child nodes).
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Node {
     pub parent: Option<NodeId>,
@@ -244,14 +240,14 @@ impl NodeHierarchy {
     }
 
     #[inline(always)]
-    pub fn as_ref<'a>(&'a self) -> NodeHierarchyRef<'a> {
+    pub fn as_ref(&self) -> NodeHierarchyRef<'_> {
         NodeHierarchyRef {
             internal: &self.internal[..],
         }
     }
 
     #[inline(always)]
-    pub fn as_ref_mut<'a>(&'a mut self) -> NodeHierarchyRefMut<'a> {
+    pub fn as_ref_mut(&mut self) -> NodeHierarchyRefMut<'_> {
         NodeHierarchyRefMut {
             internal: &mut self.internal[..],
         }
@@ -421,18 +417,18 @@ impl<T> NodeDataContainer<T> {
 
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.internal.len() == 0
+        self.internal.is_empty()
     }
 
     #[inline(always)]
-    pub fn as_ref<'a>(&'a self) -> NodeDataContainerRef<'a, T> {
+    pub fn as_ref(&self) -> NodeDataContainerRef<'_, T> {
         NodeDataContainerRef {
             internal: &self.internal[..],
         }
     }
 
     #[inline(always)]
-    pub fn as_ref_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, T> {
+    pub fn as_ref_mut(&mut self) -> NodeDataContainerRefMut<'_, T> {
         NodeDataContainerRefMut {
             internal: &mut self.internal[..],
         }
@@ -500,7 +496,6 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
         let len = self.len();
         NodeDataContainer {
             internal: (0..len)
-                .into_iter()
                 .map(|node_id| closure(NodeId::new(node_id)))
                 .collect::<Vec<U>>(),
         }
@@ -516,7 +511,6 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
         let len = self.len();
         NodeDataContainer {
             internal: (0..len)
-                .into_iter()
                 .filter_map(|node_id| closure(NodeId::new(node_id)))
                 .collect::<Vec<U>>(),
         }
@@ -543,7 +537,6 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     where
         F: FnMut(&T, NodeId) -> U,
     {
-        // TODO if T: Send (which is usually the case), then we could use rayon here!
         NodeDataContainer {
             internal: self
                 .internal
