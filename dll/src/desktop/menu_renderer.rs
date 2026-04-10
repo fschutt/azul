@@ -183,23 +183,8 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
 
 /// Create a styled menu DOM from a Menu structure
 ///
-/// This generates a complete styled menu with:
-/// - All menu items rendered with proper styling
-/// - Separators between items
-/// - Icons (checkboxes, images) next to labels
-/// - Keyboard shortcuts aligned to the right
-/// - Hover states for interactivity
-/// - Disabled/greyed state support
-/// - Callbacks attached to clickable items
-/// - Sub-menu support with hover detection
-///
-/// # Arguments
-/// * `menu` - Menu structure to render
-/// * `system_style` - System style for native look and feel
-/// * `menu_window_data` - MenuWindowData RefAny for callback context
-///
-/// # Returns
-/// StyledDom tree for the menu with CSS applied
+/// Returns a fully styled `StyledDom` with callbacks attached.
+/// See [`create_menu_dom_with_css`] for a variant that returns `Dom` with deferred CSS.
 pub fn create_menu_styled_dom(
     menu: &Menu,
     system_style: &SystemStyle,
@@ -474,7 +459,17 @@ fn format_accelerator(combo: &azul_core::window::VirtualKeyCodeCombo) -> AzStrin
     AzString::from(key_strs.join("+"))
 }
 
-/// Extension trait for SystemStyle to create menu stylesheets
+/// Extension trait to add menu stylesheet creation to SystemStyle
+///
+/// Generates a `Stylesheet` containing CSS classes for the menu system:
+/// `.menu-container`, `.menu-item`, `.menu-item-icon`, `.menu-item-label`,
+/// `.menu-item-shortcut`, `.menu-item-arrow`, `.menu-separator`,
+/// `.menu-item-disabled`, `.menu-item-greyed`, and hover states.
+pub trait SystemStyleMenuExt {
+    /// Create a stylesheet for menu rendering based on system colors, fonts, and metrics
+    fn create_menu_stylesheet(&self) -> Stylesheet;
+}
+
 impl SystemStyleMenuExt for SystemStyle {
     fn create_menu_stylesheet(&self) -> Stylesheet {
         use azul_css::{parser2::new_from_str, props::basic::ColorU};
@@ -508,7 +503,7 @@ impl SystemStyleMenuExt for SystemStyle {
             .unwrap_or(ColorU::new_rgb(255, 255, 255));
         let disabled_color = self
             .colors
-            .text
+            .disabled_text
             .as_option()
             .copied()
             .unwrap_or(ColorU::new_rgb(128, 128, 128)); // Fallback for disabled
@@ -617,13 +612,14 @@ impl SystemStyleMenuExt for SystemStyle {
         ));
 
         // Parse CSS and extract first stylesheet
-        let (mut parsed_css, _errors) = new_from_str(&css);
-        parsed_css.stylesheets.into_library_owned_vec().remove(0)
+        let (mut parsed_css, errors) = new_from_str(&css);
+        if !errors.is_empty() {
+            log_debug!(
+                LogCategory::General,
+                "[create_menu_stylesheet] CSS parse errors: {:?}",
+                errors
+            );
+        }
+        parsed_css.stylesheets.into_library_owned_vec().into_iter().next().unwrap_or_default()
     }
-}
-
-/// Extension trait to add menu stylesheet creation to SystemStyle
-pub trait SystemStyleMenuExt {
-    /// Create a stylesheet for menu rendering
-    fn create_menu_stylesheet(&self) -> Stylesheet;
 }
