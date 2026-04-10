@@ -1,7 +1,9 @@
-//! Text selection state management
+//! Text selection state management and clipboard content types
 //!
-//! Manages text selection ranges across all DOMs using the browser-style
-//! anchor/focus model for multi-node selection.
+//! **Note:** `SelectionManager` has been superseded by `multi_cursor` on
+//! `TextEditManager` and is no longer wired into the system. The live types
+//! in this module are `ClipboardContent` and `StyledTextRun`, used for
+//! clipboard operations.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -50,7 +52,7 @@ impl Default for ClickState {
 pub struct SelectionManager {
     /// Legacy selection state for each DOM (per-node model)
     /// Maps DomId -> SelectionState
-    /// TODO: Deprecate once multi-node selection is fully implemented
+    /// Deprecated: superseded by `multi_cursor` on `TextEditManager`
     pub selections: BTreeMap<DomId, SelectionState>,
     
     /// New multi-node selection state using anchor/focus model
