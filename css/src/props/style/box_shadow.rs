@@ -1,4 +1,4 @@
-//! CSS properties for shadows (`box-shadow` and `text-shadow`).
+//! Shared types for CSS shadow properties (used by both `box-shadow` and `text-shadow`).
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -33,7 +33,7 @@ impl fmt::Display for BoxShadowClipMode {
     }
 }
 
-/// Represents a `box-shadow` or `text-shadow` property.
+/// Represents a single CSS shadow value, shared by both `box-shadow` and `text-shadow`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleBoxShadow {
@@ -123,6 +123,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBoxShadow {
 
 // --- PARSER ---
 
+/// Error returned when parsing a CSS shadow value fails.
 #[derive(Clone, PartialEq)]
 pub enum CssShadowParseError<'a> {
     TooManyOrTooFewComponents(&'a str),
@@ -153,6 +154,7 @@ pub enum CssShadowParseErrorOwned {
 }
 
 impl<'a> CssShadowParseError<'a> {
+    /// Converts the borrowed error into an owned version for storage.
     pub fn to_contained(&self) -> CssShadowParseErrorOwned {
         match self {
             CssShadowParseError::TooManyOrTooFewComponents(s) => {
@@ -169,6 +171,7 @@ impl<'a> CssShadowParseError<'a> {
 }
 
 impl CssShadowParseErrorOwned {
+    /// Converts the owned error back into a borrowed version.
     pub fn to_shared<'a>(&'a self) -> CssShadowParseError<'a> {
         match self {
             CssShadowParseErrorOwned::TooManyOrTooFewComponents(s) => {
@@ -205,8 +208,13 @@ pub fn parse_style_box_shadow<'a>(
     // The color can also be anywhere. Find it, set the color, and remove it.
     // It's the only part that isn't a length. We iterate from the back because
     // it's slightly more common for the color to be last.
-    if let Some(pos) = parts.iter().rposition(|p| parse_css_color(p).is_ok()) {
-        shadow.color = parse_css_color(parts[pos])?;
+    if let Some((pos, color)) = parts
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(i, p)| parse_css_color(p).ok().map(|c| (i, c)))
+    {
+        shadow.color = color;
         parts.remove(pos);
     }
 
@@ -304,6 +312,8 @@ mod tests {
     fn test_parse_box_shadow_invalid() {
         assert!(parse_style_box_shadow("10px").is_err());
         assert!(parse_style_box_shadow("10px 5px 4px 3px 2px").is_err());
+        // Two colors: rposition picks "blue" as the color, leaving "red" which
+        // fails to parse as a pixel value.
         assert!(parse_style_box_shadow("10px 5px red blue").is_err());
         assert!(parse_style_box_shadow("10% 5px").is_err()); // No percent allowed
     }
