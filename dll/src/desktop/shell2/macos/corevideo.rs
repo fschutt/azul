@@ -244,6 +244,12 @@ impl Drop for DisplayLink {
     }
 }
 
+// Safety: CoreVideoFunctions contains only function pointers (immutable after
+// construction) and a libloading::Library handle.  No interior mutability, so
+// sharing across threads via Arc is safe.
+unsafe impl Send for CoreVideoFunctions {}
+unsafe impl Sync for CoreVideoFunctions {}
+
 // Safety: CVDisplayLink is thread-safe according to Apple documentation
 unsafe impl Send for DisplayLink {}
 unsafe impl Sync for DisplayLink {}
