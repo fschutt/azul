@@ -13,6 +13,9 @@ use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 /// Intentionally simplified: stores the unparsed CSS value rather than
 /// a structured `ContentPart` enum. Complex values like `counter(section) ". "`
 /// are preserved verbatim but not individually evaluated.
+///
+/// **Note:** Currently parsed and stored but not yet consumed by the layout
+/// engine (e.g., for `::before`/`::after` pseudo-element generated content).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct Content {
@@ -128,11 +131,14 @@ impl PrintAsCssValue for CounterIncrement {
 }
 
 /// CSS `string-set` property value, stored as a raw string.
+///
+/// **Note:** Currently parsed and stored but not yet consumed by the layout engine.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StringSet {
     pub inner: AzString,
 }
+
 impl Default for StringSet {
     fn default() -> Self {
         Self {
@@ -140,6 +146,7 @@ impl Default for StringSet {
         }
     }
 }
+
 impl PrintAsCssValue for StringSet {
     fn print_as_css_value(&self) -> String {
         self.inner.as_str().to_string()
