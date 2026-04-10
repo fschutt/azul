@@ -385,6 +385,8 @@ pub fn create_menu_window(
     window_state.flags.is_visible = true;
     window_state.flags.decorations = azul_core::window::WindowDecorations::None;
     window_state.flags.is_resizable = false;
+    window_state.title = "Menu".into();
+    window_state.window_id = "azul-menu".into();
 
     // Position will be calculated after size is known (via size_to_content)
     // The actual positioning happens in the layout callback after measuring
@@ -435,22 +437,10 @@ extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -
     )
 }
 
-/// Helper function to show a menu at a specific position
+/// Show a menu at a specific position by creating a new menu window.
 ///
-/// This is the main entry point for displaying context menus, dropdown menus, etc.
-/// It creates a new window with the menu content and positions it intelligently.
-///
-/// # Arguments
-/// * `menu` - The menu structure to display
-/// * `system_style` - System style for native look (usually from CallbackInfo)
-/// * `parent_window_position` - Position of the parent window in screen coordinates
-/// * `trigger_rect` - Rectangle that triggered the menu (e.g., button bounds), relative to parent
-///   window
-/// * `cursor_position` - Cursor position in screen coordinates (for AutoCursor positioning)
-///
-/// # Returns
-///
-/// WindowCreateOptions that can be passed to `CallbackInfo::create_window()`
+/// Main entry point for context menus, dropdown menus, etc.
+/// Returns `WindowCreateOptions` to pass to `CallbackInfo::create_window()`.
 pub fn show_menu(
     menu: Menu,
     system_style: Arc<SystemStyle>,
@@ -518,7 +508,7 @@ mod tests {
     use super::*;
 
     // NOTE: These tests require the main thread on macOS and real display hardware
-    // because calculate_menu_position calls get_displays() internally.
+    // because calculate_menu_position calls get_display_at_point() internally.
     // They are marked as #[ignore] for regular unit testing.
 
     #[test]
