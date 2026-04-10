@@ -50,7 +50,7 @@ macro_rules! impl_widget_callback {
         impl ::core::fmt::Debug for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
-                write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
+                write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
             }
         }
 
@@ -68,25 +68,25 @@ macro_rules! impl_widget_callback {
             where
                 H: ::core::hash::Hasher,
             {
-                state.write_usize(self.cb as usize);
+                state.write_usize(self.cb as *const () as usize);
             }
         }
 
         impl PartialEq for $callback_value {
             fn eq(&self, rhs: &Self) -> bool {
-                self.cb as usize == rhs.cb as usize
+                self.cb as *const () as usize == rhs.cb as usize
             }
         }
 
         impl PartialOrd for $callback_value {
             fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.cb as usize).cmp(&(other.cb as usize)))
+                Some((self.cb as *const () as usize).cmp(&(other.cb as usize)))
             }
         }
 
         impl Ord for $callback_value {
             fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                (self.cb as usize).cmp(&(other.cb as usize))
+                (self.cb as *const () as usize).cmp(&(other.cb as usize))
             }
         }
 
@@ -126,7 +126,6 @@ pub mod color_input;
 pub mod file_input;
 /// Label widget (centered text)
 pub mod label;
-// /// Single line text input widget
 /// Drop-down select widget
 pub mod drop_down;
 /// Frame container widget
@@ -143,6 +142,7 @@ pub mod progressbar;
 pub mod ribbon;
 /// Tab container widgets
 pub mod tabs;
+/// Single line text input widget
 pub mod text_input;
 /// Titlebar widget for custom window chrome
 pub mod titlebar;
