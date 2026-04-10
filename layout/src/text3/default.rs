@@ -1,3 +1,12 @@
+//! Default / concrete implementations of the text3 trait abstractions.
+//!
+//! This module bridges the generic text3 layout engine and the concrete
+//! `FontRef` / `ParsedFont` types.  It provides:
+//!
+//! - `ParsedFontTrait` implementation for `FontRef`
+//! - Font loading via `PathLoader`
+//! - The core `shape_text_internal` shaping function
+
 use std::{path::Path, sync::Arc};
 
 use allsorts::{
@@ -53,6 +62,7 @@ pub fn font_ref_from_bytes(
 pub struct PathLoader;
 
 impl PathLoader {
+    /// Creates a new `PathLoader`.
     pub fn new() -> Self {
         PathLoader
     }
@@ -326,7 +336,7 @@ impl ParsedFont {
             let scale_factor = if units_per_em > 0.0 {
                 font_size_px / units_per_em
             } else {
-                0.01 // Avoid division by zero
+                FALLBACK_SCALE
             };
 
             // max_x, max_y, min_x, min_y in font units
@@ -364,6 +374,9 @@ impl ParsedFont {
         Some((glyph_id, scaled_advance))
     }
 }
+
+/// Fallback scale factor when `units_per_em` is zero (corrupt/broken font).
+const FALLBACK_SCALE: f32 = 0.01;
 
 // Helper Functions
 
@@ -498,6 +511,8 @@ fn to_opentype_script_tag(script: Script) -> u32 {
         Gurmukhi => u32::from_be_bytes(*b"guru"),
         Hangul => u32::from_be_bytes(*b"hang"),
         Hebrew => u32::from_be_bytes(*b"hebr"),
+        // OpenType does not define a separate Hiragana script tag;
+        // both Hiragana and Katakana intentionally use "kana".
         Hiragana => u32::from_be_bytes(*b"kana"),
         Kannada => u32::from_be_bytes(*b"knda"),
         Katakana => u32::from_be_bytes(*b"kana"),
@@ -615,7 +630,7 @@ fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
         EnglishUS => *b"ENU ",
         Esperanto => *b"ESP ",
         Estonian => *b"ETI ",
-        Ethiopic => *b"ETI ",
+        Ethiopic => *b"ETH ",
         Finnish => *b"FIN ",
         FinnishScholastic => *b"FIN ",
         French => *b"FRA ",
@@ -785,8 +800,20 @@ fn shape_text_internal(
     let scale_factor = if parsed_font.font_metrics.units_per_em > 0 {
         font_size / (parsed_font.font_metrics.units_per_em as f32)
     } else {
-        0.01
+        FALLBACK_SCALE
     };
+
+    let font_hash = parsed_font.get_hash();
+    let font_metrics = LayoutFontMetrics {
+        ascent: parsed_font.font_metrics.ascent,
+        descent: parsed_font.font_metrics.descent,
+        line_gap: parsed_font.font_metrics.line_gap,
+        units_per_em: parsed_font.font_metrics.units_per_em,
+        x_height: parsed_font.font_metrics.x_height,
+        cap_height: parsed_font.font_metrics.cap_height,
+    };
+    let style_arc = Arc::new(style.clone());
+    let bidi_level = BidiLevel::new(if direction.is_rtl() { 1 } else { 0 });
 
     let mut shaped_glyphs = Vec::new();
     for info in infos.iter() {
@@ -817,16 +844,9 @@ fn shape_text_internal(
         let glyph = Glyph {
             glyph_id: info.glyph.glyph_index,
             codepoint: source_char,
-            font_hash: parsed_font.get_hash(),
-            font_metrics: LayoutFontMetrics {
-                ascent: parsed_font.font_metrics.ascent,
-                descent: parsed_font.font_metrics.descent,
-                line_gap: parsed_font.font_metrics.line_gap,
-                units_per_em: parsed_font.font_metrics.units_per_em,
-                x_height: parsed_font.font_metrics.x_height,
-                cap_height: parsed_font.font_metrics.cap_height,
-            },
-            style: Arc::new(style.clone()),
+            font_hash,
+            font_metrics: font_metrics.clone(),
+            style: Arc::clone(&style_arc),
             source: GlyphSource::Char,
             logical_byte_index: cluster as usize,
             logical_byte_len: source_char.len_utf8(),
@@ -845,7 +865,7 @@ fn shape_text_internal(
                 .unwrap_or(Point { x: 0.0, y: 0.0 }),
             orientation: GlyphOrientation::Horizontal,
             script,
-            bidi_level: BidiLevel::new(if direction.is_rtl() { 1 } else { 0 }),
+            bidi_level,
         };
         shaped_glyphs.push(glyph);
     }
