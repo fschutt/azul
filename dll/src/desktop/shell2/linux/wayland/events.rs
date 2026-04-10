@@ -6,11 +6,8 @@ use std::{
 };
 
 use azul_core::{
-    dom::DomId,
-    events::{EventFilter, MouseButton, ProcessEventResult},
-    geom::LogicalPosition,
-    hit_test::FullHitTest,
-    window::{CursorPosition, VirtualKeyCode, WindowFrame},
+    events::MouseButton,
+    window::{VirtualKeyCode, WindowFrame},
 };
 
 use super::{defines, defines::*, WaylandWindow};
@@ -21,6 +18,7 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // -- State for input devices --
 
+/// XKB keyboard state for translating Wayland key events into keysyms.
 pub(super) struct WaylandKeyboardState {
     pub(super) context: *mut xkb_context,
     pub(super) keymap: *mut xkb_keymap,
@@ -37,6 +35,7 @@ impl WaylandKeyboardState {
     }
 }
 
+/// Tracks Wayland pointer (mouse) state including cursor theme and current button.
 pub(super) struct PointerState {
     /// The wl_pointer object from Wayland
     pub(super) pointer: *mut super::defines::wl_pointer,
@@ -202,7 +201,7 @@ pub(super) extern "C" fn registry_global_handler(
     version: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    let interface_str = unsafe { CStr::from_ptr(interface).to_str().unwrap() };
+    let interface_str = unsafe { CStr::from_ptr(interface).to_str().unwrap_or_default() };
 
     match interface_str {
         "wl_compositor" => {
