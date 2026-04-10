@@ -220,7 +220,7 @@ pub enum DropEffect {
 ///
 /// Note: this type is Rust-only and not exposed through the C API,
 /// since `BTreeMap` and `Vec<u8>` are not FFI-safe.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DragData {
     /// MIME type -> data mapping
     ///
@@ -228,6 +228,12 @@ pub struct DragData {
     pub data: BTreeMap<AzString, Vec<u8>>,
     /// Allowed drag operations
     pub effect_allowed: DragEffect,
+}
+
+impl Default for DragData {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Drag/drop effect (like HTML5 dropEffect)
