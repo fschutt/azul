@@ -1,7 +1,8 @@
-use azul_core::{
-    callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
-};
+//! Native progress bar widget with customizable backgrounds, height, and
+//! gradient styling. The main type is [`ProgressBar`], which is rendered
+//! into a DOM via [`ProgressBar::dom()`].
+
+use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -14,8 +15,6 @@ use azul_css::{
 };
 use azul_css::css::BoxOrStatic;
 
-use crate::callbacks::Callback;
-
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
@@ -26,13 +25,6 @@ const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundConte
         stops: NormalizedLinearColorStopVec::from_const_slice(
             LINEAR_COLOR_STOP_12009347504665939_ITEMS,
         ),
-    })];
-const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 240,
-        g: 240,
-        b: 240,
-        a: 255,
     })];
 const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -176,6 +168,7 @@ const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] 
     },
 ];
 
+/// A native progress bar widget with customizable bar/container backgrounds and height.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ProgressBar {
@@ -185,6 +178,7 @@ pub struct ProgressBar {
     pub container_background: StyleBackgroundContentVec,
 }
 
+/// Internal state for a [`ProgressBar`], tracking completion percentage.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ProgressBarState {
@@ -193,6 +187,7 @@ pub struct ProgressBarState {
 }
 
 impl ProgressBar {
+    /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
     pub fn create(percent_done: f32) -> Self {
         Self {
@@ -210,6 +205,7 @@ impl ProgressBar {
         }
     }
 
+    /// Replaces `self` with a default (0%) progress bar, returning the previous value.
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0);
@@ -244,6 +240,8 @@ impl ProgressBar {
         self
     }
 
+    /// Renders this progress bar into a [`Dom`] tree consisting of a container div
+    /// with two children: the filled bar and the remaining empty space.
     pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
