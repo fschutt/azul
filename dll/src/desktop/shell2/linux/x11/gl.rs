@@ -1,19 +1,13 @@
-//! EGL context management for X11 and OpenGL function loading.
+//! EGL context management for X11 windows.
 
-use std::{
-    ffi::{c_void, CString},
-    mem,
-    rc::Rc,
-};
-
-use gl_context_loader::GenericGlContext;
+use std::rc::Rc;
 
 use super::{
     defines::*,
-    dlopen::{Egl, Library, Xlib},
+    dlopen::{Egl, Xlib},
 };
 use crate::desktop::shell2::common::{
-    debug_server::LogCategory, dlopen::DynamicLibrary, WindowError,
+    debug_server::LogCategory, WindowError,
 };
 use crate::{log_debug, log_warn};
 
@@ -28,7 +22,7 @@ pub struct GlContext {
 impl GlContext {
     /// Creates a new EGL context for the given X11 display and window.
     pub fn new(
-        xlib: &Rc<Xlib>,
+        _xlib: &Rc<Xlib>,
         egl: &Rc<Egl>,
         display: *mut Display,
         window: Window,
