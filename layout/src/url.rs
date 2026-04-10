@@ -1,6 +1,8 @@
 //! URL parsing module for C API
 //!
 //! Provides a C-compatible URL type based on the `url` crate.
+//! Key types: [`Url`], [`UrlParseError`], [`ResultUrlUrlParseError`].
+//! Re-exported from `layout/src/lib.rs`.
 
 use alloc::string::String;
 use core::fmt;
@@ -16,7 +18,7 @@ pub struct Url {
     pub scheme: AzString,
     /// The host (e.g., "example.com")
     pub host: AzString,
-    /// The port (0 if not specified)
+    /// The port number, or 0 if not specified (sentinel value; see `effective_port()`)
     pub port: u16,
     /// The path (e.g., "/path/to/resource")
     pub path: AzString,
@@ -54,12 +56,6 @@ impl_result!(
 
 impl Url {
     /// Parse a URL from a string
-    /// 
-    /// # Arguments
-    /// * `s` - The URL string to parse
-    /// 
-    /// # Returns
-    /// * `Result<Url, UrlParseError>` - The parsed URL or an error
     #[cfg(feature = "http")]
     pub fn parse(s: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;
