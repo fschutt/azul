@@ -20,42 +20,9 @@
 //!
 //! # Licensing
 //!
-//! This user-agent stylesheet integrates principles from normalize.css v8.0.1:
-//!
-//! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and
-//!   Jonathan Neal https://github.com/necolas/normalize.css
-//!
-//! The normalize.css project is licensed under the MIT License, which permits
-//! commercial use, modification, distribution, and private use. The full license
-//! text is as follows:
-//!
-//! ```text
-//! MIT License
-//!
-//! Copyright (c) Nicolas Gallagher and Jonathan Neal
-//!
-//! Permission is hereby granted, free of charge, to any person obtaining a copy
-//! of this software and associated documentation files (the "Software"), to deal
-//! in the Software without restriction, including without limitation the rights
-//! to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//! copies of the Software, and to permit persons to whom the Software is
-//! furnished to do so, subject to the following conditions:
-//!
-//! The above copyright notice and this permission notice shall be included in all
-//! copies or substantial portions of the Software.
-//!
-//! THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//! IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//! FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//! AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//! LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//! SOFTWARE.
-//! ```
-//!
-//! This implementation is NOT a direct copy of normalize.css but incorporates its
-//! principles and approach. The Azul project's overall license applies to this
-//! implementation.
+//! Based on principles from [normalize.css](https://github.com/necolas/normalize.css)
+//! (MIT License, Copyright Nicolas Gallagher and Jonathan Neal).
+//! This is NOT a direct copy but incorporates its principles and approach.
 //!
 //! # References
 //!
@@ -930,7 +897,7 @@ const fn scrollbar_fade_duration(ms: u32) -> CssProperty {
 /// first matching entry for each property type (`scrollbar-color`,
 /// `scrollbar-width`, `-azul-scrollbar-visibility`,
 /// `-azul-scrollbar-fade-delay`, `-azul-scrollbar-fade-duration`).
-pub static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
+pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
     // ── scrollbar-width per OS ──────────────────────────────────────────
     // macOS → thin (overlay)
     CssPropertyWithConditions::with_single_condition(
