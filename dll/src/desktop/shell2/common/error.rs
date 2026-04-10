@@ -1,4 +1,11 @@
-//! Error types for shell2 windowing system.
+//! Error types for the shell2 windowing system.
+//!
+//! Defines three error enums used across all platform backends:
+//! - [`WindowError`] — window creation, state, and lifecycle errors
+//! - [`CompositorError`] — GPU, shader, and rendering errors
+//! - [`DlError`] — dynamic library loading errors
+//!
+//! Re-exported via `common::error` for use by all platform backends.
 
 use core::fmt;
 
