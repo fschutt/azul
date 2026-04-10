@@ -1,4 +1,10 @@
 //! Common GL function loading for Linux (X11 and Wayland).
+//!
+//! The main type is [`GlFunctions`], which wraps all OpenGL function pointers
+//! in an `Rc<GenericGlContext>`. Call [`GlFunctions::initialize`] with a loaded
+//! [`Egl`](super::super::x11::dlopen::Egl) instance to resolve symbols via
+//! `eglGetProcAddress` (with `libGL.so.1` as a fallback). Used by both the
+//! X11 and Wayland shell backends.
 
 use std::{
     ffi::{c_void, CString},
