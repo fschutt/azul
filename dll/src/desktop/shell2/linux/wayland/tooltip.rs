@@ -3,13 +3,22 @@
 //! This module provides tooltip display for Wayland windows using subsurfaces.
 //! A subsurface is a child surface that can be positioned relative to its parent
 //! and is composited together with the parent by the compositor.
+//!
+//! Note: Text rendering is currently a placeholder (solid rectangles per character).
 
 use std::rc::Rc;
 
 use super::{defines::*, dlopen::Wayland};
 
 use super::super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_error;
+
+/// Approximate width of a single character in pixels (placeholder font metrics)
+const TOOLTIP_CHAR_WIDTH_PX: i32 = 7;
+/// Approximate height of a single character in pixels (placeholder font metrics)
+const TOOLTIP_CHAR_HEIGHT_PX: i32 = 14;
+/// Padding around tooltip text in pixels
+const TOOLTIP_PADDING_PX: i32 = 4;
 
 /// Tooltip window using Wayland wl_subsurface
 ///
@@ -102,13 +111,9 @@ impl TooltipWindow {
     pub fn show(&mut self, text: String, x: i32, y: i32) {
         unsafe {
             // Calculate tooltip size (simple estimation)
-            let char_width = 7;
-            let char_height = 14;
-            let padding = 4;
-
-            let text_width = text.len() as i32 * char_width;
-            let width = text_width + padding * 2;
-            let height = char_height + padding * 2;
+            let text_width = text.len() as i32 * TOOLTIP_CHAR_WIDTH_PX;
+            let width = text_width + TOOLTIP_PADDING_PX * 2;
+            let height = TOOLTIP_CHAR_HEIGHT_PX + TOOLTIP_PADDING_PX * 2;
 
             // Create or recreate buffer if size changed
             if self.width != width || self.height != height || self.buffer.is_none() {
@@ -220,15 +225,15 @@ impl TooltipWindow {
 
                 // Draw text (very simple - just black pixels)
                 // In a real implementation, you'd use a proper font rendering library
-                let text_x = padding;
-                let text_y = padding;
+                let text_x = TOOLTIP_PADDING_PX;
+                let text_y = TOOLTIP_PADDING_PX;
 
                 for (i, _ch) in text.chars().enumerate() {
-                    let char_x = text_x + i as i32 * char_width;
+                    let char_x = text_x + i as i32 * TOOLTIP_CHAR_WIDTH_PX;
 
                     // Draw a simple rectangle as placeholder for each character
-                    for dy in 0..char_height {
-                        for dx in 0..char_width - 1 {
+                    for dy in 0..TOOLTIP_CHAR_HEIGHT_PX {
+                        for dx in 0..TOOLTIP_CHAR_WIDTH_PX - 1 {
                             let px = char_x + dx;
                             let py = text_y + dy;
 
