@@ -536,12 +536,15 @@ impl_option!(
 unsafe impl Send for RefAny {}
 
 // SAFETY: RefAny is Sync because:
-// - Methods that access the inner data (`downcast_ref/mut`) require `&mut self`, which
-//  is checked by the compiler and prevents concurrent access
 // - Methods on `&RefAny` (like `clone`, `get_type_id`) only use atomic operations or
-//  read immutable data, which is inherently thread-safe
-// - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics,
-//   ensures proper synchronization across threads
+//   read immutable data, which is inherently thread-safe
+// - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics
+//
+// KNOWN ISSUE: `downcast_ref/mut` require `&mut self`, but clones of the same RefAny
+// are independent values that can each provide `&mut self` concurrently while sharing
+// the same `RefCountInner`. The check-then-increment in downcast_ref/mut is not atomic,
+// so concurrent borrows via different clones can race. See replace_contents() for the
+// correct compare_exchange pattern.
 unsafe impl Sync for RefAny {}
 
 impl RefAny {
@@ -1010,13 +1013,18 @@ impl RefAny {
     }
 
     /// Sets the serialize function pointer.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// The caller must ensure the function pointer is valid and has the correct
     /// signature: `extern "C" fn(RefAny) -> Json`
+    ///
+    /// **Known issue:** `&mut self` is exclusive to this clone, not to the shared
+    /// `RefCountInner`. Concurrent calls via different clones are a data race
+    /// because `serialize_fn` is a plain `usize`, not atomic.
     pub fn set_serialize_fn(&mut self, serialize_fn: usize) {
-        // Safety: We have &mut self, so we have exclusive access
+        // FIXME: &mut self is exclusive to this clone only, not to the shared
+        // RefCountInner — concurrent calls via different clones are a data race.
         let inner = self.sharing_info.ptr as *mut RefCountInner;
         unsafe {
             (*inner).serialize_fn = serialize_fn;
@@ -1024,13 +1032,18 @@ impl RefAny {
     }
 
     /// Sets the deserialize function pointer.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// The caller must ensure the function pointer is valid and has the correct
     /// signature: `extern "C" fn(Json) -> ResultRefAnyString`
+    ///
+    /// **Known issue:** `&mut self` is exclusive to this clone, not to the shared
+    /// `RefCountInner`. Concurrent calls via different clones are a data race
+    /// because `deserialize_fn` is a plain `usize`, not atomic.
     pub fn set_deserialize_fn(&mut self, deserialize_fn: usize) {
-        // Safety: We have &mut self, so we have exclusive access
+        // FIXME: &mut self is exclusive to this clone only, not to the shared
+        // RefCountInner — concurrent calls via different clones are a data race.
         let inner = self.sharing_info.ptr as *mut RefCountInner;
         unsafe {
             (*inner).deserialize_fn = deserialize_fn;
