@@ -1,3 +1,8 @@
+//! File I/O wrapper for the desktop C API layer.
+//!
+//! Note: `layout/src/file.rs` provides a more complete file API with
+//! proper error types (`FileError`) and a `FilePath` wrapper.
+
 use alloc::sync::Arc;
 use core::fmt;
 use std::{
@@ -8,6 +13,7 @@ use std::{
 
 use azul_css::{impl_option, impl_option_inner, AzString, U8Vec};
 
+/// Thread-safe file handle with path tracking for the C API.
 #[repr(C)]
 pub struct File {
     pub ptr: Box<Arc<Mutex<fs::File>>>,
@@ -67,34 +73,41 @@ impl File {
             run_destructor: true,
         }
     }
+    /// Opens a file in read-only mode, returning `None` on failure.
     pub fn open(path: &str) -> Option<Self> {
         Some(Self::new(
             fs::File::open(path).ok()?,
             path.to_string().into(),
         ))
     }
+    /// Creates a file (truncating if it exists), returning `None` on failure.
     pub fn create(path: &str) -> Option<Self> {
         Some(Self::new(
             fs::File::create(path).ok()?,
             path.to_string().into(),
         ))
     }
+    /// Reads the file at `self.path` into a string.
     pub fn read_to_string(&mut self) -> Option<AzString> {
         let file_string = std::fs::read_to_string(self.path.as_str()).ok()?;
         Some(file_string.into())
     }
+    /// Reads the file at `self.path` into a byte vector.
     pub fn read_to_bytes(&mut self) -> Option<U8Vec> {
         let file_bytes = std::fs::read(self.path.as_str()).ok()?;
         Some(file_bytes.into())
     }
+    /// Writes a string to the file handle.
     pub fn write_string(&mut self, string: &str) -> Option<()> {
         self.write_bytes(string.as_bytes())
     }
+    /// Writes bytes to the file handle and syncs to disk.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Option<()> {
         let mut lock = self.ptr.lock().ok()?;
         lock.write_all(bytes).ok()?;
         lock.sync_all().ok()?;
         Some(())
     }
+    /// Closes the file by dropping the handle. Provided for C API symmetry.
     pub fn close(self) {}
 }
