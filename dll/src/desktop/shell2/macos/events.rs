@@ -43,18 +43,6 @@ fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPositio
     LogicalPosition::new(location.x as f32, window_height - location.y as f32)
 }
 
-/// Extension trait for Callback to convert from CoreCallback
-trait CallbackExt {
-    fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self;
-}
-
-impl CallbackExt for azul_layout::callbacks::Callback {
-    fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self {
-        // Use the existing safe wrapper method from Callback
-        azul_layout::callbacks::Callback::from_core(core_callback)
-    }
-}
-
 /// Result of processing an event - determines whether to redraw, update layout, etc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventProcessResult {
@@ -291,7 +279,6 @@ impl MacOSWindow {
             CursorPosition::OutOfWindow(position);
 
         // Clear last hit test since mouse is out
-        use azul_layout::managers::hover::InputPointId;
         if let Some(ref mut layout_window) = self.common.layout_window {
             layout_window
                 .hover_manager
@@ -321,7 +308,7 @@ impl MacOSWindow {
 
         // Queue scroll input for the physics timer instead of directly setting offsets.
         // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
-        if (delta_x.abs() > 0.01 || delta_y.abs() > 0.01) {
+        if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
 
@@ -487,9 +474,6 @@ impl MacOSWindow {
 
         // Update keyboard state
         self.update_keyboard_state(key_code, modifiers, false);
-
-        // Clear current character on key up
-        self.update_keyboard_state_with_char(None);
 
         // V2 system will detect VirtualKeyUp from state diff
         let result = self.process_window_events(0);
@@ -780,48 +764,6 @@ impl MacOSWindow {
         Self::convert_process_result(result)
     }
 
-    /// Perform hit testing at given position using WebRender hit-testing API.
-    fn perform_hit_test(&mut self, position: LogicalPosition) -> Option<HitTestNode> {
-        use azul_core::window::CursorPosition;
-
-        let layout_window = self.common.layout_window.as_ref()?;
-
-        // Early return if no layout results
-        if layout_window.layout_results.is_empty() {
-            return None;
-        }
-
-        let cursor_position = CursorPosition::InWindow(position);
-
-        // Get focused node from FocusManager
-        let focused_node = layout_window.focus_manager.get_focused_node().copied();
-
-        // Use layout_results directly (BTreeMap)
-        let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
-            &*self.common.hit_tester.as_mut().unwrap().resolve(),
-            self.common.document_id.unwrap(),
-            focused_node,
-            &layout_window.layout_results,
-            &cursor_position,
-            self.common.current_window_state.size.get_hidpi_factor(),
-        );
-
-        // Extract first hovered node from hit test result
-        hit_test
-            .hovered_nodes
-            .iter()
-            .flat_map(|(dom_id, ht)| {
-                ht.regular_hit_test_nodes.keys().next().map(|node_id| {
-                    let node_id_value = node_id.index();
-                    HitTestNode {
-                        dom_id: dom_id.inner as u64,
-                        node_id: node_id_value as u64,
-                    }
-                })
-            })
-            .next()
-    }
-
     /// Convert macOS keycode to VirtualKeyCode.
     fn convert_keycode(&self, keycode: u16) -> Option<VirtualKeyCode> {
         // macOS keycodes: https://eastmanreference.com/complete-list-of-applescript-key-codes
@@ -943,16 +885,6 @@ impl MacOSWindow {
                 azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
             keyboard_state.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
         }
-    }
-
-    /// Update keyboard state with character from event
-    /// NOTE: This method is deprecated and should not set current_char anymore.
-    /// Text input is now handled by process_text_input() which receives the
-    /// composed text directly from NSTextInputClient.
-    fn update_keyboard_state_with_char(&mut self, _character: Option<char>) {
-        // current_char field has been removed from KeyboardState
-        // KeyboardState now only tracks virtual keys and scancodes
-        // Text input is handled separately by LayoutWindow::process_text_input()
     }
 
     /// Handle compositor resize notification.
@@ -1104,9 +1036,9 @@ impl MacOSWindow {
             );
 
             unsafe {
-                use objc2::{msg_send_id, rc::Retained, runtime::AnyObject, sel};
+                use objc2::{msg_send, runtime::AnyObject};
 
-                let _: () = msg_send_id![
+                let _: () = msg_send![
                     &ns_menu,
                     popUpMenuPositioningItem: Option::<&AnyObject>::None,
                     atLocation: view_point,
@@ -1280,14 +1212,6 @@ impl MacOSWindow {
                     })
             })
             .next()
-    }
-
-    /// Convert ProcessEventResult to EventProcessResult for old API compatibility.
-    fn process_callback_result_to_event_result_v2(
-        &self,
-        result: ProcessEventResult,
-    ) -> EventProcessResult {
-        Self::convert_process_result(result)
     }
 
     // V2 Cross-Platform Event Processing
