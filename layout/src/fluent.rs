@@ -12,7 +12,7 @@
 //! use azul_layout::fluent::FluentLocalizerHandle;
 //!
 //! // Create a localizer with default locale
-//! let mut localizer = FluentLocalizerHandle::new("en-US");
+//! let mut localizer = FluentLocalizerHandle::create("en-US");
 //!
 //! // Load translations from a string
 //! localizer.add_resource("en-US", r#"
@@ -29,8 +29,14 @@
 //! localizer.load_from_zip(&zip_data);
 //!
 //! // Translate messages
-//! let msg = localizer.translate("en-US", "hello", None);
-//! let msg = localizer.translate("en-US", "greeting", Some(&[("name", "Alice")]));
+//! let empty_args = FmtArgVec::new();
+//! let msg = localizer.translate("en-US".into(), "hello".into(), empty_args);
+//!
+//! let args = FmtArgVec::from_vec(vec![FmtArg {
+//!     key: AzString::from("name"),
+//!     value: FmtValue::Str(AzString::from("Alice")),
+//! }]);
+//! let msg = localizer.translate("en-US".into(), "greeting".into(), args);
 //! ```
 
 use alloc::{
@@ -869,14 +875,6 @@ fn extract_locale_from_path(path: &str) -> Option<String> {
     // Try extracting from filename (strip .fluent suffix first)
     if let Some(filename) = parts.last() {
         let name = filename.trim_end_matches(".fluent");
-        if looks_like_locale(name) {
-            return Some(name.to_string());
-        }
-    }
-
-    // Check if first part (after stripping suffix) looks like a locale
-    if parts.len() == 1 {
-        let name = parts[0].trim_end_matches(".fluent");
         if looks_like_locale(name) {
             return Some(name.to_string());
         }
