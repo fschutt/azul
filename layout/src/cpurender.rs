@@ -887,7 +887,7 @@ impl AzulPixmap {
             return None;
         }
         let len = (width as usize) * (height as usize) * 4;
-        let mut data = vec![255u8; len]; // opaque white
+        let data = vec![255u8; len]; // opaque white
         Some(Self { data, width, height })
     }
 
@@ -1374,6 +1374,7 @@ fn agg_fill_gradient_clipped<G: GradientFunction>(
 fn resolve_color(color: &ColorOrSystem) -> ColorU {
     match color {
         ColorOrSystem::Color(c) => *c,
+        // Placeholder: system colors are not resolved here; fall back to neutral gray
         ColorOrSystem::System(_) => ColorU { r: 128, g: 128, b: 128, a: 255 },
     }
 }
@@ -2083,6 +2084,8 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
         while i < rects.len() {
             let mut j = i + 1;
             while j < rects.len() {
+                // 8 logical pixels: merge rects that are close enough to avoid
+                // many tiny damage regions that would cause redundant repaints
                 if rects_overlap_or_adjacent(&rects[i], &rects[j], 8.0) {
                     rects[i] = union_rect(&rects[i], &rects[j]);
                     rects.swap_remove(j);
@@ -2518,7 +2521,7 @@ fn render_single_item(
             DisplayListItem::Underline {
                 bounds,
                 color,
-                thickness,
+                thickness: _,
             } => {
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
@@ -2533,7 +2536,7 @@ fn render_single_item(
             DisplayListItem::Strikethrough {
                 bounds,
                 color,
-                thickness,
+                thickness: _,
             } => {
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
@@ -2548,7 +2551,7 @@ fn render_single_item(
             DisplayListItem::Overline {
                 bounds,
                 color,
-                thickness,
+                thickness: _,
             } => {
                 let clip = *clip_stack.last().unwrap();
                 render_rect(
@@ -2632,9 +2635,7 @@ fn render_single_item(
                     .and_then(|key| render_state.opacities.get(&key.id).copied())
                     .unwrap_or(1.0);
 
-                if scrollbar_opacity <= 0.001 {
-                    // Fully transparent — skip rendering
-                } else {
+                if scrollbar_opacity > 0.001 {
 
                 // Render track
                 if info.track_color.a > 0 {
@@ -2759,6 +2760,7 @@ fn render_single_item(
                 clip_rect,
             } => {
                 let clip = *clip_stack.last().unwrap();
+                // Debug placeholder: semi-transparent blue overlay for virtual views
                 render_rect(
                     pixmap,
                     &scroll_rect(bounds.inner()),
@@ -4301,43 +4303,32 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_transform(s: &str) -> TransAffine {
     let s = s.trim();
-    if s.starts_with("matrix(") {
-        let inner = &s[7..s.len()-1];
-        let nums: Vec<f64> = inner
+
+    let parse_nums = |inner: &str| -> Vec<f64> {
+        inner
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
             .filter(|s| !s.is_empty())
             .filter_map(|s| s.parse().ok())
-            .collect();
+            .collect()
+    };
+
+    if let Some(inner) = s.strip_prefix("matrix(").and_then(|s| s.strip_suffix(')')) {
+        let nums = parse_nums(inner);
         if nums.len() == 6 {
             return TransAffine::new_custom(nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]);
         }
-    } else if s.starts_with("translate(") {
-        let inner = &s[10..s.len()-1];
-        let nums: Vec<f64> = inner
-            .split(|c: char| c == ',' || c.is_ascii_whitespace())
-            .filter(|s| !s.is_empty())
-            .filter_map(|s| s.parse().ok())
-            .collect();
+    } else if let Some(inner) = s.strip_prefix("translate(").and_then(|s| s.strip_suffix(')')) {
+        let nums = parse_nums(inner);
         let tx = nums.first().copied().unwrap_or(0.0);
         let ty = nums.get(1).copied().unwrap_or(0.0);
         return TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
-    } else if s.starts_with("scale(") {
-        let inner = &s[6..s.len()-1];
-        let nums: Vec<f64> = inner
-            .split(|c: char| c == ',' || c.is_ascii_whitespace())
-            .filter(|s| !s.is_empty())
-            .filter_map(|s| s.parse().ok())
-            .collect();
+    } else if let Some(inner) = s.strip_prefix("scale(").and_then(|s| s.strip_suffix(')')) {
+        let nums = parse_nums(inner);
         let sx = nums.first().copied().unwrap_or(1.0);
         let sy = nums.get(1).copied().unwrap_or(sx);
         return TransAffine::new_custom(sx, 0.0, 0.0, sy, 0.0, 0.0);
-    } else if s.starts_with("rotate(") {
-        let inner = &s[7..s.len()-1];
-        let nums: Vec<f64> = inner
-            .split(|c: char| c == ',' || c.is_ascii_whitespace())
-            .filter(|s| !s.is_empty())
-            .filter_map(|s| s.parse().ok())
-            .collect();
+    } else if let Some(inner) = s.strip_prefix("rotate(").and_then(|s| s.strip_suffix(')')) {
+        let nums = parse_nums(inner);
         let angle = nums.first().copied().unwrap_or(0.0).to_radians();
         let cos_a = angle.cos();
         let sin_a = angle.sin();
