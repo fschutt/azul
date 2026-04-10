@@ -1527,7 +1527,6 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-
         // scan all properties that could have changed because of addition / removal
         let v = nodes
             .iter()
@@ -1645,7 +1644,6 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-
         // scan all properties that could have changed because of addition / removal
         let v = nodes
             .iter()
@@ -1745,15 +1743,13 @@ impl StyledDom {
         nodes: &[NodeId],
         new_focus_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        
         // save the old node state
         let old_node_states = nodes
             .iter()
             .map(|nid| {
-                let state = self.styled_nodes.as_container()[*nid]
+                self.styled_nodes.as_container()[*nid]
                     .styled_node_state
-                    .clone();
-                state
+                    .clone()
             })
             .collect::<Vec<_>>();
 
@@ -1767,7 +1763,6 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-
         // scan all properties that could have changed because of addition / removal
         let v = nodes
             .iter()
@@ -1777,13 +1772,11 @@ impl StyledDom {
                     css_property_cache.css_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Focus,
                 ).collect();
-                
 
                 let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
                     css_property_cache.cascaded_props.get_slice(node_id.index()),
                     azul_css::dynamic_selector::PseudoStateType::Focus,
                 ).collect();
-                
 
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
@@ -1808,7 +1801,6 @@ impl StyledDom {
                 keys_normal.append(&mut keys_inline_ref);
 
                 let node_properties_that_could_have_changed = keys_normal;
-
 
                 if node_properties_that_could_have_changed.is_empty() {
                     return None;
@@ -2128,7 +2120,7 @@ impl StyledDom {
         for (parent_id, (last_child, parent_depth)) in should_print_close_tag_debug {
             should_print_close_tag_after_node
                 .entry(last_child)
-                .or_insert_with(|| Vec::new())
+                .or_default()
                 .push((parent_id, parent_depth));
         }
 
