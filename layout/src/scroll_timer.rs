@@ -37,7 +37,7 @@ use alloc::collections::BTreeMap;
 
 use azul_core::{
     callbacks::{TimerCallbackReturn, Update},
-    dom::{DomId, DomNodeId},
+    dom::DomId,
     geom::LogicalPosition,
     refany::RefAny,
     styled_dom::NodeHierarchyItemId,
@@ -55,6 +55,10 @@ use azul_css::props::style::scrollbar::{ScrollPhysics, OverflowScrolling, Oversc
 /// Older events beyond this limit are discarded to keep the physics
 /// simulation bounded and testable.
 const MAX_SCROLL_EVENTS_PER_TICK: usize = 100;
+
+/// Assumed framerate for converting between per-frame and per-second quantities.
+/// Used both in wheel impulse conversion and friction decay so the two stay coupled.
+const ASSUMED_FPS: f32 = 60.0;
 
 /// State stored in the timer's RefAny data.
 ///
@@ -110,12 +114,6 @@ impl ScrollPhysicsState {
             || !self.pending_positions.is_empty()
             || !self.pending_trackpad_positions.is_empty()
     }
-}
-
-// Destructor for RefAny
-fn scroll_physics_state_destructor(data: &mut RefAny) {
-    // RefAny handles Drop automatically, nothing special needed
-    let _ = data;
 }
 
 /// The scroll physics timer callback.
@@ -181,9 +179,9 @@ pub extern "C" fn scroll_physics_timer_callback(
                     .entry(key)
                     .or_insert_with(NodeScrollPhysics::default);
 
-                // Add impulse (delta is in pixels, convert to pixels/second at ~60fps)
-                node_physics.velocity.x += input.delta.x * wheel_multiplier * 60.0;
-                node_physics.velocity.y += input.delta.y * wheel_multiplier * 60.0;
+                // Add impulse (delta is in pixels, convert to pixels/second)
+                node_physics.velocity.x += input.delta.x * wheel_multiplier * ASSUMED_FPS;
+                node_physics.velocity.y += input.delta.y * wheel_multiplier * ASSUMED_FPS;
 
                 // Clamp to max velocity
                 node_physics.velocity.x = node_physics.velocity.x.clamp(-max_velocity, max_velocity);
@@ -297,19 +295,19 @@ pub extern "C" fn scroll_physics_timer_callback(
             // Allow overshoot with diminishing returns (elasticity)
             rubber_band_clamp(raw_new_x, 0.0, info.max_scroll_x, max_overscroll_distance, overscroll_elasticity)
         } else {
-            raw_new_x.max(0.0).min(info.max_scroll_x)
+            raw_new_x.clamp(0.0, info.max_scroll_x)
         };
 
         let new_y = if rubber_band_y && max_overscroll_distance > 0.0 {
             rubber_band_clamp(raw_new_y, 0.0, info.max_scroll_y, max_overscroll_distance, overscroll_elasticity)
         } else {
-            raw_new_y.max(0.0).min(info.max_scroll_y)
+            raw_new_y.clamp(0.0, info.max_scroll_y)
         };
 
         let new_pos = LogicalPosition { x: new_x, y: new_y };
 
         // Apply exponential friction decay
-        let decay = (-friction_rate * dt * 60.0).exp();
+        let decay = (-friction_rate * dt * ASSUMED_FPS).exp();
         node_physics.velocity.x *= decay;
         node_physics.velocity.y *= decay;
 
@@ -357,8 +355,8 @@ pub extern "C" fn scroll_physics_timer_callback(
     for ((dom_id, node_id), position) in direct_positions {
         let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
             Some(info) => LogicalPosition {
-                x: position.x.max(0.0).min(info.max_scroll_x),
-                y: position.y.max(0.0).min(info.max_scroll_y),
+                x: position.x.clamp(0.0, info.max_scroll_x),
+                y: position.y.clamp(0.0, info.max_scroll_y),
             },
             None => position,
         };
@@ -382,12 +380,12 @@ pub extern "C" fn scroll_physics_timer_callback(
                     x: if rubber_x {
                         rubber_band_clamp(position.x, 0.0, info.max_scroll_x, max_over, elasticity)
                     } else {
-                        position.x.max(0.0).min(info.max_scroll_x)
+                        position.x.clamp(0.0, info.max_scroll_x)
                     },
                     y: if rubber_y {
                         rubber_band_clamp(position.y, 0.0, info.max_scroll_y, max_over, elasticity)
                     } else {
-                        position.y.max(0.0).min(info.max_scroll_y)
+                        position.y.clamp(0.0, info.max_scroll_y)
                     },
                 }
             },
