@@ -1,9 +1,15 @@
-// extra string functions intended for C development
+//! C-compatible string formatting via `strfmt`.
+//!
+//! Provides [`FmtValue`], [`FmtArg`], and [`FmtArgVec`] for passing
+//! heterogeneous format arguments across FFI, and [`fmt_string`] as the
+//! main entry point. Used by `fluent.rs` and `icu.rs` for localization.
 
 use std::fmt;
 
 use azul_css::{AzString, StringVec, impl_option, impl_option_inner};
 
+/// A format argument value that can hold any primitive type or string.
+/// Used in [`FmtArg`] to pass typed values into `strfmt`-based formatting.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum FmtValue {
@@ -28,7 +34,7 @@ impl strfmt::DisplayStr for FmtValue {
     fn display_str(&self, f: &mut strfmt::Formatter<'_, '_>) -> strfmt::Result<()> {
         use strfmt::DisplayStr;
         match self {
-            FmtValue::Bool(v) => format!("{v:?}").display_str(f),
+            FmtValue::Bool(v) => format!("{v}").display_str(f),
             FmtValue::Uchar(v) => v.display_str(f),
             FmtValue::Schar(v) => v.display_str(f),
             FmtValue::Ushort(v) => v.display_str(f),
@@ -83,6 +89,7 @@ impl fmt::Display for FmtValue {
     }
 }
 
+/// A key-value pair mapping a format placeholder name to its value.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct FmtArg {
@@ -97,6 +104,8 @@ azul_css::impl_vec_debug!(FmtArg, FmtArgVec);
 azul_css::impl_vec_partialeq!(FmtArg, FmtArgVec);
 azul_css::impl_vec_partialord!(FmtArg, FmtArgVec);
 
+/// Formats `format` by substituting placeholders with values from `args`.
+/// Returns the error message as a string on failure (for C FFI ergonomics).
 pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;
     let format_map = args
