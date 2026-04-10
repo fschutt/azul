@@ -1,4 +1,7 @@
-// Azul-specific CSS properties for advanced layout features
+//! Azul-specific CSS properties for advanced layout features
+//!
+//! Defines `StyleExclusionMargin` (spacing between text and shape exclusions)
+//! and `StyleHyphenationLanguage` (BCP 47 language code for automatic hyphenation).
 
 use std::num::ParseFloatError;
 
@@ -147,9 +150,8 @@ impl Default for StyleHyphenationLanguage {
 }
 
 impl StyleHyphenationLanguage {
-    pub const fn is_initial(&self) -> bool {
-        // Cannot compare AzString in const context, so always return false
-        false
+    pub fn is_initial(&self) -> bool {
+        self.inner.as_str() == "en-US"
     }
 }
 
