@@ -1,3 +1,6 @@
+//! CSS string parsing utilities: parenthesized expressions, quote stripping,
+//! and comma/whitespace-aware splitting that respects nesting depth.
+
 use crate::props::basic::CssImageParseError;
 use crate::corety::AzString;
 
