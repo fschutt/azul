@@ -2,6 +2,7 @@
 //!
 //! Automatically selects between X11 and Wayland at runtime,
 //! or allows manual selection via environment variable.
+//! See [`BackendType`] and [`LinuxWindow::select_backend`] for the selection logic.
 
 pub mod common;
 pub mod registry;
@@ -98,17 +99,12 @@ impl LinuxWindow {
     pub fn new_with_resources(
         options: WindowCreateOptions,
         app_data: Arc<std::cell::RefCell<RefAny>>,
-        mut resources: Arc<AppResources>,
+        resources: Arc<AppResources>,
     ) -> Result<Self, WindowError> {
-        // Update the app_data in resources
-        let resources = Arc::new(AppResources {
-            app_data,
-            config: resources.config.clone(),
-            fc_cache: resources.fc_cache.clone(),
-            font_registry: resources.font_registry.clone(),
-            system_style: resources.system_style.clone(),
-            icon_provider: resources.icon_provider.clone(),
-        });
+        // Clone resources and update app_data
+        let mut updated = (*resources).clone();
+        updated.app_data = app_data;
+        let resources = Arc::new(updated);
 
         match Self::select_backend()? {
             BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new_with_resources(
@@ -168,6 +164,7 @@ impl LinuxWindow {
     }
 }
 
+/// Which display server protocol to use on Linux.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendType {
     X11,
