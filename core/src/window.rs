@@ -1,3 +1,20 @@
+//! Window configuration types, input state, and platform-specific options.
+//!
+//! This module defines the core types used by the windowing system:
+//!
+//! - **Window configuration**: [`WindowSize`], [`WindowFlags`], [`WindowPosition`],
+//!   [`RendererOptions`], [`PlatformSpecificOptions`]
+//! - **Input state**: [`KeyboardState`], [`MouseState`], [`TouchState`], [`CursorPosition`]
+//! - **Monitor/display info**: [`Monitor`], [`MonitorId`], [`VideoMode`]
+//! - **Virtual key codes**: [`VirtualKeyCode`], [`ScanCode`]
+//! - **Window icons**: [`WindowIcon`], [`TaskBarIcon`]
+//! - **Platform options**: [`WindowsWindowOptions`], [`LinuxWindowOptions`],
+//!   [`MacWindowOptions`], [`WasmWindowOptions`]
+//!
+//! These types are consumed by the platform shell backends in
+//! `dll/src/desktop/shell2/{windows,macos,linux}/` and by
+//! `layout/src/window_state.rs` for state management.
+
 #[cfg(not(feature = "std"))]
 use alloc::string::{String, ToString};
 use alloc::{
