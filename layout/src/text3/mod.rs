@@ -1,23 +1,15 @@
-use std::{
-    cmp::Ordering,
-    collections::{BTreeSet, HashMap},
-    hash::{Hash, Hasher},
-    mem::discriminant,
-    num::NonZeroUsize,
-    sync::{Arc, Mutex},
-};
-
-#[cfg(feature = "text_layout_hyphenation")]
-use hyphenation::{Hyphenator as _, Language, Load as _, Standard};
-use lru::LruCache;
-use rust_fontconfig::{
-    FcFontCache, FcPattern, FcWeight, FontId, FontMatch, PatternMatch, UnicodeRange,
-};
-// +spec:writing-modes:b05b03 - CSS relies on Unicode bidi algorithm (UAX #9) for bidirectional rendering
-use unicode_bidi::{get_base_direction, BidiInfo};
-use unicode_segmentation::UnicodeSegmentation;
-
-use crate::text3::script::Script;
+//! Text layout and shaping system.
+//!
+//! This module provides text shaping, inline layout, editing, selection,
+//! and font caching. Submodules:
+//!
+//! - `cache`: unified text layout cache (`UnifiedLayout`)
+//! - `default`: default text shaping and line-breaking
+//! - `edit`: text editing operations
+//! - `glyphs`: glyph positioning and cluster mapping
+//! - `knuth_plass`: Knuth-Plass line-breaking algorithm
+//! - `script`: Unicode script detection
+//! - `selection`: text selection and cursor utilities
 
 pub mod cache;
 pub mod default;
