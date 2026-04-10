@@ -466,9 +466,6 @@ pub fn wr_translate_scrollbar_hit_id(
 ) -> (webrender::api::ItemTag, webrender::api::units::LayoutPoint) {
     use azul_core::hit_test::ScrollbarHitId;
 
-    // TAG_TYPE_SCROLLBAR namespace marker
-    const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
-
     let (dom_id, node_id, component_type) = match hit_id {
         ScrollbarHitId::VerticalTrack(dom_id, node_id) => (dom_id, node_id, 0u16),
         ScrollbarHitId::VerticalThumb(dom_id, node_id) => (dom_id, node_id, 1u16),
@@ -493,8 +490,6 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
     tag: webrender::api::ItemTag,
 ) -> Option<azul_core::hit_test::ScrollbarHitId> {
     use azul_core::{dom::DomId, hit_test::ScrollbarHitId, id::NodeId};
-
-    const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 
     let (tag_value, tag_type) = tag;
     
@@ -648,11 +643,6 @@ pub fn fullhittest_new_webrender(
                 cursor_relative_to_dom.y * hidpi_factor.inner.get(),
             );
             let wr_result = wr_hittester.hit_test(physical_pos);
-            // TAG_TYPE constants for filtering hit test results
-            const TAG_TYPE_DOM_NODE: u16 = 0x0100;
-            const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
-            const TAG_TYPE_CURSOR: u16 = 0x0400;
-            const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
             // Detect items from foreign pipelines (VirtualView child DOMs).
             // WebRender returns ALL pipeline items together but when cursor
@@ -755,7 +745,7 @@ pub fn fullhittest_new_webrender(
             // First pass: Process scroll container tags (TAG_TYPE_SCROLL_CONTAINER = 0x0500)
             // These are hit-test areas for scrollable containers, enabling trackpad/wheel scrolling
             // Only process items from this DOM's pipeline.
-            for (depth, i) in wr_result.items.iter().enumerate() {
+            for (_depth, i) in wr_result.items.iter().enumerate() {
                 if i.pipeline != wr_translate_pipeline_id(PipelineId(
                     dom_id.inner as u32, document_id.id)) {
                     continue;
@@ -1030,11 +1020,16 @@ pub fn fullhittest_new_webrender(
     ret
 }
 
-// DISPLAY LIST TRANSLATION STUBS
-//
-// These functions are stubs for now and will be fully implemented later.
-// They provide the basic structure for translating azul layout results
-// to WebRender display lists and managing frames.
+// Display list translation and resource management
+
+/// Hit-test tag type: regular DOM node (tag.1 upper byte)
+const TAG_TYPE_DOM_NODE: u16 = 0x0100;
+/// Hit-test tag type: scrollbar component (tag.1 upper byte)
+const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
+/// Hit-test tag type: cursor style (tag.1 upper byte)
+const TAG_TYPE_CURSOR: u16 = 0x0400;
+/// Hit-test tag type: scroll container (tag.1 upper byte)
+const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
 use std::collections::{HashMap, HashSet};
 
@@ -1057,19 +1052,6 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
         namespace: azul_core::resources::IdNamespace(namespace),
         key,
     }
-}
-
-/// Collect all fonts used in layout results and generate ResourceUpdates
-///
-/// Helper function to store GL textures - used as function pointer
-fn store_gl_texture(
-    _doc_id: azul_core::hit_test::DocumentId,
-    _epoch: azul_core::resources::Epoch,
-    _texture: azul_core::gl::Texture,
-) -> azul_core::resources::ExternalImageId {
-    // TODO: Actually store the texture in gl_texture_cache
-    // For now, just generate a unique ID
-    azul_core::resources::ExternalImageId::new()
 }
 
 /// Collects all ImageRefs from display lists and creates AddImage ResourceUpdates
@@ -1508,23 +1490,6 @@ fn wr_translate_image_descriptor(descriptor: &azul_core::resources::ImageDescrip
         offset: descriptor.offset,
         flags,
     }
-}
-
-/// Collect all ImageRefs used in a display list
-fn collect_image_refs_from_display_list(
-    display_list: &azul_layout::solver3::display_list::DisplayList,
-) -> Vec<ImageRef> {
-    use azul_layout::solver3::display_list::DisplayListItem;
-
-    let mut image_refs = Vec::new();
-
-    for item in &display_list.items {
-        if let DisplayListItem::Image { image, .. } = item {
-            image_refs.push(image.clone());
-        }
-    }
-
-    image_refs
 }
 
 /// Translate FontKey from azul-core to WebRender
