@@ -222,7 +222,7 @@ fn get_all_hovered_nodes(
 
 /// Comprehensive event determination including mouse, keyboard, and gesture events.
 ///
-/// This is the full replacement for `create_events_from_states_with_gestures()`.
+/// This is the primary event determination function.
 /// It generates SyntheticEvents for all event types including:
 ///
 /// - Mouse button events (down/up for left/right/middle)
@@ -641,7 +641,7 @@ pub fn determine_all_events(
 
     // File Drop Events
 
-    if let Some(_hovered_file) = file_drop_manager.get_hovered_file() {
+    if file_drop_manager.get_hovered_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileHover,
             EventSource::User,
@@ -667,7 +667,7 @@ pub fn determine_all_events(
         let event_was_mouse_release = !current_mouse_down && previous_mouse_down;
 
         // Detect DragStart (targeted at hovered node)
-        if let Some(_detected_drag) = manager.detect_drag() {
+        if manager.detect_drag().is_some() {
             if !manager.is_dragging() {
                 events.push(SyntheticEvent::new(
                     EventType::DragStart,
