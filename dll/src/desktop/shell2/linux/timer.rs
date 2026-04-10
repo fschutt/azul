@@ -34,7 +34,9 @@ pub fn start_timerfd(
                 },
             };
             if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) == 0 {
-                timer_fds.insert(timer_id, fd);
+                if let Some(old_fd) = timer_fds.insert(timer_id, fd) {
+                    libc::close(old_fd);
+                }
                 log_debug!(
                     LogCategory::Timer,
                     "[{}] Created timerfd {} for timer {} (interval {}ms)",
@@ -56,7 +58,7 @@ pub fn start_timerfd(
                 LogCategory::Timer,
                 "[{}] Failed to create timerfd: errno={}",
                 backend_name,
-                *libc::__errno_location()
+                std::io::Error::last_os_error()
             );
         }
     }
