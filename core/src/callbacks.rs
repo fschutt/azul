@@ -88,8 +88,8 @@ impl Update {
 /// The indirection is necessary because of the memory management
 /// around the C API
 ///
-/// See azul-core/ui_state.rs:298 for how the memory is managed
-/// across the callback boundary.
+/// The memory management across the callback boundary is handled by
+/// the caller (see `LayoutCallback` and `LayoutCallbackInfo`).
 pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> crate::dom::Dom;
 
 extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> crate::dom::Dom {
@@ -603,7 +603,7 @@ impl LayoutCallbackInfo {
             .filter_map(|(pattern, font_id)| {
                 let source = fc_cache.get_font_by_id(font_id)?;
                 match source {
-                    FontSource::Memory(f) => None,
+                    FontSource::Memory(_) => None,
                     FontSource::Disk(d) => Some((pattern.name.as_ref()?.clone(), d.path.clone())),
                 }
             })
@@ -677,9 +677,9 @@ impl LayoutCallbackInfo {
         self.window_size.dimensions.height
     }
 
-    /// Returns the current window DPI factor
+    /// Returns the current window DPI scale factor (1.0 = 96 DPI, 2.0 = 192 DPI)
     pub fn get_dpi_factor(&self) -> f32 {
-        self.window_size.dpi as f32
+        self.window_size.dpi as f32 / 96.0
     }
 }
 
@@ -714,7 +714,7 @@ impl HidpiAdjustedBounds {
     }
 
     pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
-        self.hidpi_factor.clone()
+        self.hidpi_factor
     }
 }
 
@@ -749,7 +749,6 @@ pub struct FocusTargetPath {
 // use unsafe code to transmute between usize and the real function pointers.
 //
 // IMPORTANT: The memory layout must be identical to the real types!
-// Tests for this are in azul-layout/src/callbacks.rs
 //
 // Naming convention: "Core" prefix indicates these are the low-level types
 
