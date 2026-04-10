@@ -56,8 +56,6 @@ mod icu_macos;
 #[path = "icu_windows.rs"]
 mod icu_windows;
 
-// Import FmtArg types from fmt module for format_string_icu
-use crate::fmt::{FmtArg, FmtArgVec, FmtValue};
 
 // Re-export ICU4X locale/plural types (only available with the ICU4X backend)
 #[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
@@ -908,7 +906,10 @@ impl Clone for IcuLocalizer {
 
 // Thread-safe wrapper for use in callbacks
 
-/// Inner data for IcuLocalizerHandle - contains the actual cache and settings.
+/// Inner data for `IcuLocalizerHandle` — contains the locale cache and default locale.
+///
+/// This is heap-allocated and shared via manual reference counting in
+/// `IcuLocalizerHandle` for FFI compatibility.
 pub struct IcuLocalizerInner {
     cache: Mutex<BTreeMap<String, IcuLocalizer>>,
     /// Default locale to use when none is specified
@@ -1328,69 +1329,6 @@ impl IcuLocalizerHandle {
     }
 }
 
-// ============================================================================
-// IcuFormattedValue: Wrapper for strfmt integration
-// ============================================================================
-
-/// Wrapper that formats FmtValue using ICU localization.
-///
-/// Used internally for format_string functionality.
-struct IcuFormattedValue {
-    value: FmtValue,
-    localizer: IcuLocalizerHandle,
-    locale: String,
-}
-
-impl strfmt::DisplayStr for IcuFormattedValue {
-    fn display_str(&self, f: &mut strfmt::Formatter<'_, '_>) -> strfmt::Result<()> {
-        use strfmt::DisplayStr;
-
-        match &self.value {
-            // For integers, use ICU formatting
-            FmtValue::Uint(v) => {
-                self.localizer.format_integer(&self.locale, *v as i64).as_str().display_str(f)
-            }
-            FmtValue::Sint(v) => {
-                self.localizer.format_integer(&self.locale, *v as i64).as_str().display_str(f)
-            }
-            FmtValue::Ulong(v) => {
-                self.localizer.format_integer(&self.locale, *v as i64).as_str().display_str(f)
-            }
-            FmtValue::Slong(v) => {
-                self.localizer.format_integer(&self.locale, *v).as_str().display_str(f)
-            }
-            FmtValue::Usize(v) => {
-                self.localizer.format_integer(&self.locale, *v as i64).as_str().display_str(f)
-            }
-            FmtValue::Isize(v) => {
-                self.localizer.format_integer(&self.locale, *v as i64).as_str().display_str(f)
-            }
-            // For floats, use decimal formatting (2 decimal places by default)
-            FmtValue::Float(v) => {
-                // Convert to integer representation with 2 decimal places
-                let int_part = (*v * 100.0) as i64;
-                self.localizer.format_decimal(&self.locale, int_part, 2).as_str().display_str(f)
-            }
-            FmtValue::Double(v) => {
-                // Convert to integer representation with 2 decimal places
-                let int_part = (*v * 100.0) as i64;
-                self.localizer.format_decimal(&self.locale, int_part, 2).as_str().display_str(f)
-            }
-            // For string lists, use ICU list formatting
-            FmtValue::StrVec(sv) => {
-                let items: Vec<AzString> = sv.as_ref().iter().cloned().collect();
-                self.localizer.format_list(&self.locale, &items, ListType::And).as_str().display_str(f)
-            }
-            // Other types use standard formatting
-            FmtValue::Bool(v) => format!("{v:?}").display_str(f),
-            FmtValue::Uchar(v) => v.display_str(f),
-            FmtValue::Schar(v) => v.display_str(f),
-            FmtValue::Ushort(v) => v.display_str(f),
-            FmtValue::Sshort(v) => v.display_str(f),
-            FmtValue::Str(v) => v.as_str().display_str(f),
-        }
-    }
-}
 
 // C-compatible Vec types for FFI
 
