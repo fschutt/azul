@@ -18,6 +18,7 @@ use azul_css::{
 
 use crate::callbacks::{Callback, CallbackInfo};
 
+/// Rectangular input that displays a color and triggers a callback when clicked.
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct ColorInput {
@@ -25,6 +26,7 @@ pub struct ColorInput {
     pub style: CssPropertyWithConditionsVec,
 }
 
+/// Callback function type invoked when the color input value changes.
 pub type ColorInputOnValueChangeCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ColorInputState) -> Update;
 impl_widget_callback!(
@@ -34,6 +36,7 @@ impl_widget_callback!(
     ColorInputOnValueChangeCallbackType
 );
 
+/// Wrapper around [`ColorInputState`] that includes a title and an optional value-change callback.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ColorInputStateWrapper {
@@ -52,6 +55,7 @@ impl Default for ColorInputStateWrapper {
     }
 }
 
+/// Holds the current color value of a [`ColorInput`] widget.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
 pub struct ColorInputState {
@@ -80,20 +84,19 @@ static DEFAULT_COLOR_INPUT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 impl ColorInput {
+    /// Creates a new `ColorInput` displaying the given color.
     #[inline]
     pub fn create(color: ColorU) -> Self {
         Self {
             color_input_state: ColorInputStateWrapper {
-                inner: ColorInputState {
-                    color,
-                    ..Default::default()
-                },
+                inner: ColorInputState { color },
                 ..Default::default()
             },
             style: CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
         }
     }
 
+    /// Sets the callback invoked when the color value changes.
     #[inline]
     pub fn set_on_value_change<I: Into<ColorInputOnValueChangeCallback>>(
         &mut self,
@@ -107,6 +110,7 @@ impl ColorInput {
         .into();
     }
 
+    /// Builder-style method to set the value-change callback.
     #[inline]
     pub fn with_on_value_change<C: Into<ColorInputOnValueChangeCallback>>(
         mut self,
@@ -117,6 +121,7 @@ impl ColorInput {
         self
     }
 
+    /// Replaces `self` with a default `ColorInput` and returns the previous value.
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
@@ -124,6 +129,7 @@ impl ColorInput {
         s
     }
 
+    /// Converts this `ColorInput` into a styled [`Dom`] node with a click callback.
     #[inline]
     pub fn dom(self) -> Dom {
         use azul_core::{
@@ -167,19 +173,15 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
     // Color picker dialog is not available in azul_layout
     // The user must provide their own color picker callback via on_value_change
     // For now, just trigger the callback with the current color
-    let result = {
-        let color_input = &mut *color_input;
-        let onvaluechange = &mut color_input.on_value_change;
-        let inner = color_input.inner.clone();
+    let color_input = &mut *color_input;
+    let onvaluechange = &mut color_input.on_value_change;
+    let inner = color_input.inner.clone();
 
-        match onvaluechange.as_mut() {
-            Some(ColorInputOnValueChange {
-                callback,
-                refany: data,
-            }) => (callback.cb)(data.clone(), info.clone(), inner),
-            None => Update::DoNothing,
-        }
-    };
-
-    result
+    match onvaluechange.as_mut() {
+        Some(ColorInputOnValueChange {
+            callback,
+            refany: data,
+        }) => (callback.cb)(data.clone(), info.clone(), inner),
+        None => Update::DoNothing,
+    }
 }
