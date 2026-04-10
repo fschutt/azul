@@ -141,7 +141,6 @@ impl NodeUndoRedoStack {
     }
 
     /// Check if undo is available
-    /// Check if undo is available
     pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty()
     }
@@ -180,20 +179,12 @@ impl UndoRedoManager {
 
     /// Get or create a stack for a specific node
     pub fn get_or_create_stack_mut(&mut self, node_id: NodeId) -> &mut NodeUndoRedoStack {
-        // Check if stack exists
-        let stack_exists = self.node_stacks.iter().any(|s| s.node_id == node_id);
-
-        if !stack_exists {
-            // Create new stack
-            let stack = NodeUndoRedoStack::new(node_id);
-            self.node_stacks.push(stack);
+        if let Some(pos) = self.node_stacks.iter().position(|s| s.node_id == node_id) {
+            &mut self.node_stacks[pos]
+        } else {
+            self.node_stacks.push(NodeUndoRedoStack::new(node_id));
+            self.node_stacks.last_mut().unwrap()
         }
-
-        // Now find and return the stack (guaranteed to exist)
-        self.node_stacks
-            .iter_mut()
-            .find(|s| s.node_id == node_id)
-            .unwrap()
     }
 
     /// Get a stack for a specific node (immutable)
