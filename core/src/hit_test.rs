@@ -1,3 +1,7 @@
+//! Hit-test result types for determining which DOM nodes are under the cursor,
+//! scroll state tracking, and pipeline/document identification. These types
+//! feed into the event dispatch system.
+
 use alloc::collections::BTreeMap;
 use core::{
     fmt,
@@ -15,6 +19,8 @@ use crate::{
     FastHashMap,
 };
 
+/// Result of a hit test against a single DOM, containing all nodes hit
+/// by the cursor along with scroll, scrollbar, and cursor-type information.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct HitTest {
     pub regular_hit_test_nodes: BTreeMap<NodeId, HitTestItem>,
@@ -71,6 +77,7 @@ pub struct ScrollbarHitTestItem {
     pub orientation: ScrollbarOrientation,
 }
 
+/// Scroll frame identifier combining a unique `u64` tag with its owning `PipelineId`.
 #[derive(Copy, Clone, Eq, Hash, PartialEq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
@@ -87,6 +94,8 @@ impl ::core::fmt::Debug for ExternalScrollId {
     }
 }
 
+/// Tracks which nodes overflow their parent and need scroll handling,
+/// along with nodes that clip their children.
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrolledNodes {
     pub overflowing_nodes: BTreeMap<NodeHierarchyItemId, OverflowingScrollNode>,
@@ -96,6 +105,7 @@ pub struct ScrolledNodes {
     pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeHierarchyItemId>,
 }
 
+/// A node whose content overflows its parent, requiring scroll handling.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct OverflowingScrollNode {
     pub parent_rect: LogicalRect,
@@ -137,6 +147,7 @@ pub struct ScrollPosition {
     pub children_rect: LogicalRect,
 }
 
+/// Identifies a document within a namespace, used for multi-document rendering.
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct DocumentId {
     pub namespace_id: IdNamespace,
@@ -159,6 +170,7 @@ impl ::core::fmt::Debug for DocumentId {
     }
 }
 
+/// Identifies a rendering pipeline by source and sequence number.
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
@@ -187,6 +199,7 @@ impl PipelineId {
     }
 }
 
+/// A single hit-test result for a regular (non-scroll) DOM node.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct HitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
@@ -206,6 +219,7 @@ pub struct HitTestItem {
     pub hit_depth: u32,
 }
 
+/// A hit-test result for a scrollable DOM node.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollHitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
@@ -219,6 +233,7 @@ pub struct ScrollHitTestItem {
     pub scroll_node: OverflowingScrollNode,
 }
 
+/// Map of active scroll states, keyed by their external scroll ID.
 #[derive(Debug, Default)]
 pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
 
@@ -283,6 +298,7 @@ impl ScrollStates {
     }
 }
 
+/// Current scroll position for a single scroll frame.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ScrollState {
@@ -327,12 +343,14 @@ impl Default for ScrollState {
     }
 }
 
+/// Complete hit-test result across all DOMs, including the currently focused node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
     pub focused_node: OptionDomNodeId,
 }
 
+/// A hovered node entry from a full hit test, pairing a DOM ID with its hit-test result.
 pub struct FullHitTestHoveredNode {
     pub dom_id: DomId,
     pub hit_test: HitTest,
@@ -354,12 +372,13 @@ impl FullHitTest {
         }
     }
 
-    /// Check if no nodes were hit
+    /// Returns `true` if no nodes were hovered (ignores `focused_node`).
     pub fn is_empty(&self) -> bool {
         self.hovered_nodes.is_empty()
     }
 }
 
+/// Result of determining which mouse cursor icon to display based on hit-test results.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CursorTypeHitTest {
     /// closest-node is used for determining the cursor: property
