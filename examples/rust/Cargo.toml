@@ -17,7 +17,7 @@ publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false }
-azul_css = { path = "../../css", package = "azul-css", default-features = false }
+azul_css = { path = "../../css", package = "azul-css", default-features = false, optional = true }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
@@ -25,11 +25,11 @@ serde_json = { version = "1", optional = true }
 [features]
 default = ["link-static"]
 serde_support = ["serde", "serde_derive", "serde_json"]
-link-static = ["azul/link-static"]
+link-static = ["azul/link-static", "azul_css"]
 link-dynamic = ["azul/link-dynamic"]
 web = ["azul/web"]
-icu = ["azul/icu"]
-fluent = ["azul/fluent"]
+icu = ["azul/icu", "azul_css"]
+fluent = ["azul/fluent", "azul_css"]
 http = ["azul/http"]
 zip_support = ["azul/zip_support"]
 

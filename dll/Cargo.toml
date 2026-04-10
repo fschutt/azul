@@ -56,55 +56,54 @@ strum = { version = "0.28", default-features = false, optional = true }
 # SPMC channel for debug server → window timer communication
 spmc = { version = "0.3", optional = true }
 
-# Always required
-cfg-if = "1.0"
+cfg-if = { version = "1.0", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+libc = { version = "0.2", optional = true }
 x11-clipboard = { version = "0.9.3", optional = true }
 accesskit_unix = { version = "0.21", optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
-objc = "0.2"
-objc-foundation = "0.1"
-objc_id = "0.1"
+objc = { version = "0.2", optional = true }
+objc-foundation = { version = "0.1", optional = true }
+objc_id = { version = "0.1", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3.9", default-features = false, features = [
-    "windowsx", 
-    "libloaderapi", 
-    "errhandlingapi", 
-    "winuser", 
-    "uxtheme", 
-    "dwmapi", 
-    "wingdi", 
+winapi = { version = "0.3.9", optional = true, default-features = false, features = [
+    "windowsx",
+    "libloaderapi",
+    "errhandlingapi",
+    "winuser",
+    "uxtheme",
+    "dwmapi",
+    "wingdi",
     "commdlg"
 ] }
 clipboard-win = { version = "5.4", optional = true }
 accesskit_windows = { version = "0.32", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cgl = "0.3.2"
-dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"] }
-objc2 = "0.6.0"
-objc = "0.2"
-objc-foundation = "0.1"
-objc_id = "0.1"
-block2 = "0.6.0"
-libloading = "0.8.6"
+cgl = { version = "0.3.2", optional = true }
+dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"], optional = true }
+objc2 = { version = "0.6.0", optional = true }
+objc = { version = "0.2", optional = true }
+objc-foundation = { version = "0.1", optional = true }
+objc_id = { version = "0.1", optional = true }
+block2 = { version = "0.6.0", optional = true }
+libloading = { version = "0.8.6", optional = true }
 accesskit_macos = { version = "0.26", optional = true }
-objc2-core-foundation = { version = "0.3.0", default-features = true, features = [
+objc2-core-foundation = { version = "0.3.0", default-features = true, optional = true, features = [
     "std",
     "CFBase",
     "CFString",
     "CFBundle",
 ] }
-objc2-foundation = { version = "0.3.0", default-features = true, features = [
+objc2-foundation = { version = "0.3.0", default-features = true, optional = true, features = [
     "std",
     "NSArray",
     "NSThread",
 ] }
-objc2-app-kit = { version = "0.3.0", default-features = true, features = [
+objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, features = [
     "std",
     "objc2-core-foundation",
     "NSApplication",
@@ -185,6 +184,21 @@ build-dll = [
     "json",
     # Icon provider support
     "icons",
+    # Platform-specific deps (optional, only linked on matching OS)
+    "cfg-if",
+    "cgl",
+    "dispatch2",
+    "objc2",
+    "objc",
+    "objc-foundation",
+    "objc_id",
+    "block2",
+    "libloading",
+    "objc2-core-foundation",
+    "objc2-foundation",
+    "objc2-app-kit",
+    "libc",
+    "winapi",
 ]
 
 # -----------------------------------------------------------------------------
@@ -236,6 +250,21 @@ link-static = [
     "json",
     # Icon provider support
     "icons",
+    # Platform-specific deps (optional, only linked on matching OS)
+    "cfg-if",
+    "cgl",
+    "dispatch2",
+    "objc2",
+    "objc",
+    "objc-foundation",
+    "objc_id",
+    "block2",
+    "libloading",
+    "objc2-core-foundation",
+    "objc2-foundation",
+    "objc2-app-kit",
+    "libc",
+    "winapi",
 ]
 
 # Dynamic linking: Include extern "C" declarations
