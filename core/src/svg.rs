@@ -546,10 +546,10 @@ impl SvgSimpleNode {
     pub fn is_closed(&self) -> bool {
         match self {
             SvgSimpleNode::Path(a) => a.is_closed(),
-            SvgSimpleNode::Circle(a) => true,
-            SvgSimpleNode::Rect(a) => true,
-            SvgSimpleNode::CircleHole(a) => true,
-            SvgSimpleNode::RectHole(a) => true,
+            SvgSimpleNode::Circle(_) => true,
+            SvgSimpleNode::Rect(_) => true,
+            SvgSimpleNode::CircleHole(_) => true,
+            SvgSimpleNode::RectHole(_) => true,
         }
     }
 }
@@ -621,8 +621,8 @@ impl SvgNode {
                 true
             }
             SvgNode::Path(a) => a.is_closed(),
-            SvgNode::Circle(a) => true,
-            SvgNode::Rect(a) => true,
+            SvgNode::Circle(_) => true,
+            SvgNode::Rect(_) => true,
         }
     }
 }
