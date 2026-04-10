@@ -30,10 +30,9 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use azul_core::callbacks::LayoutCallbackInfo;
 use azul_core::refany::RefAny;
 use azul_core::resources::{AppConfig, RouteMatch};
-use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
+use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
