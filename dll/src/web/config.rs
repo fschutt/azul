@@ -1,4 +1,7 @@
 //! Parse `AZ_BACKEND=web://ip:port` URL format.
+//!
+//! Used by the backend selection logic in `compositor.rs` when parsing
+//! the `AZ_BACKEND` environment variable to configure the web backend.
 
 use std::net::SocketAddr;
 
@@ -15,7 +18,7 @@ pub fn parse_web_url(s: &str) -> Option<SocketAddr> {
     let s = s.trim();
 
     // Strip the web:// prefix (case-insensitive)
-    let addr_str = if s.len() > 6 && s[..6].eq_ignore_ascii_case("web://") {
+    let addr_str = if s.get(..6).map_or(false, |p| p.eq_ignore_ascii_case("web://")) {
         &s[6..]
     } else {
         return None;
