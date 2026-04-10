@@ -1,3 +1,9 @@
+//! Image decoding and encoding utilities, wrapping the `image` crate
+//! with Azul's FFI-compatible types (`RawImage`, `RawImageFormat`).
+//!
+//! - [`decode`]: Decodes image bytes in any supported format into a [`RawImage`].
+//! - [`encode`]: Encodes a [`RawImage`] into various output formats (PNG, JPEG, BMP, etc.).
+
 #[cfg(feature = "std")]
 pub mod decode {
     use core::fmt;
@@ -9,6 +15,7 @@ pub mod decode {
         DynamicImage,
     };
 
+    /// Errors that can occur when decoding an image from raw bytes.
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
     #[repr(C)]
     pub enum DecodeImageError {
@@ -56,6 +63,10 @@ pub mod decode {
         [Debug, Clone]
     );
 
+    /// Decodes image bytes in any supported format into a [`RawImage`].
+    ///
+    /// The image format is guessed from the byte contents. Returns the decoded
+    /// pixel data along with dimensions and format information.
     pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
         use azul_core::resources::RawImageData;
 
@@ -151,9 +162,7 @@ pub mod encode {
     use image::codecs::bmp::BmpEncoder;
     #[cfg(feature = "gif")]
     use image::codecs::gif::GifEncoder;
-    #[cfg(feature = "hdr")]
-    use image::codecs::hdr::HdrEncoder;
-    #[cfg(feature = "jpeg")]
+#[cfg(feature = "jpeg")]
     use image::codecs::jpeg::JpegEncoder;
     #[cfg(feature = "png")]
     use image::codecs::png::PngEncoder;
@@ -165,6 +174,7 @@ pub mod encode {
     use image::codecs::tiff::TiffEncoder;
     use image::error::{ImageError, LimitError, LimitErrorKind};
 
+    /// Errors that can occur when encoding a [`RawImage`] into a specific format.
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
     #[repr(C)]
     pub enum EncodeImageError {
