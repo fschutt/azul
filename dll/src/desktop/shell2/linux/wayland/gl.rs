@@ -1,12 +1,10 @@
 //! EGL context management for Wayland.
+//!
+//! Provides [`GlContext`] which wraps EGL display, context, and surface
+//! for OpenGL rendering on Wayland. EGL function pointers are loaded
+//! via [`Egl`](crate::desktop::shell2::linux::x11::dlopen::Egl).
 
-use std::{
-    ffi::{c_void, CString},
-    mem,
-    rc::Rc,
-};
-
-use gl_context_loader::GenericGlContext;
+use std::rc::Rc;
 
 use super::{
     defines::*,
@@ -17,6 +15,7 @@ use crate::desktop::shell2::{
     linux::x11::dlopen::Egl,
 };
 
+/// EGL-based OpenGL context for a Wayland surface.
 pub struct GlContext {
     pub egl: Option<Rc<Egl>>,
     pub egl_display: Option<EGLDisplay>,
@@ -38,6 +37,7 @@ impl Default for GlContext {
 }
 
 impl GlContext {
+    /// Creates a new EGL context for the given Wayland display and surface.
     pub fn new(
         wayland: &Rc<Wayland>,
         display: *mut wl_display,
@@ -163,6 +163,7 @@ impl GlContext {
         }
     }
 
+    /// Makes this EGL context current for the calling thread.
     pub fn make_current(&self) {
         if let (Some(egl), Some(display), Some(surface), Some(context)) = (
             self.egl.as_ref(),
@@ -174,6 +175,7 @@ impl GlContext {
         }
     }
 
+    /// Swaps the front and back buffers for the EGL surface.
     pub fn swap_buffers(&self) -> Result<(), WindowError> {
         if let (Some(egl), Some(display), Some(surface)) =
             (self.egl.as_ref(), self.egl_display, self.egl_surface)
@@ -185,6 +187,7 @@ impl GlContext {
         Ok(())
     }
 
+    /// Resizes the underlying `wl_egl_window` to the given dimensions.
     pub fn resize(&self, wayland: &Rc<Wayland>, width: i32, height: i32) {
         if let Some(wl_egl_window) = self.wl_egl_window {
             unsafe { (wayland.wl_egl_window_resize)(wl_egl_window, width, height, 0, 0) };
