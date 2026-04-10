@@ -1,6 +1,9 @@
 //! Menu Conversion - Azul Menu → DBus Format
 //!
-//! Converts Azul's Menu structure to the DBus format expected by GNOME Shell.
+//! Converts Azul's hierarchical `Menu` tree into the flat `DbusMenuGroup` /
+//! `DbusAction` lists expected by GNOME Shell's application menu protocol.
+//! Uses a two-pass approach: first converts menu items per level, then
+//! recursively processes submenus into additional groups.
 
 use std::sync::Arc;
 
@@ -11,7 +14,11 @@ use super::{
     GnomeMenuError,
 };
 
-/// Menu conversion utilities
+/// Converts an Azul `Menu` tree into flat `DbusMenuGroup` and `DbusAction`
+/// lists for the GNOME Shell application menu DBus protocol.
+///
+/// This is a unit struct used as a namespace for the conversion functions
+/// [`convert_menu`](Self::convert_menu) and [`extract_actions`](Self::extract_actions).
 #[derive(Copy, Clone)]
 pub struct MenuConversion;
 
