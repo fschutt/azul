@@ -1,3 +1,6 @@
+//! Windows OpenGL function loading via `wglGetProcAddress` and `opengl32.dll`,
+//! plus WGL extension function bootstrapping via a dummy context.
+
 use alloc::rc::Rc;
 use core::{fmt, mem, ptr};
 
@@ -12,7 +15,7 @@ use super::{
     wcreate::CLASS_NAME,
 };
 
-// Load a DLL by name, returns None if loading fails
+/// Loads a DLL by name, returns `None` if loading fails.
 fn load_dll(name: &str) -> Option<HINSTANCE> {
     use winapi::um::libloaderapi::LoadLibraryA;
 
@@ -32,7 +35,7 @@ fn load_dll(name: &str) -> Option<HINSTANCE> {
     }
 }
 
-// OpenGL functions from wglGetProcAddress OR loaded from opengl32.dll
+/// OpenGL functions from `wglGetProcAddress` OR loaded from `opengl32.dll`.
 pub struct GlFunctions {
     pub _opengl32_dll_handle: Option<HINSTANCE>,
     pub functions: Rc<GenericGlContext>, // implements Rc<dyn gleam::Gl>!
@@ -40,13 +43,13 @@ pub struct GlFunctions {
 
 impl fmt::Debug for GlFunctions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self._opengl32_dll_handle.map(|f| f as usize).fmt(f)?;
+        self._opengl32_dll_handle.map(|s| s as *const () as usize).fmt(f)?;
         Ok(())
     }
 }
 
 impl GlFunctions {
-    // Initializes the DLL, but does not load the functions yet
+    /// Initializes the DLL, but does not load the functions yet.
     pub fn initialize() -> Self {
         // zero-initialize all function pointers
         let context: GenericGlContext = unsafe { mem::zeroed() };
@@ -59,7 +62,7 @@ impl GlFunctions {
         }
     }
 
-    // Assuming the OpenGL context is current, loads the OpenGL function pointers
+    /// Assuming the OpenGL context is current, loads the OpenGL function pointers.
     pub fn load(&mut self) {
         fn get_func(s: &str, opengl32_dll: Option<HINSTANCE>) -> *mut gl_context_loader::c_void {
             use winapi::um::{libloaderapi::GetProcAddress, wingdi::wglGetProcAddress};
@@ -981,6 +984,7 @@ impl Drop for GlFunctions {
     }
 }
 
+/// Extra WGL extension functions loaded via a dummy OpenGL context.
 #[derive(Default)]
 pub struct ExtraWglFunctions {
     pub wglCreateContextAttribsARB: Option<extern "system" fn(HDC, HGLRC, *const i32) -> HGLRC>,
@@ -991,13 +995,14 @@ pub struct ExtraWglFunctions {
 
 impl fmt::Debug for ExtraWglFunctions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.wglCreateContextAttribsARB.map(|f| f as usize).fmt(f)?;
-        self.wglSwapIntervalEXT.map(|f| f as usize).fmt(f)?;
-        self.wglChoosePixelFormatARB.map(|f| f as usize).fmt(f)?;
+        self.wglCreateContextAttribsARB.map(|p| p as *const () as usize).fmt(f)?;
+        self.wglSwapIntervalEXT.map(|p| p as *const () as usize).fmt(f)?;
+        self.wglChoosePixelFormatARB.map(|p| p as *const () as usize).fmt(f)?;
         Ok(())
     }
 }
 
+/// Errors that can occur when loading WGL extension functions.
 #[derive(Debug, Copy, Clone)]
 pub enum ExtraWglFunctionsLoadError {
     FailedToCreateDummyWindow,
@@ -1008,6 +1013,7 @@ pub enum ExtraWglFunctionsLoadError {
 }
 
 impl ExtraWglFunctions {
+    /// Creates a dummy OpenGL context to load WGL extension function pointers.
     pub fn load() -> Result<Self, ExtraWglFunctionsLoadError> {
         use winapi::um::{
             libloaderapi::GetModuleHandleW,
