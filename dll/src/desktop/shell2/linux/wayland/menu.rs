@@ -1,22 +1,19 @@
-//! Wayland menu handling using xdg_popup protocol
+//! Wayland menu handling via popup windows
 //!
-//! This module provides menu popup functionality for Wayland using the xdg_popup
-//! protocol. Unlike X11 which uses override_redirect windows, Wayland uses
-//! xdg_popup for proper compositor-managed menu positioning and stacking.
+//! This module provides menu popup functionality for Wayland. It returns
+//! `WindowCreateOptions` for a generic popup window; xdg_popup integration
+//! is pending.
 //!
 //! Architecture:
-//! - Menu popups are created using WaylandPopup with xdg_popup protocol
-//! - The compositor manages positioning, stacking, and automatic dismissal
 //! - Menu data (Menu struct) is passed as RefAny to the layout callback
 //! - Events are handled through normal Azul callback system
-//! - This provides native-quality menus on Wayland
+//! - Rendering goes through the standard menu_renderer / WebRender pipeline
 
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    geom::{LogicalRect, LogicalSize},
     menu::Menu,
     refany::RefAny,
-    styled_dom::StyledDom,
 };
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
@@ -24,7 +21,7 @@ use azul_layout::window_state::WindowCreateOptions;
 use super::WaylandWindow;
 
 use super::super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_error;
 
 /// Data passed to the menu layout callback
 #[derive(Debug, Clone)]
@@ -101,11 +98,8 @@ pub fn create_menu_popup_options(
     // Set layout callback - RefAny contains menu data, callback knows how to use it
     options.window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
-        ctx: azul_core::refany::OptionRefAny::None,
+        ctx: azul_core::refany::OptionRefAny::Some(menu_data_refany),
     };
-
-    // Store menu data in app_data (will be passed to callback)
-    // Note: The app needs to ensure this RefAny is passed when creating the window
 
     // Set window flags for popup behavior
     options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
@@ -115,22 +109,24 @@ pub fn create_menu_popup_options(
     options
 }
 
+/// Default menu item height in logical pixels
+const DEFAULT_MENU_ITEM_HEIGHT: f32 = 24.0;
+/// Vertical padding above and below menu items in logical pixels
+const DEFAULT_MENU_PADDING: f32 = 8.0;
+/// Default menu popup width in logical pixels
+const DEFAULT_MENU_WIDTH: f32 = 200.0;
+
 /// Calculate menu size from Menu structure
 ///
 /// This estimates the menu size based on the number of items and their content.
 /// Used when caller doesn't specify an explicit size.
-pub fn calculate_menu_size(menu: &Menu, system_style: &SystemStyle) -> LogicalSize {
-    // TODO: Implement proper size calculation based on menu items
-    // For now, use reasonable defaults
+pub fn calculate_menu_size(menu: &Menu, _system_style: &SystemStyle) -> LogicalSize {
+    // TODO: Implement proper size calculation using system_style font metrics
 
     let item_count = menu.items.len();
-    let item_height = 24.0; // Default item height in pixels
-    let padding = 8.0;
+    let height = (item_count as f32 * DEFAULT_MENU_ITEM_HEIGHT) + (DEFAULT_MENU_PADDING * 2.0);
 
-    let width = 200.0; // Default width
-    let height = (item_count as f32 * item_height) + (padding * 2.0);
-
-    LogicalSize::new(width, height)
+    LogicalSize::new(DEFAULT_MENU_WIDTH, height)
 }
 
 #[cfg(test)]
