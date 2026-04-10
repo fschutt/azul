@@ -146,7 +146,7 @@ pub enum CssParseErrorInner<'a> {
     /// "alsdfkj: 500px"`
     UnknownPropertyKey(&'a str, &'a str),
     /// `var()` can't be used on properties that expand to multiple values, since they would be
-    /// ambigouus and degrade performance - for example `margin: var(--blah)` would be ambigouus
+    /// ambiguous and degrade performance - for example `margin: var(--blah)` would be ambiguous
     /// because it's not clear when setting the variable, whether all sides should be set,
     /// instead, you have to use `margin-top: var(--blah)`, `margin-bottom: var(--baz)` in order
     /// to work around this limitation.
@@ -992,6 +992,8 @@ fn parse_media_conditions(content: &str) -> Vec<DynamicSelector> {
                 conditions.push(DynamicSelector::Media(MediaType::Screen));
             } else if part.eq_ignore_ascii_case("print") {
                 conditions.push(DynamicSelector::Media(MediaType::Print));
+            } else if part.eq_ignore_ascii_case("all") {
+                conditions.push(DynamicSelector::Media(MediaType::All));
             }
             continue;
         }
