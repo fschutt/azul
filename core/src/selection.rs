@@ -206,6 +206,8 @@ impl SelectionId {
     }
 }
 
+/// Note: `Default` generates a new unique ID (increments global counter),
+/// rather than returning a zero/sentinel value.
 impl Default for SelectionId {
     fn default() -> Self {
         Self::new()
@@ -279,6 +281,7 @@ impl MultiCursorState {
 
     /// Add a cursor, merging if it overlaps with existing selections.
     /// Returns the SelectionId of the new (or merged) cursor.
+    #[must_use]
     pub fn add_cursor(&mut self, cursor: TextCursor) -> SelectionId {
         let id = SelectionId::new();
         self.selections.push(IdentifiedSelection {
@@ -291,6 +294,7 @@ impl MultiCursorState {
 
     /// Add a selection range, merging if it overlaps.
     /// Returns the SelectionId of the new (or merged) selection.
+    #[must_use]
     pub fn add_selection(&mut self, range: SelectionRange) -> SelectionId {
         let id = SelectionId::new();
         self.selections.push(IdentifiedSelection {
@@ -302,6 +306,7 @@ impl MultiCursorState {
     }
 
     /// Remove a selection by its stable ID. Returns true if found and removed.
+    #[must_use]
     pub fn remove_selection(&mut self, id: SelectionId) -> bool {
         let len_before = self.selections.len();
         self.selections.retain(|s| s.id != id);

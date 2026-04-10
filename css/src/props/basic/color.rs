@@ -1,4 +1,8 @@
-//! CSS property types for color.
+//! CSS color types and parser.
+//!
+//! Core types: [`ColorU`] (u8 RGBA), [`ColorF`] (f32 RGBA), [`ColorOrSystem`]
+//! (concrete color or runtime system-theme reference). The parser supports hex,
+//! `rgb()`/`rgba()`, `hsl()`/`hsla()`, CSS named colors, and `system:*` syntax.
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -195,6 +199,8 @@ impl ColorU {
         Self::rgb(r, g, b)
     }
 
+    /// Linearly interpolate all four RGBA channels between `self` and `other`.
+    /// `t = 0.0` returns `self`, `t = 1.0` returns `other`.
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             r: libm::roundf(self.r as f32 + (other.r as f32 - self.r as f32) * t) as u8,
@@ -392,8 +398,12 @@ impl ColorU {
     /// Calculate the APCA (Accessible Perceptual Contrast Algorithm) contrast.
     /// This is a newer algorithm that may replace WCAG contrast in future standards.
     /// Returns a value between -108 (white on black) and 106 (black on white).
-    /// 
-    /// Note: The sign indicates polarity (negative = light text on dark bg).
+    ///
+    /// **Note:** This is an approximation — it reuses the WCAG piecewise sRGB
+    /// linearization and BT.709 luminance coefficients rather than the APCA-specific
+    /// TRC exponents and coefficients from the full 0.0.98G specification.
+    ///
+    /// The sign indicates polarity (negative = light text on dark bg).
     /// For most purposes, use the absolute value.
     pub fn apca_contrast(&self, background: &Self) -> f32 {
         // Convert to Y (luminance) using sRGB TRC
@@ -426,17 +436,15 @@ impl ColorU {
         };
         
         // Calculate contrast
-        let sapc = if bg_clamp > txt_clamp {
+        if bg_clamp > txt_clamp {
             // Dark text on light bg
             let s = (libm::powf(bg_clamp, NORMWHT) - libm::powf(txt_clamp, NORMBLKTXT)) * SCALEWHT;
             if s < 0.1 { 0.0 } else { s * 100.0 }
         } else {
-            // Light text on dark bg  
+            // Light text on dark bg
             let s = (libm::powf(bg_clamp, REVWHT) - libm::powf(txt_clamp, REVTXT)) * SCALEWHT;
             if s > -0.1 { 0.0 } else { s * 100.0 }
-        };
-        
-        sapc
+        }
     }
     
     /// Check if the APCA contrast meets the recommended minimum for body text (|Lc| >= 60).
@@ -475,10 +483,12 @@ impl ColorU {
         Self { r: gray, g: gray, b: gray, a: self.a }
     }
 
+    /// Returns `true` if the alpha channel is not fully opaque (i.e. `a != 255`).
     pub const fn has_alpha(&self) -> bool {
         self.a != Self::ALPHA_OPAQUE
     }
 
+    /// Format the color as an 8-digit lowercase hex string (e.g. `#ff0000ff`).
     pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }

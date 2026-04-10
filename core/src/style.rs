@@ -1,4 +1,8 @@
-//! DOM tree to CSS style tree cascading
+//! DOM tree to CSS style tree cascading.
+//!
+//! Implements CSS selector matching (`matches_html_element`) and cascade-info
+//! construction (`construct_html_cascade_tree`). Used by `styled_dom` and
+//! `prop_cache` to resolve which CSS rules apply to each DOM node.
 
 use alloc::vec::Vec;
 
@@ -374,7 +378,11 @@ pub fn construct_html_cascade_tree(
     NodeDataContainer { internal: nodes }
 }
 
-/// TODO: This is wrong, but it's fast
+/// Checks whether the last selector in `path` matches the given pseudo-selector `target`.
+///
+/// Known limitation: this only inspects the final selector in the path, so compound
+/// selectors like `div:hover:first-child` may not be filtered correctly when `target`
+/// is `None` — only the very last pseudo-selector is tested.
 #[inline]
 pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)

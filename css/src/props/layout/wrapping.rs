@@ -1,4 +1,12 @@
 //! CSS properties for text wrapping and writing modes.
+//!
+//! Key types:
+//! - [`LayoutWrap`] — `flex-wrap` (note: duplicated by `LayoutFlexWrap` in `flex.rs`)
+//! - [`LayoutWritingMode`] — `writing-mode` (`horizontal-tb`, `vertical-rl`, `vertical-lr`)
+//! - [`LayoutClear`] — `clear` (`none`, `left`, `right`, `both`)
+//!
+//! Parse functions are gated behind the `parser` feature and are consumed
+//! by the CSS property system in `property.rs`.
 
 use alloc::string::{String, ToString};
 use crate::corety::AzString;
@@ -11,8 +19,11 @@ use crate::props::formatter::PrintAsCssValue;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutWrap {
+    /// Do not wrap flex items (default).
     NoWrap,
+    /// Wrap flex items onto multiple lines.
     Wrap,
+    /// Wrap flex items onto multiple lines in reverse order.
     WrapReverse,
 }
 
@@ -110,9 +121,12 @@ pub fn parse_layout_wrap<'a>(input: &'a str) -> Result<LayoutWrap, LayoutWrapPar
 // +spec:block-formatting-context:3815e7 - vertical-rl writing mode supported via VerticalRl variant
 // +spec:block-formatting-context:9d7cd4 - vertical writing mode support (VerticalRl, VerticalLr)
 pub enum LayoutWritingMode {
+    /// Top-to-bottom block flow, left-to-right inline direction (Latin, etc.).
     HorizontalTb,
+    /// Right-to-left block flow, top-to-bottom inline direction (CJK vertical).
     VerticalRl,
     // +spec:writing-modes:f35728 - vertical-lr writing mode for left-to-right block flow (Manchu, Mongolian)
+    /// Left-to-right block flow, top-to-bottom inline direction (Mongolian).
     VerticalLr,
 }
 
@@ -213,9 +227,13 @@ pub fn parse_layout_writing_mode<'a>(
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutClear {
+    /// No clearing; element is not moved below preceding floats.
     None,
+    /// Element is moved below preceding left floats.
     Left,
+    /// Element is moved below preceding right floats.
     Right,
+    /// Element is moved below all preceding floats.
     Both,
 }
 

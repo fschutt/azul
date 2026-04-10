@@ -23,7 +23,7 @@
 //! This user-agent stylesheet integrates principles from normalize.css v8.0.1:
 //!
 //! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and
-//    Jonathan Neal https://github.com/necolas/normalize.css
+//!   Jonathan Neal https://github.com/necolas/normalize.css
 //!
 //! The normalize.css project is licensed under the MIT License, which permits
 //! commercial use, modification, distribution, and private use. The full license
@@ -71,7 +71,7 @@ use azul_css::{
     },
     props::{
         basic::{
-            font::StyleFontWeight, length::PercentageValue, pixel::PixelValue, ColorU,
+            font::StyleFontWeight, pixel::PixelValue, ColorU,
             StyleFontSize,
         },
         layout::{
@@ -347,11 +347,6 @@ static FONT_WEIGHT_BOLDER: CssProperty =
     CssProperty::FontWeight(CssPropertyValue::Exact(StyleFontWeight::Bolder));
 
 // Table cell padding - Chrome UA CSS default: 1px
-static PADDING_1PX: CssProperty =
-    CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
-        inner: PixelValue::const_px(1),
-    }));
-
 static PADDING_TOP_1PX: CssProperty =
     CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
         inner: PixelValue::const_px(1),
@@ -445,18 +440,6 @@ static COUNTER_RESET_LIST_ITEM: CssProperty =
 /// Used for elements that should not be split across page boundaries
 /// Applied to: h1-h6, table, thead, tbody, tfoot, figure, figcaption
 static BREAK_INSIDE_AVOID: CssProperty = CssProperty::break_inside(BreakInside::Avoid);
-
-/// break-before: page
-/// Forces a page break before the element
-static BREAK_BEFORE_PAGE: CssProperty = CssProperty::break_before(PageBreak::Page);
-
-/// break-after: page
-/// Forces a page break after the element
-static BREAK_AFTER_PAGE: CssProperty = CssProperty::break_after(PageBreak::Page);
-
-/// break-before: avoid
-/// Avoids a page break before the element
-static BREAK_BEFORE_AVOID: CssProperty = CssProperty::break_before(PageBreak::Avoid);
 
 /// break-after: avoid
 /// Avoids a page break after the element (useful for headings)
@@ -571,14 +554,6 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         inner: PixelValue::const_px(1),
     }));
 
-/*
-const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightValue::Exact(
-    LayoutLineHeight {
-        inner: PercentageValue::const_new(115), // 1.15 = 115%
-    },
-));
-*/
-
 /// Returns the default user-agent CSS property value for a given node type and property.
 ///
 /// This function provides the baseline styling that should be applied before any author
@@ -600,9 +575,6 @@ pub fn get_ua_property(
     use NodeType as NT;
 
     let result = match (node_type, property_type) {
-        // HTML Element
-        // (Html, PT::LineHeight) => Some(&LINE_HEIGHT_1_15),
-
         // Body Element - CRITICAL for preventing layout collapse
         (NT::Body, PT::Display) => Some(&DISPLAY_BLOCK),
         // NOTE: Body does NOT have width: 100% in standard UA CSS - it inherits from ICB
@@ -816,11 +788,6 @@ pub fn get_ua_property(
         // Icon Elements - inline-block so they have width/height but flow inline
         (NT::Icon(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
 
-        // Form Input Elements (inline-block behavior approximated as inline)
-        (NT::Input, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::Button, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::Select, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::SelectOption, PT::Display) => Some(&DISPLAY_NONE),
         (NT::OptGroup, PT::Display) => Some(&DISPLAY_NONE),
 

@@ -483,9 +483,8 @@ impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
 ///
 /// # Memory Safety
 ///
-/// Fixed critical UB bugs in alignment, copy count, and pointer provenance (see
-/// REFANY_UB_FIXES.md). All operations are verified with Miri to ensure absence of
-/// undefined behavior.
+/// Fixed critical UB bugs in alignment, copy count, and pointer provenance.
+/// All operations are verified with Miri to ensure absence of undefined behavior.
 ///
 /// # Usage
 ///
@@ -693,7 +692,6 @@ impl RefAny {
 
         // CRITICAL: Validate input pointer for non-ZST types
         // A NULL pointer for a non-zero-sized type would cause UB when copying
-        // and would lead to crashes when cloning (as documented in REPORT2.md)
         if len > 0 && ptr.is_null() {
             panic!(
                 "RefAny::new_c: NULL pointer passed for non-ZST type (size={}). \
@@ -1220,9 +1218,9 @@ impl Clone for RefAny {
     fn clone(&self) -> Self {
         // Atomically increment the reference count
         let inner = self.sharing_info.downcast();
-        inner.num_copies.fetch_add(1, AtomicOrdering::SeqCst);
+        let prev = inner.num_copies.fetch_add(1, AtomicOrdering::SeqCst);
 
-        let new_instance_id = inner.num_copies.load(AtomicOrdering::SeqCst) as u64;
+        let new_instance_id = (prev + 1) as u64;
 
         Self {
             // Data pointer is now in RefCountInner, shared automatically

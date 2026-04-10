@@ -26,8 +26,7 @@ use azul_css::{
     AzString, OptionString,
 };
 
-// Re-export event filters from events module (moved in Phase 3.5)
-// Re-export all accessibility types from a11y module (moved in code reorganization)
+// Re-exported from a11y.rs and events.rs
 pub use crate::a11y::*;
 pub use crate::events::{
     ApplicationEventFilter, ComponentEventFilter, EventFilter, FocusEventFilter, HoverEventFilter,
@@ -1191,19 +1190,6 @@ pub enum On {
     Decrement,
 }
 
-// NOTE: EventFilter types moved to core/src/events.rs (Phase 3.5)
-//
-// The following types are now defined in events.rs and re-exported above:
-// - EventFilter
-// - HoverEventFilter
-// - FocusEventFilter
-// - WindowEventFilter
-// - NotEventFilter
-// - ComponentEventFilter
-// - ApplicationEventFilter
-//
-// This consolidates all event-related logic in one place.
-
 /// Contains the necessary information to render an embedded `VirtualView` node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -1925,6 +1911,9 @@ impl NodeDataVec {
     }
 }
 
+// SAFETY: All fields in NodeData are either Send (NodeType, NodeFlags, CssPropertyWithConditionsVec),
+// Arc-wrapped (RefAny), or plain data (Box<AccessibilityInfo>, Box<NodeDataExt>).
+// Function pointers (callbacks) are inherently Send. The RefAny uses atomic reference counting.
 unsafe impl Send for NodeData {}
 
 /// Determines the behavior of an element in sequential focus navigation
@@ -2241,10 +2230,7 @@ impl NodeData {
     }
 
     pub fn is_text_node(&self) -> bool {
-        match self.node_type {
-            NodeType::Text(_) => true,
-            _ => false,
-        }
+        matches!(self.node_type, NodeType::Text(_))
     }
 
     pub fn is_virtual_view_node(&self) -> bool {
@@ -2681,7 +2667,6 @@ impl NodeData {
         self
     }
     #[inline(always)]
-    #[inline]
     pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
         self.set_dataset(data);
         self

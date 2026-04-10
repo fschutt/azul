@@ -1,4 +1,10 @@
-//! CSS properties for styling text selections (-azul-selection-*).
+//! CSS properties for styling text selections (`-azul-selection-*`).
+//!
+//! Defines the following properties (analogous to the `::selection` pseudo-element):
+//!
+//! - `-azul-selection-background-color` ([`SelectionBackgroundColor`])
+//! - `-azul-selection-color` ([`SelectionColor`])
+//! - `-azul-selection-radius` ([`SelectionRadius`])
 
 use alloc::string::String;
 
@@ -7,8 +13,12 @@ use crate::props::{
     formatter::PrintAsCssValue,
 };
 
+/// Default selection highlight background — light blue, similar to macOS.
+const DEFAULT_SELECTION_BG: ColorU = ColorU::new(173, 214, 255, 255);
+
 // --- -azul-selection-background-color ---
 
+/// Parsed value for the `-azul-selection-background-color` CSS property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SelectionBackgroundColor {
@@ -17,9 +27,8 @@ pub struct SelectionBackgroundColor {
 
 impl Default for SelectionBackgroundColor {
     fn default() -> Self {
-        // A common default selection color
         Self {
-            inner: ColorU::new(173, 214, 255, 255),
+            inner: DEFAULT_SELECTION_BG,
         }
     }
 }
@@ -39,6 +48,7 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionBackgroundColor {
     }
 }
 
+/// Parses a `-azul-selection-background-color` CSS value.
 #[cfg(feature = "parser")]
 pub fn parse_selection_background_color(
     input: &str,
@@ -48,6 +58,7 @@ pub fn parse_selection_background_color(
 
 // --- -azul-selection-color ---
 
+/// Parsed value for the `-azul-selection-color` CSS property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SelectionColor {
@@ -77,6 +88,7 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionColor {
     }
 }
 
+/// Parses a `-azul-selection-color` CSS value.
 #[cfg(feature = "parser")]
 pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError> {
     parse_css_color(input).map(|inner| SelectionColor { inner })
@@ -89,6 +101,7 @@ use crate::props::basic::{
     SizeMetric,
 };
 
+/// Parsed value for the `-azul-selection-radius` CSS property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SelectionRadius {
@@ -120,6 +133,7 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionRadius {
     }
 }
 
+/// Parses a `-azul-selection-radius` CSS value.
 #[cfg(feature = "parser")]
 pub fn parse_selection_radius(input: &str) -> Result<SelectionRadius, CssPixelValueParseError> {
     parse_pixel_value(input).map(|inner| SelectionRadius { inner })

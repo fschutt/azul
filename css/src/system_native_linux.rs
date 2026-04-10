@@ -18,8 +18,10 @@
 //! or `dbus` as a dependency.
 
 use alloc::string::String;
-use super::{defaults, LinuxCustomization, ScrollbarPreferences, ScrollbarVisibility};
+use super::defaults;
 use crate::corety::{AzString, OptionString};
+#[cfg(feature = "io")]
+use crate::props::basic::color::OptionColorU;
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
 
@@ -286,14 +288,15 @@ fn discover_linux_extras(style: &mut super::SystemStyle) {
     }
     // Button layout (determines button side for CSD)
     if let Some(layout) = gsettings_get("org.gnome.desktop.wm.preferences", "button-layout") {
-        style.linux.titlebar_button_layout = OptionString::Some(layout.clone().into());
         // Parse button side from layout: "close,minimize,maximize:" → Left
         //                                ":close,minimize,maximize" → Right
-        if layout.starts_with(':') {
-            style.metrics.titlebar.button_side = super::TitlebarButtonSide::Right;
+        let is_right = layout.starts_with(':');
+        style.linux.titlebar_button_layout = OptionString::Some(layout.into());
+        style.metrics.titlebar.button_side = if is_right {
+            super::TitlebarButtonSide::Right
         } else {
-            style.metrics.titlebar.button_side = super::TitlebarButtonSide::Left;
-        }
+            super::TitlebarButtonSide::Left
+        };
     }
     // Env-var fallbacks (work on ALL Linux WMs)
     if style.linux.cursor_theme.is_none() {

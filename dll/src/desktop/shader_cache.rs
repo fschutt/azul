@@ -1,22 +1,22 @@
-///! Shader disk cache for WebRender program binaries.
-///!
-///! After a shader is lazily compiled + linked on first use, we extract the
-///! binary via `glGetProgramBinary()` and store it on disk. On the next app
-///! launch, the binary is loaded from disk and fed to `glProgramBinary()`,
-///! skipping the expensive compile + link step (~10-50ms per shader).
-///!
-///! Cache layout:
-///!   ~/Library/Caches/azul/shaders/<renderer_hash>/    (macOS)
-///!   ~/.cache/azul/shaders/<renderer_hash>/             (Linux)
-///!   %LOCALAPPDATA%\azul\shaders\<renderer_hash>\       (Windows)
-///!
-///! Each shader binary is stored as:
-///!   <digest_hex>.bin   — raw program binary bytes
-///!   <digest_hex>.meta  — 12 bytes: format (u32 LE) + digest (u64 LE)
-///!
-///! The `<renderer_hash>` subdirectory is a hash of the GL renderer string +
-///! GL version, ensuring that cache entries are invalidated when the GPU driver
-///! changes.
+//! Shader disk cache for WebRender program binaries.
+//!
+//! After a shader is lazily compiled + linked on first use, we extract the
+//! binary via `glGetProgramBinary()` and store it on disk. On the next app
+//! launch, the binary is loaded from disk and fed to `glProgramBinary()`,
+//! skipping the expensive compile + link step (~10-50ms per shader).
+//!
+//! Cache layout:
+//!   ~/Library/Caches/azul/shaders/<renderer_hash>/    (macOS)
+//!   ~/.cache/azul/shaders/<renderer_hash>/             (Linux)
+//!   %LOCALAPPDATA%\azul\shaders\<renderer_hash>\       (Windows)
+//!
+//! Each shader binary is stored as:
+//!   <digest_hex>.bin   — raw program binary bytes
+//!   <digest_hex>.meta  — 12 bytes: format (u32 LE) + digest (u64 LE)
+//!
+//! The `<renderer_hash>` subdirectory is a hash of the GL renderer string +
+//! GL version, ensuring that cache entries are invalidated when the GPU driver
+//! changes.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -50,7 +50,7 @@ impl ShaderDiskCache {
         let cache_dir = base.join(format!("{:016x}", renderer_hash));
 
         // Ensure directory exists
-        if let Err(_) = std::fs::create_dir_all(&cache_dir) {
+        if std::fs::create_dir_all(&cache_dir).is_err() {
             return None;
         }
 
@@ -114,7 +114,7 @@ impl ShaderDiskCache {
         }
 
         // Write binary data
-        if let Err(_) = std::fs::write(&bin_path, &binary.bytes) {
+        if std::fs::write(&bin_path, &binary.bytes).is_err() {
             return;
         }
 
@@ -122,7 +122,10 @@ impl ShaderDiskCache {
         let mut meta = Vec::with_capacity(12);
         meta.extend_from_slice(&binary.format.to_le_bytes());
         meta.extend_from_slice(&binary.source_digest.0.to_le_bytes());
-        let _ = std::fs::write(&meta_path, &meta);
+        if std::fs::write(&meta_path, &meta).is_err() {
+            // Remove orphaned .bin file to keep cache consistent
+            let _ = std::fs::remove_file(&bin_path);
+        }
     }
 }
 

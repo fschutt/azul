@@ -1,36 +1,26 @@
 //! Trait and implementations for formatting CSS properties back into strings.
+//!
+//! This module defines `FormatAsCssValue` (zero-alloc, `fmt::Formatter`-based)
+//! and re-exports `PrintAsCssValue` (from `css.rs`, returns `String`).
+//! `PrintAsCssValue` impls for border, padding, margin, and gap types live here.
 
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::string::String;
 use core::fmt;
 
 // Re-export the PrintAsCssValue trait from the css module
 pub use crate::css::PrintAsCssValue;
 use crate::props::{
-    basic::{
-        angle::AngleValue,
-        color::ColorU,
-        direction::{Direction, DirectionCorner},
-        font::*,
-        length::{FloatValue, PercentageValue},
-        pixel::PixelValue,
-    },
-    layout::{dimensions::*, display::*, flex::*, overflow::*, position::*, spacing::*},
+    layout::{dimensions::*, spacing::*},
     style::{
-        background::*,
         border::*,
         border_radius::*,
-        box_shadow::{BoxShadowClipMode, StyleBoxShadow},
-        effects::*,
-        filter::*,
-        scrollbar::*,
-        text::*,
-        transform::*,
     },
 };
 
+/// Zero-allocation CSS value formatting trait using `fmt::Formatter`.
+///
+/// Unlike `PrintAsCssValue` (which returns a `String`), this trait writes
+/// directly into a formatter and is suitable for `Display` impl delegation.
 pub trait FormatAsCssValue {
     fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
 }

@@ -84,29 +84,27 @@ impl LogicalRect {
     pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {
         let first = rects.next()?;
 
-        let mut max_width = first.size.width;
-        let mut max_height = first.size.height;
         let mut min_x = first.origin.x;
         let mut min_y = first.origin.y;
+        let mut max_x = first.origin.x + first.size.width;
+        let mut max_y = first.origin.y + first.size.height;
 
-        while let Some(Self {
+        for Self {
             origin: LogicalPosition { x, y },
             size: LogicalSize { width, height },
-        }) = rects.next()
+        } in rects
         {
-            let cur_lower_right_x = x + width;
-            let cur_lower_right_y = y + height;
-            max_width = max_width.max(cur_lower_right_x - min_x);
-            max_height = max_height.max(cur_lower_right_y - min_y);
             min_x = min_x.min(x);
             min_y = min_y.min(y);
+            max_x = max_x.max(x + width);
+            max_y = max_y.max(y + height);
         }
 
         Some(Self {
             origin: LogicalPosition { x: min_x, y: min_y },
             size: LogicalSize {
-                width: max_width,
-                height: max_height,
+                width: max_x - min_x,
+                height: max_y - min_y,
             },
         })
     }
@@ -225,6 +223,8 @@ impl ops::Sub for LogicalPosition {
     }
 }
 
+/// Multiplier for converting f32 coordinates to integers in Ord/Hash impls.
+/// Provides ~0.001 precision, sufficient for sub-pixel layout coordinates.
 const DECIMAL_MULTIPLIER: f32 = 1000.0;
 
 impl_option!(
@@ -235,10 +235,10 @@ impl_option!(
 
 impl Ord for LogicalPosition {
     fn cmp(&self, other: &LogicalPosition) -> Ordering {
-        let self_x = (self.x * DECIMAL_MULTIPLIER) as usize;
-        let self_y = (self.y * DECIMAL_MULTIPLIER) as usize;
-        let other_x = (other.x * DECIMAL_MULTIPLIER) as usize;
-        let other_y = (other.y * DECIMAL_MULTIPLIER) as usize;
+        let self_x = (self.x * DECIMAL_MULTIPLIER) as isize;
+        let self_y = (self.y * DECIMAL_MULTIPLIER) as isize;
+        let other_x = (other.x * DECIMAL_MULTIPLIER) as isize;
+        let other_y = (other.y * DECIMAL_MULTIPLIER) as isize;
         self_x.cmp(&other_x).then(self_y.cmp(&other_y))
     }
 }
@@ -250,8 +250,8 @@ impl Hash for LogicalPosition {
     where
         H: Hasher,
     {
-        let self_x = (self.x * DECIMAL_MULTIPLIER) as usize;
-        let self_y = (self.y * DECIMAL_MULTIPLIER) as usize;
+        let self_x = (self.x * DECIMAL_MULTIPLIER) as isize;
+        let self_y = (self.y * DECIMAL_MULTIPLIER) as isize;
         self_x.hash(state);
         self_y.hash(state);
     }
@@ -330,10 +330,10 @@ impl_option!(
 
 impl Ord for LogicalSize {
     fn cmp(&self, other: &LogicalSize) -> Ordering {
-        let self_width = (self.width * DECIMAL_MULTIPLIER) as usize;
-        let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
-        let other_width = (other.width * DECIMAL_MULTIPLIER) as usize;
-        let other_height = (other.height * DECIMAL_MULTIPLIER) as usize;
+        let self_width = (self.width * DECIMAL_MULTIPLIER) as isize;
+        let self_height = (self.height * DECIMAL_MULTIPLIER) as isize;
+        let other_width = (other.width * DECIMAL_MULTIPLIER) as isize;
+        let other_height = (other.height * DECIMAL_MULTIPLIER) as isize;
         self_width
             .cmp(&other_width)
             .then(self_height.cmp(&other_height))
@@ -347,8 +347,8 @@ impl Hash for LogicalSize {
     where
         H: Hasher,
     {
-        let self_width = (self.width * DECIMAL_MULTIPLIER) as usize;
-        let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
+        let self_width = (self.width * DECIMAL_MULTIPLIER) as isize;
+        let self_height = (self.height * DECIMAL_MULTIPLIER) as isize;
         self_width.hash(state);
         self_height.hash(state);
     }

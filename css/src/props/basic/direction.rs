@@ -14,6 +14,8 @@ use crate::props::{
     formatter::PrintAsCssValue,
 };
 
+/// Corner or side of a rectangle, used to specify CSS gradient directions
+/// (e.g. `to top right`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum DirectionCorner {
@@ -114,10 +116,13 @@ impl DirectionCorner {
     }
 }
 
+/// A pair of corners representing the start and end of a CSS gradient direction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct DirectionCorners {
+    /// The corner or side from which the gradient starts.
     pub dir_from: DirectionCorner,
+    /// The corner or side at which the gradient ends.
     pub dir_to: DirectionCorner,
 }
 
@@ -152,8 +157,8 @@ impl Direction {
     pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
         match self {
             Direction::Angle(angle_value) => {
-                // NOTE: This implementation is complex and seems to have issues in the original
-                // code. It is copied here as-is for the refactoring.
+                // Convert the angle to start/end points on the rectangle.
+                // TODO: does not handle negative angles or angles >= 360 correctly.
                 let deg = -angle_value.to_degrees();
                 let width_half = rect.size.width as f32 / 2.0;
                 let height_half = rect.size.height as f32 / 2.0;
@@ -328,7 +333,7 @@ pub fn parse_direction<'a>(input: &'a str) -> Result<Direction, CssDirectionPars
         return Err(CssDirectionParseError::InvalidArguments(input));
     }
 
-    let mut components = input_iter.collect::<Vec<_>>();
+    let components = input_iter.collect::<Vec<_>>();
     if components.is_empty() || components.len() > 2 {
         return Err(CssDirectionParseError::InvalidArguments(input));
     }

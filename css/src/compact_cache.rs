@@ -1,10 +1,10 @@
 //! Compact layout property cache — three-tier numeric encoding
 //!
 //! Replaces BTreeMap-based CSS property lookups with cache-friendly arrays.
-//! See `scripts/COMPACT_CACHE_PLAN.md` for design rationale.
 //!
 //! - **Tier 1**: `Vec<u64>` — ALL 21 enum properties bitpacked (8 B/node)
-//! - **Tier 2**: `Vec<CompactNodeProps>` — numeric dimensions + border colors/styles (96 B/node)
+//! - **Tier 2 hot**: `Vec<CompactNodeProps>` — layout-critical numeric dimensions (68 B/node)
+//! - **Tier 2 cold**: `Vec<CompactNodePropsCold>` — paint-only properties (28 B/node)
 //! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (24 B/node)
 //!
 //! Non-compact properties (background, box-shadow, transform, etc.) are
@@ -152,10 +152,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 // Safe from_u8 conversion functions (no transmute!)
 // =============================================================================
 
-/// Convert raw bits back to LayoutDisplay. Returns default on invalid input.
-#[inline(always)]
 /// Decode display from u8. **0 = Block** (most common HTML default).
 /// Value 31 (0x1F) = sentinel: look up in slow path for uncommon values.
+/// Returns default (Block) on invalid input.
+#[inline(always)]
 pub fn layout_display_from_u8(v: u8) -> LayoutDisplay {
     match v {
         0 => LayoutDisplay::Block,        // default when bits are 0
@@ -185,9 +185,8 @@ pub fn layout_display_from_u8(v: u8) -> LayoutDisplay {
     }
 }
 
-/// Convert LayoutDisplay to its discriminant value (matching #[repr(C)] order).
-#[inline(always)]
 /// Encode display to u8. **0 = Block** (most common HTML default).
+#[inline(always)]
 pub fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
     match v {
         LayoutDisplay::Block => 0,         // 0 = default when bits unset

@@ -1,4 +1,13 @@
 //! CSS properties related to dimensions and sizing.
+//!
+//! Key types: [`LayoutWidth`] / [`LayoutHeight`] (support `auto`, pixel values,
+//! `min-content`, `max-content`, `fit-content()`, and `calc()` expressions),
+//! [`LayoutMinWidth`], [`LayoutMinHeight`], [`LayoutMaxWidth`], [`LayoutMaxHeight`]
+//! (simple pixel-value constraints), and [`LayoutBoxSizing`].
+//!
+//! `calc()` expressions use a flat stack-machine representation via [`CalcAstItem`]
+//! — see its documentation for the encoding scheme. The layout solver in
+//! `layout/src/solver3/calc.rs` evaluates these at resolve time.
 
 use alloc::{
     string::{String, ToString},
@@ -50,7 +59,7 @@ pub enum CalcAstItem {
     BraceClose,
 }
 
-// C-compatible Vec for CalcAstItem
+/// C-compatible `Vec<CalcAstItem>` for FFI interop.
 impl_vec!(
     CalcAstItem,
     CalcAstItemVec,
@@ -360,15 +369,25 @@ impl LayoutHeight {
     }
 }
 
+/// CSS `min-width` property. Defaults to `0px`.
 define_dimension_property!(LayoutMinWidth, || Self {
     inner: PixelValue::zero()
 });
+/// CSS `min-height` property. Defaults to `0px`.
 define_dimension_property!(LayoutMinHeight, || Self {
     inner: PixelValue::zero()
 });
+/// CSS `max-width` property. Defaults to `f32::MAX` pixels (i.e. unconstrained).
+///
+/// NOTE: The layout solver must handle `f32::MAX` gracefully — adding
+/// padding/margin to this sentinel would overflow to infinity.
 define_dimension_property!(LayoutMaxWidth, || Self {
     inner: PixelValue::px(core::f32::MAX)
 });
+/// CSS `max-height` property. Defaults to `f32::MAX` pixels (i.e. unconstrained).
+///
+/// NOTE: The layout solver must handle `f32::MAX` gracefully — adding
+/// padding/margin to this sentinel would overflow to infinity.
 define_dimension_property!(LayoutMaxHeight, || Self {
     inner: PixelValue::px(core::f32::MAX)
 });

@@ -1,3 +1,8 @@
+//! Macros for generating C-ABI-compatible collection types (`Vec`, `Option`, `Result`)
+//! used throughout the codebase for FFI interop. Each macro produces `#[repr(C)]` types
+//! with a destructor model: `DefaultRust` (library-owned), `NoDestructor` (`&'static`),
+//! `External` (caller-provided destructor fn), and `AlreadyDestroyed` (post-drop guard).
+
 #[macro_export]
 macro_rules! impl_vec {
     ($struct_type:ident, $struct_name:ident, $destructor_name:ident, $destructor_type_name:ident, $slice_name:ident, $option_type:ident) => {
@@ -154,9 +159,7 @@ macro_rules! impl_vec {
             /// Returns a reference to the element at the given index (Rust-only, inline).
             #[inline(always)]
             pub fn get(&self, index: usize) -> Option<&$struct_type> {
-                let v1: &[$struct_type] = self.as_ref();
-                let res = v1.get(index);
-                res
+                self.as_ref().get(index)
             }
 
             /// C-API compatible get function. Returns a copy of the element at the given index.
@@ -172,9 +175,7 @@ macro_rules! impl_vec {
             #[allow(dead_code)]
             #[inline(always)]
             unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
-                let v1: &[$struct_type] = self.as_ref();
-                let res = v1.get_unchecked(index);
-                res
+                self.as_ref().get_unchecked(index)
             }
 
             /// Returns the vec as a Rust slice (Rust-only, not C-API compatible).
@@ -219,7 +220,11 @@ macro_rules! impl_vec {
 
         impl AsRef<[$struct_type]> for $struct_name {
             fn as_ref(&self) -> &[$struct_type] {
-                unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+                if self.ptr.is_null() || self.len == 0 {
+                    &[]
+                } else {
+                    unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+                }
             }
         }
 
@@ -282,8 +287,8 @@ macro_rules! impl_vec {
 ///     Foo(FooError<'a>)
 /// }
 ///
-/// impl_from!(BarError<'a>, Error::Bar);
-/// impl_from!(BarError<'a>, Error::Bar);
+/// impl_from!(BarError<'a>, MyError::Bar);
+/// impl_from!(FooError<'a>, MyError::Foo);
 /// ```
 macro_rules! impl_from {
     // From a type with a lifetime to a type which also has a lifetime
@@ -440,7 +445,7 @@ macro_rules! impl_vec_mut {
         }
 
         impl $struct_name {
-            // <'a> has to live longer thant &'self
+            // <'a> has to live longer than &self
             pub fn as_mut_slice_extended<'a>(&mut self) -> &'a mut [$struct_type] {
                 unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
             }

@@ -1,5 +1,9 @@
+//! Core glyph types for text shaping: advance metrics, variation selectors,
+//! glyph placement/attachment info, and raw glyph data.
+
 use crate::window::OptionChar;
 
+/// Horizontal advance and size metrics for a single glyph, in unscaled font units.
 #[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct Advance {
@@ -33,22 +37,27 @@ impl Advance {
 
     #[inline]
     pub fn get_x_advance_total_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        debug_assert!(units_per_em > 0, "units_per_em must be non-zero");
         self.get_x_advance_total_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
     pub fn get_x_advance_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        debug_assert!(units_per_em > 0, "units_per_em must be non-zero");
         self.get_x_advance_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
     pub fn get_x_size_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        debug_assert!(units_per_em > 0, "units_per_em must be non-zero");
         self.get_x_size_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
     pub fn get_y_size_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        debug_assert!(units_per_em > 0, "units_per_em must be non-zero");
         self.get_y_size_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
     pub fn get_kerning_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        debug_assert!(units_per_em > 0, "units_per_em must be non-zero");
         self.get_kerning_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
 }
@@ -77,6 +86,7 @@ impl_option!(
     [Debug, Copy, PartialEq, PartialOrd, Clone, Hash]
 );
 
+/// The origin of a glyph: either a Unicode character or a direct glyph index.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C, u8)]
 pub enum GlyphOrigin {
@@ -84,6 +94,7 @@ pub enum GlyphOrigin {
     Direct,
 }
 
+/// X/Y distance for glyph placement adjustments, in font design units.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct PlacementDistance {
@@ -138,6 +149,7 @@ pub struct MarkAnchorPlacement {
     pub mark_anchor: Anchor,
 }
 
+/// An anchor point for glyph attachment, in font design units.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct Anchor {
@@ -145,6 +157,7 @@ pub struct Anchor {
     pub y: i16,
 }
 
+/// A raw glyph before shaping, containing the codepoint, glyph index, and shaping flags.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct RawGlyph {
@@ -172,6 +185,7 @@ impl RawGlyph {
     }
 }
 
+/// A shaped glyph with its advance metrics, kerning, and placement information.
 #[derive(Debug, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct GlyphInfo {

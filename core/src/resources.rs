@@ -1,3 +1,14 @@
+//! Resource management types for the application.
+//!
+//! This module contains the core types for managing application resources:
+//! - `AppConfig`: application-level configuration (logging, fonts, routes, components)
+//! - `ImageRef` / `ImageRefHash`: reference-counted decoded image handles
+//! - `FontKey` / `FontInstanceKey` / `ImageKey`: renderer-scoped resource keys
+//! - `RendererResources`: per-window font/image registry with frame-based GC
+//! - `RawImage`: CPU-side pixel data with format conversion to BGRA8
+//! - `build_add_font_resource_updates` / `build_add_image_resource_updates`:
+//!   diff current frame against registered resources and produce WebRender updates
+
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
@@ -1083,7 +1094,7 @@ impl Drop for ImageRef {
     fn drop(&mut self) {
         self.run_destructor = false;
         unsafe {
-            let copies = unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) };
+            let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
                 let _ = Box::from_raw(self.data as *mut DecodedImage);
                 let _ = Box::from_raw(self.copies as *mut AtomicUsize);
@@ -2750,7 +2761,7 @@ pub fn build_add_font_resource_updates(
 
                     let options = FontInstanceOptions {
                         render_mode: FontRenderMode::Subpixel,
-                        flags: 0 | FONT_INSTANCE_FLAG_NO_AUTOHINT,
+                        flags: FONT_INSTANCE_FLAG_NO_AUTOHINT,
                         ..Default::default()
                     };
 
@@ -2943,25 +2954,6 @@ pub fn build_add_image_resource_updates(
             }
         })
         .collect()
-}
-
-fn add_gl_resources(
-    renderer_resources: &mut RendererResources,
-    all_resource_updates: &mut Vec<ResourceUpdate>,
-    add_image_resources: Vec<(ImageRefHash, ImageRefHash, AddImageMsg)>,
-) {
-    let add_image_resources = add_image_resources
-        .into_iter()
-        // use the callback_imageref_hash for indexing!
-        .map(|(_, k, v)| (k, v))
-        .collect::<Vec<_>>();
-
-    add_resources(
-        renderer_resources,
-        all_resource_updates,
-        Vec::new(),
-        add_image_resources,
-    );
 }
 
 /// Submits the `AddFont`, `AddFontInstance` and `AddImage` resources to the RenderApi.

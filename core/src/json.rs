@@ -28,7 +28,13 @@ pub struct Json {
     pub internal: JsonInternal,
 }
 
-/// Internal storage for JSON values
+/// Internal storage for JSON values.
+///
+/// This is a C-FFI-compatible tagged-union-via-struct: all fields always exist,
+/// but only the field(s) corresponding to `JsonType` in the parent `Json` are
+/// meaningful.  For compound types (`Array`, `Object`) the serialized JSON is
+/// stored in `string_value` and re-parsed on each access — this trades repeated
+/// parsing cost for a flat, FFI-safe layout with no interior pointers.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct JsonInternal {
@@ -172,6 +178,24 @@ impl_option!(JsonKeyValueVec, OptionJsonKeyValueVec, copy = false, [Clone, Debug
 impl_option!(i64, OptionI64, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/// Try to losslessly convert an `f64` to `i64`.
+///
+/// Returns `Some` only when `n` is an integer that fits in `i64` without
+/// overflow.  The upper bound uses `< 2^63` (not `<= i64::MAX as f64`)
+/// because `i64::MAX` cannot be represented exactly in `f64` — the cast
+/// rounds up to `2^63`, which would cause overflow on `n as i64`.
+fn f64_as_i64(n: f64) -> Option<i64> {
+    if n.fract() == 0.0 && n >= -(2_f64.powi(63)) && n < 2_f64.powi(63) {
+        Some(n as i64)
+    } else {
+        None
+    }
+}
+
+// ============================================================================
 // Non-serde methods on Json (pure data, no parsing)
 // ============================================================================
 
@@ -208,7 +232,10 @@ impl Json {
         }
     }
 
-    /// Create an integer JSON value
+    /// Create an integer JSON value.
+    ///
+    /// **Note:** the value is stored as `f64` internally, so `i64` values with
+    /// magnitude greater than 2^53 will lose precision silently.
     pub fn integer(value: i64) -> Self {
         Self {
             value_type: JsonType::Number,
@@ -283,11 +310,9 @@ impl Json {
     /// Get as integer (returns None if not a number or not an integer)
     pub fn as_i64(&self) -> OptionI64 {
         if self.value_type == JsonType::Number {
-            let n = self.internal.number_value;
-            if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
-                OptionI64::Some(n as i64)
-            } else {
-                OptionI64::None
+            match f64_as_i64(self.internal.number_value) {
+                Some(i) => OptionI64::Some(i),
+                None => OptionI64::None,
             }
         } else {
             OptionI64::None
@@ -309,6 +334,10 @@ impl Json {
     }
 }
 
+/// Note: the `Display` output is meant for human-readable / debug display.
+/// String values are quoted but **not** JSON-escaped (no backslash escaping
+/// of embedded quotes, newlines, etc.).  Use `to_json_string()` (requires
+/// the `serde-json` feature) when valid JSON output is needed.
 impl fmt::Display for Json {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.value_type {
@@ -316,8 +345,8 @@ impl fmt::Display for Json {
             JsonType::Bool => write!(f, "{}", self.internal.bool_value),
             JsonType::Number => {
                 let num = self.internal.number_value;
-                if num.fract() == 0.0 && num >= i64::MIN as f64 && num <= i64::MAX as f64 {
-                    write!(f, "{}", num as i64)
+                if let Some(i) = f64_as_i64(num) {
+                    write!(f, "{}", i)
                 } else {
                     write!(f, "{}", num)
                 }
@@ -399,8 +428,8 @@ impl Json {
             JsonType::Bool => serde_json::Value::Bool(self.internal.bool_value),
             JsonType::Number => {
                 let num = self.internal.number_value;
-                if num.fract() == 0.0 && num >= i64::MIN as f64 && num <= i64::MAX as f64 {
-                    serde_json::Value::Number(serde_json::Number::from(num as i64))
+                if let Some(i) = f64_as_i64(num) {
+                    serde_json::Value::Number(serde_json::Number::from(i))
                 } else {
                     serde_json::Number::from_f64(num)
                         .map(serde_json::Value::Number)
@@ -546,8 +575,8 @@ impl Json {
             JsonType::Bool => AzString::from(if self.internal.bool_value { alloc::string::String::from("true") } else { alloc::string::String::from("false") }),
             JsonType::Number => {
                 let num = self.internal.number_value;
-                if num.fract() == 0.0 && num >= i64::MIN as f64 && num <= i64::MAX as f64 {
-                    AzString::from(alloc::format!("{}", num as i64))
+                if let Some(i) = f64_as_i64(num) {
+                    AzString::from(alloc::format!("{}", i))
                 } else {
                     AzString::from(alloc::format!("{}", num))
                 }

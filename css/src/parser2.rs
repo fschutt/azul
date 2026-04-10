@@ -1,4 +1,15 @@
-//! High-level types and functions related to CSS parsing
+//! High-level types and functions related to CSS parsing.
+//!
+//! Main entry point: [`new_from_str`] parses a CSS string into a [`Css`] value
+//! plus a list of recoverable warnings. Errors are downgraded to warnings so
+//! that partially-valid CSS still produces usable output.
+//!
+//! Supports `@media`, `@theme`, `@os`, `@os-version`, `@lang`, and `@container`
+//! at-rules, CSS nesting, CSS variables (`var(--name, default)`), and
+//! comma-separated selector lists. Tokenisation is delegated to `azul_simplecss`.
+//!
+//! Most error types come in borrowed/owned pairs (e.g. `CssParseError<'a>` /
+//! `CssParseErrorOwned`) so they can be returned across the FFI boundary.
 use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
 use core::{fmt, num::ParseIntError};
 
@@ -465,7 +476,7 @@ fn parse_nth_child_selector<'a>(
     match value.as_ref() {
         "even" => Ok(CssNthChildSelector::Even),
         "odd" => Ok(CssNthChildSelector::Odd),
-        other => parse_nth_child_pattern(value),
+        _ => parse_nth_child_pattern(value),
     }
 }
 
@@ -564,6 +575,11 @@ impl<'a> fmt::Display for CssParseError<'a> {
     }
 }
 
+/// Parses a CSS string into a [`Css`] value and a list of recoverable warnings.
+///
+/// Never panics. Syntax errors and unsupported properties are collected as
+/// [`CssParseWarnMsg`] items rather than causing a hard failure, so the caller
+/// always receives a (possibly empty) stylesheet.
 pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssParseWarnMsg<'a>>) {
     let mut tokenizer = Tokenizer::new(css_string);
     let (stylesheet, warnings) = match new_from_str_inner(css_string, &mut tokenizer) {
@@ -1738,7 +1754,7 @@ fn parse_declaration_resilient<'a>(
     let mut declarations = Vec::new();
 
     if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, css_key_map) {
-        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
+        if check_if_value_is_css_var(unparsed_css_value).is_some() {
             return Err(CssParseErrorInner::VarOnShorthandProperty {
                 key: combined_key,
                 value: unparsed_css_value,
@@ -1782,49 +1798,11 @@ fn parse_declaration_resilient<'a>(
     Ok(declarations)
 }
 
-fn unparsed_css_blocks_to_stylesheet<'a>(
-    css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
-    css_string: &'a str,
-) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
-    // Actually parse the properties
-    let css_key_map = crate::props::property::get_css_key_map();
-
-    let mut warnings = Vec::new();
-
-    let parsed_css_blocks = css_blocks
-        .into_iter()
-        .map(|unparsed_css_block| {
-            let mut declarations = Vec::<CssDeclaration>::new();
-
-            for (unparsed_css_key, (unparsed_css_value, location)) in
-                unparsed_css_block.declarations
-            {
-                parse_css_declaration(
-                    unparsed_css_key,
-                    unparsed_css_value,
-                    location,
-                    &css_key_map,
-                    &mut warnings,
-                    &mut declarations,
-                )
-                .map_err(|e| CssParseError {
-                    css_string,
-                    error: e.into(),
-                    location,
-                })?;
-            }
-
-            Ok(CssRuleBlock {
-                path: unparsed_css_block.path.into(),
-                declarations: declarations.into(),
-                conditions: unparsed_css_block.conditions.into(),
-            })
-        })
-        .collect::<Result<Vec<CssRuleBlock>, CssParseError>>()?;
-
-    Ok((parsed_css_blocks.into(), warnings))
-}
-
+/// Parses a single CSS key-value declaration, appending results to `declarations`.
+///
+/// Unknown property keys are downgraded to warnings (pushed into `warnings`)
+/// rather than causing a hard error, so callers can continue processing the
+/// remaining declarations in a rule block.
 pub fn parse_css_declaration<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,

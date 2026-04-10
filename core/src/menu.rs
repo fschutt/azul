@@ -67,9 +67,7 @@ impl Menu {
         self.position = position;
         self
     }
-}
 
-impl Menu {
     /// Swaps this menu with a default menu and returns the previous contents.
     ///
     /// This is useful for taking ownership of the menu's contents without cloning.
@@ -77,6 +75,16 @@ impl Menu {
         let mut new = Self::default();
         core::mem::swap(&mut new, self);
         new
+    }
+
+    /// Computes a 64-bit hash of this menu using the HighwayHash algorithm.
+    ///
+    /// This is used to detect changes in menu structure for caching and optimization.
+    pub fn get_hash(&self) -> u64 {
+        use highway::{HighwayHash, HighwayHasher, Key};
+        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        self.hash(&mut hasher);
+        hasher.finalize64()
     }
 }
 
@@ -112,18 +120,6 @@ pub enum MenuPopupPosition {
 impl Default for MenuPopupPosition {
     fn default() -> Self {
         Self::AutoCursor
-    }
-}
-
-impl Menu {
-    /// Computes a 64-bit hash of this menu using the HighwayHash algorithm.
-    ///
-    /// This is used to detect changes in menu structure for caching and optimization.
-    pub fn get_hash(&self) -> u64 {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
-        self.hash(&mut hasher);
-        hasher.finalize64()
     }
 }
 
@@ -207,15 +203,8 @@ pub struct StringMenuItem {
 }
 
 impl StringMenuItem {
-    /// Creates a new menu item with the given label and default values.
-    ///
-    /// Default values:
-    ///
-    /// - No accelerator
-    /// - No callback
-    /// - Normal state
-    /// - No icon
-    /// - No children
+    /// Creates a new menu item with the given label.
+    /// All optional fields default to `None` / `Normal`.
     pub const fn create(label: AzString) -> Self {
         StringMenuItem {
             label,
@@ -316,7 +305,9 @@ impl_option!(
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct CoreMenuCallback {
+    /// User data passed to the callback when the menu item is clicked
     pub refany: RefAny,
+    /// Callback function pointer stored as usize (converted to real fn pointer in azul-layout)
     pub callback: CoreCallback,
 }
 

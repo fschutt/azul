@@ -52,7 +52,7 @@ impl HitTest {
     }
 }
 
-/// NEW: Unique identifier for a specific component of a scrollbar.
+/// Unique identifier for a specific component of a scrollbar.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ScrollbarHitId {
@@ -122,11 +122,9 @@ impl Default for OverflowingScrollNode {
     }
 }
 
-/// This type carries no valuable semantics for WR. However, it reflects the fact that
-/// clients (Servo) may generate pipelines by different semi-independent sources.
-///
-/// These pipelines still belong to the same `IdNamespace` and the same `DocumentId`.
-/// Having this extra Id field enables them to generate `PipelineId` without collision.
+/// Extra source identifier within a pipeline, allowing multiple independent
+/// subsystems to generate `PipelineId` values without collision.
+/// All pipelines still share the same `IdNamespace` and `DocumentId`.
 pub type PipelineSourceId = u32;
 
 /// Information about a scroll frame, given to the user by the framework
@@ -265,7 +263,7 @@ impl ScrollStates {
     ) {
         self.0
             .entry(node.parent_external_scroll_id)
-            .or_insert_with(|| ScrollState::default())
+            .or_default()
             .set(scroll_position.x, scroll_position.y, &node.child_rect);
     }
 
@@ -280,7 +278,7 @@ impl ScrollStates {
     ) {
         self.0
             .entry(node.parent_external_scroll_id)
-            .or_insert_with(|| ScrollState::default())
+            .or_default()
             .add(scroll_by_x, scroll_by_y, &node.child_rect);
     }
 }

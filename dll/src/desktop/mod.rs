@@ -33,7 +33,6 @@
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
 #![deny(clippy::all)]
-#![allow(warnings)]
 
 /// Clipboard error type
 pub mod clipboard_error;
@@ -113,7 +112,6 @@ pub mod zip {
 pub mod native_screenshot;
 /// Re-exports of errors
 pub mod errors {
-    // TODO: re-export the sub-types of ClipboardError!
     #[cfg(all(feature = "font_loading", feature = "std"))]
     pub use azul_layout::font::loading::FontReloadError;
 

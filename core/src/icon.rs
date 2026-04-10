@@ -191,7 +191,9 @@ impl IconProviderHandle {
         self.inner.resolver = resolver;
     }
 
-    /// Register a single icon in a pack (creates pack if needed)
+    /// Register a single icon in a pack (creates pack if needed).
+    ///
+    /// Note: `pack_name` is case-sensitive, while `icon_name` is normalized to lowercase.
     pub fn register_icon(&mut self, pack_name: &str, icon_name: &str, data: RefAny) {
         let pack = self.inner.icons
             .entry(pack_name.to_string())
@@ -393,18 +395,15 @@ fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
     icons
 }
 
-/// Generate accessibility label from icon name
-fn generate_a11y_label(icon_name: &str) -> AzString {
-    AzString::from(format!("{} icon", icon_name.replace('_', " ").replace('-', " ")))
-}
-
 /// Extract a single-node StyledDom from a parent StyledDom at the given index.
 /// This creates a minimal StyledDom containing just that node for the resolver.
 fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> StyledDom {
     use crate::dom::{NodeDataVec, DomId};
+    use crate::id::NodeId;
     use crate::styled_dom::{
         StyledNodeVec, NodeHierarchyItemIdVec, TagIdToNodeIdMappingVec,
-        NodeHierarchyItemVec, NodeHierarchyItemId, ParentWithNodeDepthVec, ParentWithNodeDepth,
+        NodeHierarchyItemVec, NodeHierarchyItem, NodeHierarchyItemId,
+        ParentWithNodeDepthVec, ParentWithNodeDepth,
     };
     use crate::style::{CascadeInfoVec, CascadeInfo};
     use crate::prop_cache::{CssPropertyCachePtr, CssPropertyCache};
@@ -425,8 +424,13 @@ fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> St
     };
     
     StyledDom {
-        root: styled_dom.root.clone(),
-        node_hierarchy: styled_dom.node_hierarchy.clone(),
+        root: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+        node_hierarchy: NodeHierarchyItemVec::from_vec(vec![NodeHierarchyItem {
+            parent: 0,
+            previous_sibling: 0,
+            next_sibling: 0,
+            last_child: 0,
+        }]),
         node_data: NodeDataVec::from_vec(vec![single_node]),
         styled_nodes: StyledNodeVec::from_vec(vec![single_styled]),
         cascade_info: CascadeInfoVec::from_vec(vec![CascadeInfo { index_in_parent: 0, is_last_child: true }]),
@@ -434,10 +438,7 @@ fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> St
         nodes_with_not_callbacks: NodeHierarchyItemIdVec::from_vec(Vec::new()),
         nodes_with_datasets: NodeHierarchyItemIdVec::from_vec(Vec::new()),
         tag_ids_to_node_ids: TagIdToNodeIdMappingVec::from_vec(Vec::new()),
-        non_leaf_nodes: ParentWithNodeDepthVec::from_vec(vec![ParentWithNodeDepth {
-            depth: 0,
-            node_id: styled_dom.root.clone(),
-        }]),
+        non_leaf_nodes: ParentWithNodeDepthVec::from_vec(Vec::new()),
         css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
         dom_id: DomId::ROOT_ID,
     }
@@ -489,7 +490,7 @@ fn apply_single_node_replacement(
             node.set_node_type(replacement_node_type);
             
             // Copy CSS properties from replacement
-            node.css_props = replacement_root.get_css_props().clone();
+            node.set_css_props(replacement_root.get_css_props().clone());
             
             // Copy accessibility info if present
             if let Some(a11y) = replacement_root.get_accessibility_info() {

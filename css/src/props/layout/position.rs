@@ -1,4 +1,6 @@
-//! CSS properties for positioning elements.
+//! CSS properties for positioning elements: `position`, `top`, `right`,
+//! `bottom`, `left`, and `z-index`. Types defined here are consumed by the
+//! layout solver to resolve positioned elements.
 
 use alloc::string::{String, ToString};
 use crate::corety::AzString;
@@ -365,11 +367,14 @@ impl_display! { LayoutZIndexParseError<'a>, {
     ParseInt(e, s) => format!("Invalid z-index integer \"{}\": {}", s, e),
 }}
 
-/// Wrapper for ParseInt error with input string.
+/// Wrapper for `ParseIntError` that stores the error message and original
+/// input as owned strings for FFI compatibility.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ParseIntErrorWithInput {
+    /// The stringified parse error (e.g. "invalid digit found in string").
     pub error: AzString,
+    /// The original input string that failed to parse.
     pub input: AzString,
 }
 
@@ -444,6 +449,10 @@ mod tests {
             parse_layout_position("fixed").unwrap(),
             LayoutPosition::Fixed
         );
+        assert_eq!(
+            parse_layout_position("sticky").unwrap(),
+            LayoutPosition::Sticky
+        );
     }
 
     #[test]
@@ -456,7 +465,6 @@ mod tests {
 
     #[test]
     fn test_parse_layout_position_invalid() {
-        assert_eq!(parse_layout_position("sticky").unwrap(), LayoutPosition::Sticky);
         assert!(parse_layout_position("").is_err());
         assert!(parse_layout_position("absolutely").is_err());
     }

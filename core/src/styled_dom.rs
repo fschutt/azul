@@ -1,3 +1,13 @@
+//! `StyledDom` — the result of applying CSS styles to a DOM tree.
+//!
+//! This module contains [`StyledDom`], which is produced by combining a [`Dom`]
+//! with a [`Css`] stylesheet via [`StyledDom::create`]. It stores the flattened
+//! node hierarchy, per-node styled states, cascade information, and the CSS
+//! property cache. Restyle operations (`restyle_nodes_hover`, etc.) allow
+//! incremental updates when pseudo-class states change at runtime.
+//!
+//! `StyledDom` is the primary input to the layout engine.
+
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{
     fmt,
@@ -366,7 +376,7 @@ impl StyledNodeVec {
 }
 
 #[test]
-fn test_it() {
+fn test_css_styling_with_nested_divs() {
     let s = "
         html, body, p {
             margin: 0;
@@ -1548,7 +1558,7 @@ impl StyledDom {
                         })
                         .collect()
                 };
-                let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
+                let mut keys_inline_ref: Vec<_> = keys_inline.iter().collect();
 
                 keys_normal.append(&mut keys_inherited);
                 keys_normal.append(&mut keys_inline_ref);
@@ -1668,7 +1678,7 @@ impl StyledDom {
                         })
                         .collect()
                 };
-                let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
+                let mut keys_inline_ref: Vec<_> = keys_inline.iter().collect();
 
                 keys_normal.append(&mut keys_inherited);
                 keys_normal.append(&mut keys_inline_ref);
@@ -1792,13 +1802,13 @@ impl StyledDom {
                         })
                         .collect()
                 };
-                let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
+                let mut keys_inline_ref: Vec<_> = keys_inline.iter().collect();
 
                 keys_normal.append(&mut keys_inherited);
                 keys_normal.append(&mut keys_inline_ref);
 
                 let node_properties_that_could_have_changed = keys_normal;
-                
+
 
                 if node_properties_that_could_have_changed.is_empty() {
                     return None;
@@ -2284,8 +2294,6 @@ impl StyledDom {
         new
     }
 
-    // Computes the diff between the two DOMs
-    // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
 }
 
 /// Same as `Dom`, but arena-based for more efficient memory layout and faster traversal.
@@ -2376,8 +2384,6 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     }
 
     // Pre-allocate all nodes (+ 1 root node)
-    const DEFAULT_NODE_DATA: NodeData = NodeData::create_div();
-
     let sum_nodes = dom.fixup_children_estimated();
 
     let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];

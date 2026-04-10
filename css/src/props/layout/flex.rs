@@ -259,6 +259,7 @@ impl Default for LayoutFlexDirection {
     }
 }
 
+/// Represents the main or cross axis of a flex container.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutAxis {
@@ -289,20 +290,7 @@ impl PrintAsCssValue for LayoutFlexDirection {
         })
     }
 }
-// Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for LayoutFlexBasis {
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        match self {
-            LayoutFlexBasis::Auto => String::from("LayoutFlexBasis::Auto"),
-            LayoutFlexBasis::Exact(px) => {
-                format!(
-                    "LayoutFlexBasis::Exact({})",
-                    crate::format_rust_code::format_pixel_value(px)
-                )
-            }
-        }
-    }
-}
+
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
 pub enum FlexDirectionParseError<'a> {
@@ -831,6 +819,20 @@ impl PrintAsCssValue for LayoutFlexBasis {
         match self {
             LayoutFlexBasis::Auto => "auto".to_string(),
             LayoutFlexBasis::Exact(px) => px.print_as_css_value(),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for LayoutFlexBasis {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutFlexBasis::Auto => String::from("LayoutFlexBasis::Auto"),
+            LayoutFlexBasis::Exact(px) => {
+                format!(
+                    "LayoutFlexBasis::Exact({})",
+                    crate::format_rust_code::format_pixel_value(px)
+                )
+            }
         }
     }
 }

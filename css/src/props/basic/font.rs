@@ -1,4 +1,8 @@
 //! CSS properties for fonts, such as font-family, font-size, font-weight, and font-style.
+//!
+//! Also contains `FontRef` (reference-counted handle to parsed font data),
+//! `FontMetrics` (OpenType font metrics from head/hhea/os2 tables), and
+//! `Panose` (font classification).
 
 use alloc::{
     boxed::Box,
@@ -277,7 +281,7 @@ impl Clone for FontRef {
         Self {
             parsed: self.parsed,
             copies: self.copies,
-            run_destructor: true,
+            run_destructor: self.run_destructor,
             parsed_destructor: self.parsed_destructor,
         }
     }

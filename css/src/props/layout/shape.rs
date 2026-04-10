@@ -1,4 +1,8 @@
 //! CSS properties for flowing content around shapes (CSS Shapes Module).
+//!
+//! Defines [`ShapeOutside`], [`ShapeInside`], [`ClipPath`], [`ShapeMargin`],
+//! and [`ShapeImageThreshold`]. Note: `ClipPath` belongs to CSS Masking but
+//! is co-located here for convenience.
 
 use alloc::string::{String, ToString};
 
@@ -7,7 +11,7 @@ use crate::{
         basic::{
             length::{parse_float_value, FloatValue},
             pixel::{
-                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+                parse_pixel_value, CssPixelValueParseError,
                 PixelValue,
             },
         },
@@ -160,6 +164,7 @@ impl PrintAsCssValue for ClipPath {
     }
 }
 
+/// CSS `shape-margin` property — adds margin to the shape-outside exclusion area.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ShapeMargin {
@@ -180,6 +185,7 @@ impl PrintAsCssValue for ShapeMargin {
     }
 }
 
+/// CSS `shape-image-threshold` property — alpha threshold for image-based shapes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ShapeImageThreshold {
@@ -287,19 +293,20 @@ pub mod parser {
         }
     }
 
-    // Parsers for margin and threshold
+    /// Parser for shape-margin property
     pub fn parse_shape_margin(input: &str) -> Result<ShapeMargin, CssPixelValueParseError> {
         Ok(ShapeMargin {
             inner: parse_pixel_value(input)?,
         })
     }
 
+    /// Parser for shape-image-threshold property
     pub fn parse_shape_image_threshold(
         input: &str,
     ) -> Result<ShapeImageThreshold, ParseFloatError> {
         let val = parse_float_value(input)?;
         // value should be clamped between 0.0 and 1.0
-        let clamped = val.get().max(0.0).min(1.0);
+        let clamped = val.get().clamp(0.0, 1.0);
         Ok(ShapeImageThreshold {
             inner: FloatValue::new(clamped),
         })

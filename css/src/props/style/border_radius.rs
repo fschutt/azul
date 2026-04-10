@@ -1,11 +1,11 @@
-//! CSS properties for border radius.
+//! CSS properties for border radius (`border-top-left-radius`,
+//! `border-top-right-radius`, `border-bottom-left-radius`,
+//! `border-bottom-right-radius`) and the `border-radius` shorthand parser.
 
 use alloc::string::{String, ToString};
-use core::fmt;
 use crate::corety::AzString;
 
 use crate::{
-    css::PrintAsCssValue,
     props::{
         basic::pixel::{
             parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
@@ -40,9 +40,13 @@ macro_rules! define_border_radius_property {
     };
 }
 
+/// CSS `border-top-left-radius` property value.
 define_border_radius_property!(StyleBorderTopLeftRadius);
+/// CSS `border-top-right-radius` property value.
 define_border_radius_property!(StyleBorderTopRightRadius);
+/// CSS `border-bottom-left-radius` property value.
 define_border_radius_property!(StyleBorderBottomLeftRadius);
+/// CSS `border-bottom-right-radius` property value.
 define_border_radius_property!(StyleBorderBottomRightRadius);
 
 // --- Parser-only Struct ---
@@ -186,6 +190,7 @@ define_border_radius_parse_error!(
 
 // --- Parsing Functions ---
 
+/// Parse the CSS `border-radius` shorthand into individual corner values.
 #[cfg(feature = "parser")]
 pub fn parse_style_border_radius<'a>(
     input: &'a str,
@@ -225,6 +230,7 @@ pub fn parse_style_border_radius<'a>(
     }
 }
 
+/// Parse the CSS `border-top-left-radius` longhand property.
 #[cfg(feature = "parser")]
 pub fn parse_style_border_top_left_radius<'a>(
     input: &'a str,
@@ -233,6 +239,7 @@ pub fn parse_style_border_top_left_radius<'a>(
     Ok(StyleBorderTopLeftRadius { inner: pixel_value })
 }
 
+/// Parse the CSS `border-top-right-radius` longhand property.
 #[cfg(feature = "parser")]
 pub fn parse_style_border_top_right_radius<'a>(
     input: &'a str,
@@ -241,6 +248,7 @@ pub fn parse_style_border_top_right_radius<'a>(
     Ok(StyleBorderTopRightRadius { inner: pixel_value })
 }
 
+/// Parse the CSS `border-bottom-left-radius` longhand property.
 #[cfg(feature = "parser")]
 pub fn parse_style_border_bottom_left_radius<'a>(
     input: &'a str,
@@ -249,6 +257,7 @@ pub fn parse_style_border_bottom_left_radius<'a>(
     Ok(StyleBorderBottomLeftRadius { inner: pixel_value })
 }
 
+/// Parse the CSS `border-bottom-right-radius` longhand property.
 #[cfg(feature = "parser")]
 pub fn parse_style_border_bottom_right_radius<'a>(
     input: &'a str,

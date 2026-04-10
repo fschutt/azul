@@ -22,11 +22,10 @@ use alloc::vec::Vec;
 use std::collections::HashMap;
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
-use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
+use azul_css::props::style::StyleTransformOrigin;
 
 use crate::{
     dom::{DomId, NodeId},
-    id::NodeDataContainerRef,
     resources::{OpacityKey, TransformKey},
     styled_dom::StyledDom,
     transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
@@ -37,19 +36,6 @@ use crate::{
 /// This cache stores the WebRender keys and computed values for nodes with
 /// CSS transforms or opacity. It's synchronized with the `StyledDom` to detect
 /// changes and generate minimal update events.
-///
-/// # Fields
-///
-/// * `transform_keys` - Maps node IDs to vertical scrollbar thumb transform keys
-/// * `current_transform_values` - Current vertical scrollbar thumb transform values
-/// * `h_transform_keys` - Maps node IDs to horizontal scrollbar thumb transform keys
-/// * `h_current_transform_values` - Current horizontal scrollbar thumb transform values
-/// * `opacity_keys` - Maps node IDs to their WebRender opacity keys
-/// * `current_opacity_values` - Current opacity value for each node
-/// * `scrollbar_v_opacity_keys` - Maps (DomId, NodeId) to vertical scrollbar opacity keys
-/// * `scrollbar_h_opacity_keys` - Maps (DomId, NodeId) to horizontal scrollbar opacity keys
-/// * `scrollbar_v_opacity_values` - Current vertical scrollbar opacity values
-/// * `scrollbar_h_opacity_values` - Current horizontal scrollbar opacity values
 #[derive(Default, Debug, Clone)]
 pub struct GpuValueCache {
     /// Vertical scrollbar thumb transform keys (keyed by scrollable node ID)
@@ -98,22 +84,8 @@ impl GpuValueCache {
         Self::default()
     }
 
-    /// Synchronizes the cache with the current `StyledDom`, generating change events.
-    ///
-    /// This method:
-    /// 1. Computes current transform and opacity values from CSS properties
-    /// 2. Compares with cached values to detect changes
-    /// 3. Generates events for additions, changes, and removals
-    /// 4. Updates the internal cache state
-    ///
-    /// # Performance
-    ///
-    /// On x86_64, this function detects and uses SSE/AVX instructions for
-    /// optimized transform calculations.
-    ///
-    /// # Returns
-    ///
-    /// `GpuEventChanges` containing all transform and opacity change events.
+    /// Synchronizes the cache with the current `StyledDom`, generating change events
+    /// for CSS transform and opacity additions, modifications, and removals.
     #[must_use]
     pub fn synchronize<'a>(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
         let css_property_cache = styled_dom.get_css_property_cache();
@@ -227,7 +199,7 @@ impl GpuValueCache {
                 let existing_opacity = self.current_opacity_values.get(&node_id);
 
                 match (existing_opacity, current_opacity) {
-                    (None, None) => None, // no new opacity, no old transform
+                    (None, None) => None, // no new opacity, no old opacity
                     (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(
                         node_id,
                         OpacityKey::unique(),

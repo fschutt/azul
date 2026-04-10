@@ -55,9 +55,9 @@ pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 /// These are pushed for text runs to enable text selection without affecting
 /// other hit-test logic. Selection may trigger re-rendering.
 ///
-/// NOTE: Currently unused — text selection uses TAG_TYPE_CURSOR (0x0400) for hit-testing.
-/// Kept as reserved namespace for future use (e.g., selection drag handles).
-#[deprecated(note = "TAG_TYPE_SELECTION is currently unused; text selection uses TAG_TYPE_CURSOR")]
+/// NOTE: Text selection hit-testing currently uses TAG_TYPE_CURSOR (0x0400).
+/// This constant is used by the `HitTestTag::Selection` variant for encoding
+/// selection-specific tags (e.g., text run selection areas).
 pub const TAG_TYPE_SELECTION: u16 = 0x0300;
 
 /// Marker for cursor hit-test areas (determines which cursor icon to show)
@@ -304,6 +304,8 @@ impl HitTestTag {
                 text_run_index,
             } => {
                 // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) | text_run_index (lower 16 bits)
+                debug_assert!(dom_id.inner <= 0xFFFF, "Selection tag: DomId {} exceeds 16-bit range", dom_id.inner);
+                debug_assert!(container_node_id.index() <= 0xFFFF_FFFF, "Selection tag: NodeId {} exceeds 32-bit range", container_node_id.index());
                 let tag_value = ((dom_id.inner as u64) << 48)
                     | ((container_node_id.index() as u64) << 16)
                     | (*text_run_index as u64);

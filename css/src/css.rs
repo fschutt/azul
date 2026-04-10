@@ -14,7 +14,7 @@ use crate::{
 #[repr(C)]
 pub struct Css {
     /// One CSS stylesheet can hold more than one sub-stylesheet:
-    /// For example, when overriding native styles, the `.sort_by_specificy()` function
+    /// For example, when overriding native styles, the `.sort_by_specificity()` function
     /// should not mix the two stylesheets during sorting.
     pub stylesheets: StylesheetVec,
 }
@@ -366,12 +366,12 @@ pub trait PrintAsCssValue {
 impl<T: PrintAsCssValue> CssPropertyValue<T> {
     pub fn get_css_value_fmt(&self) -> String {
         match self {
-            CssPropertyValue::Auto => format!("auto"),
-            CssPropertyValue::None => format!("none"),
-            CssPropertyValue::Initial => format!("initial"),
-            CssPropertyValue::Inherit => format!("inherit"),
-            CssPropertyValue::Revert => format!("revert"),
-            CssPropertyValue::Unset => format!("unset"),
+            CssPropertyValue::Auto => "auto".to_string(),
+            CssPropertyValue::None => "none".to_string(),
+            CssPropertyValue::Initial => "initial".to_string(),
+            CssPropertyValue::Inherit => "inherit".to_string(),
+            CssPropertyValue::Revert => "revert".to_string(),
+            CssPropertyValue::Unset => "unset".to_string(),
             CssPropertyValue::Exact(e) => e.print_as_css_value(),
         }
     }
@@ -432,50 +432,32 @@ impl<T> CssPropertyValue<T> {
 
     #[inline]
     pub fn is_auto(&self) -> bool {
-        match self {
-            CssPropertyValue::Auto => true,
-            _ => false,
-        }
+        matches!(self, CssPropertyValue::Auto)
     }
 
     #[inline]
     pub fn is_none(&self) -> bool {
-        match self {
-            CssPropertyValue::None => true,
-            _ => false,
-        }
+        matches!(self, CssPropertyValue::None)
     }
 
     #[inline]
     pub fn is_initial(&self) -> bool {
-        match self {
-            CssPropertyValue::Initial => true,
-            _ => false,
-        }
+        matches!(self, CssPropertyValue::Initial)
     }
 
     #[inline]
     pub fn is_inherit(&self) -> bool {
-        match self {
-            CssPropertyValue::Inherit => true,
-            _ => false,
-        }
+        matches!(self, CssPropertyValue::Inherit)
     }
 
     #[inline]
     pub fn is_revert(&self) -> bool {
-        match self {
-            CssPropertyValue::Revert => true,
-            _ => false,
-        }
+        matches!(self, CssPropertyValue::Revert)
     }
 
     #[inline]
     pub fn is_unset(&self) -> bool {
-        match self {
-            CssPropertyValue::Unset => true,
-            _ => false,
-        }
+        matches!(self, CssPropertyValue::Unset)
     }
 }
 
@@ -1605,13 +1587,7 @@ pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
     let id_count = path
         .selectors
         .iter()
-        .filter(|x| {
-            if let CssPathSelector::Id(_) = x {
-                true
-            } else {
-                false
-            }
-        })
+        .filter(|x| matches!(x, CssPathSelector::Id(_)))
         .count();
     let class_count = path
         .selectors
@@ -1623,13 +1599,7 @@ pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
     let div_count = path
         .selectors
         .iter()
-        .filter(|x| {
-            if let CssPathSelector::Type(_) = x {
-                true
-            } else {
-                false
-            }
-        })
+        .filter(|x| matches!(x, CssPathSelector::Type(_)))
         .count();
     (id_count, class_count, div_count, path.selectors.len())
 }

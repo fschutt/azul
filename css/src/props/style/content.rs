@@ -1,12 +1,18 @@
-//! CSS properties for generated content.
+//! CSS properties for generated content (`content`, `counter-reset`,
+//! `counter-increment`, `string-set`).
+//!
+//! Defines [`Content`], [`CounterReset`], [`CounterIncrement`], and
+//! [`StringSet`], which are registered as [`CssProperty`] variants.
 
 use alloc::string::{String, ToString};
 
 use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
-// A full implementation would have an enum for ContentPart with variants for
-// strings, counters, attributes, etc., and Content would be a Vec<ContentPart>.
-// For now, we'll just store the raw string value.
+/// CSS `content` property value, stored as a raw string.
+///
+/// Intentionally simplified: stores the unparsed CSS value rather than
+/// a structured `ContentPart` enum. Complex values like `counter(section) ". "`
+/// are preserved verbatim but not individually evaluated.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct Content {
@@ -27,7 +33,7 @@ impl PrintAsCssValue for Content {
     }
 }
 
-// Counter reset property - properly typed
+/// CSS `counter-reset` property: resets a named counter to a given value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CounterReset {
@@ -74,7 +80,7 @@ impl PrintAsCssValue for CounterReset {
     }
 }
 
-// Counter increment property - properly typed
+/// CSS `counter-increment` property: increments a named counter by a given value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CounterIncrement {
@@ -121,6 +127,7 @@ impl PrintAsCssValue for CounterIncrement {
     }
 }
 
+/// CSS `string-set` property value, stored as a raw string.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StringSet {

@@ -7,21 +7,8 @@ use crate::props::{
     formatter::FormatAsCssValue,
 };
 
-/// Default/fallback font size in pixels, used when no font-size is specified.
-///
-/// This is the same as the CSS "medium" keyword and matches browser defaults:
-/// - CSS 2.1 §15.7: "medium" is the user's preferred font size
-/// - All major browsers default to 16px
-/// - W3C HTML5: The default font-size of the root element is 16px
-///
-/// This constant is used in two scenarios:
-/// 1. As fallback when no explicit font-size is found in the cascade
-/// 2. In legacy `to_pixels()` for em/rem conversion when no context available
-///
-/// **Research:**
-/// - Chrome/Firefox/Safari: 16px default
-/// - CSS font-size keywords: medium = 16px (derived from 13.33px * 1.2)
-/// - Can be overridden by user preferences (browser settings)
+/// Default font size in pixels (16px), matching the CSS "medium" keyword
+/// and all major browser defaults (CSS 2.1 §15.7).
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 /// Conversion factor from points to pixels (1pt = 1/72 inch, 1in = 96px, therefore 1pt = 96/72 px)
@@ -269,6 +256,7 @@ pub enum PropertyContext {
     Other,
 }
 
+/// A CSS length value consisting of a numeric value and a unit (px, em, rem, %, etc.).
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PixelValue {
@@ -304,13 +292,13 @@ impl crate::format_rust_code::FormatAsRustCode for PixelValue {
     }
 }
 
+// Manual Debug implementation, because the auto-generated one is nearly unreadable
 impl fmt::Debug for PixelValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }
 
-// Manual Debug implementation, because the auto-generated one is nearly unreadable
 impl fmt::Display for PixelValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
@@ -368,7 +356,7 @@ impl PixelValue {
         Self::const_from_metric_fractional(SizeMetric::Pt, pre_comma, post_comma)
     }
 
-    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// Same as `PixelValue::percent()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
     pub const fn const_percent(value: isize) -> Self {
@@ -382,14 +370,14 @@ impl PixelValue {
         Self::const_from_metric(SizeMetric::In, value)
     }
 
-    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// Same as `PixelValue::cm()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
     pub const fn const_cm(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Cm, value)
     }
 
-    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// Same as `PixelValue::mm()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
     pub const fn const_mm(value: isize) -> Self {

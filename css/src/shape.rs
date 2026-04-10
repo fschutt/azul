@@ -4,6 +4,11 @@
 
 use crate::corety::{AzString, OptionF32};
 
+/// Compares two f32 values for ordering, treating NaN as equal.
+fn cmp_f32(a: f32, b: f32) -> core::cmp::Ordering {
+    a.partial_cmp(&b).unwrap_or(core::cmp::Ordering::Equal)
+}
+
 /// A 2D point for shape coordinates (using f32 for precision)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -163,27 +168,11 @@ impl PartialOrd for ShapeInset {
 }
 impl Ord for ShapeInset {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.inset_top.partial_cmp(&other.inset_top) {
-            Some(core::cmp::Ordering::Equal) | None => {
-                match self.inset_right.partial_cmp(&other.inset_right) {
-                    Some(core::cmp::Ordering::Equal) | None => {
-                        match self.inset_bottom.partial_cmp(&other.inset_bottom) {
-                            Some(core::cmp::Ordering::Equal) | None => {
-                                match self.inset_left.partial_cmp(&other.inset_left) {
-                                    Some(core::cmp::Ordering::Equal) | None => {
-                                        self.border_radius.cmp(&other.border_radius)
-                                    }
-                                    Some(other) => other,
-                                }
-                            }
-                            Some(other) => other,
-                        }
-                    }
-                    Some(other) => other,
-                }
-            }
-            Some(other) => other,
-        }
+        cmp_f32(self.inset_top, other.inset_top)
+            .then_with(|| cmp_f32(self.inset_right, other.inset_right))
+            .then_with(|| cmp_f32(self.inset_bottom, other.inset_bottom))
+            .then_with(|| cmp_f32(self.inset_left, other.inset_left))
+            .then_with(|| self.border_radius.cmp(&other.border_radius))
     }
 }
 
@@ -483,8 +472,8 @@ impl CssShape {
                 let dy = y - center.y;
                 let r_with_margin = radius - margin;
 
-                if dy.abs() > r_with_margin {
-                    Vec::new() // Outside circle
+                if r_with_margin <= 0.0 || dy.abs() > r_with_margin {
+                    Vec::new() // Outside circle or margin exceeds radius
                 } else {
                     // Chord width at y: w = 2*sqrt(r²-dy²)
                     let half_width = (r_with_margin.powi(2) - dy.powi(2)).sqrt();
@@ -504,15 +493,16 @@ impl CssShape {
             }) => {
                 let dy = y - center.y;
                 let ry_with_margin = radius_y - margin;
+                let rx_with_margin = radius_x - margin;
 
-                if dy.abs() > ry_with_margin {
-                    Vec::new() // Outside ellipse
+                if ry_with_margin <= 0.0 || rx_with_margin <= 0.0 || dy.abs() > ry_with_margin {
+                    Vec::new() // Outside ellipse or margin exceeds radii
                 } else {
                     // Ellipse equation: (x/rx)² + (y/ry)² = 1
                     // Solve for x at given y: x = rx * sqrt(1 - (y/ry)²)
                     let ratio = dy / ry_with_margin;
                     let factor = (1.0 - ratio.powi(2)).sqrt();
-                    let half_width = (radius_x - margin) * factor;
+                    let half_width = rx_with_margin * factor;
 
                     alloc::vec![LineSegment {
                         start_x: center.x - half_width,

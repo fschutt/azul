@@ -1,11 +1,11 @@
 //! CSS property types for time durations (s, ms).
 
 use alloc::string::{String, ToString};
-use core::fmt;
 use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
+/// A CSS time duration, stored internally in milliseconds.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CssDuration {
@@ -31,6 +31,7 @@ impl crate::format_rust_code::FormatAsRustCode for CssDuration {
     }
 }
 
+/// Error returned when parsing a CSS duration string fails.
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
 pub enum DurationParseError<'a> {
@@ -46,6 +47,7 @@ impl_display! { DurationParseError<'a>, {
     ParseFloat(e) => format!("Invalid number for time value: {}", e),
 }}
 
+/// Owned version of [`DurationParseError`] for FFI and storage.
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -69,25 +71,30 @@ impl DurationParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> DurationParseError<'a> {
         match self {
             Self::InvalidValue(s) => DurationParseError::InvalidValue(s),
-            Self::ParseFloat(s) => DurationParseError::InvalidValue("invalid float"), /* Can't reconstruct */
+            Self::ParseFloat(s) => DurationParseError::InvalidValue(s.as_str()),
         }
     }
 }
 
+/// Parses a CSS duration string (e.g. `"200ms"`, `"1.5s"`) into a [`CssDuration`].
 #[cfg(feature = "parser")]
 pub fn parse_duration<'a>(input: &'a str) -> Result<CssDuration, DurationParseError<'a>> {
     let trimmed = input.trim().to_lowercase();
-    if trimmed.ends_with("ms") {
-        let num_str = &trimmed[..trimmed.len() - 2];
+    if let Some(num_str) = trimmed.strip_suffix("ms") {
         let ms = num_str
             .parse::<f32>()
             .map_err(|e| DurationParseError::ParseFloat(e))?;
+        if ms < 0.0 {
+            return Err(DurationParseError::InvalidValue(input));
+        }
         Ok(CssDuration { inner: ms as u32 })
-    } else if trimmed.ends_with('s') {
-        let num_str = &trimmed[..trimmed.len() - 1];
+    } else if let Some(num_str) = trimmed.strip_suffix('s') {
         let s = num_str
             .parse::<f32>()
             .map_err(|e| DurationParseError::ParseFloat(e))?;
+        if s < 0.0 {
+            return Err(DurationParseError::InvalidValue(input));
+        }
         Ok(CssDuration {
             inner: (s * 1000.0) as u32,
         })

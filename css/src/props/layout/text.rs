@@ -1,4 +1,7 @@
-//! CSS property for text-justify
+//! CSS `text-justify` property.
+//!
+//! Defines [`LayoutTextJustify`] and its parser [`parse_layout_text_justify`],
+//! used by the CSS property parsing pipeline.
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -6,6 +9,7 @@ use crate::corety::AzString;
 
 use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
+/// CSS `text-justify` property value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutTextJustify {
@@ -36,7 +40,7 @@ impl PrintAsCssValue for LayoutTextJustify {
 }
 
 impl FormatAsRustCode for LayoutTextJustify {
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("LayoutTextJustify::{self:?}")
     }
 }
@@ -82,6 +86,7 @@ impl TextJustifyParseErrorOwned {
     }
 }
 
+/// Parses a `text-justify` CSS value string into a [`LayoutTextJustify`].
 pub fn parse_layout_text_justify<'a>(
     input: &'a str,
 ) -> Result<LayoutTextJustify, TextJustifyParseError<'a>> {

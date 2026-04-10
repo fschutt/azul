@@ -1,6 +1,4 @@
-//! Basic types for SVG paths and animations.
-
-use core::fmt;
+//! SVG geometry primitives (points, curves, rects, vectors) and animation interpolation functions.
 
 use crate::impl_option;
 
@@ -69,8 +67,6 @@ pub struct SvgQuadraticCurve {
     pub ctrl: SvgPoint,
     pub end: SvgPoint,
 }
-
-// Now, add the impl blocks for each type.
 
 impl_option!(
     SvgPoint,
@@ -161,12 +157,8 @@ impl SvgCubicCurve {
     }
 
     pub fn reverse(&mut self) {
-        let temp = self.start;
-        self.start = self.end;
-        self.end = temp;
-        let temp = self.ctrl_1;
-        self.ctrl_1 = self.ctrl_2;
-        self.ctrl_2 = temp;
+        core::mem::swap(&mut self.start, &mut self.end);
+        core::mem::swap(&mut self.ctrl_1, &mut self.ctrl_2);
     }
 
     pub fn get_start(&self) -> SvgPoint {
@@ -233,7 +225,7 @@ impl SvgCubicCurve {
             // linearly interpolate between last t and current t
             if arc_length > offset {
                 let remaining = arc_length - offset;
-                return t_current + (remaining / distance) * STEP_SIZE_F64;
+                return t_current + ((distance - remaining) / distance) * STEP_SIZE_F64;
             }
 
             prev_point = next_point;
@@ -336,7 +328,7 @@ impl SvgVector {
     #[inline]
     #[must_use = "returns a new vector"]
     pub fn normalize(&self) -> Self {
-        let tangent_length = libm::hypotf(self.x as f32, self.y as f32) as f64;
+        let tangent_length = libm::hypot(self.x, self.y);
         if tangent_length == 0.0 {
             return Self { x: 0.0, y: 0.0 };
         }
@@ -365,9 +357,7 @@ impl SvgQuadraticCurve {
     }
 
     pub fn reverse(&mut self) {
-        let temp = self.start;
-        self.start = self.end;
-        self.end = temp;
+        core::mem::swap(&mut self.start, &mut self.end);
     }
     pub fn get_start(&self) -> SvgPoint {
         self.start

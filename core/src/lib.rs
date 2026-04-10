@@ -1,8 +1,19 @@
 //! Shared datatypes for azul-* crates
+//!
+//! `azul-core` provides the platform-independent core types used throughout
+//! the Azul toolkit. Key modules include [`dom`] for DOM construction,
+//! [`callbacks`] for event callback types, [`styled_dom`] for the CSSOM,
+//! and [`window`] for OS windowing abstractions.
+//!
+//! This crate depends on [`azul_css`] for CSS property definitions and is
+//! consumed by `azul-layout`, `azul-dll`, and the platform shell crates.
+//! It supports `no_std` environments via `#![cfg_attr(not(feature = "std"), no_std)]`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(warnings)]
 
+// `extern crate` + `#[macro_use]` required for `no_std` support:
+// makes `core` and `alloc` macros available without `use` imports.
 #[macro_use]
 extern crate core;
 #[macro_use]

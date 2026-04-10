@@ -451,79 +451,6 @@ impl CssPropertyCache {
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
 
-        // Pre-encode global CSS properties (from `*` rules) into compact form.
-        // These are applied as baseline for every node before inheritance.
-        let mut global_tier1: u64 = 0;
-        let mut global_dims = CompactNodeProps::default();
-        let mut global_cold = CompactNodePropsCold::default();
-        let mut global_text = CompactTextProps::default();
-        let has_global = !self.global_css_props.is_empty();
-
-        if has_global {
-            use azul_css::props::property::CssProperty;
-
-            for prop in &self.global_css_props {
-                // Apply each global property to the pre-encoded compact values
-                macro_rules! global_tier1_enum {
-                    ($variant:ident, $shift:ident, $mask:ident, $encoder:ident) => {
-                        if let CssProperty::$variant(v) = prop {
-                            if let Some(exact) = v.get_property() {
-                                let encoded = $encoder(*exact) as u64;
-                                let shifted_mask = $mask << $shift;
-                                global_tier1 = (global_tier1 & !shifted_mask) | ((encoded & $mask) << $shift);
-                            }
-                        }
-                    };
-                }
-
-                global_tier1_enum!(Display, DISPLAY_SHIFT, DISPLAY_MASK, layout_display_to_u8);
-                global_tier1_enum!(Position, POSITION_SHIFT, POSITION_MASK, layout_position_to_u8);
-                global_tier1_enum!(Float, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8);
-                global_tier1_enum!(OverflowX, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
-                global_tier1_enum!(OverflowY, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
-                global_tier1_enum!(BoxSizing, BOX_SIZING_SHIFT, BOX_SIZING_MASK, layout_box_sizing_to_u8);
-                global_tier1_enum!(FlexDirection, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK, layout_flex_direction_to_u8);
-                global_tier1_enum!(FlexWrap, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8);
-                global_tier1_enum!(JustifyContent, JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK, layout_justify_content_to_u8);
-                global_tier1_enum!(AlignItems, ALIGN_ITEMS_SHIFT, ALIGN_MASK, layout_align_items_to_u8);
-                global_tier1_enum!(AlignContent, ALIGN_CONTENT_SHIFT, ALIGN_MASK, layout_align_content_to_u8);
-                global_tier1_enum!(Clear, CLEAR_SHIFT, CLEAR_MASK, layout_clear_to_u8);
-                global_tier1_enum!(Visibility, VISIBILITY_SHIFT, VISIBILITY_MASK, style_visibility_to_u8);
-                global_tier1_enum!(WritingMode, WRITING_MODE_SHIFT, WRITING_MODE_MASK, layout_writing_mode_to_u8);
-                global_tier1_enum!(FontWeight, FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK, style_font_weight_to_u8);
-                global_tier1_enum!(FontStyle, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8);
-                global_tier1_enum!(TextAlign, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8);
-                global_tier1_enum!(WhiteSpace, WHITE_SPACE_SHIFT, WHITE_SPACE_MASK, style_white_space_to_u8);
-                global_tier1_enum!(Direction, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8);
-                global_tier1_enum!(VerticalAlign, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK, style_vertical_align_to_u8);
-                global_tier1_enum!(BorderCollapse, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK, border_collapse_to_u8);
-
-                // Tier 2 dims
-                match prop {
-                    CssProperty::PaddingTop(v) => { global_dims.padding_top = encode_css_pixel_as_i16(v); }
-                    CssProperty::PaddingRight(v) => { global_dims.padding_right = encode_css_pixel_as_i16(v); }
-                    CssProperty::PaddingBottom(v) => { global_dims.padding_bottom = encode_css_pixel_as_i16(v); }
-                    CssProperty::PaddingLeft(v) => { global_dims.padding_left = encode_css_pixel_as_i16(v); }
-                    CssProperty::MarginTop(v) => { global_dims.margin_top = encode_margin_i16(v); }
-                    CssProperty::MarginRight(v) => { global_dims.margin_right = encode_margin_i16(v); }
-                    CssProperty::MarginBottom(v) => { global_dims.margin_bottom = encode_margin_i16(v); }
-                    CssProperty::MarginLeft(v) => { global_dims.margin_left = encode_margin_i16(v); }
-                    CssProperty::Width(v) => { global_dims.width = encode_layout_width(v); }
-                    CssProperty::Height(v) => { global_dims.height = encode_layout_height(v); }
-                    CssProperty::FontSize(v) => { global_dims.font_size = encode_pixel_prop(v); }
-                    CssProperty::BorderTopWidth(v) => { global_dims.border_top_width = encode_css_pixel_as_i16(v); }
-                    CssProperty::BorderRightWidth(v) => { global_dims.border_right_width = encode_css_pixel_as_i16(v); }
-                    CssProperty::BorderBottomWidth(v) => { global_dims.border_bottom_width = encode_css_pixel_as_i16(v); }
-                    CssProperty::BorderLeftWidth(v) => { global_dims.border_left_width = encode_css_pixel_as_i16(v); }
-                    _ => {}
-                }
-            }
-
-            if global_tier1 != 0 {
-                global_tier1 |= TIER1_POPULATED_BIT;
-            }
-        }
-
         // Helper: push debug message if debug_messages is Some
         macro_rules! cascade_debug {
             ($($arg:tt)*) => {
@@ -589,7 +516,6 @@ impl CssPropertyCache {
             // UA defaults have lowest cascade priority — overridden by author CSS below.
             // This replaces the separate apply_ua_css() pass + cascaded_props + sort.
             {
-                use azul_css::props::property::CssPropertyType as PT;
                 // Apply ALL UA CSS defaults for this node type.
                 // Use apply_css_property_to_compact for consistent encoding.
                 // This replaces the incomplete property list that missed overflow, position, etc.
@@ -941,7 +867,11 @@ fn apply_css_property_to_compact(
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
                 let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                text.line_height = pct_x10.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                if pct_x10 >= -32768 && pct_x10 < I16_SENTINEL_THRESHOLD as i32 {
+                    text.line_height = pct_x10 as i16;
+                } else {
+                    text.line_height = I16_SENTINEL;
+                }
             }
         }
         CssProperty::LetterSpacing(v) => { text.letter_spacing = encode_css_pixel_as_i16(v); }

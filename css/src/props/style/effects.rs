@@ -1,4 +1,5 @@
-//! CSS properties for visual effects like opacity, blending, and cursor style.
+//! CSS properties for visual effects (opacity, blending, cursor), box sizing
+//! (object-fit, object-position, aspect-ratio), and text orientation.
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -16,7 +17,7 @@ use crate::props::{
 // -- Opacity --
 
 /// Represents an `opacity` attribute, a value from 0.0 to 1.0.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleOpacity {
     pub inner: PercentageValue,
@@ -39,7 +40,7 @@ impl PrintAsCssValue for StyleOpacity {
 #[cfg(feature = "parser")]
 impl_percentage_value!(StyleOpacity);
 
-// -- Mix Blend Mode --
+// -- Visibility --
 
 /// Represents a `visibility` attribute, controlling element visibility.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

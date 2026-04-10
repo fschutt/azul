@@ -34,8 +34,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-#[cfg(feature = "std")]
-use std::sync::{Arc, Mutex};
 
 /// Debug message severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -197,7 +195,7 @@ impl DebugLogger {
             category,
             message: message.into(),
             location: format!("{}:{}", location.file(), location.line()),
-            elapsed_us: self.start_time.elapsed().as_micros() as u64,
+            elapsed_us: u64::try_from(self.start_time.elapsed().as_micros()).unwrap_or(u64::MAX),
             window_id: self.current_window_id.clone(),
         });
     }
@@ -233,26 +231,31 @@ impl DebugLogger {
     }
 
     /// Take all collected messages (empties the logger)
+    #[must_use]
     pub fn take_messages(&mut self) -> Vec<LogMessage> {
         core::mem::take(&mut self.messages)
     }
 
     /// Get a reference to collected messages
+    #[must_use]
     pub fn messages(&self) -> &[LogMessage] {
         &self.messages
     }
 
     /// Get count of collected messages
+    #[must_use]
     pub fn len(&self) -> usize {
         self.messages.len()
     }
 
     /// Check if no messages have been collected
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
 
     /// Get elapsed time since logger was created
+    #[must_use]
     pub fn elapsed(&self) -> std::time::Duration {
         self.start_time.elapsed()
     }
@@ -265,13 +268,13 @@ impl Default for DebugLogger {
     }
 }
 
-/// Convenience macro for logging with automatic category and format
-///
-/// Usage:
-/// ```rust,ignore
-/// log_debug!(logger, Layout, "Processing {} nodes", count);
-/// log_info!(logger, Window, "Window created with id {}", id);
-/// ```
+// Convenience macros for logging with automatic category and format.
+//
+// Usage:
+//   log_debug!(logger, Layout, "Processing {} nodes", count);
+//   log_info!(logger, Window, "Window created with id {}", id);
+
+/// Log a message at trace level
 #[macro_export]
 macro_rules! log_trace {
     ($logger:expr, $category:ident, $($arg:tt)*) => {
@@ -281,6 +284,7 @@ macro_rules! log_trace {
     };
 }
 
+/// Log a message at debug level
 #[macro_export]
 macro_rules! log_debug {
     ($logger:expr, $category:ident, $($arg:tt)*) => {
@@ -290,6 +294,7 @@ macro_rules! log_debug {
     };
 }
 
+/// Log a message at info level
 #[macro_export]
 macro_rules! log_info {
     ($logger:expr, $category:ident, $($arg:tt)*) => {
@@ -299,6 +304,7 @@ macro_rules! log_info {
     };
 }
 
+/// Log a message at warn level
 #[macro_export]
 macro_rules! log_warn {
     ($logger:expr, $category:ident, $($arg:tt)*) => {
@@ -308,6 +314,7 @@ macro_rules! log_warn {
     };
 }
 
+/// Log a message at error level
 #[macro_export]
 macro_rules! log_error {
     ($logger:expr, $category:ident, $($arg:tt)*) => {

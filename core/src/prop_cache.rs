@@ -292,20 +292,6 @@ macro_rules! match_property_value {
     };
 }
 
-/// Returns the CSS-specified initial value for a given property type.
-/// These are the default values defined by the CSS specification, not UA stylesheet values.
-fn get_initial_value(property_type: CssPropertyType) -> Option<CssProperty> {
-    use azul_css::css::CssPropertyValue;
-
-    // For now, we return None for most properties and implement only the most critical ones.
-    // This can be expanded as needed.
-    match property_type {
-        // Most properties: return None (no initial value implemented yet)
-        // This means cascade keywords will fall back to parent values or remain unresolved
-        _ => None,
-    }
-}
-
 /// A CSS property tagged with its pseudo-state and property type.
 /// Replaces the per-pseudo-state BTreeMap approach: instead of 6 BTreeMaps
 /// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
@@ -1395,7 +1381,7 @@ impl CssPropertyCache {
             .unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
-    /// Returns the font ID of the
+    /// Returns the font family of the node, or the default font family if none is set.
     pub fn get_font_id_or_default(
         &self,
         node_data: &NodeData,
@@ -1825,7 +1811,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_background_content())
     }
 
-    // Method for getting hyphens property
+    /// Method for getting hyphens property
     pub fn get_hyphens<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1836,7 +1822,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_hyphens())
     }
 
-    // Method for getting word-break property
+    /// Method for getting word-break property
     pub fn get_word_break<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1847,7 +1833,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_word_break())
     }
 
-    // Method for getting overflow-wrap property
+    /// Method for getting overflow-wrap property
     pub fn get_overflow_wrap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1858,7 +1844,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_overflow_wrap())
     }
 
-    // Method for getting line-break property
+    /// Method for getting line-break property
     pub fn get_line_break<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1869,7 +1855,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_line_break())
     }
 
-    // Method for getting text-align-last property
+    /// Method for getting text-align-last property
     pub fn get_text_align_last<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1880,7 +1866,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_text_align_last())
     }
 
-    // Method for getting object-fit property
+    /// Method for getting object-fit property
     pub fn get_object_fit<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1891,7 +1877,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_object_fit())
     }
 
-    // Method for getting text-orientation property
+    /// Method for getting text-orientation property
     pub fn get_text_orientation<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1902,7 +1888,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_text_orientation())
     }
 
-    // Method for getting object-position property
+    /// Method for getting object-position property
     pub fn get_object_position<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1913,7 +1899,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_object_position())
     }
 
-    // Method for getting aspect-ratio property
+    /// Method for getting aspect-ratio property
     pub fn get_aspect_ratio<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -1924,7 +1910,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_aspect_ratio())
     }
 
-    // Method for getting direction property
+    /// Method for getting direction property
     pub fn get_direction<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2025,7 +2011,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_overflow_clip_margin())
     }
 
-    // Method for getting white-space property
+    /// Method for getting white-space property
     pub fn get_white_space<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2122,7 +2108,7 @@ impl CssPropertyCache {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextColor)
             .and_then(|p| p.as_text_color())
     }
-    // Method for getting text-indent property
+    /// Method for getting text-indent property
     pub fn get_text_indent<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2132,7 +2118,7 @@ impl CssPropertyCache {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextIndent)
             .and_then(|p| p.as_text_indent())
     }
-    // Method for getting initial-letter property
+    /// Method for getting initial-letter property
     pub fn get_initial_letter<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2147,7 +2133,7 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_initial_letter())
     }
-    // Method for getting line-clamp property
+    /// Method for getting line-clamp property
     pub fn get_line_clamp<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2157,7 +2143,7 @@ impl CssPropertyCache {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::LineClamp)
             .and_then(|p| p.as_line_clamp())
     }
-    // Method for getting hanging-punctuation property
+    /// Method for getting hanging-punctuation property
     pub fn get_hanging_punctuation<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2172,7 +2158,7 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_hanging_punctuation())
     }
-    // Method for getting text-combine-upright property
+    /// Method for getting text-combine-upright property
     pub fn get_text_combine_upright<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2187,7 +2173,7 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_text_combine_upright())
     }
-    // Method for getting -azul-exclusion-margin property
+    /// Method for getting -azul-exclusion-margin property
     pub fn get_exclusion_margin<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2202,7 +2188,7 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_exclusion_margin())
     }
-    // Method for getting -azul-hyphenation-language property
+    /// Method for getting -azul-hyphenation-language property
     pub fn get_hyphenation_language<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2217,7 +2203,7 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_hyphenation_language())
     }
-    // Method for getting caret-color property
+    /// Method for getting caret-color property
     pub fn get_caret_color<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2228,7 +2214,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_caret_color())
     }
 
-    // Method for getting -azul-caret-width property
+    /// Method for getting -azul-caret-width property
     pub fn get_caret_width<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2239,7 +2225,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_caret_width())
     }
 
-    // Method for getting caret-animation-duration property
+    /// Method for getting caret-animation-duration property
     pub fn get_caret_animation_duration<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2255,7 +2241,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_caret_animation_duration())
     }
 
-    // Method for getting selection-background-color property
+    /// Method for getting selection-background-color property
     pub fn get_selection_background_color<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2271,7 +2257,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_selection_background_color())
     }
 
-    // Method for getting selection-color property
+    /// Method for getting selection-color property
     pub fn get_selection_color<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2287,7 +2273,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_selection_color())
     }
 
-    // Method for getting -azul-selection-radius property
+    /// Method for getting -azul-selection-radius property
     pub fn get_selection_radius<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2303,7 +2289,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_selection_radius())
     }
 
-    // Method for getting text-justify property
+    /// Method for getting text-justify property
     pub fn get_text_justify<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2319,7 +2305,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_text_justify())
     }
 
-    // Method for getting z-index property
+    /// Method for getting z-index property
     pub fn get_z_index<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2330,7 +2316,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_z_index())
     }
 
-    // Method for getting flex-basis property
+    /// Method for getting flex-basis property
     pub fn get_flex_basis<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2341,7 +2327,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_flex_basis())
     }
 
-    // Method for getting column-gap property
+    /// Method for getting column-gap property
     pub fn get_column_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2352,7 +2338,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_column_gap())
     }
 
-    // Method for getting row-gap property
+    /// Method for getting row-gap property
     pub fn get_row_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2363,7 +2349,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_row_gap())
     }
 
-    // Method for getting grid-template-columns property
+    /// Method for getting grid-template-columns property
     pub fn get_grid_template_columns<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2379,7 +2365,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_grid_template_columns())
     }
 
-    // Method for getting grid-template-rows property
+    /// Method for getting grid-template-rows property
     pub fn get_grid_template_rows<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2395,7 +2381,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_grid_template_rows())
     }
 
-    // Method for getting grid-auto-columns property
+    /// Method for getting grid-auto-columns property
     pub fn get_grid_auto_columns<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2411,7 +2397,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_grid_auto_columns())
     }
 
-    // Method for getting grid-auto-rows property
+    /// Method for getting grid-auto-rows property
     pub fn get_grid_auto_rows<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2427,7 +2413,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_grid_auto_rows())
     }
 
-    // Method for getting grid-column property
+    /// Method for getting grid-column property
     pub fn get_grid_column<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2438,7 +2424,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_grid_column())
     }
 
-    // Method for getting grid-row property
+    /// Method for getting grid-row property
     pub fn get_grid_row<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2449,7 +2435,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_grid_row())
     }
 
-    // Method for getting grid-auto-flow property
+    /// Method for getting grid-auto-flow property
     pub fn get_grid_auto_flow<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2465,7 +2451,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_grid_auto_flow())
     }
 
-    // Method for getting justify-self property
+    /// Method for getting justify-self property
     pub fn get_justify_self<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2481,7 +2467,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_justify_self())
     }
 
-    // Method for getting justify-items property
+    /// Method for getting justify-items property
     pub fn get_justify_items<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2497,7 +2483,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_justify_items())
     }
 
-    // Method for getting gap property
+    /// Method for getting gap property
     pub fn get_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2508,7 +2494,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_gap())
     }
 
-    // Method for getting grid-gap property
+    /// Method for getting grid-gap property
     pub fn get_grid_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2519,7 +2505,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_grid_gap())
     }
 
-    // Method for getting align-self property
+    /// Method for getting align-self property
     pub fn get_align_self<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2530,7 +2516,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_align_self())
     }
 
-    // Method for getting font property
+    /// Method for getting font property
     pub fn get_font<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2541,7 +2527,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_font())
     }
 
-    // Method for getting writing-mode property
+    /// Method for getting writing-mode property
     pub fn get_writing_mode<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2557,7 +2543,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_writing_mode())
     }
 
-    // Method for getting clear property
+    /// Method for getting clear property
     pub fn get_clear<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2568,7 +2554,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_clear())
     }
 
-    // Method for getting shape-outside property
+    /// Method for getting shape-outside property
     pub fn get_shape_outside<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2584,7 +2570,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_shape_outside())
     }
 
-    // Method for getting shape-inside property
+    /// Method for getting shape-inside property
     pub fn get_shape_inside<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2600,7 +2586,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_shape_inside())
     }
 
-    // Method for getting clip-path property
+    /// Method for getting clip-path property
     pub fn get_clip_path<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2611,7 +2597,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_clip_path())
     }
 
-    // Method for getting scrollbar track background
+    /// Method for getting scrollbar track background
     pub fn get_scrollbar_track<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2622,7 +2608,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_scrollbar_track())
     }
 
-    // Method for getting scrollbar thumb background
+    /// Method for getting scrollbar thumb background
     pub fn get_scrollbar_thumb<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2633,7 +2619,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_scrollbar_thumb())
     }
 
-    // Method for getting scrollbar button background
+    /// Method for getting scrollbar button background
     pub fn get_scrollbar_button<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2644,7 +2630,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_scrollbar_button())
     }
 
-    // Method for getting scrollbar corner background
+    /// Method for getting scrollbar corner background
     pub fn get_scrollbar_corner<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2655,7 +2641,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_scrollbar_corner())
     }
 
-    // Method for getting scrollbar resizer background
+    /// Method for getting scrollbar resizer background
     pub fn get_scrollbar_resizer<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2666,7 +2652,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_scrollbar_resizer())
     }
 
-    // Method for getting scrollbar-width property
+    /// Method for getting scrollbar-width property
     pub fn get_scrollbar_width<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2682,7 +2668,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_scrollbar_width())
     }
 
-    // Method for getting scrollbar-color property
+    /// Method for getting scrollbar-color property
     pub fn get_scrollbar_color<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2698,7 +2684,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_scrollbar_color())
     }
 
-    // Method for getting -azul-scrollbar-visibility property
+    /// Method for getting -azul-scrollbar-visibility property
     pub fn get_scrollbar_visibility<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2714,7 +2700,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_scrollbar_visibility())
     }
 
-    // Method for getting -azul-scrollbar-fade-delay property
+    /// Method for getting -azul-scrollbar-fade-delay property
     pub fn get_scrollbar_fade_delay<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2730,7 +2716,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_scrollbar_fade_delay())
     }
 
-    // Method for getting -azul-scrollbar-fade-duration property
+    /// Method for getting -azul-scrollbar-fade-duration property
     pub fn get_scrollbar_fade_duration<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2746,7 +2732,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_scrollbar_fade_duration())
     }
 
-    // Method for getting visibility property
+    /// Method for getting visibility property
     pub fn get_visibility<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2757,7 +2743,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_visibility())
     }
 
-    // Method for getting break-before property
+    /// Method for getting break-before property
     pub fn get_break_before<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2773,7 +2759,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_break_before())
     }
 
-    // Method for getting break-after property
+    /// Method for getting break-after property
     pub fn get_break_after<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2784,7 +2770,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_break_after())
     }
 
-    // Method for getting break-inside property
+    /// Method for getting break-inside property
     pub fn get_break_inside<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2800,7 +2786,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_break_inside())
     }
 
-    // Method for getting orphans property
+    /// Method for getting orphans property
     pub fn get_orphans<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2811,7 +2797,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_orphans())
     }
 
-    // Method for getting widows property
+    /// Method for getting widows property
     pub fn get_widows<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2822,7 +2808,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_widows())
     }
 
-    // Method for getting box-decoration-break property
+    /// Method for getting box-decoration-break property
     pub fn get_box_decoration_break<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2838,7 +2824,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_box_decoration_break())
     }
 
-    // Method for getting column-count property
+    /// Method for getting column-count property
     pub fn get_column_count<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2854,7 +2840,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_column_count())
     }
 
-    // Method for getting column-width property
+    /// Method for getting column-width property
     pub fn get_column_width<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2870,7 +2856,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_column_width())
     }
 
-    // Method for getting column-span property
+    /// Method for getting column-span property
     pub fn get_column_span<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2881,7 +2867,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_column_span())
     }
 
-    // Method for getting column-fill property
+    /// Method for getting column-fill property
     pub fn get_column_fill<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2892,7 +2878,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_column_fill())
     }
 
-    // Method for getting column-rule-width property
+    /// Method for getting column-rule-width property
     pub fn get_column_rule_width<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2908,7 +2894,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_column_rule_width())
     }
 
-    // Method for getting column-rule-style property
+    /// Method for getting column-rule-style property
     pub fn get_column_rule_style<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2924,7 +2910,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_column_rule_style())
     }
 
-    // Method for getting column-rule-color property
+    /// Method for getting column-rule-color property
     pub fn get_column_rule_color<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2940,7 +2926,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_column_rule_color())
     }
 
-    // Method for getting flow-into property
+    /// Method for getting flow-into property
     pub fn get_flow_into<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2951,7 +2937,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_flow_into())
     }
 
-    // Method for getting flow-from property
+    /// Method for getting flow-from property
     pub fn get_flow_from<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2962,7 +2948,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_flow_from())
     }
 
-    // Method for getting shape-margin property
+    /// Method for getting shape-margin property
     pub fn get_shape_margin<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2978,7 +2964,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_shape_margin())
     }
 
-    // Method for getting shape-image-threshold property
+    /// Method for getting shape-image-threshold property
     pub fn get_shape_image_threshold<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2994,7 +2980,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_shape_image_threshold())
     }
 
-    // Method for getting content property
+    /// Method for getting content property
     pub fn get_content<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3005,7 +2991,7 @@ impl CssPropertyCache {
             .and_then(|p| p.as_content())
     }
 
-    // Method for getting counter-reset property
+    /// Method for getting counter-reset property
     pub fn get_counter_reset<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3021,7 +3007,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_counter_reset())
     }
 
-    // Method for getting counter-increment property
+    /// Method for getting counter-increment property
     pub fn get_counter_increment<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3037,7 +3023,7 @@ impl CssPropertyCache {
         .and_then(|p| p.as_counter_increment())
     }
 
-    // Method for getting string-set property
+    /// Method for getting string-set property
     pub fn get_string_set<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -4336,59 +4322,6 @@ impl CssPropertyCache {
             .unwrap_or(0.0)
     }
 
-    /// Helper function to resolve a CSS property value that may depend on another property.
-    ///
-    /// This attempts to compute a final pixel value from a property that uses relative units
-    /// (em, %, etc.) by referencing another property value.
-    ///
-    /// # Arguments
-    /// * `target_property` - The property to resolve (e.g., child's font-size: 2em)
-    /// * `reference_property` - The property it depends on (e.g., parent's font-size: 16px)
-    ///
-    /// # Returns
-    /// * `Some(CssProperty)` - A new property with absolute pixel values
-    /// * `None` - If the property can't be resolved (missing data, incompatible types, etc.)
-    ///
-    /// # Examples
-    /// - `resolve_property_dependency(font-size: 2em, font-size: 16px)` → `font-size: 32px`
-    /// - `resolve_property_dependency(font-size: 150%, font-size: 20px)` → `font-size: 30px`
-    /// - `resolve_property_dependency(padding: 2em, font-size: 16px)` → `padding: 32px`
-
-    /// Resolves CSS cascade keywords (inherit, initial, revert, unset) for a property.
-    ///
-    /// According to CSS Cascade spec (https://css-tricks.com/inherit-initial-unset-revert/):
-    /// - `inherit`: Use the parent's computed value (or initial value if no parent)
-    /// - `initial`: Use the CSS-defined initial value (default for that property type)
-    /// - `revert`: Roll back to the user-agent stylesheet value (if any)
-    /// - `unset`: Behaves as `inherit` for inherited properties, `initial` for non-inherited
-    ///   properties
-    ///
-    /// # Arguments
-    /// * `property` - The property to resolve
-    /// * `property_type` - The type of the property
-    /// * `node_type` - The node type (for UA CSS lookup)
-    /// * `parent_value` - The parent's computed value (for inheritance)
-    /// * `ua_value` - The user-agent stylesheet value (for revert)
-    ///
-    /// # Returns
-    /// * `Some(CssProperty)` - The resolved property
-    /// * `None` - If the keyword doesn't apply or can't be resolved
-    fn resolve_cascade_keyword(
-        property: &CssProperty,
-        property_type: CssPropertyType,
-        _node_type: &crate::dom::NodeType,
-        parent_value: Option<&CssProperty>,
-        ua_value: Option<&'static CssProperty>,
-    ) -> Option<CssProperty> {
-        // For now, implement basic inheritance
-        // Check if this is an inheritable property and return parent value
-        if property_type.is_inheritable() {
-            return parent_value.cloned().or_else(|| ua_value.cloned());
-        } else {
-            return ua_value.cloned();
-        }
-    }
-
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,
@@ -4564,14 +4497,14 @@ impl CssPropertyCache {
         }
 
         // Build a bitset per node: which CssPropertyType values are already set (Normal state).
-        // CssPropertyType has ~152 variants, so we need [u128; 2] per node.
+        // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
         let mut prop_set: Vec<[u128; 2]> = vec![[0u128; 2]; node_count];
 
         // Mark properties from css_props (author CSS, Normal state)
         for (node_idx, props) in self.css_props.iter_node_slices() {
             for p in props.iter() {
                 if p.state == PseudoStateType::Normal {
-                    let d = p.prop_type as u8 as usize;
+                    let d = p.prop_type as u16 as usize;
                     if d < 128 {
                         prop_set[node_idx][0] |= 1u128 << d;
                     } else {
@@ -4585,7 +4518,7 @@ impl CssPropertyCache {
         for (node_idx, props) in self.cascaded_props.iter_node_slices() {
             for p in props.iter() {
                 if p.state == PseudoStateType::Normal {
-                    let d = p.prop_type as u8 as usize;
+                    let d = p.prop_type as u16 as usize;
                     if d < 128 {
                         prop_set[node_idx][0] |= 1u128 << d;
                     } else {
@@ -4600,7 +4533,7 @@ impl CssPropertyCache {
             for p in node.css_props.iter() {
                 let is_normal = p.apply_if.as_slice().is_empty();
                 if is_normal {
-                    let d = p.property.get_type() as u8 as usize;
+                    let d = p.property.get_type() as u16 as usize;
                     if d < 128 {
                         prop_set[node_idx][0] |= 1u128 << d;
                     } else {
@@ -4645,7 +4578,7 @@ impl CssPropertyCache {
 
             for prop_type in &property_types {
                 // Check bitset: if already set, skip entirely
-                let d = *prop_type as u8 as usize;
+                let d = *prop_type as u16 as usize;
                 let has_prop = if d < 128 {
                     (prop_set[node_index][0] & (1u128 << d)) != 0
                 } else {

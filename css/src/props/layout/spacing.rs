@@ -1,4 +1,7 @@
-//! CSS properties for `margin` and `padding`.
+//! CSS properties for `margin`, `padding`, and `gap` (column-gap / row-gap).
+//!
+//! Shorthand parsers (`parse_layout_padding`, `parse_layout_margin`) and
+//! longhand per-side parsers are gated behind `#[cfg(feature = "parser")]`.
 
 use alloc::{
     string::{String, ToString},
@@ -275,6 +278,7 @@ impl_pixel_value!(LayoutRowGap);
 
 // -- Padding Shorthand Parser --
 
+/// Error from parsing a CSS `padding` shorthand value.
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
@@ -299,6 +303,7 @@ impl_from!(
     LayoutPaddingParseError::PixelValueParseError
 );
 
+/// Owned variant of [`LayoutPaddingParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -334,6 +339,7 @@ impl LayoutPaddingParseErrorOwned {
     }
 }
 
+/// Result of parsing the CSS `padding` shorthand property (1–4 values).
 #[cfg(feature = "parser")]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutPadding {
@@ -404,6 +410,7 @@ pub fn parse_layout_padding<'a>(
 
 // -- Margin Shorthand Parser --
 
+/// Error from parsing a CSS `margin` shorthand value.
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
 pub enum LayoutMarginParseError<'a> {
@@ -428,6 +435,7 @@ impl_from!(
     LayoutMarginParseError::PixelValueParseError
 );
 
+/// Owned variant of [`LayoutMarginParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -463,6 +471,7 @@ impl LayoutMarginParseErrorOwned {
     }
 }
 
+/// Result of parsing the CSS `margin` shorthand property (1–4 values).
 #[cfg(feature = "parser")]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMargin {
@@ -510,7 +519,7 @@ macro_rules! typed_pixel_value_parser {
         #[doc = $test_str]
         ///```
         pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
-            crate::props::basic::parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
+            crate::props::basic::parse_pixel_value(input).map(|e| $return { inner: e })
         }
 
         impl crate::props::formatter::FormatAsCssValue for $return {

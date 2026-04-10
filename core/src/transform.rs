@@ -119,6 +119,7 @@ impl ComputedTransform3D {
     /// identity matrix if the determinant is zero (singular matrix).
     ///
     /// NOTE: This is a relatively expensive operation.
+    #[must_use]
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 
@@ -266,7 +267,7 @@ impl ComputedTransform3D {
         )
     }
 
-    // Computes the matrix of a rect from a Vec<StyleTransform>
+    /// Computes the matrix of a rect from a `&[StyleTransform]`.
     pub fn from_style_transform_vec(
         t_vec: &[StyleTransform],
         transform_origin: &StyleTransformOrigin,
@@ -277,10 +278,10 @@ impl ComputedTransform3D {
         // Uses AVX or SSE SIMD when available on x86_64
         let mut matrix = Self::IDENTITY;
         let use_avx =
-            INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst);
+            INITIALIZED.load(AtomicOrdering::Relaxed) && USE_AVX.load(AtomicOrdering::Relaxed);
         let use_sse = !use_avx
-            && INITIALIZED.load(AtomicOrdering::SeqCst)
-            && USE_SSE.load(AtomicOrdering::SeqCst);
+            && INITIALIZED.load(AtomicOrdering::Relaxed)
+            && USE_SSE.load(AtomicOrdering::Relaxed);
 
         if use_avx {
             for t in t_vec.iter() {
@@ -333,6 +334,7 @@ impl ComputedTransform3D {
         percent_resolve_y: f32,
         rotation_mode: RotationMode,
     ) -> Self {
+        use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
         use azul_css::props::style::StyleTransform::*;
         match t {
             Matrix(mat2d) => {
@@ -368,7 +370,7 @@ impl ComputedTransform3D {
                 )
             }
             Translate(trans2d) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 Self::new_translation(
                     trans2d
                         .x
@@ -380,7 +382,7 @@ impl ComputedTransform3D {
                 )
             }
             Translate3D(trans3d) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 Self::new_translation(
                     trans3d
                         .x
@@ -390,11 +392,12 @@ impl ComputedTransform3D {
                         .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
                     trans3d
                         .z
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE), // ???
+                        // CSS has no containing block for Z-axis percentages; use X as fallback
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
                 )
             }
             TranslateX(trans_x) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 Self::new_translation(
                     trans_x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
                     0.0,
@@ -402,7 +405,7 @@ impl ComputedTransform3D {
                 )
             }
             TranslateY(trans_y) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 Self::new_translation(
                     0.0,
                     trans_y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
@@ -410,15 +413,15 @@ impl ComputedTransform3D {
                 )
             }
             TranslateZ(trans_z) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 Self::new_translation(
                     0.0,
                     0.0,
                     trans_z.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
                 )
-            } // ???
+            } // CSS has no containing block for Z-axis percentages; use X as fallback
             Rotate3D(rot3d) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 let rotation_origin = (
                     transform_origin
                         .x
@@ -437,7 +440,7 @@ impl ComputedTransform3D {
                 )
             }
             RotateX(angle_x) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 let rotation_origin = (
                     transform_origin
                         .x
@@ -456,7 +459,7 @@ impl ComputedTransform3D {
                 )
             }
             RotateY(angle_y) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 let rotation_origin = (
                     transform_origin
                         .x
@@ -475,7 +478,7 @@ impl ComputedTransform3D {
                 )
             }
             Rotate(angle_z) | RotateZ(angle_z) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 let rotation_origin = (
                     transform_origin
                         .x
@@ -502,7 +505,7 @@ impl ComputedTransform3D {
             SkewX(skew_x) => Self::new_skew(skew_x.to_degrees(), 0.0),
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.to_degrees()),
             Perspective(px) => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+
                 Self::new_perspective(px.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE))
             }
         }
@@ -584,6 +587,7 @@ impl ComputedTransform3D {
         )
     }
 
+    #[must_use]
     pub fn get_column_major(&self) -> Self {
         ComputedTransform3D::new(
             self.m[0][0],
@@ -605,7 +609,7 @@ impl ComputedTransform3D {
         )
     }
 
-    // Transforms a 2D point into the target coordinate space
+    /// Transforms a 2D point into the target coordinate space.
     #[must_use]
     pub fn transform_point2d(&self, p: LogicalPosition) -> Option<LogicalPosition> {
         let w =
@@ -630,7 +634,7 @@ impl ComputedTransform3D {
         self.m[3][2] *= scale_factor;
     }
 
-    /// Computes the sum of two matrices while applying `other` AFTER the current matrix.
+    /// Multiplies this matrix by `other`, applying `other` AFTER the current matrix.
     #[must_use]
     #[inline]
     pub fn then(&self, other: &Self) -> Self {
@@ -878,11 +882,11 @@ impl ComputedTransform3D {
         };
 
         let (origin_x, origin_y) = rotation_origin;
-        let pre_transform = Self::new_translation(-origin_x, -origin_y, -0.0);
+        let pre_transform = Self::new_translation(-origin_x, -origin_y, 0.0);
         let post_transform = Self::new_translation(origin_x, origin_y, 0.0);
         let theta = 2.0_f32 * core::f32::consts::PI - degrees.to_radians();
         let rotate_transform =
-            Self::new_rotation(axis_x, axis_y, axis_z, theta).then(&Self::IDENTITY);
+            Self::new_rotation(axis_x, axis_y, axis_z, theta);
 
         pre_transform.then(&rotate_transform).then(&post_transform)
     }

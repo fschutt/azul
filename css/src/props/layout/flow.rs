@@ -6,10 +6,13 @@ use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
 // --- flow-into ---
 
+/// CSS `flow-into` property — diverts an element's content into a named flow.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum FlowInto {
+    /// Content is not diverted into any named flow (default).
     None,
+    /// Content is diverted into the named flow identified by this string.
     Named(AzString),
 }
 
@@ -30,10 +33,13 @@ impl PrintAsCssValue for FlowInto {
 
 // --- flow-from ---
 
+/// CSS `flow-from` property — consumes content from a named flow into a region.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum FlowFrom {
+    /// No named flow is consumed (default).
     None,
+    /// Content is consumed from the named flow identified by this string.
     Named(AzString),
 }
 

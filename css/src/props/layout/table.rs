@@ -13,9 +13,8 @@ use alloc::string::{String, ToString};
 use crate::{
     format_rust_code::FormatAsRustCode,
     props::{
-        basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+        basic::pixel::{CssPixelValueParseError, PixelValue},
         formatter::PrintAsCssValue,
-        macros::PixelValueTaker,
     },
 };
 
@@ -150,13 +149,6 @@ impl LayoutBorderSpacing {
         }
     }
 
-    /// Creates a border spacing with zero spacing
-    pub const fn zero() -> Self {
-        Self {
-            horizontal: PixelValue::const_px(0),
-            vertical: PixelValue::const_px(0),
-        }
-    }
 }
 
 impl PrintAsCssValue for LayoutBorderSpacing {

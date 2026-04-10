@@ -9,6 +9,21 @@ use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};
 
 use crate::svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec};
 
+/// Bezier approximation constant for quarter-circle arcs.
+const KAPPA: f32 = 0.5522847498;
+
+/// Tolerance for treating two points as coincident (used in closepath and arc degeneracy checks).
+const POINT_EPSILON: f32 = 1e-6;
+
+/// Tolerance for snapping a closepath line (slightly larger to avoid micro-segments).
+const CLOSEPATH_EPSILON: f32 = 0.001;
+
+/// Tolerance for treating a vector length as zero in angle computation.
+const ZERO_LENGTH_EPSILON: f32 = 1e-10;
+
+/// Small offset added to PI/2 when splitting arcs to avoid exact-boundary floating-point issues.
+const ARC_SPLIT_FUDGE: f32 = 0.001;
+
 /// Errors that can occur during SVG path parsing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SvgPathParseError {
@@ -196,6 +211,7 @@ impl<'a> PathParser<'a> {
 ///
 /// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
 /// supported including arcs (converted to cubic beziers).
+#[must_use]
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     let d = d.trim();
     if d.is_empty() {
@@ -405,10 +421,9 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
             }
             b'Z' => {
                 // Close subpath
-                let eps = 0.001;
                 let dx = parser.current.x - parser.subpath_start.x;
                 let dy = parser.current.y - parser.subpath_start.y;
-                if dx * dx + dy * dy > eps * eps {
+                if dx * dx + dy * dy > CLOSEPATH_EPSILON * CLOSEPATH_EPSILON {
                     current_elements.push(SvgPathElement::Line(SvgLine {
                         start: parser.current,
                         end: parser.subpath_start,
@@ -618,10 +633,10 @@ fn arc_to_cubics(
     out: &mut Vec<SvgPathElement>,
 ) {
     // Degenerate cases
-    if (start.x - end.x).abs() < 1e-6 && (start.y - end.y).abs() < 1e-6 {
+    if (start.x - end.x).abs() < POINT_EPSILON && (start.y - end.y).abs() < POINT_EPSILON {
         return;
     }
-    if rx < 1e-6 || ry < 1e-6 {
+    if rx < POINT_EPSILON || ry < POINT_EPSILON {
         out.push(SvgPathElement::Line(SvgLine { start, end }));
         return;
     }
@@ -685,7 +700,7 @@ fn arc_to_cubics(
     }
 
     // Split into segments of at most PI/2
-    let n_segs = (dtheta.abs() / (core::f32::consts::FRAC_PI_2 + 0.001)).ceil() as usize;
+    let n_segs = (dtheta.abs() / (core::f32::consts::FRAC_PI_2 + ARC_SPLIT_FUDGE)).ceil() as usize;
     let n_segs = n_segs.max(1);
     let seg_angle = dtheta / n_segs as f32;
 
@@ -712,7 +727,7 @@ fn arc_to_cubics(
 fn angle_between(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
     let dot = ux * vx + uy * vy;
     let len = ((ux * ux + uy * uy) * (vx * vx + vy * vy)).sqrt();
-    if len < 1e-10 {
+    if len < ZERO_LENGTH_EPSILON {
         return 0.0;
     }
     let cos_val = (dot / len).clamp(-1.0, 1.0);
@@ -771,8 +786,8 @@ fn arc_segment_to_cubic(
 /// Approximate a circle with 4 cubic bezier curves.
 ///
 /// Uses the standard kappa constant (0.5522847498) for quarter-arc approximation.
+#[must_use]
 pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
-    const KAPPA: f32 = 0.5522847498;
     let k = r * KAPPA;
 
     let elements = vec![
@@ -839,11 +854,12 @@ pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
 ///
 /// If `rx` and `ry` are both 0, produces 4 line segments.
 /// Otherwise, produces lines for straight edges and cubic curves for corners.
+#[must_use]
 pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> SvgPath {
     let rx = rx.min(w / 2.0);
     let ry = ry.min(h / 2.0);
 
-    if rx < 0.001 && ry < 0.001 {
+    if rx < CLOSEPATH_EPSILON && ry < CLOSEPATH_EPSILON {
         // Simple rectangle: 4 lines
         let tl = SvgPoint { x, y };
         let tr = SvgPoint { x: x + w, y };
@@ -866,7 +882,6 @@ pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> Svg
     }
 
     // Rounded rectangle
-    const KAPPA: f32 = 0.5522847498;
     let kx = rx * KAPPA;
     let ky = ry * KAPPA;
 

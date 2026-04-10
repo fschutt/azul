@@ -7,6 +7,7 @@ use std::fmt;
 /// Error type for clipboard operations
 #[derive(Debug, Clone)]
 pub struct ClipboardError {
+    /// Human-readable description of the clipboard error.
     pub message: String,
 }
 

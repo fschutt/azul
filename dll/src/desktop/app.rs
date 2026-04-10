@@ -1,24 +1,26 @@
+//! Application lifecycle entry point.
+//!
+//! This module defines [`App`] and [`AppInternal`], which together manage
+//! the top-level application state, font discovery, and the transition into
+//! the platform event loop (`shell2::run`).
+
 use alloc::sync::Arc;
-use std::fmt;
 
 use azul_core::{
-    callbacks::Update,
     refany::RefAny,
-    resources::{AppConfig, ImageCache, ImageRef},
-    task::TimerId,
+    resources::AppConfig,
     window::MonitorVec,
 };
-use azul_css::{impl_option, impl_option_inner, AzString};
-use azul_layout::{
-    timer::Timer,
-    window_state::{WindowCreateOptions, WindowCreateOptionsVec},
-};
+use azul_layout::window_state::{WindowCreateOptions, WindowCreateOptionsVec};
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::shell2::common::debug_server::{self, LogCategory};
 use crate::log_error;
 
+/// Primary public handle for creating and running an Azul application.
+///
+/// Wraps [`AppInternal`] in a `Box` and is the type used by all Rust examples.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct App {
@@ -114,7 +116,6 @@ pub struct AppInternal {
 }
 
 impl AppInternal {
-    #[allow(unused_variables)]
     /// Creates a new, empty application using a specified callback.
     ///
     /// This does not open any windows, but it starts the event loop
@@ -192,7 +193,7 @@ impl AppInternal {
             not(feature = "use_pyo3_logger")
         ))]
         {
-            crate::logging::set_up_logging(translate_log_level(app_config.log_level));
+            crate::desktop::logging::set_up_logging(translate_log_level(app_config.log_level));
         }
 
         #[cfg(feature = "logging")]
@@ -219,7 +220,7 @@ impl AppInternal {
             data: initial_data,
             config: app_config,
             fc_cache: Box::new(fc_cache),
-            font_registry: font_registry,
+            font_registry,
         }
     }
 

@@ -244,7 +244,6 @@ pub fn compute_node_changes(
                 _ => {
                     // Changed or new property — use relayout_scope for classification
                     // Pass node_is_ifc_member=true conservatively
-                    use azul_css::props::property::RelayoutScope;
                     let scope = prop_type.relayout_scope(true);
                     if scope != RelayoutScope::None {
                         has_layout = true;
@@ -258,7 +257,6 @@ pub fn compute_node_changes(
         // Check for removed properties
         for (prop_type, _) in old_map.iter() {
             if !seen_types.contains_key(prop_type) {
-                use azul_css::props::property::RelayoutScope;
                 let scope = prop_type.relayout_scope(true);
                 if scope != RelayoutScope::None {
                     has_layout = true;
@@ -894,21 +892,8 @@ pub fn calculate_contenteditable_key(
     
     hasher.append(&nth_of_type.to_le_bytes());
     
-    // Hash the node type using its Debug representation as a stable identifier
-    // This works because NodeType implements Debug
-    #[cfg(feature = "std")]
-    {
-        let type_str = format!("{:?}", node_discriminant);
-        hasher.append(type_str.as_bytes());
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        // For no_std, use the memory representation of the discriminant
-        // NodeType variants are numbered 0..N, and discriminant stores this
-        let discriminant_bytes: [u8; core::mem::size_of::<core::mem::Discriminant<crate::dom::NodeType>>()] = 
-            unsafe { core::mem::transmute(node_discriminant) };
-        hasher.append(&discriminant_bytes);
-    }
+    // Hash the node type discriminant (Discriminant<T> implements Hash)
+    node_discriminant.hash(&mut hasher);
     
     // Also hash the classes for additional stability
     for attr in node.attributes().as_ref().iter() {
@@ -1018,7 +1003,9 @@ pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
 /// Text change info for cursor/selection reconciliation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextChange {
+    /// The text content before the change.
     pub old_text: String,
+    /// The text content after the change.
     pub new_text: String,
 }
 

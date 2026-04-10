@@ -98,7 +98,7 @@ impl AngleValue {
     }
 
     #[inline]
-    pub fn const_percent(value: isize) -> Self {
+    pub const fn const_percent(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Percent, value)
     }
 
@@ -148,17 +148,9 @@ impl AngleValue {
     /// For conic gradients where 360.0 is meaningful, use `to_degrees_raw()`.
     #[inline]
     pub fn to_degrees(&self) -> f32 {
-        let val = match self.metric {
-            AngleMetric::Degree => self.number.get(),
-            AngleMetric::Grad => self.number.get() / 400.0 * 360.0,
-            AngleMetric::Radians => self.number.get() * 180.0 / core::f32::consts::PI,
-            AngleMetric::Turn => self.number.get() * 360.0,
-            AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
-        };
-
-        let mut val = val % 360.0;
+        let mut val = self.to_degrees_raw() % 360.0;
         if val < 0.0 {
-            val = 360.0 + val;
+            val += 360.0;
         }
         val
     }
@@ -179,6 +171,7 @@ impl AngleValue {
 
 // -- Parser
 
+/// Error returned when parsing a CSS angle value from a string.
 #[derive(Clone, PartialEq)]
 pub enum CssAngleValueParseError<'a> {
     EmptyString,
@@ -203,6 +196,7 @@ pub struct AngleNoValueGivenError {
     pub metric: AngleMetric,
 }
 
+/// Owned version of [`CssAngleValueParseError`] for FFI and storage.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CssAngleValueParseErrorOwned {
@@ -246,6 +240,8 @@ impl CssAngleValueParseErrorOwned {
     }
 }
 
+/// Parse a CSS angle value string (e.g. `"90deg"`, `"1.57rad"`, `"0.5turn"`, `"50%"`).
+/// A bare number without a unit suffix is interpreted as degrees.
 #[cfg(feature = "parser")]
 pub fn parse_angle_value<'a>(input: &'a str) -> Result<AngleValue, CssAngleValueParseError<'a>> {
     let input = input.trim();

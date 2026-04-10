@@ -1,59 +1,22 @@
-#[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::__m256;
-use core::{
-    fmt,
-    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
+//! Default font/text constants and small geometry types used by the layout
+//! solver and text shaping pipeline.
+
+use azul_css::props::{
+    basic::{ColorU as StyleColorU, PixelValue, StyleFontSize},
+    style::StyleTextColor,
 };
 
-use azul_css::{
-    css::CssPropertyValue,
-    props::{
-        basic::{
-            ColorU as StyleColorU, LayoutPoint, LayoutRect, LayoutRectVec, LayoutSize, PixelValue,
-            StyleFontSize,
-        },
-        layout::{
-            LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat, LayoutHeight,
-            LayoutInsetBottom, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom,
-            LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth,
-            LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom,
-            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight,
-            LayoutTop, LayoutWidth,
-        },
-        style::{
-            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-            LayoutBorderTopWidth, OptionStyleTextAlign, StyleBoxShadow, StyleTextAlign,
-            StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
-        },
-    },
-    AzString, OptionF32,
-};
-use rust_fontconfig::FcFontCache;
+use crate::geom::{LogicalPosition, LogicalSize};
 
-use crate::{
-    callbacks::{HidpiAdjustedBounds, VirtualViewCallbackInfo, VirtualViewReturn},
-    dom::{DomId, DomNodeHash},
-    geom::{LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize},
-    gl::OptionGlContextPtr,
-    gpu::GpuEventChanges,
-    hit_test::{ExternalScrollId, HitTestItem, ScrollHitTestItem, ScrollStates, ScrolledNodes},
-    id::{NodeDataContainer, NodeDataContainerRef, NodeId},
-    resources::{
-        Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
-        RendererResources, TransformKey, UpdateImageResult,
-    },
-    styled_dom::{NodeHierarchyItemId, StyledDom},
-    window::{OptionChar, WindowSize, WindowTheme},
-};
-
+/// Default font size in pixels (as `isize` for use in `PixelValue::const_px`).
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
+/// Default font size (`16px`) used when no explicit size is specified.
 pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize {
     inner: PixelValue::const_px(DEFAULT_FONT_SIZE_PX),
 };
+/// Default font family identifier used as a fallback.
 pub const DEFAULT_FONT_ID: &str = "serif";
+/// Default text color (opaque black).
 pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
     inner: StyleColorU {
         r: 0,
@@ -62,11 +25,17 @@ pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
         a: 255,
     },
 };
+/// Default line height multiplier.
 pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+/// Default word spacing multiplier.
 pub const DEFAULT_WORD_SPACING: f32 = 1.0;
+/// Default letter spacing in pixels.
 pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
+/// Default tab width in space-character units.
 pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
+/// Resolved top/right/bottom/left offsets in logical pixels (used for
+/// margins, padding, and borders after CSS resolution).
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ResolvedOffsets {
@@ -93,8 +62,10 @@ impl ResolvedOffsets {
     }
 }
 
+/// Index into a font's glyph table.
 pub type GlyphIndex = u32;
 
+/// A single positioned glyph with its index, screen position, and size.
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
     pub index: GlyphIndex,

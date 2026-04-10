@@ -408,7 +408,7 @@ impl SvgPath {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgMultiPolygon {
-    /// NOTE: If a ring represends a hole, simply reverse the order of points
+    /// NOTE: If a ring represents a hole, simply reverse the order of points
     pub rings: SvgPathVec,
 }
 
@@ -973,10 +973,6 @@ impl TessellatedColoredGPUSvgNode {
         target_size: PhysicalSizeU32,
         transforms: StyleTransformVec,
     ) -> bool {
-        use azul_css::props::basic::PixelValue;
-
-        use crate::gl::{GlShader, Uniform, UniformType};
-
         let transform_origin = StyleTransformOrigin {
             x: PixelValue::px(target_size.width as f32 / 2.0),
             y: PixelValue::px(target_size.height as f32 / 2.0),
@@ -1399,8 +1395,7 @@ impl fmt::Display for SvgParseError {
                 f,
                 "Library was compiled without SVG support (no parser available)"
             ),
-            InvalidFileSuffix => write!(f, "Error parsing SVG: Invalid file suffix"),
-            FileOpenFailed => write!(f, "Error parsing SVG: Failed to open file"),
+            ElementsLimitReached => write!(f, "Error parsing SVG: Elements limit reached"),
             NotAnUtf8Str => write!(f, "Error parsing SVG: Not an UTF-8 String"),
             MalformedGZip => write!(
                 f,

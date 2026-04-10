@@ -12,15 +12,15 @@ use crate::shape::{CssShape, ShapePoint};
 /// Error type for shape parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShapeParseError {
-    /// Unknown shape function
+    /// Unknown shape function — the string contains the unrecognized function name
     UnknownFunction(alloc::string::String),
-    /// Missing required parameter
+    /// Missing required parameter — the string names the expected parameter
     MissingParameter(alloc::string::String),
-    /// Invalid numeric value
+    /// Invalid numeric value — the string contains the unparseable token
     InvalidNumber(alloc::string::String),
-    /// Invalid syntax
+    /// Invalid syntax — the string contains a description of what went wrong
     InvalidSyntax(alloc::string::String),
-    /// Empty input
+    /// Empty input string was provided
     EmptyInput,
 }
 

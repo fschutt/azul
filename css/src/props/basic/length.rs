@@ -1,3 +1,6 @@
+//! Hash-able floating-point wrappers, percentage values, and CSS size
+//! metric types used by the CSS property system.
+
 use core::fmt;
 use std::num::ParseFloatError;
 
@@ -6,8 +9,8 @@ use crate::corety::AzString;
 /// Multiplier for floating point accuracy. Elements such as px or %
 /// are only accurate until a certain number of decimal points, therefore
 /// they have to be casted to isizes in order to make the f32 values
-/// hash-able: Css has a relatively low precision here, roughly 5 digits, i.e
-/// `1.00001 == 1.0`
+/// hash-able: Css has a relatively low precision here, roughly 3 digits, i.e
+/// `1.001 == 1.0`
 pub const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
 pub const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 

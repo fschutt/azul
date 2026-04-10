@@ -59,10 +59,12 @@ pub enum LayoutDisplay {
 }
 
 impl LayoutDisplay {
+    /// Returns true if this display type establishes a block formatting context.
     pub fn creates_block_context(&self) -> bool {
         matches!(
             self,
             LayoutDisplay::Block
+                | LayoutDisplay::FlowRoot
                 | LayoutDisplay::Flex
                 | LayoutDisplay::Grid
                 | LayoutDisplay::Table
@@ -70,11 +72,13 @@ impl LayoutDisplay {
         )
     }
 
+    /// Returns true if this display type establishes a flex formatting context.
     pub fn creates_flex_context(&self) -> bool {
         matches!(self, LayoutDisplay::Flex | LayoutDisplay::InlineFlex)
     }
 
     // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
+    /// Returns true if this display type establishes a table formatting context.
     pub fn creates_table_context(&self) -> bool {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
     }
@@ -99,6 +103,7 @@ impl LayoutDisplay {
     // +spec:display-property:101f27 - inline-level boxes (InlineBlock, InlineFlex, etc.) vs inline boxes (Inline)
     // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
     // +spec:display-property:a43e48 - inline-table is inline-level per CSS 2.2 §17.4
+    /// Returns true if this display type generates an inline-level box.
     pub fn is_inline_level(&self) -> bool {
         matches!(
             self,
@@ -143,18 +148,13 @@ impl PrintAsCssValue for LayoutDisplay {
 }
 
 /// Represents a `float` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutFloat {
     Left,
     Right,
+    #[default]
     None,
-}
-
-impl Default for LayoutFloat {
-    fn default() -> Self {
-        LayoutFloat::None
-    }
 }
 
 impl PrintAsCssValue for LayoutFloat {

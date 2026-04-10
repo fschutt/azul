@@ -1,4 +1,8 @@
 //! CSS properties for multi-column layout.
+//!
+//! Covers `column-count`, `column-width`, `column-span`, `column-fill`,
+//! `column-rule-width`, `column-rule-style`, and `column-rule-color`.
+//! Types are consumed via the `CssProperty` enum in the CSS property system.
 
 use alloc::string::{String, ToString};
 use core::num::ParseIntError;
@@ -185,7 +189,7 @@ impl crate::format_rust_code::FormatAsRustCode for ColumnCount {
 }
 
 impl crate::format_rust_code::FormatAsRustCode for ColumnWidth {
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ColumnWidth::Auto => String::from("ColumnWidth::Auto"),
             ColumnWidth::Length(px) => format!(

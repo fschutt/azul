@@ -51,15 +51,11 @@ fn split_string_by_char<'a>(input: &'a str, target_char: char) -> Vec<&'a str> {
                 Some(s) => s,
                 None => break 'outer,
             };
-        let new_push_item = if character_was_found {
-            &current_input[..skip_next_braces_result]
+        if character_was_found {
+            comma_separated_items.push(&current_input[..skip_next_braces_result]);
+            current_input = &current_input[(skip_next_braces_result + 1)..];
         } else {
-            &current_input[..]
-        };
-        let new_current_input = &current_input[(skip_next_braces_result + 1)..];
-        comma_separated_items.push(new_push_item);
-        current_input = new_current_input;
-        if !character_was_found {
+            comma_separated_items.push(&current_input[..]);
             break 'outer;
         }
     }
@@ -70,7 +66,7 @@ fn split_string_by_char<'a>(input: &'a str, target_char: char) -> Vec<&'a str> {
 /// Given a string, returns how many characters need to be skipped
 pub fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
     let mut depth = 0;
-    let mut last_character = 0;
+    let mut last_character: Option<usize> = None;
     let mut character_was_found = false;
 
     if input.is_empty() {
@@ -78,7 +74,7 @@ pub fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)>
     }
 
     for (idx, ch) in input.char_indices() {
-        last_character = idx;
+        last_character = Some(idx);
         match ch {
             '(' => {
                 depth += 1;
@@ -95,12 +91,7 @@ pub fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)>
         }
     }
 
-    if last_character == 0 {
-        // No more split by `,`
-        None
-    } else {
-        Some((last_character, character_was_found))
-    }
+    last_character.map(|lc| (lc, character_was_found))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
@@ -167,7 +158,7 @@ impl ParenthesisParseErrorOwned {
     }
 }
 
-/// Checks wheter a given input is enclosed in parentheses, prefixed
+/// Checks whether a given input is enclosed in parentheses, prefixed
 /// by a certain number of stopwords.
 ///
 /// On success, returns what the stopword was + the string inside the braces
@@ -267,14 +258,12 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
     if first_double_quote.is_some() && first_single_quote.is_some() {
         return Err(UnclosedQuotesError(input));
     }
-    if first_double_quote.is_some() {
-        let quote_contents = first_double_quote.unwrap();
+    if let Some(quote_contents) = first_double_quote {
         if !quote_contents.ends_with('"') {
             return Err(UnclosedQuotesError(quote_contents));
         }
         Ok(QuoteStripped(quote_contents.trim_end_matches("\"")))
-    } else if first_single_quote.is_some() {
-        let quote_contents = first_single_quote.unwrap();
+    } else if let Some(quote_contents) = first_single_quote {
         if !quote_contents.ends_with('\'') {
             return Err(UnclosedQuotesError(input));
         }

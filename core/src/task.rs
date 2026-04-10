@@ -89,6 +89,7 @@ pub struct TimerId {
 
 impl TimerId {
     /// Generates a new, unique `TimerId`.
+    #[must_use]
     pub fn unique() -> Self {
         TimerId {
             id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst),
@@ -108,7 +109,10 @@ impl_vec_clone!(TimerId, TimerIdVec, TimerIdVecDestructor);
 impl_vec_partialeq!(TimerId, TimerIdVec);
 impl_vec_partialord!(TimerId, TimerIdVec);
 
-static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(5);
+// Thread IDs 0-4 are reserved for internal framework use.
+// User threads start at RESERVED_THREAD_ID_COUNT.
+const RESERVED_THREAD_ID_COUNT: usize = 5;
+static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(RESERVED_THREAD_ID_COUNT);
 
 /// ID for uniquely identifying a background thread
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -131,6 +135,7 @@ impl_vec_partialord!(ThreadId, ThreadIdVec);
 
 impl ThreadId {
     /// Generates a new, unique `ThreadId`.
+    #[must_use]
     pub fn unique() -> Self {
         ThreadId {
             id: MAX_THREAD_ID.fetch_add(1, Ordering::SeqCst),
@@ -251,7 +256,7 @@ impl Instant {
                 }
                 #[cfg(not(feature = "std"))]
                 {
-                    unreachable!() // cannot construct a SystemTime on no_std
+                    unreachable!() // cannot construct a System instant on no_std
                 }
             }
             (
@@ -741,7 +746,7 @@ impl Drop for ThreadReceiver {
 impl ThreadReceiver {
     /// Creates a new receiver (no-op on no_std).
     #[cfg(not(feature = "std"))]
-    pub fn new(t: ThreadReceiverInner) -> Self {
+    pub fn new(_t: ThreadReceiverInner) -> Self {
         Self {
             ptr: core::ptr::null(),
             run_destructor: false,

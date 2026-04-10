@@ -179,6 +179,7 @@ impl From<BoolCondition> for bool {
     }
 }
 
+/// Operating system condition for `@os` CSS selectors
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OsCondition {
@@ -553,6 +554,7 @@ fn parse_linux_version(s: &str) -> Option<OsVersion> {
     None
 }
 
+/// Linux desktop environment for `@os-version linux de` CSS selectors
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LinuxDesktopEnv {
@@ -577,6 +579,7 @@ impl LinuxDesktopEnv {
     }
 }
 
+/// Media type for `@media` CSS selectors (screen, print, all)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MediaType {
@@ -613,6 +616,7 @@ impl ThemeCondition {
     }
 }
 
+/// Orientation type for `@media (orientation: ...)` CSS selectors
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OrientationType {
@@ -1591,9 +1595,10 @@ impl CssPropertyWithConditionsVec {
         } else if after_os.starts_with("<=") {
             ("<=", &after_os[2..])
         } else if after_os.starts_with('>') {
-            // Treat > same as >= for simplicity (versions are discrete)
+            // NOTE: > is treated as >= because version IDs are discrete integers
             (">=", &after_os[1..])
         } else if after_os.starts_with('<') {
+            // NOTE: < is treated as <= because version IDs are discrete integers
             ("<=", &after_os[1..])
         } else if after_os.starts_with('=') {
             ("=", &after_os[1..])
@@ -1669,17 +1674,19 @@ impl CssPropertyWithConditionsVec {
     }
 
     /// Parse CSS properties from a string, all with "normal" (unconditional) state
-    /// 
+    ///
     /// Deprecated: Use `parse()` instead which supports selectors and nesting
     #[cfg(feature = "parser")]
+    #[deprecated(note = "Use `parse()` instead which supports selectors and nesting")]
     pub fn parse_normal(style: &str) -> Self {
         Self::parse(style)
     }
 
     /// Parse CSS properties from a string, all with hover condition
-    /// 
+    ///
     /// Deprecated: Use `parse(":hover { ... }")` instead
     #[cfg(feature = "parser")]
+    #[deprecated(note = "Use `parse(\":hover { ... }\")` instead")]
     pub fn parse_hover(style: &str) -> Self {
         // Wrap in :hover { } and parse
         let wrapped = format!(":hover {{ {} }}", style);
@@ -1687,18 +1694,20 @@ impl CssPropertyWithConditionsVec {
     }
 
     /// Parse CSS properties from a string, all with active condition
-    /// 
+    ///
     /// Deprecated: Use `parse(":active { ... }")` instead
     #[cfg(feature = "parser")]
+    #[deprecated(note = "Use `parse(\":active { ... }\")` instead")]
     pub fn parse_active(style: &str) -> Self {
         let wrapped = format!(":active {{ {} }}", style);
         Self::parse(&wrapped)
     }
 
     /// Parse CSS properties from a string, all with focus condition
-    /// 
+    ///
     /// Deprecated: Use `parse(":focus { ... }")` instead
     #[cfg(feature = "parser")]
+    #[deprecated(note = "Use `parse(\":focus { ... }\")` instead")]
     pub fn parse_focus(style: &str) -> Self {
         let wrapped = format!(":focus {{ {} }}", style);
         Self::parse(&wrapped)
@@ -1714,10 +1723,6 @@ mod tests {
         let style = "overflow: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
-        eprintln!("Parsed {} properties from '{}'", props.len(), style);
-        for prop in &props {
-            eprintln!("  {:?}", prop.property);
-        }
         assert!(props.len() > 0, "Expected overflow to parse into at least 1 property");
     }
 
@@ -1726,10 +1731,6 @@ mod tests {
         let style = "overflow-y: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
-        eprintln!("Parsed {} properties from '{}'", props.len(), style);
-        for prop in &props {
-            eprintln!("  {:?}", prop.property);
-        }
         assert!(props.len() > 0, "Expected overflow-y to parse into at least 1 property");
     }
 
@@ -1738,10 +1739,6 @@ mod tests {
         let style = "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: #222;overflow: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
-        eprintln!("Parsed {} properties from combined style", props.len());
-        for prop in &props {
-            eprintln!("  {:?}", prop.property);
-        }
         // padding:20px expands to 4, background:1, font-size:1, color:1, overflow:2 = 10
         assert!(props.len() >= 9, "Expected at least 9 properties, got {}", props.len());
     }
@@ -1752,22 +1749,17 @@ mod tests {
         let style = "display: grid; grid-template-columns: repeat(4, 160px); gap: 16px; padding: 10px;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
-        eprintln!("Parsed {} properties from grid style", props.len());
-        for prop in &props {
-            eprintln!("  {:?}", prop.property);
-        }
         // Find grid-template-columns property
         let grid_cols = props.iter().find(|p| {
             matches!(p.property, CssProperty::GridTemplateColumns(_))
         }).expect("Expected GridTemplateColumns property");
-        
+
         if let CssProperty::GridTemplateColumns(ref value) = grid_cols.property {
             let template = value.get_property().expect("Expected Exact value");
             let tracks = template.tracks.as_ref();
             assert_eq!(tracks.len(), 4, "Expected 4 tracks");
             for (i, track) in tracks.iter().enumerate() {
-                eprintln!("  Track {}: {:?} (is_fixed={})", i, track, matches!(track, GridTrackSizing::Fixed(_)));
-                assert!(matches!(track, GridTrackSizing::Fixed(_)), 
+                assert!(matches!(track, GridTrackSizing::Fixed(_)),
                     "Track {} should be Fixed(160px), got {:?}", i, track);
             }
         } else {

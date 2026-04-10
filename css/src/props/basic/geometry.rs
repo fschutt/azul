@@ -165,9 +165,9 @@ impl LayoutRect {
             && other_y < self.max_y() as f32
     }
 
-    /// Same as `contains()`, but returns the (x, y) offset of the hit point
-    ///
-    /// On a regular computer this function takes ~3.2ns to run
+    /// Like `contains()`, but returns the (x, y) offset of the hit point
+    /// relative to the rectangle origin. Unlike `contains()`, points exactly
+    /// on the boundary are excluded (returns `None`).
     #[inline]
     pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
         let dx_left_edge = other.x - self.min_x();
@@ -186,8 +186,8 @@ impl LayoutRect {
     pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {
         let first = rects.next()?;
 
-        let mut max_width = first.size.width;
-        let mut max_height = first.size.height;
+        let mut max_x = first.origin.x + first.size.width;
+        let mut max_y = first.origin.y + first.size.height;
         let mut min_x = first.origin.x;
         let mut min_y = first.origin.y;
 
@@ -196,10 +196,8 @@ impl LayoutRect {
             size: LayoutSize { width, height },
         }) = rects.next()
         {
-            let cur_lower_right_x = x + width;
-            let cur_lower_right_y = y + height;
-            max_width = max_width.max(cur_lower_right_x - min_x);
-            max_height = max_height.max(cur_lower_right_y - min_y);
+            max_x = max_x.max(x + width);
+            max_y = max_y.max(y + height);
             min_x = min_x.min(x);
             min_y = min_y.min(y);
         }
@@ -207,8 +205,8 @@ impl LayoutRect {
         Some(Self {
             origin: LayoutPoint { x: min_x, y: min_y },
             size: LayoutSize {
-                width: max_width,
-                height: max_height,
+                width: max_x - min_x,
+                height: max_y - min_y,
             },
         })
     }

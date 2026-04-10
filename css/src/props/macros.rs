@@ -1,7 +1,7 @@
 //! Internal macros for reducing boilerplate in property definitions.
 
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
-/// `PixelValue` as it's self.0 field.
+/// `PixelValue` as its `self.inner` field.
 macro_rules! impl_pixel_value {
     ($struct:ident) => {
         impl $struct {
@@ -134,8 +134,8 @@ macro_rules! impl_percentage_value {
         }
 
         impl $struct {
-            /// Same as `PercentageValue::new()`, but only accepts whole numbers,
-            /// since using `f32` in const fn is not yet stabilized.
+            /// Same as `PercentageValue::new()`, but only accepts whole numbers
+            /// in order to be usable in `const` context.
             #[inline]
             pub const fn const_new(value: isize) -> Self {
                 Self {
@@ -160,122 +160,9 @@ macro_rules! impl_percentage_value {
     };
 }
 
-macro_rules! impl_float_value {
-    ($struct:ident) => {
-        impl $struct {
-            /// Same as `FloatValue::new()`, but only accepts whole numbers,
-            /// since using `f32` in const fn is not yet stabilized.
-            pub const fn const_new(value: isize) -> Self {
-                Self {
-                    inner: FloatValue::const_new(value),
-                }
-            }
-
-            pub fn new(value: f32) -> Self {
-                Self {
-                    inner: FloatValue::new(value),
-                }
-            }
-
-            pub fn get(&self) -> f32 {
-                self.inner.get()
-            }
-
-            #[inline]
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-                Self {
-                    inner: self.inner.interpolate(&other.inner, t),
-                }
-            }
-        }
-
-        impl From<f32> for $struct {
-            fn from(val: f32) -> Self {
-                Self {
-                    inner: FloatValue::from(val),
-                }
-            }
-        }
-
-        impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self.inner.get())
-            }
-        }
-
-        impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self.inner.get())
-            }
-        }
-    };
-}
-
-/// Trait to allow `define_dimension_property!` to work.
+/// Converts a `PixelValue` into a typed dimension wrapper, used by the layout solver.
 pub trait PixelValueTaker {
     fn from_pixel_value(inner: crate::props::basic::pixel::PixelValue) -> Self;
-}
-
-/// A parser that can accept a list of items and mappings
-macro_rules! multi_type_parser {
-    ($fn:ident, $return_str:expr, $return:ident, $import_str:expr, $([$identifier_string:expr, $enum_type:ident, $parse_str:expr]),+) => {
-        #[doc = "Parses a `"]
-        #[doc = $return_str]
-        #[doc = "` attribute from a `&str`"]
-        #[doc = ""]
-        #[doc = "# Example"]
-        #[doc = ""]
-        #[doc = "```rust"]
-        #[doc = $import_str]
-        $(
-            #[doc = $parse_str]
-        )+
-        #[doc = "```"]
-        pub fn $fn<'a>(input: &'a str)
-        -> Result<$return, InvalidValueErr<'a>>
-        {
-            let input = input.trim();
-            match input {
-                $(
-                    $identifier_string => Ok($return::$enum_type),
-                )+
-                _ => Err(InvalidValueErr(input)),
-            }
-        }
-
-        impl FormatAsCssValue for $return {
-            fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                match self {
-                    $(
-                        $return::$enum_type => write!(f, $identifier_string),
-                    )+
-                }
-            }
-        }
-    };
-    ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => {
-        multi_type_parser!($fn, stringify!($return), $return,
-            concat!(
-                "# extern crate azul_css;", "\r\n",
-                "# use azul_css::parser2::", stringify!($fn), ";", "\r\n",
-                "# use azul_css::", stringify!($return), ";"
-            ),
-            $([
-                $identifier_string, $enum_type,
-                concat!(
-                    "assert_eq!(",
-                    stringify!($fn),
-                    "(\"",
-                    $identifier_string,
-                    "\"), Ok(",
-                    stringify!($return),
-                    "::",
-                    stringify!($enum_type),
-                    "));"
-                )
-            ]),+
-        );
-    };
 }
 
 macro_rules! css_property_from_type {

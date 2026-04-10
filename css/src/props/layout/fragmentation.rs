@@ -1,7 +1,6 @@
 //! CSS properties for controlling fragmentation (page/column breaks).
 
 use alloc::string::{String, ToString};
-use core::num::ParseIntError;
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -203,6 +202,7 @@ impl crate::format_rust_code::FormatAsRustCode for BoxDecorationBreak {
 #[cfg(feature = "parser")]
 pub mod parser {
     use super::*;
+    use core::num::ParseIntError;
     use crate::corety::AzString;
     use crate::props::layout::position::ParseIntErrorWithInput;
 

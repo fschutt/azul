@@ -1,6 +1,14 @@
 //! Accessibility types for screen reader support.
 //!
-//! Extracted from `dom.rs` to keep that module focused on DOM structure.
+//! Key types:
+//! - [`AccessibilityInfo`] — full accessibility metadata for a UI element
+//! - [`SmallAriaInfo`] — lightweight alternative for common cases (label + role + description)
+//! - [`AccessibilityRole`] — element purpose (button, link, checkbox, etc.)
+//! - [`AccessibilityState`] — dynamic state (focused, checked, expanded, etc.)
+//! - [`AccessibilityAction`] — actions performable on an element (click, scroll, etc.)
+//!
+//! These types are consumed by `layout/src/managers/a11y.rs` and mapped to
+//! platform accessibility backends in `dll/src/desktop/shell2/`.
 
 use azul_css::{
     AzString, OptionString,
@@ -663,7 +671,7 @@ pub enum AccessibilityState {
     /// The element is busy and cannot respond to user interaction.
     /// - **Purpose**: To indicate that the element or application is performing an operation and
     ///   is temporarily unresponsive.
-    /// - **When to use**: When an application is loading, processing refany, or otherwise occupied.
+    /// - **When to use**: When an application is loading, processing data, or otherwise occupied.
     /// - **Example**: A window that is grayed out and shows a spinning cursor while saving a large
     ///   file.
     Busy,

@@ -18,7 +18,7 @@ use crate::geom::LogicalPosition;
 use crate::selection::TextCursor;
 use crate::window::WindowPosition;
 
-use azul_css::{AzString, OptionString, StringVec};
+use azul_css::{AzString, StringVec};
 
 /// Type of the active drag operation.
 ///
@@ -189,24 +189,15 @@ pub struct FileDropDrag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)]
 pub enum AutoScrollDirection {
-    /// No auto-scroll needed
     #[default]
     None,
-    /// Scroll up (mouse near top edge)
     Up,
-    /// Scroll down (mouse near bottom edge)
     Down,
-    /// Scroll left (mouse near left edge)
     Left,
-    /// Scroll right (mouse near right edge)
     Right,
-    /// Scroll up-left (mouse near top-left corner)
     UpLeft,
-    /// Scroll up-right (mouse near top-right corner)
     UpRight,
-    /// Scroll down-left (mouse near bottom-left corner)
     DownLeft,
-    /// Scroll down-right (mouse near bottom-right corner)
     DownRight,
 }
 
@@ -225,7 +216,10 @@ pub enum DropEffect {
     Link,
 }
 
-/// Drag data (like HTML5 DataTransfer)
+/// Drag data (like HTML5 DataTransfer).
+///
+/// Note: this type is Rust-only and not exposed through the C API,
+/// since `BTreeMap` and `Vec<u8>` are not FFI-safe.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DragData {
     /// MIME type -> data mapping
@@ -287,6 +281,8 @@ impl DragData {
 ///
 /// This struct wraps `ActiveDragType` and provides common metadata
 /// that applies to all drag operations.
+///
+/// Note: this type is Rust-only and not exposed through the C API.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DragContext {
     /// The specific type of drag operation
@@ -594,6 +590,31 @@ impl DragContext {
         Some(new_offset.clamp(0.0, scrollable_range))
     }
 
+    /// Remap a drop target's NodeId using the old→new mapping.
+    /// Clears the target if the old NodeId was removed.
+    fn remap_drop_target(
+        target: &mut OptionDomNodeId,
+        dom_id: DomId,
+        node_id_map: &alloc::collections::BTreeMap<NodeId, NodeId>,
+    ) {
+        let dt = match target.into_option() {
+            Some(dt) if dt.dom == dom_id => dt,
+            _ => return,
+        };
+        let old_nid = match dt.node.into_crate_internal() {
+            Some(nid) => nid,
+            None => return,
+        };
+        if let Some(&new_nid) = node_id_map.get(&old_nid) {
+            *target = Some(DomNodeId {
+                dom: dom_id,
+                node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_nid)),
+            }).into();
+        } else {
+            *target = OptionDomNodeId::None;
+        }
+    }
+
     /// Remap NodeIds stored in this drag context after DOM reconciliation.
     ///
     /// When the DOM is regenerated during an active drag, NodeIds can change.
@@ -641,39 +662,13 @@ impl DragContext {
                     return false; // dragged node removed
                 }
                 // Drop target remap
-                if let Some(dt) = drag.current_drop_target.into_option() {
-                    if dt.dom == dom_id {
-                        if let Some(old_nid) = dt.node.into_crate_internal() {
-                            if let Some(&new_nid) = node_id_map.get(&old_nid) {
-                                drag.current_drop_target = Some(DomNodeId {
-                                    dom: dom_id,
-                                    node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_nid)),
-                                }).into();
-                            } else {
-                                drag.current_drop_target = OptionDomNodeId::None;
-                            }
-                        }
-                    }
-                }
+                Self::remap_drop_target(&mut drag.current_drop_target, dom_id, node_id_map);
                 true
             }
             // WindowMove, WindowResize, and FileDrop don't reference DOM NodeIds
             ActiveDragType::WindowMove(_) | ActiveDragType::WindowResize(_) => true,
             ActiveDragType::FileDrop(ref mut drag) => {
-                if let Some(dt) = drag.drop_target.into_option() {
-                    if dt.dom == dom_id {
-                        if let Some(old_nid) = dt.node.into_crate_internal() {
-                            if let Some(&new_nid) = node_id_map.get(&old_nid) {
-                                drag.drop_target = Some(DomNodeId {
-                                    dom: dom_id,
-                                    node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_nid)),
-                                }).into();
-                            } else {
-                                drag.drop_target = OptionDomNodeId::None;
-                            }
-                        }
-                    }
-                }
+                Self::remap_drop_target(&mut drag.drop_target, dom_id, node_id_map);
                 true
             }
         }

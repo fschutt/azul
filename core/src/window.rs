@@ -18,7 +18,6 @@ use azul_css::{
     props::{
         basic::{ColorU, FloatValue, LayoutPoint, LayoutRect, LayoutSize},
         property::CssProperty,
-        style::StyleCursor,
     },
     AzString, LayoutDebugMessage, OptionF32, OptionI32, OptionString, OptionU32, U8Vec,
 };
@@ -49,8 +48,7 @@ pub const DEFAULT_TITLE: &str = "Azul App";
 
 static LAST_WINDOW_ID: AtomicI64 = AtomicI64::new(0);
 
-/// Each default callback is identified by its ID (not by it's function pointer),
-/// since multiple IDs could point to the same function.
+/// Unique identifier for a window, auto-assigned via atomic counter.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct WindowId {
@@ -128,10 +126,7 @@ pub enum Vsync {
 
 impl Vsync {
     pub const fn is_enabled(&self) -> bool {
-        match self {
-            Vsync::Enabled => true,
-            _ => false,
-        }
+        matches!(self, Vsync::Enabled)
     }
 }
 
@@ -144,10 +139,7 @@ pub enum Srgb {
 }
 impl Srgb {
     pub const fn is_enabled(&self) -> bool {
-        match self {
-            Srgb::Enabled => true,
-            _ => false,
-        }
+        matches!(self, Srgb::Enabled)
     }
 }
 
@@ -160,10 +152,7 @@ pub enum HwAcceleration {
 }
 impl HwAcceleration {
     pub const fn is_enabled(&self) -> bool {
-        match self {
-            HwAcceleration::Enabled => true,
-            _ => false,
-        }
+        matches!(self, HwAcceleration::Enabled)
     }
 }
 
@@ -181,6 +170,9 @@ pub enum RawWindowHandle {
     Unsupported,
 }
 
+// SAFETY: RawWindowHandle contains raw pointers that are only used as opaque
+// identifiers for platform window handles. The handle values are not
+// dereferenced across threads; they are passed to platform APIs on the main thread.
 unsafe impl Send for RawWindowHandle {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -547,42 +539,6 @@ pub struct DebugState {
     pub force_picture_invalidation: bool,
 }
 
-fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
-    use azul_css::props::style::effects::StyleCursor;
-    match cursor {
-        StyleCursor::Default => MouseCursorType::Default,
-        StyleCursor::Crosshair => MouseCursorType::Crosshair,
-        StyleCursor::Pointer => MouseCursorType::Hand,
-        StyleCursor::Move => MouseCursorType::Move,
-        StyleCursor::Text => MouseCursorType::Text,
-        StyleCursor::Wait => MouseCursorType::Wait,
-        StyleCursor::Help => MouseCursorType::Help,
-        StyleCursor::Progress => MouseCursorType::Progress,
-        StyleCursor::ContextMenu => MouseCursorType::ContextMenu,
-        StyleCursor::Cell => MouseCursorType::Cell,
-        StyleCursor::VerticalText => MouseCursorType::VerticalText,
-        StyleCursor::Alias => MouseCursorType::Alias,
-        StyleCursor::Copy => MouseCursorType::Copy,
-        StyleCursor::Grab => MouseCursorType::Grab,
-        StyleCursor::Grabbing => MouseCursorType::Grabbing,
-        StyleCursor::AllScroll => MouseCursorType::AllScroll,
-        StyleCursor::ZoomIn => MouseCursorType::ZoomIn,
-        StyleCursor::ZoomOut => MouseCursorType::ZoomOut,
-        StyleCursor::EResize => MouseCursorType::EResize,
-        StyleCursor::NResize => MouseCursorType::NResize,
-        StyleCursor::SResize => MouseCursorType::SResize,
-        StyleCursor::SeResize => MouseCursorType::SeResize,
-        StyleCursor::WResize => MouseCursorType::WResize,
-        StyleCursor::EwResize => MouseCursorType::EwResize,
-        StyleCursor::NsResize => MouseCursorType::NsResize,
-        StyleCursor::NeswResize => MouseCursorType::NeswResize,
-        StyleCursor::NwseResize => MouseCursorType::NwseResize,
-        StyleCursor::ColResize => MouseCursorType::ColResize,
-        StyleCursor::RowResize => MouseCursorType::RowResize,
-        StyleCursor::Unset => MouseCursorType::Default,
-    }
-}
-
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
 #[repr(C)]
 pub struct TouchState {
@@ -798,6 +754,7 @@ impl_vec_debug!(VideoMode, VideoModeVec);
 impl_vec_partialeq!(VideoMode, VideoModeVec);
 impl_vec_partialord!(VideoMode, VideoModeVec);
 
+/// Position of the window on screen
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum WindowPosition {
@@ -897,6 +854,7 @@ impl Default for WindowType {
     }
 }
 
+/// Window frame state (normal, minimized, maximized, fullscreen)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub enum WindowFrame {
@@ -1036,6 +994,7 @@ impl WindowFlags {
     }
 }
 
+/// Platform-specific window configuration options (Windows, Linux, macOS, WASM)
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PlatformSpecificOptions {
@@ -1045,6 +1004,8 @@ pub struct PlatformSpecificOptions {
     pub wasm_options: WasmWindowOptions,
 }
 
+// SAFETY: PlatformSpecificOptions contains raw pointers (HwndHandle, X11Visual)
+// that are opaque platform handles, not dereferenced across threads.
 unsafe impl Sync for PlatformSpecificOptions {}
 unsafe impl Send for PlatformSpecificOptions {}
 
@@ -1219,6 +1180,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
+/// A key-value pair of strings, used for X11 WM_CLASS and other platform properties
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct AzStringPair {
@@ -1295,6 +1257,7 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
+/// macOS-specific window options (reserved for future use)
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct MacWindowOptions {
@@ -1302,6 +1265,7 @@ pub struct MacWindowOptions {
     pub _reserved: u8,
 }
 
+/// WASM/web-specific window options (reserved for future use)
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct WasmWindowOptions {
@@ -1419,7 +1383,6 @@ impl WindowSize {
 impl Default for WindowSize {
     fn default() -> Self {
         Self {
-            #[cfg(not(feature = "glow"))]
             dimensions: LogicalSize::new(640.0, 480.0),
             dpi: 96,
             min_dimensions: None.into(),
@@ -1700,7 +1663,7 @@ impl VirtualKeyCode {
             Key8 | Numpad8 => Some('8'),
             Key9 | Numpad9 => Some('9'),
             Minus => Some('-'),
-            Asterisk => Some('´'),
+            Asterisk => Some('*'),
             At => Some('@'),
             Period => Some('.'),
             Semicolon => Some(';'),
@@ -1719,7 +1682,7 @@ pub struct SmallWindowIconBytes {
     pub rgba_bytes: U8Vec,
 }
 
-/// 16x16x4 bytes icon
+/// 32x32x4 bytes icon
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct LargeWindowIconBytes {

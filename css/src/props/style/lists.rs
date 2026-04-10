@@ -1,6 +1,9 @@
 //! css/src/props/style/lists.rs
 //!
-//! CSS properties related to list styling.
+//! CSS properties related to list styling:
+//! [`StyleListStyleType`] and [`StyleListStylePosition`].
+//!
+//! Parsing functions are gated behind `#[cfg(feature = "parser")]`.
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -10,6 +13,7 @@ use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValu
 
 // --- list-style-type ---
 
+/// CSS `list-style-type` property — controls the marker style for list items.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleListStyleType {
@@ -84,6 +88,7 @@ impl fmt::Display for StyleListStyleType {
 
 // --- list-style-position ---
 
+/// CSS `list-style-position` property — controls whether the marker is inside or outside the list item box.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleListStylePosition {
@@ -167,6 +172,7 @@ impl StyleListStyleTypeParseErrorOwned {
     }
 }
 
+/// Parses a CSS `list-style-type` value from a string.
 #[cfg(feature = "parser")]
 pub fn parse_style_list_style_type<'a>(
     input: &'a str,
@@ -230,6 +236,7 @@ impl StyleListStylePositionParseErrorOwned {
     }
 }
 
+/// Parses a CSS `list-style-position` value from a string.
 #[cfg(feature = "parser")]
 pub fn parse_style_list_style_position<'a>(
     input: &'a str,

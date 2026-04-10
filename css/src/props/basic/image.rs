@@ -1,3 +1,5 @@
+//! Parsing of CSS image/url path strings and associated error types.
+
 use crate::{corety::AzString, props::basic::parse::strip_quotes};
 
 #[derive(Copy, Clone, PartialEq)]
@@ -18,6 +20,7 @@ pub enum CssImageParseErrorOwned {
 }
 
 impl<'a> CssImageParseError<'a> {
+    /// Converts to the owned variant.
     pub fn to_contained(&self) -> CssImageParseErrorOwned {
         match self {
             CssImageParseError::UnclosedQuotes(s) => {
@@ -28,6 +31,7 @@ impl<'a> CssImageParseError<'a> {
 }
 
 impl CssImageParseErrorOwned {
+    /// Converts to the borrowed variant.
     pub fn to_shared<'a>(&'a self) -> CssImageParseError<'a> {
         match self {
             CssImageParseErrorOwned::UnclosedQuotes(s) => {

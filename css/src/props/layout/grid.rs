@@ -41,7 +41,8 @@ impl core::fmt::Debug for GridMinMax {
 pub enum GridTrackSizing {
     /// Fixed pixel/percent size
     Fixed(PixelValue),
-    /// fr units (stored as integer to satisfy Eq/Ord/Hash)
+    /// fr units (value multiplied by `FR_SCALING_FACTOR` to allow fractional
+    /// values while satisfying Eq/Ord/Hash — e.g. `1fr` = `Fr(100)`, `0.5fr` = `Fr(50)`)
     Fr(i32),
     /// min-content
     MinContent,
@@ -362,6 +363,9 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
             }
             ')' => {
                 paren_depth -= 1;
+                if paren_depth < 0 {
+                    return Err(GridParseError::InvalidValue(input));
+                }
                 current.push(ch);
             }
             ' ' if paren_depth == 0 => {
@@ -402,7 +406,8 @@ fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) ->
         let track_list_str = content[comma_pos + 1..].trim();
 
         let count: usize = count_str.parse().map_err(|_| ())?;
-        if count == 0 || count > 10000 {
+        const MAX_GRID_REPEAT_COUNT: usize = 10_000;
+        if count == 0 || count > MAX_GRID_REPEAT_COUNT {
             return Err(());
         }
 
@@ -413,7 +418,7 @@ fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) ->
         for ch in track_list_str.chars() {
             match ch {
                 '(' => { paren_depth += 1; current.push(ch); }
-                ')' => { paren_depth -= 1; current.push(ch); }
+                ')' => { paren_depth -= 1; if paren_depth < 0 { return Err(()); } current.push(ch); }
                 ' ' if paren_depth == 0 => {
                     if !current.trim().is_empty() {
                         repeat_tracks.push(parse_grid_track_owned(current.trim())?);
@@ -458,9 +463,11 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
     }
 
     if input.ends_with("fr") {
+        /// Fr values are stored as integers scaled by this factor (e.g. `1fr` = 100, `0.5fr` = 50).
+        const FR_SCALING_FACTOR: f32 = 100.0;
         let num_str = &input[..input.len() - 2].trim();
         if let Ok(num) = num_str.parse::<f32>() {
-            return Ok(GridTrackSizing::Fr((num * 100.0) as i32));
+            return Ok(GridTrackSizing::Fr((num * FR_SCALING_FACTOR) as i32));
         }
         return Err(());
     }
@@ -841,9 +848,8 @@ impl FormatAsRustCode for LayoutJustifyItems {
 
 impl FormatAsRustCode for LayoutGap {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        // LayoutGap wraps a PixelValue which implements FormatAsRustCode via helpers;
-        // print as LayoutGap::Exact(LAYERVALUE) is not required here — use the CSS string
-        format!("LayoutGap::Exact({})", self.inner)
+        use crate::format_rust_code::format_pixel_value;
+        format!("LayoutGap {{ inner: {} }}", format_pixel_value(&self.inner))
     }
 }
 
@@ -1267,6 +1273,7 @@ impl PrintAsCssValue for GridTemplateAreas {
 ///
 /// Returns a `GridTemplateAreas` with deduplicated named areas and their
 /// computed row/column line boundaries (1-based, as taffy expects).
+#[cfg(feature = "parser")]
 pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
     let input = input.trim();
     if input == "none" {

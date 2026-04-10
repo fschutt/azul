@@ -377,7 +377,7 @@ impl Xml {
                         (ExternalResourceKind::Stylesheet, "stylesheet")
                     } else if rel.contains("icon") || rel.contains("apple-touch-icon") {
                         (ExternalResourceKind::Icon, "image")
-                    } else if as_attr == "font" || rel.contains("preload") && as_attr == "font" {
+                    } else if as_attr == "font" {
                         (ExternalResourceKind::Font, "font")
                     } else if as_attr == "script" {
                         (ExternalResourceKind::Script, "script")
@@ -647,25 +647,27 @@ impl Xml {
         resource_exts.iter().any(|ext| lower.ends_with(ext))
     }
     
-    /// Guess the resource kind from URL
+    /// Guess the resource kind from URL based on file extension.
     fn guess_kind_from_url(url: &str) -> ExternalResourceKind {
         let lower = url.to_lowercase();
-        if lower.contains(".png") || lower.contains(".jpg") || lower.contains(".jpeg") 
-            || lower.contains(".gif") || lower.contains(".webp") || lower.contains(".svg")
-            || lower.contains(".bmp") || lower.contains(".avif") {
+        // Strip query string before checking extension
+        let path = lower.split('?').next().unwrap_or(&lower);
+        if path.ends_with(".png") || path.ends_with(".jpg") || path.ends_with(".jpeg")
+            || path.ends_with(".gif") || path.ends_with(".webp") || path.ends_with(".svg")
+            || path.ends_with(".bmp") || path.ends_with(".avif") {
             ExternalResourceKind::Image
-        } else if lower.contains(".ttf") || lower.contains(".otf") || lower.contains(".woff") 
-            || lower.contains(".eot") {
+        } else if path.ends_with(".ttf") || path.ends_with(".otf") || path.ends_with(".woff")
+            || path.ends_with(".woff2") || path.ends_with(".eot") {
             ExternalResourceKind::Font
-        } else if lower.contains(".css") {
+        } else if path.ends_with(".css") {
             ExternalResourceKind::Stylesheet
-        } else if lower.contains(".js") {
+        } else if path.ends_with(".js") || path.ends_with(".mjs") {
             ExternalResourceKind::Script
-        } else if lower.contains(".mp4") || lower.contains(".webm") || lower.contains(".ogg") {
+        } else if path.ends_with(".mp4") || path.ends_with(".webm") || path.ends_with(".ogg") {
             ExternalResourceKind::Video
-        } else if lower.contains(".mp3") || lower.contains(".wav") || lower.contains(".flac") {
+        } else if path.ends_with(".mp3") || path.ends_with(".wav") || path.ends_with(".flac") {
             ExternalResourceKind::Audio
-        } else if lower.contains(".ico") {
+        } else if path.ends_with(".ico") {
             ExternalResourceKind::Icon
         } else {
             ExternalResourceKind::Unknown
@@ -850,7 +852,7 @@ impl fmt::Display for XmlParseError {
         use self::XmlParseError::*;
         match self {
             InvalidDeclaration(e) => {
-                write!(f, "Invalid declaraction: {} at {}", e.stream_error, e.pos)
+                write!(f, "Invalid declaration: {} at {}", e.stream_error, e.pos)
             }
             InvalidComment(e) => write!(f, "Invalid comment: {} at {}", e.stream_error, e.pos),
             InvalidPI(e) => write!(
@@ -3301,10 +3303,10 @@ pub fn xml_attrs_to_data_model(
 }
 
 // ============================================================================
-// Structural builtin components: if, for, map (Phase F)
+// Structural builtin components: if, for, map
 // ============================================================================
 
-/// F1: `builtin:if` — conditional rendering.
+/// `builtin:if` — conditional rendering.
 /// Takes `condition: Bool`, `then: StyledDom`, and optionally `else: StyledDom`.
 fn builtin_if_component() -> ComponentDef {
     ComponentDef {
@@ -3366,7 +3368,7 @@ fn builtin_if_compile_fn(
     }
 }
 
-/// F2: `builtin:for` — iterative rendering.
+/// `builtin:for` — iterative rendering.
 /// Takes `count: U32` (number of iterations), renders children N times.
 fn builtin_for_component() -> ComponentDef {
     ComponentDef {
@@ -3431,7 +3433,7 @@ fn builtin_for_compile_fn(
     }
 }
 
-/// F3: `builtin:map` — map data to DOM.
+/// `builtin:map` — map data to DOM.
 /// Takes `data_json: String` (JSON array) + maps each element.
 fn builtin_map_component() -> ComponentDef {
     ComponentDef {
@@ -3686,9 +3688,9 @@ impl DomXml {
     }
 }
 
-impl Into<StyledDom> for DomXml {
-    fn into(self) -> StyledDom {
-        self.parsed_dom
+impl From<DomXml> for StyledDom {
+    fn from(val: DomXml) -> Self {
+        val.parsed_dom
     }
 }
 
@@ -4160,8 +4162,6 @@ pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
     
     find_body_recursive(root_nodes).ok_or(DomXmlParseError::NoBodyInHtml)
 }
-
-static DEFAULT_STR: &str = "";
 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.

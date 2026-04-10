@@ -156,9 +156,13 @@ macro_rules! define_border_side_property {
 
 // +spec:box-model:8c49fe - Border style properties (none, solid, double, dashed, etc.) and border color defaulting to element's color
 // Border Style (border-*-style)
+/// CSS `border-top-style` property (e.g. `solid`, `dashed`, `none`).
 define_border_side_property!(StyleBorderTopStyle, BorderStyle, BorderStyle::None);
+/// CSS `border-right-style` property (e.g. `solid`, `dashed`, `none`).
 define_border_side_property!(StyleBorderRightStyle, BorderStyle, BorderStyle::None);
+/// CSS `border-bottom-style` property (e.g. `solid`, `dashed`, `none`).
 define_border_side_property!(StyleBorderBottomStyle, BorderStyle, BorderStyle::None);
+/// CSS `border-left-style` property (e.g. `solid`, `dashed`, `none`).
 define_border_side_property!(StyleBorderLeftStyle, BorderStyle, BorderStyle::None);
 
 // Formatting implementations for border side style values
@@ -199,17 +203,25 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBorderBottomStyle {
 }
 
 // Border Color (border-*-color)
+/// CSS `border-top-color` property. Defaults to `ColorU::BLACK`.
 define_border_side_property!(StyleBorderTopColor, ColorU);
+/// CSS `border-right-color` property. Defaults to `ColorU::BLACK`.
 define_border_side_property!(StyleBorderRightColor, ColorU);
+/// CSS `border-bottom-color` property. Defaults to `ColorU::BLACK`.
 define_border_side_property!(StyleBorderBottomColor, ColorU);
+/// CSS `border-left-color` property. Defaults to `ColorU::BLACK`.
 define_border_side_property!(StyleBorderLeftColor, ColorU);
 
 // Border Width (border-*-width)
 // The default width is 'medium', which corresponds to 3px.
 // Import from pixel.rs for consistency.
+/// CSS `border-top-width` property. Defaults to `MEDIUM_BORDER_THICKNESS` (3px).
 define_border_side_property!(LayoutBorderTopWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
+/// CSS `border-right-width` property. Defaults to `MEDIUM_BORDER_THICKNESS` (3px).
 define_border_side_property!(LayoutBorderRightWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
+/// CSS `border-bottom-width` property. Defaults to `MEDIUM_BORDER_THICKNESS` (3px).
 define_border_side_property!(LayoutBorderBottomWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
+/// CSS `border-left-width` property. Defaults to `MEDIUM_BORDER_THICKNESS` (3px).
 define_border_side_property!(LayoutBorderLeftWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 
 // Interpolate implementations for border width types

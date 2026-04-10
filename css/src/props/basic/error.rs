@@ -1,3 +1,8 @@
+//! C-compatible (`#[repr(C)]`) error types for CSS parsing failures.
+//!
+//! Mirrors `core::num::ParseFloatError` and `core::num::ParseIntError` for FFI use,
+//! and provides generic invalid-value error wrappers.
+
 use crate::corety::AzString;
 
 /// Simple "invalid value" error, used for basic parsing failures
@@ -25,13 +30,12 @@ pub enum ParseFloatError {
 }
 
 impl ParseFloatError {
-    /// Convert from `core::num::ParseFloatError` by matching on the Display output.
+    /// Convert from `core::num::ParseFloatError` by comparing against known error instances.
     pub fn from_std(e: &core::num::ParseFloatError) -> Self {
-        // core::num::ParseFloatError Display:
-        //   Empty   => "cannot parse float from empty string"
-        //   Invalid => "invalid float literal"
-        let s = alloc::format!("{}", e);
-        if s.contains("empty") {
+        // Compare against the known Empty error instance to avoid
+        // relying on Display message wording or allocating a format string.
+        let empty_err = "".parse::<f32>().unwrap_err();
+        if *e == empty_err {
             ParseFloatError::Empty
         } else {
             ParseFloatError::Invalid
@@ -103,7 +107,8 @@ impl ParseIntError {
             ParseIntError::PosOverflow => "99999999999999999999".parse::<i32>().unwrap_err(),
             ParseIntError::NegOverflow => "-99999999999999999999".parse::<i32>().unwrap_err(),
             ParseIntError::Zero => {
-                // Zero variant is rarely triggered; fallback to InvalidDigit
+                // Zero variant cannot be reproduced on stable Rust; falls back to InvalidDigit.
+                // Note: round-tripping Zero through to_std() then from_std() yields InvalidDigit.
                 "x".parse::<i32>().unwrap_err()
             }
         }

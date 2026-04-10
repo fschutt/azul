@@ -1,4 +1,18 @@
-//! Compositor abstraction - CPU or GPU rendering.
+//! Compositor abstraction — CPU or GPU rendering.
+//!
+//! This module defines the rendering backend selection and compositor
+//! pipeline types:
+//!
+//! - [`AzBackend`] — resolved from the `AZ_BACKEND` env var or
+//!   programmatic `HwAcceleration` setting.
+//! - [`CompositorMode`] — the concrete GPU / CPU / Auto mode derived
+//!   from `AzBackend`.
+//! - [`Compositor`] trait — interface that concrete implementations
+//!   (e.g. `CpuCompositor`, future GPU compositor) must satisfy.
+//! - [`RenderContext`] — platform-specific rendering context handle
+//!   (OpenGL, Metal, D3D11, Vulkan, or CPU).
+//! - [`GpuInfo`] / [`check_gpu_blacklist`] — GPU driver inspection and
+//!   blacklist for known-broken configurations.
 
 use azul_core::geom::PhysicalSizeU32;
 use azul_layout::solver3::display_list::DisplayList;
@@ -6,7 +20,7 @@ use azul_layout::solver3::display_list::DisplayList;
 use super::error::CompositorError;
 
 use super::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_warn;
 
 /// Compositor mode selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37,7 +51,6 @@ impl CompositorMode {
             _ => None,
         }
     }
-
 }
 
 // ============================================================================
@@ -105,6 +118,11 @@ impl AzBackend {
                     if let Some(addr) = crate::web::config::parse_web_url(&val) {
                         return AzBackend::Web(addr);
                     }
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "Unrecognized AZ_BACKEND value {:?}, falling back to default",
+                        val
+                    );
                 }
             }
         }

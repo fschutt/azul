@@ -885,8 +885,6 @@ fn format_radial_color_stop(g: &NormalizedRadialColorStop) -> String {
 }
 
 fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
-    let tabs_minus_one = String::from("    ").repeat(tabs);
-    let tabs_str = String::from("    ").repeat(tabs + 1);
     match st {
         StyleFilter::Blend(mb) => format!("StyleFilter::Blend({})", mb.format_as_rust_code(tabs)),
         StyleFilter::Flood(c) => format!("StyleFilter::Flood({})", format_color_value(c)),
@@ -1022,7 +1020,7 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
             format_pixel_value(&t.y)
         ),
         StyleTransform::Translate3D(t) => format!(
-            "StyleTransform::Translate3D(StyleTransformTranslate3D {{ x: {}, y: {}, z: {})",
+            "StyleTransform::Translate3D(StyleTransformTranslate3D {{ x: {}, y: {}, z: {} }})",
             format_pixel_value(&t.x),
             format_pixel_value(&t.y),
             format_pixel_value(&t.z)
@@ -1059,7 +1057,7 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
             format_float_value(&s.y)
         ),
         StyleTransform::Scale3D(s) => format!(
-            "StyleTransform::Scale3D(StyleTransformScale3D {{ x; {}, y: {}, z: {} }})",
+            "StyleTransform::Scale3D(StyleTransformScale3D {{ x: {}, y: {}, z: {} }})",
             format_float_value(&s.x),
             format_float_value(&s.y),
             format_float_value(&s.z)

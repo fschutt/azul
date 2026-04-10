@@ -1,4 +1,6 @@
-#![allow(unused_macros)]
+//! Utility macros for implementing common trait patterns on callback types
+//! and enum conversions (`From`, `Display`). Used by the `core`, `layout`,
+//! and `css` crates.
 
 /// Implements functions for `CallbackInfo` and `Info`,
 /// to prevent duplicating the functions
@@ -91,8 +93,11 @@ macro_rules! impl_display {
     };
 }
 
-/// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
-/// for a Callback with a `.cb` and `.ctx` field.
+/// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord`
+/// for a callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
+/// Also implements `From<$callback_ty>` to create a callback from a raw function pointer.
+///
+/// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]
@@ -108,7 +113,7 @@ macro_rules! impl_callback {
         impl ::core::fmt::Debug for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
-                write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
+                write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
             }
         }
 
@@ -126,25 +131,25 @@ macro_rules! impl_callback {
             where
                 H: ::core::hash::Hasher,
             {
-                state.write_usize(self.cb as usize);
+                state.write_usize(self.cb as *const () as usize);
             }
         }
 
         impl PartialEq for $callback_value {
             fn eq(&self, rhs: &Self) -> bool {
-                self.cb as usize == rhs.cb as usize
+                self.cb as *const () as usize == rhs.cb as usize
             }
         }
 
         impl PartialOrd for $callback_value {
             fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.cb as usize).cmp(&(other.cb as usize)))
+                Some((self.cb as *const () as usize).cmp(&(other.cb as *const () as usize)))
             }
         }
 
         impl Ord for $callback_value {
             fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                (self.cb as usize).cmp(&(other.cb as usize))
+                (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
             }
         }
 
@@ -179,7 +184,7 @@ macro_rules! impl_callback_simple {
         impl ::core::fmt::Debug for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
-                write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
+                write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
             }
         }
 
@@ -196,40 +201,30 @@ macro_rules! impl_callback_simple {
             where
                 H: ::core::hash::Hasher,
             {
-                state.write_usize(self.cb as usize);
+                state.write_usize(self.cb as *const () as usize);
             }
         }
 
         impl PartialEq for $callback_value {
             fn eq(&self, rhs: &Self) -> bool {
-                self.cb as usize == rhs.cb as usize
+                self.cb as *const () as usize == rhs.cb as usize
             }
         }
 
         impl PartialOrd for $callback_value {
             fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.cb as usize).cmp(&(other.cb as usize)))
+                Some((self.cb as *const () as usize).cmp(&(other.cb as *const () as usize)))
             }
         }
 
         impl Ord for $callback_value {
             fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                (self.cb as usize).cmp(&(other.cb as usize))
+                (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
             }
         }
 
         impl Eq for $callback_value {}
 
         impl Copy for $callback_value {}
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_get_gl_context {
-    () => {
-        /// Returns a reference-counted pointer to the OpenGL context
-        pub fn get_gl_context(&self) -> OptionGlContextPtr {
-            Some(self.gl_context.clone())
-        }
     };
 }
