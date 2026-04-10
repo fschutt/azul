@@ -454,23 +454,13 @@ fn match_single_selector(
     match selector {
         Global => true,
         Type(t) => node_data.get_node_type().get_path() == *t,
-        Class(c) => match_class(node_data, c.as_str()),
-        Id(id) => match_id(node_data, id.as_str()),
+        Class(c) => node_data.has_class(c.as_str()),
+        Id(id) => node_data.has_id(id.as_str()),
         PseudoSelector(p) => {
             match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group)
         }
         DirectChildren | Children | AdjacentSibling | GeneralSibling => false,
     }
-}
-
-/// Returns true if the node has the given CSS class.
-fn match_class(node_data: &NodeData, class_name: &str) -> bool {
-    node_data.has_class(class_name)
-}
-
-/// Returns true if the node has the given HTML id.
-fn match_id(node_data: &NodeData, id_name: &str) -> bool {
-    node_data.has_id(id_name)
 }
 
 /// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.
