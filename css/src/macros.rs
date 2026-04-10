@@ -137,11 +137,6 @@ macro_rules! impl_vec {
             }
 
             #[inline(always)]
-            pub fn ptr_as_usize(&self) -> usize {
-                self.ptr as usize
-            }
-
-            #[inline(always)]
             pub const fn len(&self) -> usize {
                 self.len
             }
@@ -445,11 +440,6 @@ macro_rules! impl_vec_mut {
         }
 
         impl $struct_name {
-            // <'a> has to live longer than &self
-            pub fn as_mut_slice_extended<'a>(&mut self) -> &'a mut [$struct_type] {
-                unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
-            }
-
             #[inline]
             pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
                 self.ptr as *mut $struct_type
@@ -610,7 +600,6 @@ macro_rules! impl_vec_mut {
                 let new_layout =
                     alloc::alloc::Layout::array::<$struct_type>(new_cap).map_err(|_| true)?;
 
-                // FIXME: may crash and burn on over-reserve
                 $struct_name::alloc_guard(new_layout.size())?;
 
                 let res = unsafe {
