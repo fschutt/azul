@@ -1,4 +1,7 @@
-//! C-style definitions for X11, EGL, and xkbcommon.
+//! C-style FFI definitions for X11, EGL, and xkbcommon.
+//!
+//! These types are consumed by `dlopen.rs` for dynamic symbol loading
+//! and used throughout the `x11` module for the X11 windowing backend.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
@@ -256,8 +259,8 @@ pub struct XkbDescRec {
     pub device_spec: c_uint,
     pub min_key_code: c_uchar,
     pub max_key_code: c_uchar,
-    // Simplified - full struct has many more fields
-    // Add fields as needed
+    // NOTE: intentionally incomplete — the real XkbDescRec has many more fields.
+    // Do not pass to XkbGetMap without completing the layout first.
 }
 
 // Event masks
