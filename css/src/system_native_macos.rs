@@ -85,7 +85,9 @@ impl ObjcLib {
 
     // ── convenience wrappers ─────────────────────────────────────────
 
+    /// Look up an Objective-C class by its null-terminated name.
     #[inline] unsafe fn cls(&self, name: &[u8]) -> Class { (self.get_class)(name.as_ptr()) }
+    /// Register (or look up) an Objective-C selector by its null-terminated name.
     #[inline] unsafe fn sel(&self, name: &[u8]) -> Sel   { (self.sel_reg)(name.as_ptr()) }
 
     /// `[target sel]` → Id
@@ -218,8 +220,7 @@ pub(super) fn discover() -> super::SystemStyle {
         let app = lib.send_id(nsapp_cls, shared_sel);
 
         if !app.is_null() {
-            let ea_sel = lib.sel(b"effectiveAppearance\0");
-            let appearance = lib.send_id(app, ea_sel);
+            let appearance = lib.send_id(app, lib.sel(b"effectiveAppearance\0"));
             if !appearance.is_null() {
                 if let Some(name) = nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0"))) {
                     if name.contains("Dark") {
@@ -341,6 +342,7 @@ pub(super) fn discover() -> super::SystemStyle {
                 prefers_reduced_motion: reduce_motion,
                 prefers_high_contrast: increase_contrast,
                 prefers_reduced_transparency: reduce_transparency,
+                text_scale_factor: 1.0,
                 ..Default::default()
             };
 
@@ -364,6 +366,7 @@ pub(super) fn discover() -> super::SystemStyle {
                 = core::mem::transmute(lib.msg_send);
             let v = f(pi, osv_sel);
             style.os_version = match v.major {
+                // Apple changed version numbering: macOS 15 (Sequoia) → macOS 26 (Tahoe) in 2025
                 26 => crate::dynamic_selector::OsVersion::MACOS_TAHOE,
                 15 => crate::dynamic_selector::OsVersion::MACOS_SEQUOIA,
                 14 => crate::dynamic_selector::OsVersion::MACOS_SONOMA,
