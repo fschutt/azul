@@ -1,13 +1,18 @@
-//! **Node** drag and drop state management
+//! **Node** drag and drop state management (legacy compatibility shim)
 //!
 //! This module maintains the old API types for backwards compatibility.
 //! Internally, it now uses the unified `DragContext` from `azul_core::drag`.
+//!
+//! The primary drag-and-drop system is `GestureAndDragManager` in
+//! `managers/gesture.rs`. This `DragDropManager` is a read-only mirror
+//! whose `active_drag` field is populated by event-processing code in
+//! `event.rs`.
 
-use azul_core::dom::{DomId, DomNodeId, NodeId, OptionDomNodeId};
+use azul_core::dom::{DomNodeId, NodeId, OptionDomNodeId};
 use azul_core::drag::{ActiveDragType, DragContext};
 use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 
-// Re-export DragData for use in other modules
+/// Re-exported for the C API (`api.json` / `drag-drop-test.c`).
 pub use azul_core::drag::DragData;
 
 /// Type of drag operation
