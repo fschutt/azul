@@ -1,10 +1,18 @@
 //! Wayland clipboard integration
 //!
-//! Uses x11-clipboard crate which also supports Wayland via the same API
+//! Currently relies on the `x11-clipboard` crate, which requires an X11
+//! connection (XWayland). On pure Wayland sessions without XWayland,
+//! `Clipboard::new()` will fail and clipboard operations will be unavailable.
+//!
+//! `sync_clipboard` is called from `wayland/mod.rs` after user callbacks
+//! to commit pending clipboard changes to the system clipboard.
 
 use std::time::Duration;
 
 use azul_layout::managers::clipboard::ClipboardManager;
+
+/// Timeout for clipboard read operations.
+const CLIPBOARD_READ_TIMEOUT: Duration = Duration::from_secs(3);
 use x11_clipboard::Clipboard;
 
 use super::super::super::common::debug_server::LogCategory;
@@ -47,7 +55,7 @@ pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
         .store(
             clipboard.setter.atoms.clipboard,
             clipboard.setter.atoms.utf8_string,
-            text,
+            text.as_bytes(),
         )
         .map_err(|_| ClipboardError::WriteFailed)
 }
@@ -61,7 +69,7 @@ fn read_from_clipboard() -> Result<String, ClipboardError> {
             clipboard.getter.atoms.clipboard,
             clipboard.getter.atoms.utf8_string,
             clipboard.getter.atoms.property,
-            Duration::from_secs(3),
+            CLIPBOARD_READ_TIMEOUT,
         )
         .map_err(|_| ClipboardError::ReadFailed)?;
 
