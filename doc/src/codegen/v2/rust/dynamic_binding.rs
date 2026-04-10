@@ -140,6 +140,7 @@ impl LanguageGenerator for RustDynamicGenerator {
             Self::generate_capi_trait_impls_enum(&mut builder, enum_def, config);
         }
 
+
         Ok(builder.finish())
     }
 }
@@ -160,9 +161,14 @@ impl RustDynamicGenerator {
         };
         let full_name = format!("{}{}", name, generics);
 
+        // Skip C-API trait impls for generic types — there is no single
+        // extern fn for a generic type.  The concrete monomorphized type
+        // aliases get their own impls.
+        let is_generic = !struct_def.generic_params.is_empty();
+
         // Clone trait - calls Az{Type}_clone
         // Only generate manual impl if Clone is NOT derived (to avoid conflict with #[derive(Clone)])
-        if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived {
+        if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived && !is_generic {
             let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
@@ -177,7 +183,7 @@ impl RustDynamicGenerator {
         }
 
         // Drop trait - calls Az{Type}_delete
-        if struct_def.traits.has_custom_drop {
+        if struct_def.traits.has_custom_drop && !is_generic {
             let delete_fn = format!("{}_delete", name);
             builder.line(&format!("impl{} Drop for {} {{", generics, full_name));
             builder.indent();

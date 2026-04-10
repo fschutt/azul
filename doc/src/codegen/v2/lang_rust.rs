@@ -249,6 +249,18 @@ impl LanguageGenerator for RustGenerator {
                     }
                     self.generate_capi_trait_impls_enum(&mut builder, enum_def, config);
                 }
+                // For generic types with custom Clone/Drop (e.g. BoxOrStatic<T>),
+                // generate inline generic impls since we can't call per-instantiation
+                // extern fns and Rust forbids specializing Drop on type aliases.
+                for enum_def in &ir.enums {
+                    if enum_def.generic_params.is_empty() {
+                        continue;
+                    }
+                    if !config.should_include_type(&enum_def.name) {
+                        continue;
+                    }
+                    self.generate_generic_inline_impls_enum(&mut builder, enum_def, config);
+                }
             }
             TraitImplMode::None => {}
         }
@@ -2437,6 +2449,11 @@ impl RustGenerator {
         struct_def: &StructDef,
         config: &CodegenConfig,
     ) {
+        // Skip generic types — only concrete instantiations get C-API impls
+        if !struct_def.generic_params.is_empty() {
+            return;
+        }
+
         let name = config.apply_prefix(&struct_def.name);
 
         // Clone impl calling C-ABI function
@@ -2476,6 +2493,11 @@ impl RustGenerator {
         enum_def: &EnumDef,
         config: &CodegenConfig,
     ) {
+        // Skip generic types — only concrete instantiations get C-API impls
+        if !enum_def.generic_params.is_empty() {
+            return;
+        }
+
         let name = config.apply_prefix(&enum_def.name);
 
         // Clone impl calling C-ABI function
@@ -2507,6 +2529,78 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
         }
+    }
+
+    /// Generate inline Clone/Drop for generic enums like `BoxOrStatic<T>`.
+    ///
+    /// These can't use extern C-API functions (no single fn for all T) and
+    /// Rust forbids specializing Drop on type aliases.  Instead, we generate
+    /// the implementations inline based on the enum's structure.
+    fn generate_generic_inline_impls_enum(
+        &self,
+        builder: &mut CodeBuilder,
+        enum_def: &EnumDef,
+        config: &CodegenConfig,
+    ) {
+        // Only needed for non-Copy generic types with custom Clone/Drop
+        if enum_def.traits.is_copy {
+            return;
+        }
+
+        let name = config.apply_prefix(&enum_def.name);
+        let generics = format!("<{}>", enum_def.generic_params.join(", "));
+        let full_name = format!("{}{}", name, generics);
+
+        // Check if this is a BoxOrStatic-style enum (Boxed(*mut T), Static(*const T))
+        let is_box_or_static = enum_def.variants.iter().any(|v| v.name == "Boxed")
+            && enum_def.variants.iter().any(|v| v.name == "Static");
+
+        if is_box_or_static {
+            // Clone: Boxed → heap-copy, Static → copy pointer
+            if enum_def.traits.is_clone {
+                builder.line(&format!("impl<T: Clone> Clone for {} {{", full_name));
+                builder.indent();
+                builder.line("fn clone(&self) -> Self {");
+                builder.indent();
+                builder.line("match self {");
+                builder.indent();
+                builder.line(&format!("{}::Boxed(ptr) => unsafe {{", name));
+                builder.indent();
+                builder.line("let cloned = Box::new((**ptr).clone());");
+                builder.line(&format!("{}::Boxed(Box::into_raw(cloned))", name));
+                builder.dedent();
+                builder.line("}");
+                builder.line(&format!("{}::Static(ptr) => {}::Static(*ptr),", name, name));
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+
+            // Drop: Boxed → free, Static → no-op
+            if enum_def.traits.has_custom_drop || !enum_def.traits.is_copy {
+                builder.line(&format!("impl{} Drop for {} {{", generics, full_name));
+                builder.indent();
+                builder.line("fn drop(&mut self) {");
+                builder.indent();
+                builder.line("match self {");
+                builder.indent();
+                builder.line(&format!("{}::Boxed(ptr) => unsafe {{ let _ = Box::from_raw(*ptr); }},", name));
+                builder.line(&format!("{}::Static(_) => {{}},", name));
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+        }
+        // Other generic types that are Copy (CssPropertyValue, PhysicalSize, etc.)
+        // don't need Clone/Drop impls — they derive them.
     }
 }
 
