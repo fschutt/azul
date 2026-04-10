@@ -2099,7 +2099,7 @@ impl StyledDom {
         let mut output = String::new();
 
         // After which nodes should a close tag be printed?
-        let mut should_print_close_tag_after_node = BTreeMap::new();
+        let mut should_print_close_tag_after_node: BTreeMap<NodeId, Vec<(NodeId, usize)>> = BTreeMap::new();
 
         let should_print_close_tag_debug = self
             .non_leaf_nodes

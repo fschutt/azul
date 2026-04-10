@@ -38,6 +38,7 @@ pub enum AutoreviewSubcommand {
     Merge,
     Process,
     SmallFixes,
+    MidlevelFixes,
 }
 
 // ── Output directory layout ────────────────────────────────────────────
@@ -64,6 +65,10 @@ fn process_prompts_dir(project_root: &Path) -> PathBuf {
 
 fn smallfixes_prompts_dir(project_root: &Path) -> PathBuf {
     output_dir(project_root).join("small-fixes/prompts")
+}
+
+fn midlevel_prompts_dir(project_root: &Path) -> PathBuf {
+    output_dir(project_root).join("midlevel-fixes/prompts")
 }
 
 // ── File discovery ─────────────────────────────────────────────────────
@@ -1514,6 +1519,420 @@ fn dispatch_smallfixes_agents(config: &AutoreviewConfig) -> Result<(), String> {
     Ok(())
 }
 
+// ── Midlevel-fixes prompt builder ──────────────────────────────────────
+
+fn build_midlevel_prompt(
+    source_file: &Path,     // relative, e.g. "core/src/dom.rs"
+    report_abs_path: &Path, // absolute path to the review report
+    project_root: &Path,
+) -> String {
+    let src = source_file.display();
+    let rpt = report_abs_path.display();
+
+    // Read the report so the agent has it immediately.
+    let report_content = fs::read_to_string(report_abs_path)
+        .unwrap_or_else(|e| format!("(failed to read report: {})", e));
+
+    format!(
+r#"# Midlevel Fixes: {src}
+
+You are fixing mid-level issues in `{src}` based on its review report.
+Mid-level fixes include de-duplications across files, minimal refactoring,
+and wiring up dead code.  You MAY edit multiple files.
+
+## Review report: `{rpt}`
+
+```markdown
+{report_content}
+```
+
+## Instructions
+
+1. Read the review report above (already included).
+2. Identify findings that are **mid-level fixes**.  These include:
+   - De-duplicating functions/logic across files (consolidate into one place,
+     update all call sites)
+   - Minimal refactoring: extracting helpers, flattening deeply nested code,
+     splitting oversized functions
+   - Wiring up dead code that should be connected
+   - Removing dead public functions/types that have zero call sites
+     (verify with Grep first)
+   - Fixing bugs that require coordinated changes across 2-3 files
+3. **Skip** anything that:
+   - Is a large architectural refactoring (splitting modules, redesigning APIs)
+   - Requires adding new crate dependencies
+   - Is subjective or debatable
+   - Was already handled by small-fixes (check if the finding is still in the
+     report — if the section was removed, the fix was already applied)
+   - Is already fixed in the current code (another report may have flagged the
+     same issue and it was already resolved — verify with Grep/Read before
+     making changes)
+4. If there are **zero** mid-level fixes to make, output exactly:
+   `NO_MIDLEVEL_FIXES` and stop immediately.
+5. Otherwise, apply the fixes using the Edit tool.  You may edit any source
+   file in the repository.
+6. After editing, verify the build compiles:
+   ```
+   cargo build --release -p azul-dll --features build-dll
+   ```
+   If it fails, fix the compilation errors before proceeding.
+7. If you changed any public API types (structs/enums that are `#[repr(C)]`),
+   you MUST regenerate the API bindings:
+   ```
+   cargo run --release -p azul-doc -- autofix
+   cargo run --release -p azul-doc -- codegen all
+   ```
+   Then re-verify the build compiles.
+8. Create exactly **one git commit** per fix (or group of closely related fixes).
+   Stage only the files you changed: `git add <file1> <file2> ...`
+   Do NOT use `git add -A` or `git add .`.
+
+   **Commit message format**:
+   ```
+   refactor: <brief description>
+
+   - <one line per change>
+   Autoreview: {src}
+   ```
+   Categories: `fix`, `refactor`, `cleanup`, `docs`
+9. **After committing**, update the report file at `{rpt}` using the Edit tool:
+   - **Remove** every finding section (`### [SEVERITY] ...`) that you fixed.
+   - **Update** the Summary line counts (findings: X high, Y medium, Z low).
+   - Keep all unfixed findings exactly as they are.
+   - If all findings were fixed, replace the Findings section with:
+     `All findings resolved.`
+
+## Rules
+
+- All public API types must be `#[repr(C)]`.  Do NOT remove `#[repr(C)]`.
+- Do NOT modify `// +spec` comments.
+- Keep changes focused — fix what the report identified, don't go beyond.
+- If unsure whether a fix is safe, skip it.
+- The build MUST compile after your changes.
+"#
+    )
+}
+
+// ── Midlevel-fixes agent runner (sequential, compilation allowed) ─────
+
+/// Spawn a single Claude agent for one midlevel-fixes prompt.
+/// Unlike small-fixes, compilation tools are NOT blocked.
+fn run_midlevel_agent(
+    project_root: &Path,
+    slot_index: usize,
+    prompt_path: &Path,
+    timeout: Duration,
+    model: Option<&str>,
+    on_progress: &dyn Fn(&str),
+) -> AgentResult {
+    let taken_path  = prompt_path.with_extension("md.taken");
+    let result_path = prompt_path.with_extension("md.result");
+    let done_path   = prompt_path.with_extension("md.done");
+    let failed_path = prompt_path.with_extension("md.failed");
+
+    let prompt_text = match fs::read_to_string(prompt_path) {
+        Ok(c) => c,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to read prompt: {}", e)),
+        },
+    };
+
+    let result_file = match fs::File::create(&result_path) {
+        Ok(f) => f,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to create .result file: {}", e)),
+        },
+    };
+    let result_file_err = match result_file.try_clone() {
+        Ok(f) => f,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to clone file handle: {}", e)),
+        },
+    };
+
+    // Compilation is ALLOWED for midlevel-fixes.
+    // Only block MCP / LSP leaks.
+    let mut cmd_args: Vec<&str> = vec![
+        "-p",
+        "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format", "stream-json",
+        // Block MCP / LSP leaks
+        "--disallowedTools", "mcp__*",
+        "--disallowedTools", "rust-analyzer-lsp",
+    ];
+    if let Some(m) = model {
+        cmd_args.push("--model");
+        cmd_args.push(m);
+    }
+
+    let mut child = match Command::new("claude")
+        .args(&cmd_args)
+        .env_remove("CLAUDECODE")
+        .current_dir(project_root)
+        .stdin(Stdio::piped())
+        .stdout(result_file)
+        .stderr(result_file_err)
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Failed to spawn claude: {}", e)),
+        },
+    };
+
+    let pid = child.id();
+    if let Err(e) = executor::write_taken_file(&taken_path, slot_index, pid) {
+        let _ = child.kill();
+        return AgentResult { success: false, patches: 0, error: Some(e) };
+    }
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt_text.as_bytes());
+    }
+
+    let progress_path = prompt_path.with_extension("md.progress");
+
+    let start = Instant::now();
+    let exit_status = loop {
+        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&taken_path);
+            let _ = fs::remove_file(&progress_path);
+            return AgentResult {
+                success: false, patches: 0,
+                error: Some("Shutdown requested".into()),
+            };
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = fs::remove_file(&taken_path);
+                    let _ = fs::remove_file(&progress_path);
+                    let partial = fs::read_to_string(&result_path).unwrap_or_default();
+                    let _ = fs::write(
+                        &failed_path,
+                        format!(
+                            "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
+                            timeout.as_secs(), slot_index, partial,
+                        ),
+                    );
+                    return AgentResult {
+                        success: false, patches: 0,
+                        error: Some("Timeout".into()),
+                    };
+                }
+                let elapsed = start.elapsed().as_secs();
+                let activity = executor::read_stream_json_activity(&result_path);
+                let status_line = format!(
+                    "{}:{:02} | {}",
+                    elapsed / 60, elapsed % 60,
+                    if activity.is_empty() { "working..." } else { &activity },
+                );
+                on_progress(&status_line);
+                let _ = fs::write(&progress_path, &status_line);
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            Err(e) => {
+                let _ = fs::remove_file(&taken_path);
+                let _ = fs::remove_file(&progress_path);
+                let _ = fs::write(&failed_path, format!("Wait error: {}\n", e));
+                return AgentResult {
+                    success: false, patches: 0,
+                    error: Some(format!("Wait error: {}", e)),
+                };
+            }
+        }
+    };
+
+    let _ = fs::remove_file(&progress_path);
+    let _ = fs::remove_file(&taken_path);
+
+    let result_content = executor::extract_result_text(&result_path);
+    let elapsed = start.elapsed();
+
+    if !exit_status.success() && result_content.trim().is_empty() {
+        let code = exit_status.code().unwrap_or(-1);
+        let _ = fs::write(
+            &failed_path,
+            format!(
+                "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
+                code, elapsed.as_secs(), slot_index, result_content,
+            ),
+        );
+        return AgentResult {
+            success: false, patches: 0,
+            error: Some(format!("Exit code {}", code)),
+        };
+    }
+
+    let _ = fs::write(
+        &done_path,
+        format!(
+            "action=MIDLEVEL_FIXES\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
+            slot_index, elapsed.as_secs(), result_content,
+        ),
+    );
+
+    AgentResult { success: true, patches: 0, error: None }
+}
+
+// ── Subcommand: midlevel-fixes ────────────────────────────────────────
+
+fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
+    let project_root = config.project_root.clone();
+    let reports = reports_dir(&project_root);
+    let ml_prompts = midlevel_prompts_dir(&project_root);
+
+    if config.status_only {
+        return show_status(&project_root, config.retry_failed);
+    }
+
+    if !reports.is_dir() {
+        return Err("No reports directory. Run `autoreview` first.".into());
+    }
+
+    preflight_checks(&project_root, config.dry_run)?;
+
+    fs::create_dir_all(&ml_prompts)
+        .map_err(|e| format!("Failed to create midlevel-fixes dir: {}", e))?;
+
+    // Phase 1: generate prompts from reports
+    println!("\n=== Phase 1: Generating midlevel-fixes prompts ===\n");
+
+    let mut prompt_count = 0;
+
+    let mut report_entries: Vec<_> = fs::read_dir(&reports)
+        .map_err(|e| format!("Failed to read reports dir: {}", e))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|x| x == "md").unwrap_or(false))
+        .collect();
+    report_entries.sort_by_key(|e| e.file_name());
+
+    for entry in &report_entries {
+        let report_path = entry.path();
+        let safe_name = report_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
+        let source_rel = safe_name.replace("__", "/") + ".rs";
+        let source_path = PathBuf::from(&source_rel);
+
+        if !project_root.join(&source_path).exists() {
+            continue;
+        }
+
+        let prompt_path = ml_prompts.join(format!("{}.md", safe_name));
+
+        let status = executor::classify_prompt(&prompt_path, config.retry_failed);
+        match status {
+            executor::PromptStatus::Done | executor::PromptStatus::Taken { .. } => continue,
+            _ => {}
+        }
+
+        if let Some(ref filter) = config.file_filter {
+            if !source_rel.contains(filter.as_str()) {
+                continue;
+            }
+        }
+
+        let prompt_text = build_midlevel_prompt(
+            &source_path,
+            &report_path,
+            &project_root,
+        );
+        fs::write(&prompt_path, &prompt_text)
+            .map_err(|e| format!("Failed to write prompt: {}", e))?;
+        prompt_count += 1;
+    }
+
+    println!("Generated {} midlevel-fixes prompts", prompt_count);
+
+    if config.dry_run {
+        println!("\n--dry-run: stopping after prompt generation.");
+        return Ok(());
+    }
+
+    // Phase 2: dispatch agents SEQUENTIALLY (one at a time, fresh context each)
+    println!("\n=== Phase 2: Processing midlevel fixes sequentially ===\n");
+
+    let (pending, done, failed, taken) =
+        executor::scan_prompts_dir(&ml_prompts, config.retry_failed);
+
+    println!(
+        "Prompt status: {} pending, {} done, {} failed, {} in-progress",
+        pending.len(), done, failed, taken,
+    );
+
+    if pending.is_empty() {
+        println!("No pending prompts to process.");
+        return Ok(());
+    }
+
+    executor::install_sigint_handler();
+
+    let mut success_count = 0usize;
+    let mut fail_count = 0usize;
+    let total = pending.len();
+
+    for (i, prompt_path) in pending.iter().enumerate() {
+        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            println!("\nShutdown requested, stopping.");
+            break;
+        }
+
+        let name = prompt_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        println!("[{}/{}] {} ...", i + 1, total, name);
+
+        let result = run_midlevel_agent(
+            &project_root,
+            0,
+            prompt_path,
+            config.timeout,
+            config.model.as_deref(),
+            &|status| {
+                print!("\r  {} ", status);
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            },
+        );
+
+        if result.success {
+            println!("\r  done                                    ");
+            success_count += 1;
+        } else {
+            println!("\r  FAILED: {}",
+                result.error.as_deref().unwrap_or("unknown"));
+            fail_count += 1;
+        }
+    }
+
+    // Phase 3: summary
+    println!("\n=== Phase 3: Summary ===\n");
+    println!("Midlevel-fixes Status");
+    println!("=====================\n");
+    println!("  Total:    {}", total);
+    println!("  Done:     {}", success_count);
+    println!("  Failed:   {}", fail_count);
+    println!("  Skipped:  {}", total - success_count - fail_count);
+
+    Ok(())
+}
+
 // ── Collect patches from process worktree ──────────────────────────────
 
 fn collect_process_patches(project_root: &Path) -> Result<(), String> {
@@ -1680,6 +2099,7 @@ pub fn parse_autoreview_args(
             "merge"          => config.subcommand = AutoreviewSubcommand::Merge,
             "process"        => config.subcommand = AutoreviewSubcommand::Process,
             "small-fixes"    => config.subcommand = AutoreviewSubcommand::SmallFixes,
+            "midlevel-fixes" => config.subcommand = AutoreviewSubcommand::MidlevelFixes,
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
             "--status"       => config.status_only = true,
@@ -1726,6 +2146,7 @@ pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
         AutoreviewSubcommand::Run        => run_review(config),
         AutoreviewSubcommand::Merge      => run_merge(config),
         AutoreviewSubcommand::Process    => run_process(config),
-        AutoreviewSubcommand::SmallFixes => run_small_fixes(config),
+        AutoreviewSubcommand::SmallFixes   => run_small_fixes(config),
+        AutoreviewSubcommand::MidlevelFixes => run_midlevel_fixes(config),
     }
 }

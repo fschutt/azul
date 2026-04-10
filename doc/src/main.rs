@@ -1734,6 +1734,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview --status           - Show review progress");
     println!("    autoreview --retry-failed     - Re-queue failed reviews");
     println!("    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor bugs)");
+    println!("    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)");
     println!("    autoreview merge              - Merge reports into a single checklist");
     println!("    autoreview process            - Implement checklist items (one commit each)");
     println!("    autoreview --collect          - Collect patches from process worktree");
