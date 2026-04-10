@@ -22,11 +22,11 @@
 //! | X11      | XNextEvent polling | Optional | CSD windows |
 //! | Wayland  | Protocol listeners | Mandatory | CSD windows |
 //!
-//! # Key Types
+//! # Key Types (defined in submodules)
 //!
-//! - `ProcessEventResult`: DoNothing / RequestRedraw / RegenerateAndRedraw
-//! - `Titlebar`: Titlebar widget with drag / close / min / max callbacks
-//! - `ScrollbarDragState`: Tracks scrollbar dragging across events
+//! - `ProcessEventResult`: DoNothing / RequestRedraw / RegenerateAndRedraw (see [`shell2`])
+//! - `Titlebar`: Titlebar widget with drag / close / min / max callbacks (see [`csd`])
+//! - `ScrollbarDragState`: Tracks scrollbar dragging across events (see [`shell2`])
 
 #![allow(dead_code)]
 #![deny(unused_must_use)]
@@ -42,7 +42,6 @@ pub mod clipboard_error;
 pub mod app;
 /// New compositor integration for shell2 - WebRender bridge
 pub mod compositor2;
-/// Extensions for LayoutCallbackInfo to support SystemStyle
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub mod csd;
 /// CSS type definitions / CSS parsing functions
@@ -123,4 +122,4 @@ pub use native_screenshot::NativeScreenshotExt;
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreText", kind = "framework")]
-fn __macos() {}
+extern "C" {}
