@@ -28,6 +28,9 @@ pub struct App {
     pub run_destructor: bool,
 }
 
+/// `run_destructor` and this `Drop` impl exist for FFI compatibility:
+/// C callers may need to prevent the automatic drop of the inner `Box`
+/// (same pattern as `RefAny` and other `#[repr(C)]` handles).
 impl Drop for App {
     fn drop(&mut self) {
         self.run_destructor = false;
@@ -256,6 +259,9 @@ impl AppInternal {
         }
     }
 }
+
+#[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
+use azul_core::resources::AppLogLevel;
 
 #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
 const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
