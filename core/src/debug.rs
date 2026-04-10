@@ -1,35 +1,11 @@
-//! Unified Debug Logging System for Azul
+//! Debug logging types and macros for Azul.
 //!
-//! This module provides a thread-safe debug logging infrastructure that can be
-//! passed through function arguments to collect debug messages during execution.
+//! Provides [`DebugLevel`], [`DebugCategory`], and convenience macros
+//! (`log_trace!`, `log_debug!`, `log_info!`, `log_warn!`, `log_error!`)
+//! for structured logging throughout the codebase.
 //!
-//! ## Design Philosophy
-//!
-//! 1. **No global state for logging** - All logging goes through explicit parameters
-//! 2. **Zero-cost when disabled** - `Option<&mut DebugLogger>` is `None` in production
-//! 3. **Structured messages** - Each message has level, category, and location
-//! 4. **Thread-safe collection** - Can collect messages from multiple threads
-//!
-//! ## Usage Pattern
-//!
-//! Functions that need debug logging accept `debug_log: &mut Option<DebugLogger>`:
-//!
-//! ```rust,ignore
-//! fn do_layout(
-//!     dom: &Dom,
-//!     // ... other params ...
-//!     debug_log: &mut Option<DebugLogger>,
-//! ) {
-//!     log_debug!(debug_log, Layout, "Starting layout for {} nodes", dom.len());
-//!     // ... do work ...
-//! }
-//! ```
-//!
-//! ## Integration with HTTP Debug Server
-//!
-//! When `AZUL_DEBUG` is set, the debug server creates a `DebugLogger` for each
-//! incoming request, which collects all messages until the frame is rendered,
-//! then returns them in the HTTP response.
+//! The HTTP debug server implementation lives in
+//! `dll/src/desktop/shell2/common/debug_server.rs`.
 
 use alloc::string::String;
 use alloc::vec::Vec;
