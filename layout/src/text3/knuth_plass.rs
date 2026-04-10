@@ -1,8 +1,6 @@
 //! An implementation of the Knuth-Plass line-breaking algorithm
 //! for simple rectangular layouts.
 
-use std::sync::Arc;
-
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Standard};
 #[cfg(not(feature = "text_layout_hyphenation"))]
@@ -10,9 +8,9 @@ use crate::text3::cache::Standard;
 
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_word_separator, is_zero_width_space,
-    AvailableSpace, BidiDirection, GlyphKind, JustifyContent, LayoutError, LoadedFonts,
-    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem, Rect, ShapedCluster,
-    ShapedGlyph, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
+    AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
+    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
+    ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -25,8 +23,11 @@ enum LayoutNode {
     /// A flexible space.
     Glue {
         item: ShapedItem,
+        /// Natural width of the space.
         width: f32,
+        /// Maximum amount the space can grow beyond its natural width.
         stretch: f32,
+        /// Maximum amount the space can shrink below its natural width.
         shrink: f32,
     },
     /// A point where a line break is allowed, with an associated cost.
@@ -273,8 +274,6 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     // For MinContent, we also use a large value but will break at every word boundary.
     // The actual min-content width is determined by the widest resulting line.
 
-    let is_min_content = matches!(constraints.available_width, AvailableSpace::MinContent);
-    
     let line_width = match constraints.available_width {
         AvailableSpace::Definite(w) => w,
         AvailableSpace::MaxContent => f32::MAX / 2.0,
@@ -425,9 +424,6 @@ fn position_lines_from_breaks(
     let mut start_node = 0;
     let mut cross_axis_pen = 0.0;
     let base_direction = get_base_direction_from_logical(logical_items);
-    // REMOVED: Do not pre-resolve alignment. The context is needed inside the loop.
-    // let physical_align = resolve_logical_align(constraints.text_align, base_direction);
-
     for (line_index, &end_node) in breaks.iter().enumerate() {
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
@@ -570,7 +566,7 @@ fn position_lines_from_breaks(
 
             main_axis_pen += item_advance;
 
-            //Apply extra spacing to the pen
+            // Apply extra spacing to the pen
             if is_word_separator(&item) {
                 main_axis_pen += extra_per_space;
             }
@@ -585,45 +581,4 @@ fn position_lines_from_breaks(
         items: positioned_items,
         overflow: OverflowInfo::default(),
     }
-}
-
-/// A helper to split a ShapedCluster at a specific glyph index for hyphenation.
-// +spec:line-breaking:ece0f0 - splits already-shaped glyphs, preserving shaping across intra-word breaks
-fn split_cluster_for_hyphenation(
-    cluster: &ShapedCluster,
-    glyph_break_index: usize,
-) -> Option<(ShapedCluster, ShapedCluster)> {
-    if glyph_break_index >= cluster.glyphs.len() - 1 {
-        return None;
-    }
-
-    let first_part_glyphs = cluster.glyphs[..=glyph_break_index].to_vec();
-    let second_part_glyphs = cluster.glyphs[glyph_break_index + 1..].to_vec();
-    if first_part_glyphs.is_empty() || second_part_glyphs.is_empty() {
-        return None;
-    }
-
-    let first_part_advance: f32 = first_part_glyphs
-        .iter()
-        .map(|g| g.advance + g.kerning)
-        .sum();
-    let second_part_advance: f32 = second_part_glyphs
-        .iter()
-        .map(|g| g.advance + g.kerning)
-        .sum();
-
-    // We can approximate the split text, but a more robust solution
-    // would map glyphs back to bytes.
-    let first_part = ShapedCluster {
-        glyphs: first_part_glyphs,
-        advance: first_part_advance,
-        ..cluster.clone()
-    };
-    let second_part = ShapedCluster {
-        glyphs: second_part_glyphs,
-        advance: second_part_advance,
-        ..cluster.clone()
-    };
-
-    Some((first_part, second_part))
 }
