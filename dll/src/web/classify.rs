@@ -4,7 +4,6 @@
 //! - **Framework**: Needed in azul-mini.wasm (DOM, layout, CSS, hit-testing)
 //! - **ServerEntryPoint**: Excluded from WASM (AzApp_run, event loop)
 //! - **ReplaceWithDomPatcher**: GPU/display-list fns replaced with setStyle() emitters
-//! - **UserCallback**: Discovered from DOM tree, lifted into separate .wasm files
 //!
 //! In Phase 0, this is stubbed — no api.json is parsed. The classification
 //! returns empty results. When remill is integrated, this will drive which
@@ -22,6 +21,7 @@ pub enum FnClass {
 }
 
 /// Result of classifying all API functions.
+#[derive(Debug)]
 pub struct ApiClassification {
     pub functions: Vec<(String, FnClass)>,
 }
