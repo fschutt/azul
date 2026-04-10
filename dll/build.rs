@@ -192,8 +192,11 @@ fn configure_dynamic_linking(target: &str) {
             if src != dst && src.exists() {
                 let _ = fs::copy(&src, &dst);
                 if target.contains("apple") {
+                    // Set install_name so macOS finds the dylib next to the
+                    // binary at runtime, and also so ld doesn't think it's
+                    // the same dylib being built.
                     let _ = Command::new("install_name_tool")
-                        .args(["-id", "@rpath/libazul.dylib"])
+                        .args(["-id", "@executable_path/libazul.dylib"])
                         .arg(&dst)
                         .status();
                 }
@@ -201,18 +204,24 @@ fn configure_dynamic_linking(target: &str) {
             println!("cargo:rustc-link-search=native={}", link_dir.display());
             println!("cargo:rustc-link-lib=dylib=azul");
 
-            if target.contains("apple") {
-                println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
-                println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
-            } else if !target.contains("windows") {
-                println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-            }
-
-            // Copy next to the final binary for runtime discovery
+            // Copy the dylib to common output directories so the binary
+            // finds it at runtime regardless of where cargo places it.
             if let Some(ref bd) = bin_dir {
-                let rt_dst = bd.join(lib_filename(target));
-                if src != rt_dst && src.exists() {
-                    let _ = fs::copy(&src, &rt_dst);
+                let lib_name = lib_filename(target);
+                // target/{release,debug}/
+                let dst1 = bd.join(lib_name);
+                if src != dst1 && src.exists() {
+                    let _ = fs::copy(&src, &dst1);
+                }
+                // target/{release,debug}/examples/
+                let examples_dir = bd.join("examples");
+                if examples_dir.is_dir() {
+                    let _ = fs::copy(&src, examples_dir.join(lib_name));
+                }
+                // target/{release,debug}/deps/
+                let deps_dir = bd.join("deps");
+                if deps_dir.is_dir() {
+                    let _ = fs::copy(&src, deps_dir.join(lib_name));
                 }
             }
         }
