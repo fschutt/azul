@@ -1013,7 +1013,10 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
     }
 }
 
-/// Encode margin: same as encode_css_pixel_as_i16 but Auto is a distinct value.
+/// Encode margin as i16 (×10 resolved px).
+/// Currently identical to `encode_css_pixel_as_i16`; kept as a separate
+/// function so margin-specific logic (e.g. `auto` collapsing) can be
+/// added without touching padding/border call sites.
 fn encode_margin_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     encode_css_pixel_as_i16(val)
 }
