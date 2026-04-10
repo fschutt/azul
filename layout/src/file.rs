@@ -6,7 +6,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-use azul_css::{AzString, U8Vec, Void, impl_result, impl_result_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut, impl_option, impl_option_inner};
+use azul_css::{AzString, U8Vec, Void, impl_result, impl_result_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_option, impl_option_inner};
 
 #[cfg(feature = "std")]
 use std::path::Path;
@@ -198,12 +198,6 @@ impl_result!(
 // ============================================================================
 
 /// Read a file to bytes
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// 
-/// # Returns
-/// * `Result<U8Vec, FileError>` - File contents or error
 #[cfg(feature = "std")]
 pub fn file_read(path: &str) -> Result<U8Vec, FileError> {
     let data = std::fs::read(path)
@@ -212,12 +206,6 @@ pub fn file_read(path: &str) -> Result<U8Vec, FileError> {
 }
 
 /// Read a file to string (UTF-8)
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// 
-/// # Returns
-/// * `Result<AzString, FileError>` - File contents or error
 #[cfg(feature = "std")]
 pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
     let data = std::fs::read_to_string(path)
@@ -226,13 +214,6 @@ pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
 }
 
 /// Write bytes to a file (creates or overwrites)
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// * `data` - Data to write
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn file_write(path: &str, data: &[u8]) -> Result<Void, FileError> {
     std::fs::write(path, data)
@@ -240,13 +221,6 @@ pub fn file_write(path: &str, data: &[u8]) -> Result<Void, FileError> {
 }
 
 /// Write string to a file (creates or overwrites)
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// * `data` - String to write
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn file_write_string(path: &str, data: &str) -> Result<Void, FileError> {
     std::fs::write(path, data.as_bytes())
@@ -254,13 +228,6 @@ pub fn file_write_string(path: &str, data: &str) -> Result<Void, FileError> {
 }
 
 /// Append bytes to a file
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// * `data` - Data to append
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn file_append(path: &str, data: &[u8]) -> Result<Void, FileError> {
     use std::fs::OpenOptions;
@@ -278,13 +245,6 @@ pub fn file_append(path: &str, data: &[u8]) -> Result<Void, FileError> {
 }
 
 /// Copy a file
-/// 
-/// # Arguments
-/// * `from` - Source path
-/// * `to` - Destination path
-/// 
-/// # Returns
-/// * `Result<u64, FileError>` - Bytes copied or error
 #[cfg(feature = "std")]
 pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
     std::fs::copy(from, to)
@@ -292,13 +252,6 @@ pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
 }
 
 /// Rename/move a file
-/// 
-/// # Arguments
-/// * `from` - Source path
-/// * `to` - Destination path
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn file_rename(from: &str, to: &str) -> Result<Void, FileError> {
     std::fs::rename(from, to)
@@ -306,12 +259,6 @@ pub fn file_rename(from: &str, to: &str) -> Result<Void, FileError> {
 }
 
 /// Delete a file
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn file_delete(path: &str) -> Result<Void, FileError> {
     std::fs::remove_file(path)
@@ -319,48 +266,24 @@ pub fn file_delete(path: &str) -> Result<Void, FileError> {
 }
 
 /// Check if a file or directory exists
-/// 
-/// # Arguments
-/// * `path` - Path to check
-/// 
-/// # Returns
-/// * `bool` - True if exists
 #[cfg(feature = "std")]
 pub fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
 }
 
 /// Check if path is a file
-/// 
-/// # Arguments
-/// * `path` - Path to check
-/// 
-/// # Returns
-/// * `bool` - True if is a file
 #[cfg(feature = "std")]
 pub fn path_is_file(path: &str) -> bool {
     Path::new(path).is_file()
 }
 
 /// Check if path is a directory
-/// 
-/// # Arguments
-/// * `path` - Path to check
-/// 
-/// # Returns
-/// * `bool` - True if is a directory
 #[cfg(feature = "std")]
 pub fn path_is_dir(path: &str) -> bool {
     Path::new(path).is_dir()
 }
 
 /// Get file metadata
-/// 
-/// # Arguments
-/// * `path` - Path to the file
-/// 
-/// # Returns
-/// * `Result<FileMetadata, FileError>` - Metadata or error
 #[cfg(feature = "std")]
 pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
     let meta = std::fs::metadata(path)
@@ -402,12 +325,6 @@ pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
 // ============================================================================
 
 /// Create a directory
-/// 
-/// # Arguments
-/// * `path` - Path to create
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn dir_create(path: &str) -> Result<Void, FileError> {
     std::fs::create_dir(path)
@@ -415,12 +332,6 @@ pub fn dir_create(path: &str) -> Result<Void, FileError> {
 }
 
 /// Create a directory and all parent directories
-/// 
-/// # Arguments
-/// * `path` - Path to create
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn dir_create_all(path: &str) -> Result<Void, FileError> {
     std::fs::create_dir_all(path)
@@ -428,12 +339,6 @@ pub fn dir_create_all(path: &str) -> Result<Void, FileError> {
 }
 
 /// Delete an empty directory
-/// 
-/// # Arguments
-/// * `path` - Path to delete
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn dir_delete(path: &str) -> Result<Void, FileError> {
     std::fs::remove_dir(path)
@@ -441,12 +346,6 @@ pub fn dir_delete(path: &str) -> Result<Void, FileError> {
 }
 
 /// Delete a directory and all its contents
-/// 
-/// # Arguments
-/// * `path` - Path to delete
-/// 
-/// # Returns
-/// * `Result<Void, FileError>` - Success or error
 #[cfg(feature = "std")]
 pub fn dir_delete_all(path: &str) -> Result<Void, FileError> {
     std::fs::remove_dir_all(path)
@@ -454,12 +353,6 @@ pub fn dir_delete_all(path: &str) -> Result<Void, FileError> {
 }
 
 /// List directory contents
-/// 
-/// # Arguments
-/// * `path` - Path to the directory
-/// 
-/// # Returns
-/// * `Result<DirEntryVec, FileError>` - Directory entries or error
 #[cfg(feature = "std")]
 pub fn dir_list(path: &str) -> Result<DirEntryVec, FileError> {
     let entries = std::fs::read_dir(path)
@@ -498,13 +391,6 @@ pub fn dir_list(path: &str) -> Result<DirEntryVec, FileError> {
 // ============================================================================
 
 /// Join two paths
-/// 
-/// # Arguments
-/// * `base` - Base path
-/// * `path` - Path to join
-/// 
-/// # Returns
-/// * `AzString` - Joined path
 #[cfg(feature = "std")]
 pub fn path_join(base: &str, path: &str) -> AzString {
     let joined = Path::new(base).join(path);
@@ -512,12 +398,6 @@ pub fn path_join(base: &str, path: &str) -> AzString {
 }
 
 /// Get the parent directory of a path
-/// 
-/// # Arguments
-/// * `path` - Path to get parent of
-/// 
-/// # Returns
-/// * `Option<AzString>` - Parent path or None
 #[cfg(feature = "std")]
 pub fn path_parent(path: &str) -> Option<AzString> {
     Path::new(path).parent()
@@ -525,12 +405,6 @@ pub fn path_parent(path: &str) -> Option<AzString> {
 }
 
 /// Get the file name from a path
-/// 
-/// # Arguments
-/// * `path` - Path to get file name from
-/// 
-/// # Returns
-/// * `Option<AzString>` - File name or None
 #[cfg(feature = "std")]
 pub fn path_file_name(path: &str) -> Option<AzString> {
     Path::new(path).file_name()
@@ -538,12 +412,6 @@ pub fn path_file_name(path: &str) -> Option<AzString> {
 }
 
 /// Get the file extension from a path
-/// 
-/// # Arguments
-/// * `path` - Path to get extension from
-/// 
-/// # Returns
-/// * `Option<AzString>` - Extension or None
 #[cfg(feature = "std")]
 pub fn path_extension(path: &str) -> Option<AzString> {
     Path::new(path).extension()
@@ -551,12 +419,6 @@ pub fn path_extension(path: &str) -> Option<AzString> {
 }
 
 /// Canonicalize a path (resolve symlinks, make absolute)
-/// 
-/// # Arguments
-/// * `path` - Path to canonicalize
-/// 
-/// # Returns
-/// * `Result<AzString, FileError>` - Canonical path or error
 #[cfg(feature = "std")]
 pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
     let canonical = std::fs::canonicalize(path)
@@ -569,9 +431,6 @@ pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
 // ============================================================================
 
 /// Get the system temporary directory
-/// 
-/// # Returns
-/// * `AzString` - Path to temp directory
 #[cfg(feature = "std")]
 pub fn temp_dir() -> AzString {
     AzString::from(std::env::temp_dir().to_string_lossy().to_string())
@@ -754,11 +613,13 @@ impl FilePath {
     }
 
     /// Joins this path with another path component
+    #[cfg(feature = "std")]
     pub fn join(&self, other: &FilePath) -> FilePath {
         FilePath { inner: path_join(self.inner.as_str(), other.inner.as_str()) }
     }
 
-    /// Joins this path with a string component  
+    /// Joins this path with a string component
+    #[cfg(feature = "std")]
     pub fn join_str(&self, component: &AzString) -> FilePath {
         FilePath { inner: path_join(self.inner.as_str(), component.as_str()) }
     }
