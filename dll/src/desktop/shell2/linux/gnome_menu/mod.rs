@@ -11,6 +11,9 @@
 //! - `actions_protocol.rs` - org.gtk.Actions interface implementation
 //! - `menu_conversion.rs` - Menu → DBus format conversion
 //! - `x11_properties.rs` - X11 window property setting
+//! - `manager.rs` - dlopen-based menu manager
+//! - `protocol_impl.rs` - dlopen-based protocol implementation
+//! - `shared_dbus.rs` - Shared DBus library instance
 //!
 //! ## Environment Variables
 //!
@@ -20,47 +23,45 @@
 //! ## Architecture
 //!
 //! ```text
-//! GnomeMenuManager
+//! GnomeMenuManager (manager.rs)
+//!     ├── SharedDbusLib (shared_dbus.rs)
+//!     │   └── dlopen'd libdbus-1 instance
 //!     ├── DbusConnection (dbus_connection.rs)
 //!     │   └── Session bus, service registration
 //!     ├── MenuProtocol (menu_protocol.rs)
 //!     │   └── org.gtk.Menus interface
 //!     ├── ActionsProtocol (actions_protocol.rs)
 //!     │   └── org.gtk.Actions interface
+//!     ├── ProtocolImpl (protocol_impl.rs)
+//!     │   └── dlopen-based interface registration
 //!     └── MenuConversion (menu_conversion.rs)
 //!         └── Menu → DBus format
 //! ```
 
 mod actions_protocol;
 mod dbus_connection;
-mod manager; // New dlopen-based manager
+mod manager;
 mod menu_conversion;
 mod menu_protocol;
-mod protocol_impl; // New dlopen-based implementation
-mod shared_dbus; // Shared DBus library instance
+mod protocol_impl;
+mod shared_dbus;
 mod x11_properties;
 
-use std::{
-    env,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::env;
 
 use super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_debug;
 
 pub use actions_protocol::{
     drain_pending_menu_callbacks, queue_menu_callback, ActionsProtocol, DbusAction,
     PendingMenuCallback,
 };
 pub use dbus_connection::DbusConnection;
-pub use manager::GnomeMenuManager; // New dlopen-based manager
+pub use manager::GnomeMenuManager;
 pub use menu_conversion::MenuConversion;
 pub use menu_protocol::{DbusMenuGroup, DbusMenuItem, MenuProtocol};
 pub use protocol_impl::{register_actions_interface, register_menus_interface};
-pub use shared_dbus::{get_shared_dbus_lib, is_dbus_available}; // Shared DBus library
+pub use shared_dbus::{get_shared_dbus_lib, is_dbus_available};
 pub use x11_properties::X11Properties;
 
 /// Check if GNOME native menus should be used
