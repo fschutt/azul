@@ -417,7 +417,7 @@ pub fn run(
 
                 loop {
                     autoreleasepool(|_| {
-                        // PHASE 1: Process all pending native events (non-blocking)
+                        // --- Drain pending native events (non-blocking) ---
                         // We need to dispatch events BOTH to the system (sendEvent) and to our handlers
                         loop {
                             let event = unsafe {
@@ -453,7 +453,7 @@ pub fn run(
                             }
                         }
 
-                        // PHASE 2: Check if all windows are closed
+                        // --- Check if all windows are closed ---
                         if super::macos::registry::is_empty() {
                             match config.termination_behavior {
                                 AppTerminationBehavior::ReturnToMain => {
@@ -474,7 +474,7 @@ pub fn run(
                             }
                         }
 
-                        // PHASE 3: Process V2 state diffing and rendering for all windows
+                        // --- Process state diffing and rendering for all windows ---
                         // (Optional - most V2 processing already happens in event handlers)
                         // This is where we process pending window creates for popup menus
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
@@ -546,7 +546,7 @@ pub fn run(
                             }
                         }
 
-                        // PHASE 4: Wait for next event (blocking)
+                        // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
                         // so that ALL run loop sources are processed — including Mach ports
                         // used by macOS accessibility (VoiceOver, System Events).
@@ -765,7 +765,7 @@ pub fn run(
             break;
         }
 
-        // PHASE 1: Process all pending native events (non-blocking)
+        // --- Drain pending native events (non-blocking) ---
         // This updates current_window_state for each window
         let mut had_messages = false;
 
@@ -795,7 +795,7 @@ pub fn run(
             }
         }
 
-        // PHASE 2: V2 state diffing and callback dispatch
+        // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
         // NOTE: window_proc already calls process_window_events() for mouse/keyboard
         // events, but this catches any additional state changes and processes pending window
@@ -859,7 +859,7 @@ pub fn run(
             }
         }
 
-        // PHASE 3: Render all windows that need updates
+        // --- Render all windows that need updates ---
         for hwnd in &window_handles {
             if let Some(window_ptr_from_registry) = registry::get_window(*hwnd) {
                 unsafe {
@@ -883,7 +883,7 @@ pub fn run(
             }
         }
 
-        // PHASE 4: Wait for next event (blocks until event available - zero CPU when idle)
+        // --- Wait for next event (blocks until event available, zero CPU when idle) ---
         // This replaces the old sleep(1ms) with proper blocking
         // WaitMessage() waits for ANY message in the thread's queue (all windows share the same
         // thread)
@@ -1050,7 +1050,7 @@ pub fn run(
             }
         }
 
-        // PHASE 2: Check for closed windows and unregister them
+        // --- Check for closed windows and unregister them ---
         for wid in &window_ids {
             if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
                 let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
@@ -1071,7 +1071,7 @@ pub fn run(
             }
         }
 
-        // PHASE 3: Process pending window creates for all windows
+        // --- Process pending window creates for all windows ---
         // This processes the queue populated by callbacks (context menus, dialogs, etc.)
         for wid in &window_ids {
             if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
@@ -1283,12 +1283,13 @@ fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<()
         );
 
         if result < 0 {
-            let errno = *libc::__errno_location();
+            let err = std::io::Error::last_os_error();
+            let errno = err.raw_os_error().unwrap_or(0);
             // EINTR is okay - just means a signal interrupted us
             if errno != libc::EINTR {
                 return Err(WindowError::PlatformError(format!(
-                    "select() failed while waiting for X11 events: errno={}",
-                    errno
+                    "select() failed while waiting for X11 events: {}",
+                    err
                 )));
             }
         }
