@@ -62,6 +62,10 @@ use std::sync::{Arc, Mutex};
 use crate::managers::hover::InputPointId;
 use crate::solver3::scrollbar::compute_scrollbar_geometry_with_button_size;
 
+/// Minimum change in scroll offset (in logical pixels) to consider the position
+/// "actually moved" and mark the scroll state dirty.
+const SCROLL_CHANGE_EPSILON: f32 = 0.01;
+
 // ============================================================================
 // Scroll Input Types (for timer-based physics architecture)
 // ============================================================================
@@ -592,8 +596,8 @@ impl ScrollManager {
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
         let clamped = state.clamp(position);
-        if (clamped.x - state.current_offset.x).abs() > 0.01
-            || (clamped.y - state.current_offset.y).abs() > 0.01
+        if (clamped.x - state.current_offset.x).abs() > SCROLL_CHANGE_EPSILON
+            || (clamped.y - state.current_offset.y).abs() > SCROLL_CHANGE_EPSILON
         {
             self.scroll_dirty = true;
         }
@@ -617,8 +621,8 @@ impl ScrollManager {
             .states
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
-        if (position.x - state.current_offset.x).abs() > 0.01
-            || (position.y - state.current_offset.y).abs() > 0.01
+        if (position.x - state.current_offset.x).abs() > SCROLL_CHANGE_EPSILON
+            || (position.y - state.current_offset.y).abs() > SCROLL_CHANGE_EPSILON
         {
             self.scroll_dirty = true;
         }
@@ -718,22 +722,7 @@ impl ScrollManager {
     ) {
         let key = (dom_id, node_id);
         let state = self.states.entry(key).or_insert_with(|| {
-            AnimatedScrollState {
-                current_offset: LogicalPosition::zero(),
-                animation: None,
-                last_activity: std::time::Instant::now().into(),
-                container_rect: LogicalRect::zero(),
-                content_rect: LogicalRect::zero(),
-                virtual_scroll_size: None,
-                virtual_scroll_offset: None,
-                overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
-                overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
-                overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-                scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-                visual_width_px: 0.0,
-                has_horizontal_scrollbar: false,
-                has_vertical_scrollbar: false,
-            }
+            AnimatedScrollState::new(std::time::Instant::now().into())
         });
         state.virtual_scroll_size = Some(virtual_scroll_size);
         state.virtual_scroll_offset = virtual_scroll_offset;
@@ -1070,7 +1059,9 @@ impl ScrollManager {
             ScrollbarOrientation::Vertical,
             ScrollbarOrientation::Horizontal,
         ] {
-            let scrollbar_state = self.scrollbar_states.get(&(dom_id, node_id, orientation))?;
+            let Some(scrollbar_state) = self.scrollbar_states.get(&(dom_id, node_id, orientation)) else {
+                continue;
+            };
 
             if !scrollbar_state.visible {
                 continue;
