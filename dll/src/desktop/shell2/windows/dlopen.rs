@@ -6,8 +6,6 @@
 //!
 //! Safety: All function pointers are checked for null before being wrapped in Option types.
 
-use std::{ffi::CString, ptr};
-
 use super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
@@ -132,6 +130,7 @@ pub const CFS_FORCE_POSITION: u32 = 0x0020;
 
 /// Helper to encode ASCII string for GetProcAddress
 pub fn encode_ascii(input: &str) -> Vec<i8> {
+    debug_assert!(input.is_ascii(), "encode_ascii called with non-ASCII input: {}", input);
     input
         .chars()
         .filter(|c| c.is_ascii())
@@ -157,6 +156,8 @@ pub mod constants {
     pub const WS_THICKFRAME: u32 = 0x00040000;
     pub const WS_MINIMIZEBOX: u32 = 0x00020000;
     pub const WS_MAXIMIZEBOX: u32 = 0x00010000;
+    /// Same value as WS_MAXIMIZEBOX per Win32 API — they share the same bit
+    /// but apply in different contexts (child vs. overlapped windows).
     pub const WS_TABSTOP: u32 = 0x00010000;
     pub const WS_POPUP: u32 = 0x80000000;
 
@@ -326,7 +327,6 @@ impl Drop for DynamicLibrary {
     }
 }
 
-/// Win32 user32.dll function pointers
 /// Win32 user32.dll function pointers
 #[derive(Copy, Clone)]
 pub struct User32Functions {
