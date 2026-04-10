@@ -9,11 +9,18 @@
 
 use azul_css::props::{
     basic::{
-        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+        pixel::PT_TO_PX,
         PixelValue, SizeMetric,
     },
     layout::dimensions::{CalcAstItem, CalcAstItemVec},
 };
+
+/// CSS reference pixels per inch (96 px/in per CSS spec).
+const PX_PER_INCH: f32 = 96.0;
+/// Centimetres per inch.
+const CM_PER_INCH: f32 = 2.54;
+/// Millimetres per inch.
+const MM_PER_INCH: f32 = 25.4;
 
 /// Font-size context captured at style-translation time and stored alongside the calc AST.
 ///
@@ -63,7 +70,7 @@ pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
 ///   Pass 1: evaluate `*` and `/`
 ///   Pass 2: evaluate `+` and `-`
 /// Parenthesised sub-expressions are resolved recursively.
-pub fn evaluate_calc_ast(
+fn evaluate_calc_ast(
     items: &[CalcAstItem],
     basis: f32,
     em_size: f32,
@@ -175,9 +182,9 @@ pub fn resolve_pixel_value(
     match pv.metric {
         SizeMetric::Px => pv.number.get(),
         SizeMetric::Pt => pv.number.get() * PT_TO_PX,
-        SizeMetric::In => pv.number.get() * 96.0,
-        SizeMetric::Cm => pv.number.get() * 96.0 / 2.54,
-        SizeMetric::Mm => pv.number.get() * 96.0 / 25.4,
+        SizeMetric::In => pv.number.get() * PX_PER_INCH,
+        SizeMetric::Cm => pv.number.get() * PX_PER_INCH / CM_PER_INCH,
+        SizeMetric::Mm => pv.number.get() * PX_PER_INCH / MM_PER_INCH,
         SizeMetric::Em => pv.number.get() * em_size,
         SizeMetric::Rem => pv.number.get() * rem_size,
         SizeMetric::Percent => basis * (pv.number.get() / 100.0),
