@@ -8,6 +8,8 @@
 //! - TooltipWindow: Wrapper around NSPanel and NSTextField
 //! - Lifecycle: Create once, show/hide as needed
 //! - Positioning: Uses NSWindow setFrameTopLeftPoint for absolute positioning
+//!
+//! Used by `macos/mod.rs` for hover tooltip display via lazy initialization.
 
 use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 use objc2::{msg_send_id, rc::Retained, runtime::ProtocolObject, sel};
@@ -16,6 +18,23 @@ use objc2_app_kit::{
     NSWindowStyleMask,
 };
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
+
+/// Approximate width per character in points (rough heuristic)
+const POINTS_PER_CHAR: f64 = 7.0;
+/// Horizontal padding added to text width
+const TEXT_PADDING_H: f64 = 10.0;
+/// Minimum tooltip width in points
+const TOOLTIP_MIN_WIDTH: f64 = 50.0;
+/// Maximum tooltip width in points
+const TOOLTIP_MAX_WIDTH: f64 = 400.0;
+/// Tooltip height in points
+const TOOLTIP_HEIGHT: f64 = 25.0;
+/// Text field horizontal inset from panel edge
+const TEXT_FIELD_INSET_X: f64 = 5.0;
+/// Text field vertical inset from panel edge
+const TEXT_FIELD_INSET_Y: f64 = 2.0;
+/// Fallback screen height when no main screen is available
+const FALLBACK_SCREEN_HEIGHT: f64 = 1080.0;
 
 /// Wrapper for a macOS tooltip panel
 pub struct TooltipWindow {
@@ -94,57 +113,60 @@ impl TooltipWindow {
     /// Show tooltip with text at the given position
     ///
     /// If tooltip is already visible, updates text and position.
-    /// Position is in logical coordinates (will be converted to screen coordinates).
+    /// Position is in logical coordinates (macOS AppKit uses points, not pixels).
     pub fn show(
         &mut self,
         text: &str,
         position: LogicalPosition,
-        dpi_factor: DpiScaleFactor,
+        _dpi_factor: DpiScaleFactor,
     ) -> Result<(), String> {
+        // Convert text to NSString
+        let ns_text = NSString::from_str(text);
+        unsafe { self.text_field.setStringValue(&ns_text) };
+
+        // Calculate text size for proper panel sizing
+        // Rough heuristic: POINTS_PER_CHAR points per character
+        let text_width = text.chars().count() as f64 * POINTS_PER_CHAR + TEXT_PADDING_H;
+        let text_width = text_width.min(TOOLTIP_MAX_WIDTH).max(TOOLTIP_MIN_WIDTH);
+
+        // Update panel and text field sizes
+        let panel_frame =
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(text_width, TOOLTIP_HEIGHT));
+        unsafe { self.panel.setFrame_display(panel_frame, false) };
+
+        let text_field_frame = NSRect::new(
+            NSPoint::new(TEXT_FIELD_INSET_X, TEXT_FIELD_INSET_Y),
+            NSSize::new(
+                text_width - TEXT_FIELD_INSET_X * 2.0,
+                TOOLTIP_HEIGHT - TEXT_FIELD_INSET_Y * 2.0,
+            ),
+        );
+        unsafe { self.text_field.setFrame(text_field_frame) };
+
+        // Get screen height for Y-axis flipping
+        // macOS uses bottom-left origin, so we need to flip Y
+        let screen_height =
+            if let Some(main_screen) = unsafe { objc2_app_kit::NSScreen::mainScreen(self.mtm) } {
+                unsafe { main_screen.frame() }.size.height
+            } else {
+                FALLBACK_SCREEN_HEIGHT
+            };
+
+        // Use logical coordinates directly — macOS AppKit works in points, not pixels
+        let screen_x = position.x as f64;
+        let screen_y = screen_height - position.y as f64 - TOOLTIP_HEIGHT;
+
+        // Set panel position (top-left point)
         unsafe {
-            // Convert text to NSString
-            let ns_text = NSString::from_str(text);
-            self.text_field.setStringValue(&ns_text);
-
-            // Calculate text size for proper panel sizing
-            let text_width = text.len() as f64 * 7.0 + 10.0; // Rough estimate: 7px per char
-            let text_width = text_width.min(400.0).max(50.0); // Clamp between 50-400px
-            let text_height = 25.0;
-
-            // Update panel and text field sizes
-            let panel_frame =
-                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(text_width, text_height));
-            self.panel.setFrame_display(panel_frame, false);
-
-            let text_field_frame = NSRect::new(
-                NSPoint::new(5.0, 2.0),
-                NSSize::new(text_width - 10.0, text_height - 4.0),
-            );
-            self.text_field.setFrame(text_field_frame);
-
-            // Convert position to screen coordinates
-            // macOS uses bottom-left origin, so we need to flip Y
-            let screen_height =
-                if let Some(main_screen) = objc2_app_kit::NSScreen::mainScreen(self.mtm) {
-                    main_screen.frame().size.height
-                } else {
-                    1080.0 // Fallback
-                };
-
-            let physical_pos = position.to_physical(dpi_factor.inner.get());
-            let screen_x = physical_pos.x as f64;
-            let screen_y = screen_height - physical_pos.y as f64 - text_height;
-
-            // Set panel position (top-left point)
             self.panel
-                .setFrameTopLeftPoint(NSPoint::new(screen_x, screen_y + text_height));
+                .setFrameTopLeftPoint(NSPoint::new(screen_x, screen_y + TOOLTIP_HEIGHT));
 
             // Show panel
             self.panel.orderFront(None);
-            self.is_visible = true;
-
-            Ok(())
         }
+        self.is_visible = true;
+
+        Ok(())
     }
 
     /// Hide the tooltip
