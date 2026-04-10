@@ -1041,7 +1041,7 @@ impl CssScrollbarStyleParseErrorOwned {
 pub fn parse_scrollbar_style<'a>(
     _input: &'a str,
 ) -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>> {
-    // A real implementation would parse the custom format used for -webkit-scrollbar.
+    // TODO: implement parser for -webkit-scrollbar shorthand format.
     // For now, it returns the default style.
     Ok(ScrollbarStyle::default())
 }
@@ -1199,10 +1199,10 @@ pub fn resolve_scrollbar_style(
     webkit_scrollbar_style: Option<&ScrollbarStyle>,
 ) -> ComputedScrollbarStyle {
     let final_width = scrollbar_width
-        .cloned()
+        .copied()
         .unwrap_or(LayoutScrollbarWidth::Auto);
     let final_color = scrollbar_color
-        .cloned()
+        .copied()
         .unwrap_or(StyleScrollbarColor::Auto);
 
     // If standard properties are used (not 'auto'), they win.
@@ -1224,7 +1224,7 @@ pub fn resolve_scrollbar_style(
         };
 
         return ComputedScrollbarStyle {
-            width: width.clone(),
+            width,
             thumb_color,
             track_color,
         };
