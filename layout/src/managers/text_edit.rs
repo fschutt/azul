@@ -2,16 +2,15 @@
 //!
 //! Single source of truth for all text editing state. `MultiCursorState` is
 //! the primary cursor/selection system. `BlinkState` handles the caret blink
-//! animation. `SelectionManager` handles non-editable drag-select only.
+//! animation. `SelectionManager` (in sibling module `selection`) handles
+//! non-editable drag-select only.
 //!
 //! Every mutation that affects visual output sets `display_list_dirty = true`,
 //! ensuring the display list is always regenerated.
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
-    selection::{
-        CursorAffinity, GraphemeClusterId, MultiCursorState, Selection, TextCursor,
-    },
+    selection::{MultiCursorState, Selection, TextCursor},
     styled_dom::NodeHierarchyItemId,
     task::Instant,
 };
@@ -97,7 +96,7 @@ impl BlinkState {
 ///
 /// `multi_cursor` is the single source of truth for cursor/selection positions.
 /// `blink` manages the caret blink animation.
-/// `selection_manager` handles non-editable text drag-select only.
+/// `SelectionManager` (sibling module) handles non-editable text drag-select.
 #[derive(Debug, Clone)]
 pub struct TextEditManager {
     /// Multi-cursor state for contenteditable elements (Sublime Text style).
@@ -109,9 +108,11 @@ pub struct TextEditManager {
     /// IME preedit (composition) text currently being composed.
     /// Applies to the primary cursor only.
     pub preedit_text: Option<String>,
-    /// Byte offset of cursor within preedit text (from IME), or -1 if unset
+    /// Byte offset of cursor within preedit text (from IME), or -1 if unset.
+    /// Uses -1 sentinel (rather than `Option`) to match platform IME C API conventions.
     pub preedit_cursor_begin: i32,
-    /// Byte offset of cursor end within preedit text (from IME), or -1 if unset
+    /// Byte offset of cursor end within preedit text (from IME), or -1 if unset.
+    /// Uses -1 sentinel (rather than `Option`) to match platform IME C API conventions.
     pub preedit_cursor_end: i32,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
@@ -123,6 +124,9 @@ impl Default for TextEditManager {
     }
 }
 
+/// Only compares `multi_cursor` — blink state, preedit, and dirty flag are
+/// transient visual state that should not affect logical equality of the
+/// editing session.
 impl PartialEq for TextEditManager {
     fn eq(&self, other: &Self) -> bool {
         self.multi_cursor == other.multi_cursor
@@ -233,6 +237,7 @@ impl TextEditManager {
         self.preedit_text = None;
         self.preedit_cursor_begin = -1;
         self.preedit_cursor_end = -1;
+        self.mark_dirty();
     }
 
     // === Convenience for building cursor_locations ===
@@ -261,6 +266,8 @@ impl TextEditManager {
     /// Extracts Range selections from MultiCursorState into the format that
     /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
     /// The `affected_nodes` map uses the editing node's NodeId as key.
+    /// NOTE: only one range per node is supported — if multiple cursors have
+    /// range selections on the same node, later ranges overwrite earlier ones.
     pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
         use azul_core::selection::{TextSelection, SelectionAnchor, SelectionFocus};
         use azul_core::geom::LogicalRect;
