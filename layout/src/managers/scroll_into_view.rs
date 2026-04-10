@@ -25,25 +25,29 @@ use alloc::vec::Vec;
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
-use azul_css::props::layout::LayoutOverflow;
 
 use crate::{
     managers::scroll_state::ScrollManager,
-    solver3::getters::{get_overflow_x, get_overflow_y, MultiValue},
+    solver3::getters::{get_overflow_x, get_overflow_y},
     window::DomLayoutResult,
 };
 
 // Re-export types from core for public API
 pub use azul_core::events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition};
 
+/// Minimum scroll delta (in logical pixels) below which scrolling is skipped
+const SCROLL_DELTA_THRESHOLD: f32 = 0.5;
+/// Duration of smooth scroll animations in milliseconds
+const SMOOTH_SCROLL_DURATION_MS: u64 = 300;
+
 /// Calculated scroll adjustment for one scroll container
 #[derive(Debug, Clone)]
 pub struct ScrollAdjustment {
-    /// The scroll container that needs adjustment
+    /// The DOM containing the scroll container
     pub scroll_container_dom_id: DomId,
+    /// The node ID of the scroll container within the DOM
     pub scroll_container_node_id: NodeId,
     /// The scroll delta to apply
     pub delta: LogicalPosition,
@@ -124,7 +128,7 @@ pub fn scroll_rect_into_view(
         );
         
         // Only add adjustment if there's actual scrolling to do
-        if delta.x.abs() > 0.5 || delta.y.abs() > 0.5 {
+        if delta.x.abs() > SCROLL_DELTA_THRESHOLD || delta.y.abs() > SCROLL_DELTA_THRESHOLD {
             // Resolve scroll behavior
             let behavior = resolve_scroll_behavior(
                 options.behavior,
@@ -199,17 +203,8 @@ pub fn scroll_node_into_view(
 
 /// Scroll a text cursor position into view
 ///
-/// This requires the cursor's visual rect (from text layout) and transforms
-/// it to absolute coordinates before scrolling.
-///
-/// # Arguments
-///
-/// * `cursor_rect` - The cursor's rect in node-local coordinates
-/// * `node_id` - The contenteditable node containing the cursor
-/// * `layout_results` - Layout data
-/// * `scroll_manager` - Scroll state
-/// * `options` - Scroll options
-/// * `now` - Current timestamp
+/// Transforms the cursor's visual rect (in node-local coordinates) to absolute
+/// coordinates before scrolling.
 pub fn scroll_cursor_into_view(
     cursor_rect: LogicalRect,
     node_id: DomNodeId,
@@ -271,8 +266,7 @@ fn find_scrollable_ancestors(
     };
     
     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-    let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
-    
+
     // Walk up the DOM tree from parent of target node
     let mut current = node_hierarchy.get(node_id).and_then(|h| h.parent_id());
     
@@ -327,9 +321,11 @@ fn check_if_scrollable(
     // (which means it actually has overflowing content)
     let scroll_state = scroll_manager.get_scroll_state(dom_id, node_id)?;
     
-    // Check if content actually overflows
-    let has_overflow_x = scroll_state.content_rect.size.width > scroll_state.container_rect.size.width;
-    let has_overflow_y = scroll_state.content_rect.size.height > scroll_state.container_rect.size.height;
+    // Check if content actually overflows (use virtual_scroll_size when set, e.g. for VirtualView)
+    let effective_width = scroll_state.virtual_scroll_size.map(|s| s.width).unwrap_or(scroll_state.content_rect.size.width);
+    let effective_height = scroll_state.virtual_scroll_size.map(|s| s.height).unwrap_or(scroll_state.content_rect.size.height);
+    let has_overflow_x = effective_width > scroll_state.container_rect.size.width;
+    let has_overflow_y = effective_height > scroll_state.container_rect.size.height;
     
     if !has_overflow_x && !has_overflow_y {
         return None;
@@ -481,7 +477,7 @@ fn apply_scroll_adjustment(
         }
         ScrollIntoViewBehavior::Smooth => {
             // Use smooth scroll with 300ms duration
-            let duration = Duration::System(SystemTimeDiff::from_millis(300));
+            let duration = Duration::System(SystemTimeDiff::from_millis(SMOOTH_SCROLL_DURATION_MS));
             scroll_manager.scroll_to(
                 dom_id,
                 node_id,
