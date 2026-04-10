@@ -6,10 +6,6 @@
 #[cfg(feature = "std")]
 use alloc::sync::Arc;
 #[cfg(feature = "std")]
-use core::sync::atomic::AtomicBool;
-#[cfg(feature = "std")]
-use core::sync::atomic::Ordering;
-#[cfg(feature = "std")]
 use std::sync::{
     mpsc::{channel, Receiver, Sender},
     Mutex,
@@ -156,6 +152,7 @@ impl ThreadSender {
     }
 }
 
+/// Inner state of a `ThreadSender`, holding the channel sender and associated callbacks
 #[derive(Debug)]
 #[cfg_attr(not(feature = "std"), derive(PartialEq, PartialOrd, Eq, Ord))]
 #[repr(C)]
@@ -297,7 +294,7 @@ impl Ord for ThreadSenderDestructorCallback {
 
 /// Callback that runs when a thread receives a `WriteBack` message
 ///
-/// This callback runs on the main UI thread and has access dir_to:
+/// This callback runs on the main UI thread and has access to:
 /// - The thread's original data
 /// - Data sent back from the background thread
 /// - Full CallbackInfo for DOM queries and UI updates
@@ -386,7 +383,7 @@ impl core::hash::Hash for WriteBackCallback {
     }
 }
 
-// ThreadCallback type
+/// Callback type for the function that runs in the background thread
 pub type ThreadCallbackType = extern "C" fn(RefAny, ThreadSender, ThreadReceiver);
 
 #[repr(C)]
@@ -457,6 +454,7 @@ impl core::hash::Hash for ThreadCallback {
     }
 }
 
+/// Callback type for receiving messages from a background thread
 pub type LibraryReceiveThreadMsgCallbackType =
     extern "C" fn(*const core::ffi::c_void) -> OptionThreadReceiveMsg;
 
@@ -481,6 +479,7 @@ impl Clone for LibraryReceiveThreadMsgCallback {
     }
 }
 
+/// Callback type for the destructor that cleans up a `ThreadInner`
 pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
 
 #[repr(C)]
