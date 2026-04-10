@@ -13,7 +13,7 @@
 //! during layout, respecting CSS properties like `break-before`,
 //! `break-after`, and `break-inside`.
 
-use azul_core::geom::{LogicalPosition, LogicalSize};
+use azul_core::geom::LogicalSize;
 
 #[cfg(all(feature = "text_layout", feature = "font_loading"))]
 use crate::solver3::display_list::DisplayList;
@@ -96,26 +96,18 @@ pub struct Fragmentainer {
     /// grow (false for continuous)
     pub is_fixed_size: bool,
 
-    /// Content that has been placed in this fragmentainer.
-    ///
-    /// For Phase 1, this is unused. In later phases, we'll store layout boxes here.
+    /// Content that has been placed in this fragmentainer (populated during layout).
     pub content: Vec<LayoutBox>,
 }
 
-/// Placeholder for layout box content (to be implemented in later phases)
+/// Layout box content placed within a fragmentainer.
 #[derive(Debug, Clone)]
 pub struct LayoutBox {
-    // TODO: Define structure in later phases
+    // Fields to be defined when fragmentation content tracking is implemented
 }
 
 impl Fragmentainer {
     /// Create a new fragmentainer with the given size.
-    ///
-    /// # Arguments
-    ///
-    /// - `size` - The logical size (width and height) of this fragmentainer
-    /// - `is_fixed_size` - Whether this fragmentainer has a fixed size (true for pages, false for
-    ///   continuous)
     pub fn new(size: LogicalSize, is_fixed_size: bool) -> Self {
         Self {
             size,
@@ -125,10 +117,7 @@ impl Fragmentainer {
         }
     }
 
-    /// Get the remaining space in this fragmentainer.
-    ///
-    /// - For continuous media, this returns infinity (f32::MAX).
-    /// - For paged media, this returns the unused space.
+    /// Get the remaining block-axis space (infinite for continuous, bounded for paged).
     pub fn remaining_space(&self) -> f32 {
         if self.is_fixed_size {
             (self.size.height - self.used_block_size).max(0.0)
@@ -137,24 +126,17 @@ impl Fragmentainer {
         }
     }
 
-    /// Check if this fragmentainer is full.
-    ///
-    /// - A fragmentainer is considered full if it has less than 1px of remaining space.
-    /// - Continuous fragmentainers are never full.
+    /// Check if this fragmentainer is full (less than 1px remaining).
     pub fn is_full(&self) -> bool {
         self.is_fixed_size && self.remaining_space() < 1.0
     }
 
     /// Check if a block of the given size can fit in this fragmentainer.
-    ///
-    /// - `block_size` - The height of the block to check
     pub fn can_fit(&self, block_size: f32) -> bool {
         self.remaining_space() >= block_size
     }
 
-    /// Record that space has been used in this fragmentainer.
-    ///
-    /// - `size` - The amount of block-axis space used
+    /// Record that block-axis space has been used in this fragmentainer.
     pub fn use_space(&mut self, size: f32) {
         self.used_block_size += size;
     }
@@ -162,8 +144,6 @@ impl Fragmentainer {
 
 impl FragmentationContext {
     /// Create a continuous fragmentation context for screen rendering.
-    ///
-    /// - `width` - The viewport width
     pub fn new_continuous(width: f32) -> Self {
         Self::Continuous {
             width,
@@ -175,8 +155,6 @@ impl FragmentationContext {
     }
 
     /// Create a paged fragmentation context for print rendering.
-    ///
-    /// - `page_size` - The size of each page
     pub fn new_paged(page_size: LogicalSize) -> Self {
         Self::Paged {
             page_size,
