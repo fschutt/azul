@@ -76,6 +76,10 @@ impl NativeScreenshotExt for CallbackInfo {
             RawWindowHandle::Xcb(handle) => {
                 take_native_screenshot_xcb(handle.connection, handle.window, path)
             }
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Wayland(_) => Err(AzString::from(
+                "Native screenshot not supported on Wayland - use X11/Xlib backend",
+            )),
             _ => Err(AzString::from(
                 "Native screenshot not supported on this platform",
             )),
@@ -126,22 +130,23 @@ fn take_native_screenshot_macos(
 
     // Get the window ID from the NSWindow
     let window_id = unsafe {
-        #[link(name = "AppKit", kind = "framework")]
-        extern "C" {
-            fn objc_msgSend(
-                receiver: *mut core::ffi::c_void,
-                sel: *const core::ffi::c_void,
-                ...
-            ) -> i64;
-        }
+        // Declare objc_msgSend as a non-variadic function pointer to ensure
+        // correct calling convention on ARM64 macOS (variadic and non-variadic
+        // functions use different ABIs on aarch64-apple-darwin).
+        type ObjcMsgSendFn = unsafe extern "C" fn(
+            receiver: *mut core::ffi::c_void,
+            sel: *const core::ffi::c_void,
+        ) -> i64;
 
         #[link(name = "objc")]
         extern "C" {
+            fn objc_msgSend();
             fn sel_registerName(name: *const i8) -> *const core::ffi::c_void;
         }
 
         let sel = sel_registerName(b"windowNumber\0".as_ptr() as *const i8);
-        objc_msgSend(ns_window, sel)
+        let msg_send: ObjcMsgSendFn = std::mem::transmute(objc_msgSend as *const ());
+        msg_send(ns_window, sel)
     };
 
     if window_id <= 0 {
@@ -381,20 +386,6 @@ fn take_native_screenshot_xlib(
     type XDestroyImageFn = unsafe extern "C" fn(*mut XImage) -> i32;
 
     // Load libX11 dynamically
-    let lib_name = CString::new("libX11.so.6").unwrap();
-    let lib = unsafe { libc::dlopen(lib_name.as_ptr(), libc::RTLD_LAZY) };
-    if lib.is_null() {
-        // Try without version
-        let lib_name2 = CString::new("libX11.so").unwrap();
-        let lib = unsafe { libc::dlopen(lib_name2.as_ptr(), libc::RTLD_LAZY) };
-        if lib.is_null() {
-            return Err(AzString::from(
-                "Failed to load libX11.so - X11 not available",
-            ));
-        }
-    }
-
-    // Reload with correct handle
     let lib = unsafe {
         let lib_name = CString::new("libX11.so.6").unwrap();
         let lib = libc::dlopen(lib_name.as_ptr(), libc::RTLD_LAZY);
