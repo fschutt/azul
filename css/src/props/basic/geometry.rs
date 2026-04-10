@@ -1,4 +1,6 @@
-//! Basic geometry primitives for layout calculations.
+//! Basic geometry primitives (`LayoutPoint`, `LayoutSize`, `LayoutRect`) for
+//! layout calculations, using `isize` coordinates (as opposed to the `f32`-based
+//! logical coordinates in `core::geom`).
 
 use core::fmt;
 
@@ -144,11 +146,11 @@ impl LayoutRect {
     }
     #[inline(always)]
     pub const fn width(&self) -> isize {
-        self.max_x() - self.min_x()
+        self.size.width
     }
     #[inline(always)]
     pub const fn height(&self) -> isize {
-        self.max_y() - self.min_y()
+        self.size.height
     }
 
     pub const fn contains(&self, other: &LayoutPoint) -> bool {
