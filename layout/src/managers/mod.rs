@@ -1,3 +1,10 @@
+//! Manager types responsible for stateful input and UI concerns.
+//!
+//! This module collects managers for accessibility, clipboard, drag-and-drop,
+//! focus/cursor, gestures, hover, scroll state, selection, text editing,
+//! text input, undo/redo, and virtual views. These managers are consumed
+//! primarily by `layout/src/window.rs` and `layout/src/event_determination.rs`.
+
 pub mod a11y;
 pub mod changeset;
 pub mod clipboard;
