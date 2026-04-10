@@ -290,7 +290,11 @@ pub enum RenderContext {
         context: *mut core::ffi::c_void,
     },
 
-    /// Vulkan context (Linux, Windows, future)
+    /// Vulkan context (Linux, Windows, future).
+    ///
+    /// Handles are stored as `u64` rather than `*mut c_void` because
+    /// Vulkan defines dispatchable handles as pointers on 64-bit and
+    /// opaque `uint64_t` on 32-bit — `u64` is the portable representation.
     Vulkan {
         /// VkInstance handle
         instance: u64,
@@ -304,7 +308,11 @@ pub enum RenderContext {
     CPU,
 }
 
-// Safety: RenderContext contains raw pointers but they're owned by the window
+// SAFETY: `RenderContext` contains raw pointers that are owned by the
+// platform window and must only be accessed from the thread that created
+// the GL/Metal/D3D context.  The caller is responsible for ensuring that
+// cross-thread access is properly synchronised (e.g. via
+// `wglMakeCurrent` / `glXMakeCurrent` / `CGLSetCurrentContext`).
 unsafe impl Send for RenderContext {}
 unsafe impl Sync for RenderContext {}
 
@@ -386,7 +394,7 @@ pub fn select_compositor_mode(
             } else {
                 log_warn!(
                     LogCategory::Rendering,
-                    "Warning: GPU requested but not available, using CPU fallback"
+                    "GPU requested but not available, using CPU fallback"
                 );
                 CompositorMode::CPU
             }
