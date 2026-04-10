@@ -469,6 +469,11 @@ r#"# Small Fixes: {src}
 
 You are fixing small issues in `{src}` based on its review report.
 
+**IMPORTANT: You are running in parallel with other agents, each editing a
+different source file.  You must ONLY touch your own file.  Other agents are
+modifying other files at the same time — do NOT edit, stage, or commit any
+file other than `{src}`.**
+
 ## Source file: `{abs_src}`
 
 ```rust
@@ -483,7 +488,8 @@ You are fixing small issues in `{src}` based on its review report.
 
 ## Instructions
 
-1. Read the review report above (already included).
+1. The source file and review report are already included above — do NOT
+   re-read them with the Read tool.
 2. Identify findings that are **small fixes** — things you can fix by editing
    ONLY the file `{abs_src}`.  Small fixes include:
    - Missing or outdated doc comments (`///` or `//!`)
@@ -503,23 +509,30 @@ You are fixing small issues in `{src}` based on its review report.
 4. If there are **zero** small fixes to make, output exactly:
    `NO_SMALL_FIXES` and stop immediately.
 5. Otherwise, apply all small fixes to `{abs_src}` using the Edit tool.
-6. After editing, update the report at `{rpt}`:
+6. After editing, update the report file at `{rpt}` using the Edit tool:
    - **Remove** every finding section (`### [SEVERITY] ...`) that you fixed.
    - **Update** the Summary line counts (findings: X high, Y medium, Z low).
    - Keep all unfixed findings exactly as they are.
    - If all findings were fixed, replace the Findings section with:
      `All findings resolved by small-fixes pass.`
-7. Create exactly **one git commit**.  Stage ONLY `{abs_src}` and `{rpt}`.
-   Use `git add <file1> <file2> && git commit -m "..."`.
+7. Create exactly **one git commit** for the source file ONLY.
 
-   **Commit message format** — first line is the subject, then a blank line,
-   then a body summarising what was actually changed:
+   **CRITICAL git rules:**
+   - Stage ONLY your source file by name: `git add {src}`
+   - Do NOT use `git add -A`, `git add .`, or `git add --all`
+   - Do NOT stage the report file (it is in `doc/target/` which is gitignored)
+   - Do NOT use `git add -f` on anything
+   - Do NOT stage or commit any other file — other agents are editing them
+   - If `git status` shows changes to other files, IGNORE them — they belong
+     to other agents running in parallel
+
+   **Commit command** (use exactly this pattern):
    ```
-   docs/style: small fixes for {src}
+   git add {src} && git commit -m "docs/style: small fixes for {src}
 
-   - <one line per fix, e.g. "add module-level //! doc comment">
-   - <e.g. "remove unused import `Foo`">
-   - <e.g. "flatten nested if-let into early return">
+   - <one line per fix, e.g. add module-level //! doc comment>
+   - <e.g. remove unused import Foo>
+   - <e.g. flatten nested if-let into early return>"
    ```
    Keep it concise but specific — the body should let a reviewer understand
    what changed without reading the diff.
@@ -527,6 +540,7 @@ You are fixing small issues in `{src}` based on its review report.
 ## Rules
 
 - Edit ONLY `{abs_src}` (source) and `{rpt}` (report).  No other files.
+- Stage and commit ONLY `{src}` — never the report, never other source files.
 - Do NOT run `cargo build`, `cargo test`, `cargo check`, or any compilation.
 - Do NOT create new files.
 - Do NOT modify `// +spec` comments.
