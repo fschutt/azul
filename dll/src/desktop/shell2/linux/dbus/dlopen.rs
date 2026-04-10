@@ -30,7 +30,7 @@ macro_rules! load_symbol {
     };
 }
 
-// Wrapper for dlopen, dlsym, dlclose
+/// Wrapper for dlopen, dlsym, dlclose
 pub struct Library {
     handle: *mut c_void,
 }
