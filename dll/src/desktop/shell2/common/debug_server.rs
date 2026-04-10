@@ -2493,6 +2493,7 @@ pub fn start_debug_server(
     let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
         Ok(l) => l,
         Err(e) => {
+            eprintln!("Debug server failed to bind to port {}: {}", port, e);
             std::process::exit(1);
         }
     };
@@ -2696,8 +2697,8 @@ pub fn send_ok(
     // Clear logs to prevent memory buildup
     let _ = take_logs();
     let response = DebugResponseData::Ok { window_state, data };
-    if let Err(e) = request.response_tx.send(response) {
-    }
+    // Receiver may have disconnected (HTTP thread timed out) — ignore send errors
+    let _ = request.response_tx.send(response);
 }
 
 /// Send an error response to a debug request
@@ -2706,8 +2707,8 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     // Clear logs to prevent memory buildup
     let _ = take_logs();
     let response = DebugResponseData::Err(message.into());
-    if let Err(e) = request.response_tx.send(response) {
-    }
+    // Receiver may have disconnected (HTTP thread timed out) — ignore send errors
+    let _ = request.response_tx.send(response);
 }
 
 
@@ -2903,15 +2904,9 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
     }
 
     // 2. Write Body in Chunks (Safer for large data like screenshots)
-    let mut bytes_written = 0usize;
     for chunk in body_bytes.chunks(8192) {
-        match stream.write_all(chunk) {
-            Ok(_) => {
-                bytes_written += chunk.len();
-            }
-            Err(e) => {
-                return;
-            }
+        if stream.write_all(chunk).is_err() {
+            return;
         }
     }
 
@@ -9841,7 +9836,10 @@ pub fn register_debug_timer(
         None,
     );
 
-    let timer_id: usize = 0xDEBE;
+    /// Well-known timer ID for the debug server polling timer.
+    /// Chosen to avoid collision with user-registered timer IDs.
+    const DEBUG_TIMER_ID: usize = 0xDEBE;
+    let timer_id: usize = DEBUG_TIMER_ID;
     let app_data_for_timer = window.get_app_data().borrow().clone();
     let window_id = window.get_current_window_state().window_id.as_str().to_string();
     let get_system_time_fn = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
