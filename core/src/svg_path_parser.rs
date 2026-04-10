@@ -37,6 +37,7 @@ pub enum SvgPathParseError {
     InvalidArcFlag { pos: usize },
 }
 
+/// Human-readable error messages for SVG path parse failures.
 impl core::fmt::Display for SvgPathParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
