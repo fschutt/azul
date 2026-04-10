@@ -467,7 +467,11 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
         const FR_SCALING_FACTOR: f32 = 100.0;
         let num_str = &input[..input.len() - 2].trim();
         if let Ok(num) = num_str.parse::<f32>() {
-            return Ok(GridTrackSizing::Fr((num * FR_SCALING_FACTOR) as i32));
+            let scaled = num * FR_SCALING_FACTOR;
+            if scaled.is_nan() || scaled < (i32::MIN as f32) || scaled > (i32::MAX as f32) {
+                return Err(());
+            }
+            return Ok(GridTrackSizing::Fr(scaled as i32));
         }
         return Err(());
     }
