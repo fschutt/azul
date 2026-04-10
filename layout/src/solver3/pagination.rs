@@ -31,14 +31,18 @@
 //! - **Named Strings** (`string-set`, `content: string(name)`) - Captured text for headers
 //! - **Page Counters** (`counter(page)`, `counter(pages)`) - Page numbering
 //!
+//! **Note:** Running elements, named strings, and page selectors are currently
+//! stub implementations. Only page counters and header/footer configuration
+//! are functional.
+//!
 //! See: https://www.w3.org/TR/css-gcpm-3/
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::geom::LogicalSize;
 use azul_css::props::{
     basic::ColorU,
-    layout::fragmentation::{BreakInside, PageBreak},
+    layout::fragmentation::PageBreak,
 };
 
 /// Manages the infinite canvas coordinate system with page boundaries.
@@ -125,7 +129,12 @@ impl PageGeometer {
     }
 
     /// Calculate which page a given Y coordinate falls on (0-indexed).
+    ///
+    /// Negative Y values are clamped to page 0.
     pub fn page_for_y(&self, y: f32) -> usize {
+        if y < 0.0 {
+            return 0;
+        }
         let content_h = self.content_height();
         if content_h <= 0.0 {
             return 0;
@@ -692,6 +701,12 @@ impl PageInfo {
     }
 }
 
+/// Default height for page headers and footers (in points).
+const DEFAULT_HEADER_FOOTER_HEIGHT: f32 = 30.0;
+
+/// Default font size for header/footer text (in points).
+const DEFAULT_HEADER_FOOTER_FONT_SIZE: f32 = 10.0;
+
 /// Configuration for page headers and footers.
 ///
 /// This is a simplified interface for the common case of adding
@@ -723,11 +738,11 @@ impl Default for HeaderFooterConfig {
         Self {
             show_header: false,
             show_footer: false,
-            header_height: 30.0,
-            footer_height: 30.0,
+            header_height: DEFAULT_HEADER_FOOTER_HEIGHT,
+            footer_height: DEFAULT_HEADER_FOOTER_HEIGHT,
             header_content: MarginBoxContent::None,
             footer_content: MarginBoxContent::None,
-            font_size: 10.0,
+            font_size: DEFAULT_HEADER_FOOTER_FONT_SIZE,
             text_color: ColorU {
                 r: 0,
                 g: 0,
@@ -893,27 +908,10 @@ impl PageTemplate {
     }
 }
 
-// Fake @page support (temporary solution)
-//
-// The following structures provide a programmatic API to configure
-// page headers and footers WITHOUT full CSS @page rule parsing.
-// This is a temporary solution until proper CSS @page support is implemented.
-//
-// Usage example:
-//
-// ```rust
-// let config = FakePageConfig::new()
-//     .with_footer_page_numbers()
-//     .with_header_text("My Document")
-//     .skip_first_page(true);
-//
-// let header_footer = config.to_header_footer_config();
-// ```
-
-/// Temporary configuration for page headers/footers without CSS @page parsing.
+/// Temporary configuration for page headers/footers without CSS `@page` parsing.
 ///
-/// This is a "fake" implementation that provides programmatic control over
-/// page decoration until full CSS `@page` rule support is implemented.
+/// Provides programmatic control over page decoration until full CSS `@page`
+/// rule support is implemented.
 ///
 /// ## Supported Features
 ///
@@ -921,6 +919,17 @@ impl PageTemplate {
 /// - Custom text in header and/or footer
 /// - Number format (decimal, roman numerals, alphabetic, greek)
 /// - Skip first page option
+///
+/// ## Example
+///
+/// ```rust
+/// let config = FakePageConfig::new()
+///     .with_footer_page_numbers()
+///     .with_header_text("My Document")
+///     .skip_first_page(true);
+///
+/// let header_footer = config.to_header_footer_config();
+/// ```
 #[derive(Debug, Clone)]
 pub struct FakePageConfig {
     /// Show header on pages
@@ -966,9 +975,9 @@ impl Default for FakePageConfig {
             footer_total_pages: false,
             number_format: CounterFormat::Decimal,
             skip_first_page: false,
-            header_height: 30.0,
-            footer_height: 30.0,
-            font_size: 10.0,
+            header_height: DEFAULT_HEADER_FOOTER_HEIGHT,
+            footer_height: DEFAULT_HEADER_FOOTER_HEIGHT,
+            font_size: DEFAULT_HEADER_FOOTER_FONT_SIZE,
             text_color: ColorU {
                 r: 0,
                 g: 0,
@@ -1080,68 +1089,52 @@ impl FakePageConfig {
 
     /// Build the MarginBoxContent for the header.
     fn build_header_content(&self) -> MarginBoxContent {
-        let mut parts = Vec::new();
-
-        // Add custom text if present
-        if let Some(ref text) = self.header_text {
-            parts.push(MarginBoxContent::Text(text.clone()));
-            if self.header_page_number {
-                parts.push(MarginBoxContent::Text(" - ".to_string()));
-            }
-        }
-
-        // Add page number if enabled
-        if self.header_page_number {
-            if self.number_format == CounterFormat::Decimal {
-                parts.push(MarginBoxContent::Text("Page ".to_string()));
-                parts.push(MarginBoxContent::PageCounter);
-            } else {
-                parts.push(MarginBoxContent::Text("Page ".to_string()));
-                parts.push(MarginBoxContent::PageCounterFormatted {
-                    format: self.number_format,
-                });
-            }
-
-            if self.header_total_pages {
-                parts.push(MarginBoxContent::Text(" of ".to_string()));
-                parts.push(MarginBoxContent::PagesCounter);
-            }
-        }
-
-        if parts.is_empty() {
-            MarginBoxContent::None
-        } else if parts.len() == 1 {
-            parts.pop().unwrap()
-        } else {
-            MarginBoxContent::Combined(parts)
-        }
+        Self::build_margin_content(
+            &self.header_text,
+            self.header_page_number,
+            self.header_total_pages,
+            self.number_format,
+        )
     }
 
     /// Build the MarginBoxContent for the footer.
     fn build_footer_content(&self) -> MarginBoxContent {
+        Self::build_margin_content(
+            &self.footer_text,
+            self.footer_page_number,
+            self.footer_total_pages,
+            self.number_format,
+        )
+    }
+
+    /// Shared helper for building header/footer margin box content.
+    fn build_margin_content(
+        text: &Option<String>,
+        page_number: bool,
+        total_pages: bool,
+        number_format: CounterFormat,
+    ) -> MarginBoxContent {
         let mut parts = Vec::new();
 
-        // Add custom text if present
-        if let Some(ref text) = self.footer_text {
+        if let Some(ref text) = text {
             parts.push(MarginBoxContent::Text(text.clone()));
-            if self.footer_page_number {
+            if page_number {
                 parts.push(MarginBoxContent::Text(" - ".to_string()));
             }
         }
 
-        // Add page number if enabled
-        if self.footer_page_number {
-            if self.number_format == CounterFormat::Decimal {
+        if page_number {
+            if number_format == CounterFormat::Decimal {
                 parts.push(MarginBoxContent::Text("Page ".to_string()));
                 parts.push(MarginBoxContent::PageCounter);
             } else {
                 parts.push(MarginBoxContent::Text("Page ".to_string()));
                 parts.push(MarginBoxContent::PageCounterFormatted {
-                    format: self.number_format,
+                    format: number_format,
                 });
             }
 
-            if self.footer_total_pages {
+            if total_pages {
                 parts.push(MarginBoxContent::Text(" of ".to_string()));
                 parts.push(MarginBoxContent::PagesCounter);
             }
