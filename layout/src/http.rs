@@ -9,9 +9,6 @@ use core::fmt;
 
 use azul_css::{AzString, U8Vec, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut, impl_option, impl_option_inner};
 
-#[cfg(feature = "std")]
-use std::path::Path;
-
 // ============================================================================
 // Error types (C-compatible, single field per variant)
 // ============================================================================
@@ -542,7 +539,8 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
 /// * `bool` - True if reachable (2xx status)
 #[cfg(feature = "http")]
 pub fn is_url_reachable(url: &str) -> bool {
-    let agent = make_agent(10, false);
+    const REACHABILITY_TIMEOUT_SECS: u64 = 10;
+    let agent = make_agent(REACHABILITY_TIMEOUT_SECS, false);
     match agent.head(url).call() {
         Ok(resp) => {
             let code = resp.status().as_u16();
