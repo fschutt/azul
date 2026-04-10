@@ -67,7 +67,7 @@ fn split_string_by_char<'a>(input: &'a str, target_char: char) -> Vec<&'a str> {
 }
 
 /// Given a string, returns how many characters need to be skipped
-pub fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
+fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
     let mut depth = 0;
     let mut last_character: Option<usize> = None;
     let mut character_was_found = false;
