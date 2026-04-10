@@ -142,13 +142,6 @@ macro_rules! define_border_side_property {
                 Self { inner }
             }
         }
-        impl $struct_name {
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-                Self {
-                    inner: self.inner.interpolate(&other.inner, t),
-                }
-            }
-        }
     };
 }
 
@@ -223,87 +216,6 @@ define_border_side_property!(LayoutBorderRightWidth, PixelValue, MEDIUM_BORDER_T
 define_border_side_property!(LayoutBorderBottomWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 /// CSS `border-left-width` property. Defaults to `MEDIUM_BORDER_THICKNESS` (3px).
 define_border_side_property!(LayoutBorderLeftWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
-
-// Interpolate implementations for border width types
-impl LayoutBorderTopWidth {
-    pub fn px(value: f32) -> Self {
-        Self {
-            inner: PixelValue::px(value),
-        }
-    }
-
-    pub const fn const_px(value: isize) -> Self {
-        Self {
-            inner: PixelValue::const_px(value),
-        }
-    }
-
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-        Self {
-            inner: self.inner.interpolate(&other.inner, t),
-        }
-    }
-}
-
-impl LayoutBorderRightWidth {
-    pub fn px(value: f32) -> Self {
-        Self {
-            inner: PixelValue::px(value),
-        }
-    }
-
-    pub const fn const_px(value: isize) -> Self {
-        Self {
-            inner: PixelValue::const_px(value),
-        }
-    }
-
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-        Self {
-            inner: self.inner.interpolate(&other.inner, t),
-        }
-    }
-}
-
-impl LayoutBorderLeftWidth {
-    pub fn px(value: f32) -> Self {
-        Self {
-            inner: PixelValue::px(value),
-        }
-    }
-
-    pub const fn const_px(value: isize) -> Self {
-        Self {
-            inner: PixelValue::const_px(value),
-        }
-    }
-
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-        Self {
-            inner: self.inner.interpolate(&other.inner, t),
-        }
-    }
-}
-
-impl LayoutBorderBottomWidth {
-    pub fn px(value: f32) -> Self {
-        Self {
-            inner: PixelValue::px(value),
-        }
-    }
-
-    pub const fn const_px(value: isize) -> Self {
-        Self {
-            inner: PixelValue::const_px(value),
-        }
-    }
-
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-        Self {
-            inner: self.inner.interpolate(&other.inner, t),
-        }
-    }
-}
 
 /// Represents the three components of a border shorthand property, used as an intermediate
 /// representation during parsing.
