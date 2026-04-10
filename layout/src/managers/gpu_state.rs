@@ -11,10 +11,10 @@ use azul_core::{
     dom::{DomId, NodeId},
     dom::ScrollbarOrientation,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    gpu::{GpuEventChanges, GpuScrollbarOpacityEvent, GpuTransformKeyEvent, GpuValueCache},
-    resources::{OpacityKey, TransformKey},
+    gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache},
+    resources::TransformKey,
     task::{Duration, Instant, SystemTimeDiff},
-    transform::{ComputedTransform3D, RotationMode},
+    transform::ComputedTransform3D,
 };
 
 use crate::{
@@ -22,9 +22,8 @@ use crate::{
     solver3::{
         fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         layout_tree::LayoutTree,
-        scrollbar::{ScrollbarRequirements, compute_scrollbar_geometry_with_button_size},
+        scrollbar::compute_scrollbar_geometry_with_button_size,
     },
-    text3::cache::ParsedFontTrait,
 };
 
 /// Default delay before scrollbars start fading out (500ms)
@@ -53,7 +52,7 @@ pub struct GpuStateManager {
     /// Whether any scrollbar has non-zero opacity and needs continued frame
     /// generation. Set during both the fade_delay period (opacity == 1.0)
     /// and the active fade-out phase (0 < opacity < 1).
-    /// Set by `synchronize_scrollbar_opacity`, read by the platform render loop.
+    /// Set by `LayoutWindow::synchronize_scrollbar_opacity`, read by the platform render loop.
     pub scrollbar_fade_active: bool,
 }
 
@@ -86,6 +85,7 @@ pub struct ScrollbarFadeState {
 /// Contains information about whether the GPU state changed and
 /// what specific changes occurred for the renderer to process.
 #[derive(Debug, Default)]
+#[must_use]
 pub struct GpuTickResult {
     /// Whether any GPU state changed requiring a repaint
     pub needs_repaint: bool,
@@ -182,8 +182,8 @@ impl GpuStateManager {
         }
 
         // Phase 2: Fade out over fade_duration
-        let time_into_fade = time_since_activity.div(&fade_delay) - 1.0;
-        let fade_progress = (time_into_fade * fade_duration.div(&fade_duration)).min(1.0);
+        // Compute (time_since_activity - fade_delay) / fade_duration
+        let fade_progress = (time_since_activity.div(&fade_duration) - fade_delay.div(&fade_duration)).min(1.0);
 
         // Phase 3: Fully faded
         (1.0 - fade_progress).max(0.0)
