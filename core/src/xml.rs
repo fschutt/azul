@@ -988,7 +988,7 @@ impl fmt::Display for XmlError {
                 write!(f, "Invalid XML Prefix URI at line {}:{}", pos.row, pos.col)
             }
             UnexpectedXmlUri(pos) => {
-                write!(f, "Unexpected XML URI at at line {}:{}", pos.row, pos.col)
+                write!(f, "Unexpected XML URI at line {}:{}", pos.row, pos.col)
             }
             UnexpectedXmlnsUri(pos) => write!(
                 f,
@@ -4057,7 +4057,7 @@ impl<'a> fmt::Display for ComponentParseError {
             MissingType(e) => write!(
                 f,
                 "Argument \"{}\" at position {} doesn't have a `: type`",
-                e.arg_pos, e.arg_name
+                e.arg_name, e.arg_pos
             ),
             WhiteSpaceInComponentName(e) => {
                 write!(
@@ -5015,10 +5015,112 @@ fn xml_node_to_fast_dom<'a>(
     let is_svg_shape = inside_svg && matches!(tag, "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline");
 
     if is_svg_shape {
-        // Reuse the SVG shape parsing from the slow path
         let clip = match tag {
-            "path" => xml_node.attributes.get_key("d").and_then(|d| crate::svg_path_parser::parse_svg_path_d(d.as_str()).ok()),
-            _ => None, // TODO: circle, rect, ellipse, etc.
+            "path" => {
+                xml_node.attributes.get_key("d").and_then(|d| {
+                    crate::svg_path_parser::parse_svg_path_d(d.as_str()).ok()
+                })
+            }
+            "circle" => {
+                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
+                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
+                let r = parse_svg_float(xml_node.attributes.get_key("r")).unwrap_or(0.0);
+                if r > 0.0 {
+                    Some(crate::svg::SvgMultiPolygon {
+                        rings: crate::svg::SvgPathVec::from_vec(vec![
+                            crate::svg_path_parser::svg_circle_to_paths(cx, cy, r)
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            }
+            "rect" => {
+                let x = parse_svg_float(xml_node.attributes.get_key("x")).unwrap_or(0.0);
+                let y = parse_svg_float(xml_node.attributes.get_key("y")).unwrap_or(0.0);
+                let w = parse_svg_float(xml_node.attributes.get_key("width")).unwrap_or(0.0);
+                let h = parse_svg_float(xml_node.attributes.get_key("height")).unwrap_or(0.0);
+                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
+                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(rx);
+                if w > 0.0 && h > 0.0 {
+                    Some(crate::svg::SvgMultiPolygon {
+                        rings: crate::svg::SvgPathVec::from_vec(vec![
+                            crate::svg_path_parser::svg_rect_to_path(x, y, w, h, rx, ry)
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            }
+            "ellipse" => {
+                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
+                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
+                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
+                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
+                if rx > 0.0 && ry > 0.0 {
+                    use azul_css::props::basic::{SvgPoint, SvgCubicCurve};
+                    const KAPPA: f32 = 0.5522847498;
+                    let kx = rx * KAPPA;
+                    let ky = ry * KAPPA;
+                    let elements = vec![
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx, y: cy - ry },
+                            ctrl_1: SvgPoint { x: cx + kx, y: cy - ry },
+                            ctrl_2: SvgPoint { x: cx + rx, y: cy - ky },
+                            end: SvgPoint { x: cx + rx, y: cy },
+                        }),
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx + rx, y: cy },
+                            ctrl_1: SvgPoint { x: cx + rx, y: cy + ky },
+                            ctrl_2: SvgPoint { x: cx + kx, y: cy + ry },
+                            end: SvgPoint { x: cx, y: cy + ry },
+                        }),
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx, y: cy + ry },
+                            ctrl_1: SvgPoint { x: cx - kx, y: cy + ry },
+                            ctrl_2: SvgPoint { x: cx - rx, y: cy + ky },
+                            end: SvgPoint { x: cx - rx, y: cy },
+                        }),
+                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint { x: cx - rx, y: cy },
+                            ctrl_1: SvgPoint { x: cx - rx, y: cy - ky },
+                            ctrl_2: SvgPoint { x: cx - kx, y: cy - ry },
+                            end: SvgPoint { x: cx, y: cy - ry },
+                        }),
+                    ];
+                    Some(crate::svg::SvgMultiPolygon {
+                        rings: crate::svg::SvgPathVec::from_vec(vec![
+                            crate::svg::SvgPath { items: crate::svg::SvgPathElementVec::from_vec(elements) }
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            }
+            "line" => {
+                let x1 = parse_svg_float(xml_node.attributes.get_key("x1")).unwrap_or(0.0);
+                let y1 = parse_svg_float(xml_node.attributes.get_key("y1")).unwrap_or(0.0);
+                let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
+                let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
+                Some(crate::svg::SvgMultiPolygon {
+                    rings: crate::svg::SvgPathVec::from_vec(vec![
+                        crate::svg::SvgPath {
+                            items: crate::svg::SvgPathElementVec::from_vec(vec![
+                                crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                                    azul_css::props::basic::SvgPoint { x: x1, y: y1 },
+                                    azul_css::props::basic::SvgPoint { x: x2, y: y2 },
+                                ))
+                            ]),
+                        }
+                    ]),
+                })
+            }
+            "polygon" | "polyline" => {
+                xml_node.attributes.get_key("points").and_then(|pts| {
+                    parse_svg_points(pts.as_str(), tag == "polygon")
+                })
+            }
+            _ => None,
         };
         if let Some(mp) = clip {
             node_data.set_svg_data(crate::dom::SvgNodeData::Path(mp));
