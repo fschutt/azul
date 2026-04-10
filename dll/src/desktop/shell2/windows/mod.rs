@@ -687,15 +687,19 @@ impl Win32Window {
         }
     }
 
+    /// Win32 timer ID reserved for thread-polling (~60 FPS tick).
+    const THREAD_POLL_TIMER_ID: usize = 0xFFFF;
+    /// Interval in milliseconds for the thread-polling timer (~60 FPS).
+    const THREAD_POLL_INTERVAL_MS: u32 = 16;
+
     /// Start or stop threads based on changes
     pub fn start_thread_tick_timer(&mut self) {
         if self.thread_timer_running.is_none() {
-            // Start thread polling timer (16ms = ~60 FPS)
             let timer_id = unsafe {
                 (self.win32.user32.SetTimer)(
                     self.hwnd,
-                    0xFFFF, // Special ID for thread timer
-                    16,
+                    Self::THREAD_POLL_TIMER_ID,
+                    Self::THREAD_POLL_INTERVAL_MS,
                     ptr::null(),
                 )
             };
@@ -709,7 +713,6 @@ impl Win32Window {
         }
     }
 
-    /// Render and present a frame
     /// Render and present a frame.
     ///
     /// When `layout_was_regenerated = true`, the full WebRender transaction (display lists,
@@ -2178,16 +2181,20 @@ unsafe extern "system" fn window_proc(
                 use crate::desktop::wr_translate2::wr_translate_document_id;
 
                 let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
-                let mut txn = WrTransaction::new();
-                // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
-                txn.set_document_view(
-                    DeviceIntRect::from_size(DeviceIntSize::new(width as i32, height as i32)),
-                    DevicePixelScale::new(hidpi_factor.inner.get()),
-                );
 
-                window.common
-                    .render_api.as_mut().unwrap()
-                    .send_transaction(wr_translate_document_id(window.common.document_id.unwrap()), txn);
+                // Update WebRender document view (GPU mode only — CPU mode has no render_api)
+                if let (Some(render_api), Some(document_id)) = (
+                    window.common.render_api.as_mut(),
+                    window.common.document_id,
+                ) {
+                    let mut txn = WrTransaction::new();
+                    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
+                    txn.set_document_view(
+                        DeviceIntRect::from_size(DeviceIntSize::new(width as i32, height as i32)),
+                        DevicePixelScale::new(hidpi_factor.inner.get()),
+                    );
+                    render_api.send_transaction(wr_translate_document_id(document_id), txn);
+                }
 
                 // Update previous and current window state
                 window.common.previous_window_state = Some(window.common.current_window_state.clone());
@@ -2313,34 +2320,39 @@ unsafe extern "system" fn window_proc(
             };
             window.record_input_sample(logical_pos, button_state, false, false, Some(screen_pos));
 
-            // Update hit test
+            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                use crate::desktop::wr_translate2::fullhittest_new_webrender;
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
-                let hit_test = fullhittest_new_webrender(
-                    &*hit_tester,
-                    window.common.document_id.unwrap(),
-                    layout_window.focus_manager.get_focused_node().copied(),
-                    &layout_window.layout_results,
-                    &CursorPosition::InWindow(logical_pos),
-                    hidpi_factor,
-                );
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
 
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test.clone());
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test.clone());
 
-                // Update cursor based on CSS cursor properties
-                // This is done BEFORE callbacks so callbacks can override the cursor
-                let cursor_type_hit_test = layout_window.compute_cursor_type_hit_test(&hit_test);
-                let new_cursor_type = cursor_type_hit_test.cursor_icon;
-                let new = OptionMouseCursorType::Some(new_cursor_type);
+                    // Update cursor based on CSS cursor properties
+                    // This is done BEFORE callbacks so callbacks can override the cursor
+                    let cursor_type_hit_test = layout_window.compute_cursor_type_hit_test(&hit_test);
+                    let new_cursor_type = cursor_type_hit_test.cursor_icon;
+                    let new = OptionMouseCursorType::Some(new_cursor_type);
 
-                // Update cursor type if changed
-                if window.common.current_window_state.mouse_state.mouse_cursor_type != new {
-                    window.common.current_window_state.mouse_state.mouse_cursor_type = new;
-                    win_event::set_cursor(new_cursor_type, &window.win32);
+                    // Update cursor type if changed
+                    if window.common.current_window_state.mouse_state.mouse_cursor_type != new {
+                        window.common.current_window_state.mouse_state.mouse_cursor_type = new;
+                        win_event::set_cursor(new_cursor_type, &window.win32);
+                    }
                 }
             }
 
@@ -2438,23 +2450,28 @@ unsafe extern "system" fn window_proc(
             };
             window.record_input_sample(logical_pos, 0x01, true, false, Some(screen_pos));
 
-            // Update hit test
+            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                use crate::desktop::wr_translate2::fullhittest_new_webrender;
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
-                let hit_test = fullhittest_new_webrender(
-                    &*hit_tester,
-                    window.common.document_id.unwrap(),
-                    layout_window.focus_manager.get_focused_node().copied(),
-                    &layout_window.layout_results,
-                    &CursorPosition::InWindow(logical_pos),
-                    hidpi_factor,
-                );
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
 
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test);
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test);
+                }
             }
 
             // Capture mouse
@@ -2511,23 +2528,28 @@ unsafe extern "system" fn window_proc(
             };
             window.record_input_sample(logical_pos, 0x00, false, true, Some(screen_pos));
 
-            // Update hit test
+            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                use crate::desktop::wr_translate2::fullhittest_new_webrender;
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
-                let hit_test = fullhittest_new_webrender(
-                    &*hit_tester,
-                    window.common.document_id.unwrap(),
-                    layout_window.focus_manager.get_focused_node().copied(),
-                    &layout_window.layout_results,
-                    &CursorPosition::InWindow(logical_pos),
-                    hidpi_factor,
-                );
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
 
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test);
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test);
+                }
             }
 
             // Release mouse capture
@@ -2565,23 +2587,28 @@ unsafe extern "system" fn window_proc(
                 CursorPosition::InWindow(logical_pos);
             window.common.current_window_state.mouse_state.right_down = true;
 
-            // Update hit test
+            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                use crate::desktop::wr_translate2::fullhittest_new_webrender;
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
-                let hit_test = fullhittest_new_webrender(
-                    &*hit_tester,
-                    window.common.document_id.unwrap(),
-                    layout_window.focus_manager.get_focused_node().copied(),
-                    &layout_window.layout_results,
-                    &CursorPosition::InWindow(logical_pos),
-                    hidpi_factor,
-                );
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
 
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test);
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test);
+                }
             }
 
             // V2 system will detect MouseDown event
@@ -2616,23 +2643,28 @@ unsafe extern "system" fn window_proc(
                 CursorPosition::InWindow(logical_pos);
             window.common.current_window_state.mouse_state.right_down = false;
 
-            // Update hit test
+            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                use crate::desktop::wr_translate2::fullhittest_new_webrender;
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
-                let hit_test = fullhittest_new_webrender(
-                    &*hit_tester,
-                    window.common.document_id.unwrap(),
-                    layout_window.focus_manager.get_focused_node().copied(),
-                    &layout_window.layout_results,
-                    &CursorPosition::InWindow(logical_pos),
-                    hidpi_factor,
-                );
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
 
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test);
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test);
+                }
             }
 
             // Try to show context menu first
@@ -2658,10 +2690,11 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let dpi = window.common.current_window_state.size.dpi;
-            let hidpi_factor = dpi as f32 / 96.0;
-            let logical_pos =
-                LogicalPosition::new(x as f32 / hidpi_factor, y as f32 / hidpi_factor);
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
+            let logical_pos = LogicalPosition::new(
+                x as f32 / hidpi_factor.inner.get(),
+                y as f32 / hidpi_factor.inner.get(),
+            );
 
             // Save previous state
             window.common.previous_window_state = Some(window.common.current_window_state.clone());
@@ -2688,10 +2721,11 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let dpi = window.common.current_window_state.size.dpi;
-            let hidpi_factor = dpi as f32 / 96.0;
-            let logical_pos =
-                LogicalPosition::new(x as f32 / hidpi_factor, y as f32 / hidpi_factor);
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
+            let logical_pos = LogicalPosition::new(
+                x as f32 / hidpi_factor.inner.get(),
+                y as f32 / hidpi_factor.inner.get(),
+            );
 
             // Save previous state
             window.common.previous_window_state = Some(window.common.current_window_state.clone());
@@ -2788,23 +2822,28 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            // Update hit test
+            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                use crate::desktop::wr_translate2::fullhittest_new_webrender;
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
-                let hit_test = fullhittest_new_webrender(
-                    &*hit_tester,
-                    window.common.document_id.unwrap(),
-                    layout_window.focus_manager.get_focused_node().copied(),
-                    &layout_window.layout_results,
-                    &CursorPosition::InWindow(logical_pos),
-                    hidpi_factor,
-                );
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
 
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test);
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test);
+                }
             }
 
             // V2 system will detect Scroll event from ScrollManager state
@@ -3814,12 +3853,11 @@ impl PlatformWindow for Win32Window {
 
     fn start_thread_poll_timer(&mut self) {
         if self.thread_timer_running.is_none() {
-            // Start thread polling timer (16ms = ~60 FPS)
             let timer_id = unsafe {
                 (self.win32.user32.SetTimer)(
                     self.hwnd,
-                    0xFFFF, // Special ID for thread timer
-                    16,
+                    Self::THREAD_POLL_TIMER_ID,
+                    Self::THREAD_POLL_INTERVAL_MS,
                     ptr::null(),
                 )
             };
