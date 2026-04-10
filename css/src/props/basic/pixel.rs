@@ -1,3 +1,15 @@
+//! CSS length and pixel value types, parsing, and unit resolution.
+//!
+//! Defines `PixelValue` (a numeric value + CSS unit like px, em, rem, %),
+//! `ResolutionContext` (contextual information for resolving relative units),
+//! and `PropertyContext` (which property is being resolved, affecting % and em semantics).
+//!
+//! **Resolution paths:**
+//! - `resolve_with_context()` — the correct method for new code; properly distinguishes
+//!   em vs rem, and resolves % based on property type per the CSS spec.
+//! - `to_pixels_internal()` — legacy fallback used by `prop_cache.rs`; does not
+//!   distinguish rem from em. Marked `#[doc(hidden)]`.
+
 use core::fmt;
 use std::num::ParseFloatError;
 use crate::corety::AzString;
