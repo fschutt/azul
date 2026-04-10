@@ -3,11 +3,10 @@
 //! Post-processing AA that detects edges via luminance and selectively blurs them.
 //! Faster than supersampling and works without hardware MSAA support.
 //!
-//! Currently TODO: shader compilation (see `GlContextPtrInner.fxaa_shader`).
+//! Shader compilation: `GlContextPtrInner.fxaa_shader` (see `core/src/gl.rs`).
+//! FXAA pass: `apply_fxaa` / `apply_fxaa_with_config` (see `layout/src/xml/svg.rs`).
 //!
 //! Presets: `FxaaConfig::enabled()`, `::high_quality()`, `::balanced()`, `::performance()`
-
-use gl_context_loader::{GLint, GLuint};
 
 /// FXAA shader configuration
 #[derive(Debug, Clone)]
