@@ -4,6 +4,15 @@
 //! It supports GPU-accelerated rendering via EGL and WebRender, with a
 //! fallback to a CPU-rendered surface if GL context creation fails.
 //!
+//! Key subsystems:
+//! - Dual render paths: GPU (EGL/WebRender) and CPU (wl_shm shared memory)
+//! - Input handling: XKB keyboard translation, pointer events, scroll physics
+//! - IME support: text-input v3 protocol with GTK IM context fallback
+//! - Tooltips: wl_subsurface-based tooltip windows
+//! - Popups: xdg_popup for context menus
+//! - D-Bus screensaver inhibition (org.freedesktop.ScreenSaver)
+//! - KDE blur protocol (org.kde.kwin.blur) for material effects
+//!
 //! Note: Uses dynamic loading (dlopen) to avoid linker errors
 //! and ensure compatibility across Linux distributions.
 
@@ -534,7 +543,8 @@ impl WaylandWindow {
             );
         }
 
-        // CI testing: Exit successfully after first frame render if env var is set
+        // CI-only escape hatch: exit after first successful frame render.
+        // Intentionally uses process::exit() to skip Drop impls for fast CI shutdown.
         if result.is_ok() && std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_info!(
                 LogCategory::Platform,
@@ -1316,13 +1326,11 @@ impl WaylandWindow {
                 }
             }
 
-            // If no timers, block indefinitely (-1), otherwise block until something fires
-            let timeout_ms = if self.timer_fds.is_empty() { -1 } else { -1 };
-
+            // Block indefinitely until a Wayland event or timerfd fires
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
                 pollfds.len() as libc::nfds_t,
-                timeout_ms,
+                -1,
             );
 
             if result > 0 {
@@ -1561,17 +1569,18 @@ impl WaylandWindow {
             };
 
             if len > 0 && len < buffer.len() as i32 {
-                let utf8_str = unsafe {
-                    std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                        buffer.as_ptr() as *const u8,
-                        len as usize,
-                    ))
+                let raw_bytes = unsafe {
+                    std::slice::from_raw_parts(buffer.as_ptr() as *const u8, len as usize)
                 };
 
-                // Record text input in TextInputManager
-                if !utf8_str.is_empty() {
-                    if let Some(ref mut layout_window) = self.common.layout_window {
-                        layout_window.record_text_input(utf8_str);
+                // Use safe UTF-8 validation — XKB should always produce valid UTF-8,
+                // but a corrupt keymap could cause UB with unchecked conversion.
+                if let Ok(utf8_str) = std::str::from_utf8(raw_bytes) {
+                    // Record text input in TextInputManager
+                    if !utf8_str.is_empty() {
+                        if let Some(ref mut layout_window) = self.common.layout_window {
+                            layout_window.record_text_input(utf8_str);
+                        }
                     }
                 }
             }
@@ -1744,10 +1753,13 @@ impl WaylandWindow {
             self.common.current_window_state.mouse_state.middle_down = mouse_button == MouseButton::Middle;
             self.pointer_state.button_down = Some(mouse_button);
         } else {
-            // Button released
-            self.common.current_window_state.mouse_state.left_down = false;
-            self.common.current_window_state.mouse_state.right_down = false;
-            self.common.current_window_state.mouse_state.middle_down = false;
+            // Button released — only clear the button that was actually released
+            match mouse_button {
+                MouseButton::Left => self.common.current_window_state.mouse_state.left_down = false,
+                MouseButton::Right => self.common.current_window_state.mouse_state.right_down = false,
+                MouseButton::Middle => self.common.current_window_state.mouse_state.middle_down = false,
+                _ => {}
+            }
             self.pointer_state.button_down = None;
         }
 
@@ -2051,12 +2063,6 @@ impl WaylandWindow {
             position.y
         );
         self.pending_window_creates.push(menu_options);
-    }
-
-    /// Process window events (V2 wrapper for external use)
-    pub fn process_window_events_v2(&mut self) -> ProcessEventResult {
-        let _ = self.process_events();
-        ProcessEventResult::DoNothing
     }
 
     /// Regenerate layout after DOM changes
@@ -3256,11 +3262,6 @@ impl CpuFallbackState {
         })
     }
 
-    /// Set damage rects from the last render pass for per-rect Wayland surface damage.
-    fn set_damage_rects(&mut self, rects: Vec<azul_core::geom::LogicalRect>) {
-        self.damage_rects = rects;
-    }
-
     /// Get a mutable slice of the shared memory buffer as ARGB8888 pixels.
     fn pixel_buffer_mut(&mut self) -> &mut [u8] {
         let size = (self.stride * self.height) as usize;
@@ -3409,7 +3410,9 @@ impl WaylandWindow {
 
         let work_area = LogicalRect::new(
             LogicalPosition::zero(),
-            LogicalSize::new(width as f32, (height as i32 - 24).max(0) as f32),
+            // Approximate panel/taskbar height — Wayland doesn't expose actual work area
+            const ESTIMATED_PANEL_HEIGHT: i32 = 24;
+            LogicalSize::new(width as f32, (height as i32 - ESTIMATED_PANEL_HEIGHT).max(0) as f32),
         );
 
         Some(crate::desktop::display::DisplayInfo {
@@ -3639,12 +3642,12 @@ impl WaylandPopup {
             (wayland.xdg_popup_grab)(xdg_popup, parent.seat, parent.pointer_state.serial);
         }
 
-        // 9. Commit surface to make popup visible
+        // 10. Commit surface to make popup visible
         unsafe {
             (wayland.wl_surface_commit)(surface);
         }
 
-        // 10. Create window state
+        // 11. Create window state
         let current_window_state = FullWindowState {
             title: "Popup".to_string().into(),
             size: options.window_state.size,
