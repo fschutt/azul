@@ -36,7 +36,7 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
-pub struct PositionOffsets {
+struct PositionOffsets {
     top: Option<f32>,
     right: Option<f32>,
     bottom: Option<f32>,
@@ -54,18 +54,11 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
     get_position(styled_dom, id, node_state).unwrap_or_default()
 }
 
-/// Correctly looks up the `position` property from the styled DOM.
-fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-    get_position(styled_dom, node_id, node_state).unwrap_or(LayoutPosition::Static)
-}
-
 // +spec:positioning:bda1d5 - resolves inset properties (top/right/bottom/left) as inward offsets per CSS Position 3 §3.1
 // +spec:positioning:bf9168 - resolves inset properties (top/right/bottom/left) to control positioned box location
 // +spec:positioning:f8e0a1 - inset properties (top/right/bottom/left) resolved for positioned elements; auto = unconstrained
-/// **NEW API:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
+/// Reads and resolves `top`, `right`, `bottom`, `left` properties,
 /// including percentages relative to the containing block's size, and em/rem units.
-/// Uses the modern resolve_with_context() API.
 // +spec:positioning:7ec143 - top/right/bottom/left offset resolution with percentage against containing block
 fn resolve_position_offsets(
     styled_dom: &StyledDom,
@@ -599,16 +592,16 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
 // +spec:positioning:5b0d7f - relative positioning: offset from normal flow position, siblings unaffected
 // +spec:positioning:8afbe2 - Relative positioning preserves normal flow size and space; only visual offset applied after layout
-/// +spec:positioning:3502d5 - relative and absolute positioning supported for combined use
+// +spec:positioning:3502d5 - relative and absolute positioning supported for combined use
 // +spec:positioning:b22222 - relative positioning: offset from static position, purely visual effect
 // +spec:positioning:b814b6 - relative/absolute/fixed positioning scheme (CSS Positioned Layout Module Level 3)
 /// Final pass to shift relatively positioned elements from their static flow position.
-/// +spec:block-formatting-context:60ccf9 - relative positioning shifts inline boxes as a unit after normal flow
-/// +spec:display-property:17239f - relative positioning offsets element after normal flow; abspos elements taken out of flow
-/// +spec:positioning:cbe066 - relative positioning implementation
+// +spec:block-formatting-context:60ccf9 - relative positioning shifts inline boxes as a unit after normal flow
+// +spec:display-property:17239f - relative positioning offsets element after normal flow; abspos elements taken out of flow
+// +spec:positioning:cbe066 - relative positioning implementation
 ///
-/// This function now correctly resolves percentage-based offsets for `top`, `left`, etc.
-/// According to the CSS spec, for relatively positioned elements, these percentages are
+/// Resolves percentage-based offsets for `top`, `left`, etc.
+/// For relatively positioned elements, percentages are
 /// relative to the dimensions of the parent element's content box.
 // +spec:positioning:2d8e15 - relative positioning shifts elements as a unit after normal flow without affecting surrounding content
 pub fn adjust_relative_positions<T: ParsedFontTrait>(
