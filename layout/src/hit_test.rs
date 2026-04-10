@@ -26,9 +26,7 @@
 //! 3. **Explicit cursor wins**: If a container has an explicit cursor property
 //!    (like `cursor:pointer` on a button), it overrides any text-child cursor.
 
-use std::collections::BTreeMap;
-
-// Re-export FullHitTest from azul_core for backwards compatibility
+// Re-export FullHitTest for use by other layout modules
 pub use azul_core::hit_test::FullHitTest;
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
@@ -49,20 +47,10 @@ pub struct CursorTypeHitTest {
 }
 
 impl CursorTypeHitTest {
-    /// Create a new cursor type hit-test from a full hit-test and layout window
+    /// Create a new cursor type hit-test from a full hit-test and layout window.
     ///
-    /// Finds the frontmost (lowest depth) node with a cursor property.
-    ///
-    /// ## Algorithm
-    ///
-    /// 1. First, check cursor_hit_test_nodes (direct text run hits with TAG_TYPE_CURSOR)
-    ///    - These are hit-test areas pushed for text runs with source_node_id
-    ///    - The cursor type is encoded directly in the hit-test tag
-    /// 2. Then, check regular_hit_test_nodes (DOM nodes with explicit cursor property)
-    /// 3. The frontmost (lowest depth) cursor wins
-    ///
-    /// This approach eliminates the need for text-child-detection hacks because
-    /// text runs now have their own hit-test areas with the correct cursor type.
+    /// Finds the frontmost (lowest depth) node with a cursor property by checking
+    /// cursor_hit_test_nodes (text runs) and regular_hit_test_nodes (DOM nodes).
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self {
         use azul_core::hit_test_tag::CursorType;
         
@@ -83,9 +71,8 @@ impl CursorTypeHitTest {
             let node_data_container = styled_dom.node_data.as_container();
             let styled_nodes = styled_dom.styled_nodes.as_container();
 
-            // PHASE 1: Check cursor_hit_test_nodes first (direct text run hits)
-            // These are hit-test areas for text runs that have the cursor type
-            // encoded directly in the tag, eliminating the need for CSS lookups.
+            // Check cursor_hit_test_nodes (direct text run hits with cursor
+            // type encoded in the tag, no CSS lookup needed)
             for (node_id, cursor_hit) in hit_nodes.cursor_hit_test_nodes.iter() {
                 let node_depth = cursor_hit.hit_depth;
                 
@@ -106,7 +93,7 @@ impl CursorTypeHitTest {
                 }
             }
 
-            // PHASE 2: Check regular_hit_test_nodes (DOM nodes with CSS cursor property)
+            // Check regular_hit_test_nodes (DOM nodes with CSS cursor property)
             for (node_id, hit_item) in hit_nodes.regular_hit_test_nodes.iter() {
                 let node_depth = hit_item.hit_depth;
                 
