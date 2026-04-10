@@ -1,20 +1,16 @@
-//! Text editing changeset system (FUTURE ARCHITECTURE - NOT YET IMPLEMENTED)
+//! Text editing changeset system
 //!
-//! **STATUS:** This module defines the planned architecture for a unified text editing
-//! changeset system, but is not yet implemented. Current text editing works through:
-//! - `text3::edit` module for text manipulation
-//! - `managers::text_input` for event recording
-//! - `window.rs` for integration
+//! **STATUS:** The core types (`TextChangeset`, `TextOperation`, `TextOp*` structs) are
+//! actively used by `window.rs`, `undo_redo.rs`, `event.rs`, and platform code. The
+//! `create_*_changeset` free functions are not yet wired into event handling.
 //!
-//! This module serves as a design document for post-1.0 refactoring.
+//! ## Architecture
 //!
-//! ## Planned Architecture (Future)
-//!
-//! This module will implement a two-phase changeset system for all text editing operations:
+//! This module implements a two-phase changeset system for all text editing operations:
 //! 1. **Create changesets** (pre-callback): Analyze what would change, don't mutate yet
 //! 2. **Apply changesets** (post-callback): Actually mutate state if !preventDefault
 //!
-//! This pattern will enable:
+//! This pattern enables:
 //! - preventDefault support for ALL operations (not just text input)
 //! - Undo/redo stack (record changesets before applying)
 //! - Validation (check bounds, permissions before mutation)
@@ -22,7 +18,6 @@
 
 use azul_core::{
     dom::DomNodeId,
-    geom::LogicalPosition,
     selection::{OptionSelectionRange, SelectionRange},
     task::Instant,
     window::CursorPosition,
@@ -272,12 +267,6 @@ impl TextChangeset {
     }
 }
 
-/// Returns the current system time using external callbacks.
-fn get_current_time() -> Instant {
-    let external = crate::callbacks::ExternalSystemCallbacks::rust_internal();
-    (external.get_system_time_fn.cb)().into()
-}
-
 /// Creates a copy changeset from the current selection.
 ///
 /// Extracts the selected text content and creates a `TextChangeset` with a `Copy`
@@ -362,7 +351,7 @@ pub fn create_paste_changeset(
     None
 }
 
-/// Creates a select-all changeset for the target node.set for the target node.
+/// Creates a select-all changeset for the target node.
 ///
 /// Selects all text content in the target node from the beginning to the end.
 /// Returns `None` if the node has no text content.
