@@ -1,6 +1,9 @@
 //! Win32 window creation helper functions
 //!
-//! This module contains the complex window creation logic extracted from the main module.
+//! Provides [`register_window_class`], [`create_hwnd`], and [`create_gl_context`]
+//! (which attempts OpenGL 3.2 Core, then 3.0, then legacy `wglCreateContext`).
+//! Also contains helpers for window sizing ([`get_client_rect`], [`set_window_size`])
+//! and visibility ([`show_window_with_frame`]).
 
 use std::{mem, ptr};
 
@@ -91,20 +94,20 @@ pub fn create_hwnd(
         let style = match options.window_state.flags.decorations {
             WindowDecorations::Normal => {
                 // Full decorations: WS_OVERLAPPEDWINDOW
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
             }
             WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject => {
                 // Extended frame: controls visible but no title text
                 // On Windows, we still use full decorations but will hide title via DWM later
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
             }
             WindowDecorations::NoControls => {
                 // Title bar but no minimize/maximize buttons
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_TABSTOP
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
             }
             WindowDecorations::None => {
                 // Borderless popup window
-                WS_POPUP | WS_TABSTOP
+                WS_POPUP
             }
         };
 
@@ -519,15 +522,8 @@ pub fn create_gl_context(
         );
     }
 
-    // NOTE: We do NOT release the DC here - it needs to stay valid for the GL context
-    // The DC will be released when the window is destroyed
-    log_trace!(
-        LogCategory::Rendering,
-        "[GL] keeping DC active (not releasing)"
-    );
-    // unsafe {
-    //     (win32.user32.ReleaseDC)(hwnd, hdc);
-    // }
+    // NOTE: We do NOT release the DC here - it needs to stay valid for the GL context.
+    // The DC will be released when the window is destroyed.
 
     log_trace!(
         LogCategory::Rendering,
@@ -537,7 +533,7 @@ pub fn create_gl_context(
     Ok(hglrc)
 }
 
-// WGL extension constants (should match gl.rs definitions)
+// WGL extension constants
 const WGL_DRAW_TO_WINDOW_ARB: u32 = 0x2001;
 const WGL_SUPPORT_OPENGL_ARB: u32 = 0x2010;
 const WGL_DOUBLE_BUFFER_ARB: u32 = 0x2011;
