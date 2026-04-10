@@ -16,15 +16,13 @@ use azul_core::{
     resources::DpiScaleFactor,
 };
 
-use super::dlopen::{Win32Libraries, HWND, LPARAM, WPARAM};
+use super::dlopen::{Win32Libraries, HWND, LPARAM};
 
 // Win32 Constants for tooltips
 const WM_USER: u32 = 0x0400;
 const TTM_ADDTOOLW: u32 = WM_USER + 50;
 const TTM_TRACKACTIVATE: u32 = WM_USER + 17;
 const TTM_TRACKPOSITION: u32 = WM_USER + 18;
-const TTM_SETTIPBKCOLOR: u32 = WM_USER + 19;
-const TTM_SETTIPTEXTCOLOR: u32 = WM_USER + 20;
 const TTM_SETMAXTIPWIDTH: u32 = WM_USER + 24;
 const TTM_UPDATETIPTEXTW: u32 = WM_USER + 57;
 
@@ -32,12 +30,12 @@ const TTS_ALWAYSTIP: u32 = 0x01;
 const TTS_NOPREFIX: u32 = 0x02;
 const TTS_NOANIMATE: u32 = 0x10;
 const TTS_NOFADE: u32 = 0x20;
-const TTS_BALLOON: u32 = 0x40;
 
 const TTF_TRACK: u32 = 0x0020;
 const TTF_ABSOLUTE: u32 = 0x0080;
-const TTF_TRANSPARENT: u32 = 0x0100;
 const TTF_IDISHWND: u32 = 0x0001;
+
+const MAX_TOOLTIP_WIDTH_PX: i32 = 300;
 
 const WS_POPUP: u32 = 0x80000000;
 const WS_EX_TOPMOST: u32 = 0x00000008;
@@ -123,7 +121,7 @@ impl TooltipWindow {
 
         // Set max width for multi-line tooltips (300 pixels)
         unsafe {
-            (win32.user32.SendMessageW)(hwnd_tooltip, TTM_SETMAXTIPWIDTH, 0, 300);
+            (win32.user32.SendMessageW)(hwnd_tooltip, TTM_SETMAXTIPWIDTH, 0, MAX_TOOLTIP_WIDTH_PX as LPARAM);
         }
 
         Ok(Self {
@@ -249,10 +247,13 @@ impl TooltipWindow {
             );
         }
 
+        self.is_visible = false;
+
         Ok(())
     }
 
     /// Check if tooltip is currently visible
+    #[must_use]
     pub fn is_visible(&self) -> bool {
         self.is_visible
     }
