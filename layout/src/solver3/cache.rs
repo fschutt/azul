@@ -7,8 +7,7 @@
 //!    the `viewport` from the previous frame.
 //! 2. The `reconcile_and_invalidate` function detects that the viewport has changed size
 //! 3. This single change—marking the root as a layout root—forces a full top-down pass
-//!    (`calculate_layout_for_subtree` starting from the root). This correctly recalculates
-//!    all(`calculate_layout_for_subtree` starting from the root). This correctly recalculates all
+//!    (`calculate_layout_for_subtree` starting from the root). This correctly recalculates all
 //!    percentage-based sizes and repositions all elements according to the new viewport dimensions.
 //! 4. The intrinsic size calculation (bottom-up) can often be skipped, as it's independent of the
 //!    container size, which is a significant optimization.
@@ -17,6 +16,10 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     hash::{DefaultHasher, Hash, Hasher},
 };
+
+/// Floating-point comparison epsilon for cache size lookups.
+/// Controls the tolerance for cache hit matching in the per-node multi-slot cache.
+const CACHE_SIZE_EPSILON: f32 = 0.1;
 
 use azul_core::{
     diff::NodeDataFingerprint,
@@ -223,8 +226,8 @@ impl NodeCache {
     pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
         let entry = self.measure_entries[slot].as_ref()?;
         // Exact match on input constraints
-        if (known_dims.width - entry.available_size.width).abs() < 0.1
-            && (known_dims.height - entry.available_size.height).abs() < 0.1
+        if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
+            && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
         {
             return Some(entry);
         }
@@ -232,8 +235,8 @@ impl NodeCache {
         // as a known dimension, it's still a hit. This is the key optimization
         // that makes two-pass layout O(n): Pass 1 measures a node, Pass 2
         // provides the measured size as a constraint → automatic cache hit.
-        if (known_dims.width - entry.result_size.width).abs() < 0.1
-            && (known_dims.height - entry.result_size.height).abs() < 0.1
+        if (known_dims.width - entry.result_size.width).abs() < CACHE_SIZE_EPSILON
+            && (known_dims.height - entry.result_size.height).abs() < CACHE_SIZE_EPSILON
         {
             return Some(entry);
         }
@@ -249,14 +252,14 @@ impl NodeCache {
     /// Look up the full layout cache entry.
     pub fn get_layout(&self, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
         let entry = self.layout_entry.as_ref()?;
-        if (known_dims.width - entry.available_size.width).abs() < 0.1
-            && (known_dims.height - entry.available_size.height).abs() < 0.1
+        if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
+            && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
         {
             return Some(entry);
         }
         // "Result matches request" for layout too
-        if (known_dims.width - entry.result_size.width).abs() < 0.1
-            && (known_dims.height - entry.result_size.height).abs() < 0.1
+        if (known_dims.width - entry.result_size.width).abs() < CACHE_SIZE_EPSILON
+            && (known_dims.height - entry.result_size.height).abs() < CACHE_SIZE_EPSILON
         {
             return Some(entry);
         }
@@ -446,7 +449,7 @@ pub fn reposition_clean_subtrees(
             }
 
             FormattingContext::Table | FormattingContext::TableRow => {
-                // STUB: Table layout is interdependent. A change in one cell's size
+                // TODO: Table layout is interdependent. A change in one cell's size
                 // can affect the entire column's width or row's height, requiring a
                 // full relayout of the table. This optimization is skipped.
             }
@@ -2136,51 +2139,6 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     Ok(())
 }
 
-fn set_static_positions_recursive<T: ParsedFontTrait>(
-    ctx: &mut LayoutContext<'_, T>,
-    tree: &mut LayoutTree,
-    _text_cache: &mut TextLayoutCache,
-    node_index: usize,
-    parent_content_box_pos: LogicalPosition,
-    calculated_positions: &mut super::PositionVec,
-) -> Result<()> {
-    let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        tree.children(node_index)
-            .iter()
-            .filter_map(|&child_index| {
-                if super::pos_contains(calculated_positions, child_index) {
-                    None
-                } else {
-                    let child = tree.get(child_index)?;
-                    Some((child_index, child.dom_node_id))
-                }
-            })
-            .collect()
-    };
-
-    for (child_index, child_dom_id_opt) in out_of_flow_children {
-        if let Some(child_dom_id) = child_dom_id_opt {
-            let position_type = get_position_type(ctx.styled_dom, Some(child_dom_id));
-            if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-                super::pos_set(calculated_positions, child_index, parent_content_box_pos);
-
-                // Continue recursively
-                set_static_positions_recursive(
-                    ctx,
-                    tree,
-                    _text_cache,
-                    child_index,
-                    parent_content_box_pos,
-                    calculated_positions,
-                )?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Checks if the given CSS height value should use content-based sizing
 fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
     match css_height {
@@ -2273,8 +2231,6 @@ pub fn compute_counters(
     tree: &LayoutTree,
     counters: &mut HashMap<(usize, String), i32>,
 ) {
-    use std::collections::HashMap;
-
     // Track counter stacks: counter_name -> Vec<value>
     // Each entry in the Vec represents a nested scope
     let mut counter_stacks: HashMap<String, Vec<i32>> = HashMap::new();
