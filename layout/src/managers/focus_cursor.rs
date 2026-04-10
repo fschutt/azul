@@ -3,7 +3,7 @@
 //! Manages keyboard focus, tab navigation, and programmatic focus changes
 //! with a recursive event system for focus/blur callbacks (max depth: 5).
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::collections::BTreeMap;
 
 use azul_core::{
     callbacks::{FocusTarget, FocusTargetPath},
@@ -13,9 +13,6 @@ use azul_core::{
 };
 
 use crate::window::DomLayoutResult;
-
-/// CSS path for selecting elements (placeholder - needs proper implementation)
-pub type CssPathString = alloc::string::String;
 
 /// Information about a pending contenteditable focus that needs cursor initialization
 /// after layout is complete (W3C "flag and defer" pattern).
@@ -177,7 +174,7 @@ impl FocusManager {
     pub fn remap_pending_focus_node_ids(
         &mut self,
         dom_id: DomId,
-        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
+        node_id_map: &BTreeMap<NodeId, NodeId>,
     ) {
         if let Some(ref mut pending) = self.pending_contenteditable_focus {
             if pending.dom_id != dom_id {
@@ -365,12 +362,12 @@ impl<'a> FocusSearchContext<'a> {
 
     /// Validate that a node exists in the given layout.
     ///
-    /// Returns an error if the node ID is out of bounds or the DOM is empty.
+    /// Returns an error if the node ID is out of bounds.
     fn validate_node(
         &self,
         layout: &DomLayoutResult,
         node_id: NodeId,
-        dom_id: DomId,
+        _dom_id: DomId,
     ) -> Result<(), UpdateFocusWarning> {
         let is_valid = layout
             .styled_dom
@@ -382,9 +379,6 @@ impl<'a> FocusSearchContext<'a> {
             return Err(UpdateFocusWarning::FocusInvalidNodeId(
                 NodeHierarchyItemId::from_crate_internal(Some(node_id)),
             ));
-        }
-        if layout.styled_dom.node_data.is_empty() {
-            return Err(UpdateFocusWarning::FocusInvalidDomId(dom_id));
         }
         Ok(())
     }
