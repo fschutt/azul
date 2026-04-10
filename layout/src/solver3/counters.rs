@@ -10,6 +10,7 @@ use azul_css::props::style::lists::StyleListStyleType;
 /// Formats a counter value into a string based on the list style type.
 ///
 /// Implements CSS counter styles for various numbering systems.
+#[must_use]
 pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
     match style {
         StyleListStyleType::None => String::new(),
@@ -34,7 +35,7 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
 /// This implements the CSS `lower-alpha` and `upper-alpha` counter styles.
 fn to_alphabetic(mut num: u32, uppercase: bool) -> String {
     if num == 0 {
-        return String::new();
+        return "0".to_string();
     }
 
     let mut result = String::new();
@@ -56,7 +57,8 @@ fn to_roman(mut num: u32, uppercase: bool) -> String {
     if num == 0 {
         return "0".to_string();
     }
-    if num > 3999 {
+    const MAX_ROMAN: u32 = 3999;
+    if num > MAX_ROMAN {
         // Roman numerals traditionally don't go beyond 3999
         return num.to_string();
     }
@@ -94,7 +96,7 @@ fn to_roman(mut num: u32, uppercase: bool) -> String {
 /// Supports α, β, γ, ... (24 letters of Greek alphabet).
 fn to_greek(num: u32, uppercase: bool) -> String {
     if num == 0 {
-        return String::new();
+        return "0".to_string();
     }
 
     // Greek lowercase letters α-ω (24 letters, omitting archaic letters)
