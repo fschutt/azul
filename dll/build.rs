@@ -119,20 +119,34 @@ fn configure_dynamic_linking(target: &str) {
         println!("cargo:warning=link-dynamic on Android: place libazul.so in jniLibs/");
     }
 
-    // Build search path list
+    // Search paths: (directory, is_system)
+    // - Local paths: ship dylib with app, use rpath to @loader_path/$ORIGIN
+    // - System paths: dylib is installed globally, no rpath needed
     let env_path = env::var("AZUL_DLL_PATH").unwrap_or_default();
-    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut dirs: Vec<(PathBuf, bool)> = Vec::new();
 
+    // 1. AZUL_DLL_PATH (user override, comma-separated) — local
     if !env_path.is_empty() {
         for entry in env_path.split(',') {
             let entry = entry.trim();
             if entry.is_empty() { continue; }
             let p = Path::new(entry);
-            dirs.push(if p.is_absolute() { p.to_path_buf() } else { workspace_root.join(p) });
+            let resolved = if p.is_absolute() { p.to_path_buf() } else { workspace_root.join(p) };
+            dirs.push((resolved, false));
         }
-    } else {
-        dirs.push(workspace_root.join("target/release"));
-        dirs.push(workspace_root.join("target/debug"));
+    }
+
+    // 2. Workspace target dirs — local
+    dirs.push((workspace_root.join("target/release"), false));
+    dirs.push((workspace_root.join("target/debug"), false));
+
+    // 3. System library paths — system (no rpath, no copy)
+    if target.contains("apple") {
+        dirs.push((PathBuf::from("/opt/homebrew/lib"), true));
+        dirs.push((PathBuf::from("/usr/local/lib"), true));
+    } else if !target.contains("windows") {
+        dirs.push((PathBuf::from("/usr/local/lib"), true));
+        dirs.push((PathBuf::from("/usr/lib"), true));
     }
 
     // Where Cargo places the final binary (target/{debug,release}/)
@@ -141,19 +155,26 @@ fn configure_dynamic_linking(target: &str) {
         .find(|p| p.file_name().map(|n| n == "debug" || n == "release").unwrap_or(false))
         .map(|p| p.to_path_buf());
 
-    // Try shared library first
-    for dir in &dirs {
-        if probe_dir(dir, target) {
-            let src = dir.join(lib_filename(target));
+    // Try shared library
+    for (dir, is_system) in &dirs {
+        if !probe_dir(dir, target) {
+            continue;
+        }
 
-            // Copy the dylib into OUT_DIR and link from there, so the
-            // cdylib output in target/release/ doesn't self-link.
+        let src = dir.join(lib_filename(target));
+
+        if *is_system {
+            // System library: link directly, no rpath, no copy.
+            // At runtime the system linker finds it in the standard paths.
+            println!("cargo:rustc-link-search=native={}", dir.display());
+            println!("cargo:rustc-link-lib=dylib=azul");
+        } else {
+            // Local library: copy to OUT_DIR to avoid cdylib self-link,
+            // set rpath so the binary finds the dylib next to itself.
             let link_dir = PathBuf::from(&out_dir);
             let dst = link_dir.join(lib_filename(target));
             if src != dst && src.exists() {
                 let _ = fs::copy(&src, &dst);
-                // On macOS, change the install_name of the copy so the linker
-                // doesn't consider it the same dylib being built.
                 if target.contains("apple") {
                     let _ = Command::new("install_name_tool")
                         .args(["-id", "@rpath/libazul.dylib"])
@@ -171,20 +192,20 @@ fn configure_dynamic_linking(target: &str) {
                 println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
             }
 
-            // Also copy next to the final binary for runtime discovery
+            // Copy next to the final binary for runtime discovery
             if let Some(ref bd) = bin_dir {
                 let rt_dst = bd.join(lib_filename(target));
                 if src != rt_dst && src.exists() {
                     let _ = fs::copy(&src, &rt_dst);
                 }
             }
-            return;
         }
+        return;
     }
 
     // Fallback: static library
     let sname = static_lib_filename(target);
-    for dir in &dirs {
+    for (dir, _) in &dirs {
         if dir.join(sname).exists() {
             println!(
                 "cargo:warning=No {} found; linking statically against {} in {}",
@@ -197,7 +218,7 @@ fn configure_dynamic_linking(target: &str) {
     }
 
     // Nothing found
-    let searched: Vec<_> = dirs.iter().map(|p| p.display().to_string()).collect();
+    let searched: Vec<_> = dirs.iter().map(|(p, _)| p.display().to_string()).collect();
     println!("cargo:warning=Could not find {} or {}", lib_filename(target), sname);
     println!("cargo:warning=Set AZUL_DLL_PATH to the directory containing the library");
     println!("cargo:warning=Searched: {}", searched.join(", "));
