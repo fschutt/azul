@@ -937,7 +937,7 @@ pub fn parse_style_aspect_ratio<'a>(
         let h_str = input[slash_pos + 1..].trim();
         let w: f32 = w_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
         let h: f32 = h_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
-        if h <= 0.0 || w <= 0.0 {
+        if h <= 0.0 || w <= 0.0 || w > 100_000.0 || h > 100_000.0 {
             return Err(StyleAspectRatioParseError::InvalidValue(input));
         }
         return Ok(StyleAspectRatio::Ratio(AspectRatioValue {
@@ -947,7 +947,7 @@ pub fn parse_style_aspect_ratio<'a>(
     }
     // Try single number (width/1)
     let w: f32 = input.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
-    if w <= 0.0 {
+    if w <= 0.0 || w > 100_000.0 {
         return Err(StyleAspectRatioParseError::InvalidValue(input));
     }
     Ok(StyleAspectRatio::Ratio(AspectRatioValue {
