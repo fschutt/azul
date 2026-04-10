@@ -20,8 +20,8 @@ pub const DEFAULT_FONT_ID: &str = "serif";
 pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
     inner: StyleColorU {
         r: 0,
-        b: 0,
         g: 0,
+        b: 0,
         a: 255,
     },
 };
@@ -54,9 +54,11 @@ impl ResolvedOffsets {
             bottom: 0.0,
         }
     }
+    #[must_use]
     pub fn total_vertical(&self) -> f32 {
         self.top + self.bottom
     }
+    #[must_use]
     pub fn total_horizontal(&self) -> f32 {
         self.left + self.right
     }
