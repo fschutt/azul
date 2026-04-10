@@ -46,6 +46,7 @@ pub struct CollectedFont {
 
 /// Complete output of rendering a route.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct RenderOutput {
     pub html: String,
     pub images: Vec<CollectedImage>,
@@ -72,17 +73,21 @@ pub fn render_initial_page(
     // 1. Run layout callback → Dom (recursive tree with CSS attached)
     let dom = call_layout(app_data, layout_callback, window_state, fc_cache, active_route);
 
-    // Debug log
-    let mut debug_counter = 0;
-    debug_print_dom(&dom, 0, &mut debug_counter);
+    // Debug log (only in debug builds to avoid polluting production stderr)
+    if cfg!(debug_assertions) {
+        let mut debug_counter = 0;
+        debug_print_dom(&dom, 0, &mut debug_counter);
+    }
 
     // 2. Run Azul's full cascade: Dom → StyledDom
     //    This resolves ALL conditions (OS, theme, viewport, container, language)
     //    and produces computed styles per node.
     let styled_dom = StyledDom::create_from_dom(dom);
 
-    let node_count = styled_dom.node_data.as_ref().len();
-    eprintln!("[azul-web] StyledDom cascade complete: {} nodes", node_count);
+    if cfg!(debug_assertions) {
+        let node_count = styled_dom.node_data.as_ref().len();
+        eprintln!("[azul-web] StyledDom cascade complete: {} nodes", node_count);
+    }
 
     // 3. Generate preload hints
     let preload_hints = generate_preload_hints(mini_wasm, cb_wasms);
@@ -110,11 +115,13 @@ pub fn render_initial_page(
     // Render the flat StyledDom arena into HTML, reading computed styles from the cache
     let body_html = ctx.render_styled_dom(&styled_dom);
 
-    eprintln!(
-        "[azul-web] Rendered {} nodes, {} with callbacks, {} CSS rules, {} images, {} fonts",
-        ctx.node_counter, ctx.callback_count, ctx.css_rules.len(),
-        ctx.images.len(), ctx.fonts.len(),
-    );
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[azul-web] Rendered {} nodes, {} with callbacks, {} CSS rules, {} images, {} fonts",
+            ctx.node_counter, ctx.callback_count, ctx.css_rules.len(),
+            ctx.images.len(), ctx.fonts.len(),
+        );
+    }
 
     // 5. Build stylesheet
     let stylesheet = build_stylesheet(&ctx);
@@ -463,12 +470,17 @@ fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String
     hints
 }
 
-/// Simple content hash for cache-busting URLs.
+/// FNV-1a 64-bit offset basis.
+const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+/// FNV-1a 64-bit prime.
+const FNV_PRIME: u64 = 0x100000001b3;
+
+/// Simple FNV-1a content hash for cache-busting URLs.
 fn content_hash(data: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
+    let mut hash: u64 = FNV_OFFSET_BASIS;
     for byte in data {
         hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
+        hash = hash.wrapping_mul(FNV_PRIME);
     }
     format!("{:016x}", hash)
 }
