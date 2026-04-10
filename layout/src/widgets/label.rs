@@ -1,8 +1,6 @@
-use azul_core::{
-    callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
-    refany::RefAny,
-};
+//! Label widget for displaying static text with platform-specific default styling.
+
+use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
@@ -14,8 +12,7 @@ use azul_css::{
     *,
 };
 
-use crate::callbacks::Callback;
-
+/// A static text label widget with platform-appropriate default styling.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Label {
@@ -29,12 +26,13 @@ const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_S
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
 
+/// Standard label text color (#4C4C4C), matching platform UI defaults.
 const COLOR_4C4C4C: ColorU = ColorU {
     r: 76,
     g: 76,
     b: 76,
     a: 255,
-}; // #4C4C4C
+};
 
 static LABEL_STYLE_WINDOWS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
@@ -90,9 +88,12 @@ static LABEL_STYLE_MAC: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
+/// No default styling on unsupported platforms (e.g. WASM, FreeBSD);
+/// callers should provide explicit styles via `label_style`.
 static LABEL_STYLE_OTHER: &[CssPropertyWithConditions] = &[];
 
 impl Label {
+    /// Creates a new label with the given text and platform-specific default styling.
     #[inline]
     pub fn create(string: AzString) -> Self {
         Self {
@@ -108,6 +109,7 @@ impl Label {
         }
     }
 
+    /// Replaces `self` with an empty default label, returning the original.
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Label::create(AzString::from_const_str(""));
@@ -115,6 +117,7 @@ impl Label {
         s
     }
 
+    /// Converts this label into a DOM text node with the `__azul-native-label` class.
     #[inline]
     pub fn dom(self) -> Dom {
         static LABEL_CLASS: &[IdOrClass] =
