@@ -1,4 +1,15 @@
-//! Common platform-agnostic code for shell2.
+//! Common platform-agnostic code shared by all shell2 platform backends
+//! (macOS, Linux/Wayland, Linux/X11, Windows).
+//!
+//! # Submodules
+//!
+//! - **compositor** — GPU/software compositor selection and rendering context
+//! - **cpu_compositor** — CPU-only fallback compositor
+//! - **dlopen** — Runtime dynamic library loading
+//! - **error** — Error types for compositor, dlopen, and window operations
+//! - **debug_server** — Built-in debug/inspector server
+//! - **event** — Window event handling and hit-testing
+//! - **layout** — Layout generation and incremental relayout
 
 pub mod compositor;
 pub mod cpu_compositor;
