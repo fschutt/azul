@@ -49,6 +49,7 @@ impl LayoutOverflow {
     // +spec:overflow:3dc18e - overflow:hidden clips content with no scrolling UI
     // +spec:overflow:81e306 - clipping region clips all aspects outside it; clipped content does not cause overflow
     // +spec:overflow:fd38ce - overflow properties specify whether a box's content is clipped / scroll container
+    /// Returns `true` if this overflow value clips content (everything except `visible`).
     pub fn is_clipped(&self) -> bool {
         // All overflow values except 'visible' clip their content
         matches!(
@@ -61,6 +62,7 @@ impl LayoutOverflow {
     }
 
     // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
+    /// Returns `true` if the overflow type is `scroll`.
     pub fn is_scroll(&self) -> bool {
         matches!(self, LayoutOverflow::Scroll)
     }
@@ -319,6 +321,7 @@ impl PrintAsCssValue for StyleOverflowClipMargin {
 /// Error returned when parsing an `overflow-clip-margin` property fails.
 #[derive(Clone, PartialEq, Eq)]
 pub enum StyleOverflowClipMarginParseError<'a> {
+    /// The provided value is not a valid `overflow-clip-margin` value.
     InvalidValue(&'a str),
 }
 
@@ -335,6 +338,7 @@ pub enum StyleOverflowClipMarginParseErrorOwned {
 }
 
 impl<'a> StyleOverflowClipMarginParseError<'a> {
+    /// Converts the borrowed error into an owned error.
     pub fn to_contained(&self) -> StyleOverflowClipMarginParseErrorOwned {
         match self {
             StyleOverflowClipMarginParseError::InvalidValue(s) => {
@@ -345,6 +349,7 @@ impl<'a> StyleOverflowClipMarginParseError<'a> {
 }
 
 impl StyleOverflowClipMarginParseErrorOwned {
+    /// Converts the owned error back into a borrowed error.
     pub fn to_shared<'a>(&'a self) -> StyleOverflowClipMarginParseError<'a> {
         match self {
             StyleOverflowClipMarginParseErrorOwned::InvalidValue(s) => {
