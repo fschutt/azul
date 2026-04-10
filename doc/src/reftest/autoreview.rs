@@ -2083,7 +2083,7 @@ pub fn parse_autoreview_args(
     let mut config = AutoreviewConfig {
         project_root: project_root.to_path_buf(),
         agents: 20,
-        timeout: Duration::from_secs(1200),
+        timeout: Duration::from_secs(1800),
         model: None,
         file_filter: None,
         retry_failed: false,
