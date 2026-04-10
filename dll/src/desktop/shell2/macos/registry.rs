@@ -3,13 +3,15 @@
 //! This module provides a centralized registry for managing multiple macOS windows.
 //! Uses thread-local storage for simplicity and to avoid complex Rc<RefCell> patterns.
 //! Based on the Windows registry implementation.
+//!
+//! Also defines [`WindowId`] as a type-safe wrapper around `NSWindow` pointers.
 
 use std::{cell::RefCell, collections::BTreeMap};
 
 use objc2::runtime::AnyObject;
 
 use super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_debug;
 
 thread_local! {
     /// Thread-local registry of all active windows (NSWindow -> raw pointer)
@@ -32,7 +34,7 @@ impl WindowId {
     }
 
     pub fn as_i64(&self) -> i64 {
-        self.ns_window as i64
+        self.ns_window as usize as i64
     }
 }
 
