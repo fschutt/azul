@@ -2,16 +2,16 @@
 //!
 //! This module provides the bridge between Azul's accessibility tree
 //! and Windows UI Automation (UIA) via the accesskit library.
+//!
+//! Gated behind `cfg(feature = "a11y")` — a no-op stub is provided
+//! when the feature is disabled.
 
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "a11y")]
-use accesskit::{
-    Action, ActionHandler, ActionRequest, ActivationHandler, Node as AccesskitNode,
-    NodeId as AccesskitNodeId, Role, Tree, TreeUpdate,
-};
+use accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
 #[cfg(feature = "a11y")]
-use accesskit_windows::{Adapter, SubclassingAdapter};
+use accesskit_windows::SubclassingAdapter;
 
 #[cfg(feature = "a11y")]
 use crate::desktop::shell2::windows::dlopen::HWND;
@@ -67,8 +67,7 @@ impl WindowsAccessibilityAdapter {
                 Ok(())
             }
             Err(_) => {
-                // Accessibility initialization failed - not critical, continue without it
-                Ok(())
+                Err("accessibility adapter panicked during initialization".into())
             }
         }
     }
