@@ -1,42 +1,17 @@
-use std::{env, fs, path::Path, process::Command};
+use std::{env, fs, path::{Path, PathBuf}, process::Command};
 
 fn main() {
     // Check for required generated files before compilation
     check_generated_files();
 
-    // Configure dynamic linking when link-dynamic feature is enabled
-    // Uses AZUL_LINK_PATH environment variable to find libazul
-    // Note: In build.rs, we check features via CARGO_FEATURE_* env vars
-    if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
-        if let Ok(link_path) = env::var("AZUL_LINK_PATH") {
-            println!("cargo:rustc-link-search=native={}", link_path);
-            println!("cargo:rerun-if-env-changed=AZUL_LINK_PATH");
-        } else {
-            // Try some default paths
-            let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-            let target_release = Path::new(&manifest_dir).join("../target/release");
-            let target_debug = Path::new(&manifest_dir).join("../target/debug");
+    let target = env::var("TARGET").unwrap_or_default();
 
-            if target_release.exists() {
-                println!(
-                    "cargo:rustc-link-search=native={}",
-                    target_release.display()
-                );
-            } else if target_debug.exists() {
-                println!("cargo:rustc-link-search=native={}", target_debug.display());
-            } else {
-                println!(
-                    "cargo:warning=AZUL_LINK_PATH not set and no default libazul location found."
-                );
-                println!("cargo:warning=Set AZUL_LINK_PATH to the directory containing libazul.dylib/so/dll");
-            }
-        }
-        println!("cargo:rustc-link-lib=dylib=azul");
+    // Configure dynamic linking when link-dynamic feature is enabled
+    if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
+        configure_dynamic_linking(&target);
     }
 
     // Configure Python extension linking on macOS
-    // With extension-module, PyO3 expects Python symbols to be provided by the interpreter
-    // On macOS, we need to tell the linker that undefined symbols are OK
     #[cfg(target_os = "macos")]
     {
         if env::var("CARGO_FEATURE_PYO3").is_ok() {
@@ -45,8 +20,7 @@ fn main() {
         }
     }
 
-    // This build script only runs its logic when targeting iOS.
-    let target = env::var("TARGET").unwrap_or_default();
+    // iOS-specific setup
     if !target.contains("ios") {
         return;
     }
@@ -120,6 +94,169 @@ ios-deploy --bundle "${APP_BUNDLE_PATH}" --justlaunch
         .unwrap();
 
     println!("cargo:warning=Created scripts/ios-runner.sh for deploying to device.");
+}
+
+// ── Dynamic linking configuration ─────────────────────────────────────
+
+/// Platform-specific library file name for libazul.
+fn lib_filename(target: &str) -> &'static str {
+    if target.contains("apple") || target.contains("darwin") {
+        "libazul.dylib"
+    } else if target.contains("windows") {
+        "azul.dll"
+    } else {
+        // Linux, Android, FreeBSD, etc.
+        "libazul.so"
+    }
+}
+
+/// Static library file name (for diagnostics / suggestions).
+fn static_lib_filename(target: &str) -> &'static str {
+    if target.contains("windows") {
+        "azul.lib"
+    } else {
+        "libazul.a"
+    }
+}
+
+/// Try to find the library in a directory.  Returns the directory if found.
+fn probe_dir(dir: &Path, target: &str) -> Option<PathBuf> {
+    let dylib = dir.join(lib_filename(target));
+    if dylib.exists() {
+        return Some(dir.to_path_buf());
+    }
+    // On macOS, also accept a .framework bundle
+    let framework = dir.join("azul.framework");
+    if framework.is_dir() {
+        return Some(dir.to_path_buf());
+    }
+    None
+}
+
+/// Configure dynamic linking for the current platform.
+///
+/// Search order:
+/// 1. `AZUL_DLL_PATH` environment variable (comma-separated list of paths)
+/// 2. `../target/release` relative to the dll crate
+/// 3. `../target/debug` relative to the dll crate
+///
+/// Each path entry can be:
+/// - An absolute path: `/usr/local/lib`
+/// - A relative path:  `target/release` (resolved from workspace root)
+///
+/// If a directory contains the wrong library type (e.g. `.a` instead of
+/// `.dylib`), a helpful warning is printed.
+///
+/// On iOS and Android, dynamic linking is not the typical deployment model
+/// (libraries are embedded in the app bundle / APK).  We still allow it for
+/// simulator / development builds, but print a note.
+fn configure_dynamic_linking(target: &str) {
+    println!("cargo:rerun-if-env-changed=AZUL_DLL_PATH");
+    // Legacy env var name — accept both
+    println!("cargo:rerun-if-env-changed=AZUL_LINK_PATH");
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let workspace_root = Path::new(&manifest_dir).parent().unwrap();
+
+    // Platform notes
+    if target.contains("ios") {
+        println!(
+            "cargo:warning=link-dynamic on iOS: libraries must be embedded in \
+             the .app bundle.  Consider link-static for production iOS builds."
+        );
+    } else if target.contains("android") {
+        println!(
+            "cargo:warning=link-dynamic on Android: libazul.so must be placed \
+             in the APK jniLibs/ directory for the correct ABI."
+        );
+    }
+
+    // Collect candidate directories
+    let mut search_dirs: Vec<PathBuf> = Vec::new();
+
+    // 1. AZUL_DLL_PATH (preferred) or legacy AZUL_LINK_PATH
+    let env_path = env::var("AZUL_DLL_PATH")
+        .or_else(|_| env::var("AZUL_LINK_PATH"))
+        .unwrap_or_default();
+
+    if !env_path.is_empty() {
+        for entry in env_path.split(',') {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            let p = Path::new(entry);
+            let resolved = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                // Resolve relative to workspace root
+                workspace_root.join(p)
+            };
+            search_dirs.push(resolved);
+        }
+    }
+
+    // 2. Default paths relative to workspace
+    search_dirs.push(workspace_root.join("target/release"));
+    search_dirs.push(workspace_root.join("target/debug"));
+
+    // Probe each directory
+    let mut found = false;
+    for dir in &search_dirs {
+        if let Some(lib_dir) = probe_dir(dir, target) {
+            println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        // Check if user has a static lib in one of the dirs (common mistake)
+        let static_name = static_lib_filename(target);
+        for dir in &search_dirs {
+            if dir.join(static_name).exists() {
+                println!(
+                    "cargo:warning=Found {} in {} but link-dynamic needs {}.",
+                    static_name, dir.display(), lib_filename(target),
+                );
+                println!(
+                    "cargo:warning=Build the shared library first: \
+                     cargo build --release -p azul-dll --features build-dll"
+                );
+                break;
+            }
+        }
+
+        println!(
+            "cargo:warning=Could not find {} in any search path.",
+            lib_filename(target),
+        );
+        println!(
+            "cargo:warning=Set AZUL_DLL_PATH to the directory containing {}",
+            lib_filename(target),
+        );
+        println!(
+            "cargo:warning=Searched: {}",
+            search_dirs.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+
+    // Tell the linker to link against libazul
+    if target.contains("windows") {
+        println!("cargo:rustc-link-lib=dylib=azul");
+    } else if target.contains("apple") {
+        // macOS/iOS: use -lazul, set rpath to @loader_path for relocatable binaries
+        println!("cargo:rustc-link-lib=dylib=azul");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+    } else {
+        // Linux/Android/FreeBSD: use -lazul, set rpath to $ORIGIN for relocatable binaries
+        println!("cargo:rustc-link-lib=dylib=azul");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+    }
 }
 
 /// Checks if Xcode Command Line Tools are installed.
