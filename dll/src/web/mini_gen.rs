@@ -20,10 +20,13 @@ pub fn generate_mini_wasm(_classification: &ApiClassification) -> Vec<u8> {
     minimal_wasm_module()
 }
 
+/// Minimal valid WASM module: `\0asm` magic + version 1.
+const WASM_HEADER: [u8; 8] = [
+    0x00, 0x61, 0x73, 0x6D, // \0asm magic
+    0x01, 0x00, 0x00, 0x00, // version 1
+];
+
 /// Produce the smallest valid WASM module (8 bytes).
 fn minimal_wasm_module() -> Vec<u8> {
-    vec![
-        0x00, 0x61, 0x73, 0x6D, // \0asm magic
-        0x01, 0x00, 0x00, 0x00, // version 1
-    ]
+    WASM_HEADER.to_vec()
 }
