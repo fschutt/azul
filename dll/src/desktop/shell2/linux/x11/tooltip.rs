@@ -15,6 +15,21 @@ use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 
 use super::{defines::*, dlopen::Xlib};
 
+// Tooltip appearance constants
+const TOOLTIP_BG_COLOR: u64 = 0xFFFFF0; // Light yellow
+const TOOLTIP_BORDER_COLOR: u64 = 0x000000; // Black
+const TOOLTIP_TEXT_COLOR: u64 = 0x000000; // Black
+const TOOLTIP_INITIAL_WIDTH: u32 = 200;
+const TOOLTIP_INITIAL_HEIGHT: u32 = 30;
+const TOOLTIP_BORDER_WIDTH: u32 = 1;
+const TOOLTIP_CHAR_WIDTH_PX: f32 = 7.0;
+const TOOLTIP_PADDING_PX: f32 = 10.0;
+const TOOLTIP_MIN_WIDTH: u32 = 50;
+const TOOLTIP_MAX_WIDTH: u32 = 400;
+const TOOLTIP_HEIGHT: u32 = 25;
+const TOOLTIP_TEXT_X_OFFSET: i32 = 5;
+const TOOLTIP_TEXT_Y_OFFSET: i32 = 17; // Baseline offset
+
 /// Wrapper for an X11 tooltip window
 pub struct TooltipWindow {
     /// Xlib function pointers
@@ -49,18 +64,18 @@ impl TooltipWindow {
             // Create window attributes for override-redirect
             let mut attributes: super::dlopen::XSetWindowAttributes = std::mem::zeroed();
             attributes.override_redirect = 1; // Don't let WM manage this window
-            attributes.background_pixel = 0xFFFFF0; // Light yellow background
-            attributes.border_pixel = 0x000000; // Black border
+            attributes.background_pixel = TOOLTIP_BG_COLOR;
+            attributes.border_pixel = TOOLTIP_BORDER_COLOR;
 
-            // Create the tooltip window (initially 200x30 pixels)
+            // Create the tooltip window
             let window = (xlib.XCreateWindow)(
                 display,
                 root,
                 0,
                 0,
-                200,
-                30,
-                1, // Border width
+                TOOLTIP_INITIAL_WIDTH,
+                TOOLTIP_INITIAL_HEIGHT,
+                TOOLTIP_BORDER_WIDTH, // Border width
                 CopyFromParent as i32,
                 InputOutput as u32,
                 std::ptr::null_mut(),
@@ -79,8 +94,8 @@ impl TooltipWindow {
                 return Err("Failed to create graphics context".to_string());
             }
 
-            // Set text color to black
-            (xlib.XSetForeground)(display, gc, 0x000000);
+            // Set text color
+            (xlib.XSetForeground)(display, gc, TOOLTIP_TEXT_COLOR);
 
             Ok(Self {
                 xlib,
@@ -107,9 +122,9 @@ impl TooltipWindow {
             self.text = text.to_string();
 
             // Calculate window size based on text length
-            let text_width = (text.len() as f32 * 7.0 + 10.0) as u32; // ~7px per char + padding
-            let text_width = text_width.min(400).max(50); // Clamp between 50-400px
-            let text_height = 25u32;
+            let text_width = (text.len() as f32 * TOOLTIP_CHAR_WIDTH_PX + TOOLTIP_PADDING_PX) as u32;
+            let text_width = text_width.min(TOOLTIP_MAX_WIDTH).max(TOOLTIP_MIN_WIDTH);
+            let text_height = TOOLTIP_HEIGHT;
 
             // Convert position to physical coordinates
             let physical_pos = position.to_physical(dpi_factor.inner.get());
@@ -128,10 +143,10 @@ impl TooltipWindow {
                 self.display,
                 self.window,
                 self.gc,
-                5,  // X offset
-                17, // Y offset (baseline)
+                TOOLTIP_TEXT_X_OFFSET,
+                TOOLTIP_TEXT_Y_OFFSET,
                 c_text.as_ptr(),
-                text.len() as i32,
+                c_text.to_bytes().len() as i32,
             );
 
             // Show window if not already visible
@@ -180,6 +195,7 @@ impl Drop for TooltipWindow {
             if self.window != 0 {
                 (self.xlib.XDestroyWindow)(self.display, self.window);
             }
+            (self.xlib.XFlush)(self.display);
         }
     }
 }
