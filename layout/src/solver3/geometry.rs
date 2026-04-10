@@ -1,4 +1,8 @@
-//! TODO: Move these to CSS module
+//! Box model geometry types and writing-mode support for the layout solver.
+//!
+//! Provides edge-size types (`EdgeSizes`, `ResolvedBoxProps`, `PackedBoxProps`),
+//! CSS value resolution (`UnresolvedMargin`, `UnresolvedEdge`, `ResolutionParams`),
+//! intrinsic sizing (`IntrinsicSizes`), and writing-mode context (`WritingModeContext`).
 
 use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -43,10 +47,6 @@ pub struct EdgeSizes {
 }
 
 impl EdgeSizes {
-    pub fn zero() -> Self {
-        Self { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 }
-    }
-
     /// Sum of horizontal edges (left + right).
     pub fn horizontal_sum(&self) -> f32 {
         self.left + self.right
@@ -236,7 +236,10 @@ impl ResolutionParams {
     pub fn to_resolution_context(&self) -> ResolutionContext {
         ResolutionContext {
             element_font_size: self.element_font_size,
-            parent_font_size: self.element_font_size, // For em in non-font properties
+            // For non-font properties, `em` resolves against the element's own
+            // computed font-size, so parent_font_size == element_font_size here.
+            // Do NOT use this context for font-size resolution itself.
+            parent_font_size: self.element_font_size,
             root_font_size: self.root_font_size,
             element_size: None,
             containing_block_size: PhysicalSize::new(
@@ -500,7 +503,7 @@ impl PackedBoxProps {
     }
 }
 
-// Verwende die Typen aus azul_css für float und clear
+// Re-export float and clear types from azul_css
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 
 // +spec:intrinsic-sizing:af39b6 - min-content, max-content, and stretch fit size definitions
@@ -532,13 +535,6 @@ pub struct IntrinsicSizes {
     pub max_content_height: f32,
     /// The height specified by CSS properties, if any.
     pub preferred_height: Option<f32>,
-}
-
-impl IntrinsicSizes {
-    /// Creates a zero-sized IntrinsicSizes.
-    pub fn zero() -> Self {
-        Self::default()
-    }
 }
 
 // ============================================================================
