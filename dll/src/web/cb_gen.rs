@@ -6,9 +6,8 @@
 //! 3. Lifts each via remill → LLVM IR → WASM
 //! 4. Relinks calls to Az* functions as imports from azul-mini.wasm
 //!
-//! Phase 0: Returns empty — all callbacks execute server-side.
+//! Not yet implemented — all callbacks currently execute server-side.
 
-use std::collections::HashMap;
 
 /// A discovered callback and its WASM module (if transpiled).
 #[derive(Debug, Clone)]
@@ -26,10 +25,9 @@ pub struct CallbackWasm {
 
 /// Discover all user callbacks and attempt transpilation.
 ///
-/// Phase 0: Returns empty vec — no callbacks are transpiled,
-/// all execute server-side via POST requests.
+/// Not yet implemented — returns an empty vec; all callbacks
+/// execute server-side via POST requests.
 pub fn discover_and_transpile_callbacks() -> Vec<CallbackWasm> {
-    // Phase 0 stub: no callbacks transpiled.
-    // Future: walk DOM tree, collect fn pointers, lift via remill.
+    // TODO: walk DOM tree, collect fn pointers, lift via remill.
     Vec::new()
 }
