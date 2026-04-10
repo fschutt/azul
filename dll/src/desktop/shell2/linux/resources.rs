@@ -12,7 +12,7 @@ use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::log_debug;
 
 /// Shared resources for all windows in a Linux application
 ///
@@ -58,22 +58,10 @@ impl AppResources {
 
         log_debug!(
             LogCategory::Resources,
-            "[AppResources] System style detected:"
-        );
-        log_debug!(
-            LogCategory::Resources,
-            "  Platform: {:?}",
-            system_style.platform
-        );
-        log_debug!(LogCategory::Resources, "  Theme: {:?}", system_style.theme);
-        log_debug!(
-            LogCategory::Resources,
-            "  UI Font: {:?}",
-            system_style.fonts.ui_font
-        );
-        log_debug!(
-            LogCategory::Resources,
-            "  Accent Color: {:?}",
+            "[AppResources] System style detected: platform={:?}, theme={:?}, ui_font={:?}, accent={:?}",
+            system_style.platform,
+            system_style.theme,
+            system_style.fonts.ui_font,
             system_style.colors.accent
         );
 
