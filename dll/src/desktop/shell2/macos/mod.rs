@@ -119,6 +119,15 @@ extern "C" {
 
 const kIOPMAssertionLevelOn: u32 = 255;
 
+/// Timer interval for ~60 FPS tick callbacks (16ms).
+const TIMER_INTERVAL_60FPS: f64 = 0.016;
+
+/// Base DPI value (1x scale = 96 DPI on macOS/Windows).
+const BASE_DPI: f32 = 96.0;
+
+/// Minimum cursor height for IME candidate window positioning.
+const MIN_IME_CURSOR_HEIGHT: f32 = 16.0;
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum RenderBackend {
     OpenGL,
@@ -402,7 +411,7 @@ define_class!(
         fn key_down(&self, event: &NSEvent) {
             let key_code = unsafe { event.keyCode() };
             let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
-            eprintln!("[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
+            log_trace!(LogCategory::Input, "[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
                 self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                     let w = &*(ptr as *const MacOSWindow);
                     w.common.layout_window.as_ref()
@@ -421,10 +430,10 @@ define_class!(
                 // doCommandBySelector which bypasses IME entirely.
                 let ime_handled_by_context = unsafe {
                     if let Some(ctx) = self.inputContext() {
-                        eprintln!("[IME keyDown] calling inputContext.handleEvent...");
+                        log_trace!(LogCategory::Input, "[IME keyDown] calling inputContext.handleEvent...");
                         ctx.handleEvent(event)
                     } else {
-                        eprintln!("[IME keyDown] WARNING: inputContext() returned None!");
+                        log_warn!(LogCategory::Input, "[IME keyDown] inputContext() returned None!");
                         false
                     }
                 };
@@ -434,7 +443,7 @@ define_class!(
                 // still need handle_key_down for cursor movement when no composition
                 // is active.
                 let ime_consumed = self.ivars().ime_key_handled.get();
-                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
+                log_trace!(LogCategory::Input, "[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
                 if ime_consumed {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
@@ -447,7 +456,7 @@ define_class!(
                 }
             }
 
-            eprintln!("[IME keyDown] falling through to handle_key_down");
+            log_trace!(LogCategory::Input, "[IME keyDown] falling through to handle_key_down");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -630,9 +639,10 @@ define_class!(
                 }
             }
 
-            // Create new tracking area for mouse enter/exit events
+            // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
+                | NSTrackingAreaOptions::MouseMoved
                 | NSTrackingAreaOptions::ActiveInKeyWindow
                 | NSTrackingAreaOptions::InVisibleRect;
 
@@ -698,7 +708,7 @@ define_class!(
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.is_some())
             }).unwrap_or(false);
-            eprintln!("[IME hasMarkedText] -> {}", has);
+            log_trace!(LogCategory::Input, "[IME hasMarkedText] -> {}", has);
             has
         }
 
@@ -741,7 +751,7 @@ define_class!(
             } else {
                 String::new()
             };
-            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
+            log_trace!(LogCategory::Input, "[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
@@ -784,7 +794,7 @@ define_class!(
 
         #[unsafe(method_id(validAttributesForMarkedText))]
         fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
-            eprintln!("[IME validAttributesForMarkedText] called");
+            log_trace!(LogCategory::Input, "[IME validAttributesForMarkedText] called");
             unsafe { objc2_foundation::NSArray::new() }
         }
 
@@ -807,7 +817,7 @@ define_class!(
             } else {
                 String::new()
             };
-            eprintln!("[IME insertText] text='{}'", committed_text);
+            log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -843,7 +853,7 @@ define_class!(
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => {
-                    eprintln!("[IME firstRect] no window_ptr");
+                    log_trace!(LogCategory::Input, "[IME firstRect] no window_ptr");
                     return NSRect::ZERO;
                 }
             };
@@ -863,14 +873,14 @@ define_class!(
                         match window.common.current_window_state.ime_position {
                             ImePosition::Initialized(r) => r,
                             _ => {
-                                eprintln!("[IME firstRect] no cursor rect, no ime_position");
+                                log_trace!(LogCategory::Input, "[IME firstRect] no cursor rect, no ime_position");
                                 return NSRect::ZERO;
                             }
                         }
                     }
                 };
 
-                eprintln!("[IME firstRect] cursor at ({}, {}) size ({}, {})",
+                log_trace!(LogCategory::Input, "[IME firstRect] cursor at ({}, {}) size ({}, {})",
                     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
 
                 // Convert from top-left (azul) to bottom-left (macOS) view coordinates
@@ -878,11 +888,11 @@ define_class!(
                 let window_local = NSRect {
                     origin: NSPoint {
                         x: rect.origin.x as f64,
-                        y: content_height - rect.origin.y as f64 - rect.size.height.max(16.0) as f64,
+                        y: content_height - rect.origin.y as f64 - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
                     },
                     size: NSSize {
                         width: rect.size.width.max(1.0) as f64,
-                        height: rect.size.height.max(16.0) as f64,
+                        height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
                     },
                 };
                 // Convert from view-local to screen coordinates
@@ -892,7 +902,7 @@ define_class!(
 
         #[unsafe(method(doCommandBySelector:))]
         fn do_command_by_selector(&self, selector: objc2::runtime::Sel) {
-            eprintln!("[IME doCommandBySelector] selector={:?}", selector.name());
+            log_trace!(LogCategory::Input, "[IME doCommandBySelector] selector={:?}", selector.name());
             // Don't call super — prevents NSBeep for "unhandled" commands.
             // Don't set ime_key_handled — arrow keys / backspace / enter should
             // still fall through to handle_key_down for processing.
@@ -1208,7 +1218,7 @@ define_class!(
         fn key_down(&self, event: &NSEvent) {
             let key_code = unsafe { event.keyCode() };
             let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
-            eprintln!("[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
+            log_trace!(LogCategory::Input, "[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
                 self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
                     let w = &*(ptr as *const MacOSWindow);
                     w.common.layout_window.as_ref()
@@ -1227,10 +1237,10 @@ define_class!(
                 // doCommandBySelector which bypasses IME entirely.
                 let ime_handled_by_context = unsafe {
                     if let Some(ctx) = self.inputContext() {
-                        eprintln!("[IME keyDown] calling inputContext.handleEvent...");
+                        log_trace!(LogCategory::Input, "[IME keyDown] calling inputContext.handleEvent...");
                         ctx.handleEvent(event)
                     } else {
-                        eprintln!("[IME keyDown] WARNING: inputContext() returned None!");
+                        log_warn!(LogCategory::Input, "[IME keyDown] inputContext() returned None!");
                         false
                     }
                 };
@@ -1240,7 +1250,7 @@ define_class!(
                 // still need handle_key_down for cursor movement when no composition
                 // is active.
                 let ime_consumed = self.ivars().ime_key_handled.get();
-                eprintln!("[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
+                log_trace!(LogCategory::Input, "[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
                 if ime_consumed {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
@@ -1253,7 +1263,7 @@ define_class!(
                 }
             }
 
-            eprintln!("[IME keyDown] falling through to handle_key_down");
+            log_trace!(LogCategory::Input, "[IME keyDown] falling through to handle_key_down");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -1511,7 +1521,7 @@ define_class!(
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.is_some())
             }).unwrap_or(false);
-            eprintln!("[IME hasMarkedText] -> {}", has);
+            log_trace!(LogCategory::Input, "[IME hasMarkedText] -> {}", has);
             has
         }
 
@@ -1551,7 +1561,7 @@ define_class!(
             } else {
                 String::new()
             };
-            eprintln!("[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
+            log_trace!(LogCategory::Input, "[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
@@ -1594,7 +1604,7 @@ define_class!(
 
         #[unsafe(method_id(validAttributesForMarkedText))]
         fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
-            eprintln!("[IME validAttributesForMarkedText] called");
+            log_trace!(LogCategory::Input, "[IME validAttributesForMarkedText] called");
             unsafe { objc2_foundation::NSArray::new() }
         }
 
@@ -1617,22 +1627,22 @@ define_class!(
             } else {
                 String::new()
             };
-            eprintln!("[IME insertText] text='{}'", committed_text);
+            log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => return,
             };
 
+            if committed_text.is_empty() {
+                return;
+            }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ref mut lw) = macos_window.common.layout_window {
                     lw.text_edit_manager.clear_preedit();
                 }
-                if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                    let text = ns_string.to_string();
-                    macos_window.handle_text_input(&text);
-                }
+                macos_window.handle_text_input(&committed_text);
             }
         }
 
@@ -1652,7 +1662,7 @@ define_class!(
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => {
-                    eprintln!("[IME firstRect] no window_ptr");
+                    log_trace!(LogCategory::Input, "[IME firstRect] no window_ptr");
                     return NSRect::ZERO;
                 }
             };
@@ -1672,14 +1682,14 @@ define_class!(
                         match window.common.current_window_state.ime_position {
                             ImePosition::Initialized(r) => r,
                             _ => {
-                                eprintln!("[IME firstRect] no cursor rect, no ime_position");
+                                log_trace!(LogCategory::Input, "[IME firstRect] no cursor rect, no ime_position");
                                 return NSRect::ZERO;
                             }
                         }
                     }
                 };
 
-                eprintln!("[IME firstRect] cursor at ({}, {}) size ({}, {})",
+                log_trace!(LogCategory::Input, "[IME firstRect] cursor at ({}, {}) size ({}, {})",
                     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
 
                 // Convert from top-left (azul) to bottom-left (macOS) view coordinates
@@ -1687,11 +1697,11 @@ define_class!(
                 let window_local = NSRect {
                     origin: NSPoint {
                         x: rect.origin.x as f64,
-                        y: content_height - rect.origin.y as f64 - rect.size.height.max(16.0) as f64,
+                        y: content_height - rect.origin.y as f64 - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
                     },
                     size: NSSize {
                         width: rect.size.width.max(1.0) as f64,
-                        height: rect.size.height.max(16.0) as f64,
+                        height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
                     },
                 };
                 // Convert from view-local to screen coordinates
@@ -1718,7 +1728,7 @@ impl GLView {
         // Start the timer tick loop - this will invoke timer callbacks every 16ms
         // and reschedule itself via performSelector:withObject:afterDelay:
         use objc2::sel;
-        let delay: f64 = 0.016;
+        let delay: f64 = TIMER_INTERVAL_60FPS;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
@@ -1739,7 +1749,7 @@ impl CPUView {
         // Start the timer tick loop - this will invoke timer callbacks every 16ms
         // and reschedule itself via performSelector:withObject:afterDelay:
         use objc2::sel;
-        let delay: f64 = 0.016;
+        let delay: f64 = TIMER_INTERVAL_60FPS;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
@@ -2384,7 +2394,7 @@ impl event::PlatformWindow for MacOSWindow {
         // Create a timer that fires every 16ms (~60 FPS) to poll threads
         let ns_window = self.window.clone();
         let timer: Retained<NSTimer> = unsafe {
-            let interval: f64 = 0.016; // 16ms
+            let interval: f64 = TIMER_INTERVAL_60FPS;
             msg_send_id![
                 NSTimer::class(),
                 scheduledTimerWithTimeInterval: interval,
@@ -3166,7 +3176,7 @@ impl MacOSWindow {
         };
 
         // Initialize window state with actual HiDPI factor from screen
-        let actual_dpi = (actual_hidpi_factor * 96.0) as u32; // Convert scale factor to DPI
+        let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
         let mut current_window_state = FullWindowState {
             window_id: options.window_state.window_id.clone(),
             title: options.window_state.title.clone(),
@@ -3744,7 +3754,7 @@ impl MacOSWindow {
         );
 
         // Update window state with new DPI
-        self.common.current_window_state.size.dpi = (new_hidpi.inner.get() * 96.0) as u32;
+        self.common.current_window_state.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32;
 
         // Regenerate layout with new DPI
         self.regenerate_layout()?;
@@ -4218,7 +4228,7 @@ impl MacOSWindow {
             // Create a timer that fires every 16ms (60 FPS)
             // Using scheduledTimerWithTimeInterval for simplicity
             let timer: Retained<NSTimer> = unsafe {
-                let interval: f64 = 0.016; // 16ms
+                let interval: f64 = TIMER_INTERVAL_60FPS;
                 msg_send_id![
                     NSTimer::class(),
                     scheduledTimerWithTimeInterval: interval,
@@ -4631,7 +4641,7 @@ impl MacOSWindow {
                     .map(|screen| screen.backingScaleFactor() as f32)
                     .unwrap_or(1.0)
             };
-            self.common.current_window_state.size.dpi = (scale_factor * 96.0) as u32;
+            self.common.current_window_state.size.dpi = (scale_factor * BASE_DPI) as u32;
 
             // Mark frame as needing regeneration
             self.common.frame_needs_regeneration = true;
@@ -5259,7 +5269,7 @@ impl MacOSWindow {
             self.common.display_list_dirty = false;
             needs_rebuild
         } else if self.common.display_list_dirty {
-            eprintln!("[RENDER] display_list_dirty=true, regenerating display list. preedit={:?}",
+            log_trace!(LogCategory::Rendering, "[RENDER] display_list_dirty=true, regenerating display list. preedit={:?}",
                 self.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.clone()));
             // Regenerate the display list from the layout tree so it picks up
             // preedit text, cursor changes, selection changes, etc.
@@ -5383,7 +5393,7 @@ impl MacOSWindow {
                 let ws = &layout_window.current_window_state;
                 let width = ws.size.dimensions.width;
                 let height = ws.size.dimensions.height;
-                let dpi = ws.size.dpi as f32 / 96.0;
+                let dpi = ws.size.dpi as f32 / BASE_DPI;
 
                 if width > 0.0 && height > 0.0 {
                     let scroll_offsets = layout_window.scroll_manager
@@ -5476,7 +5486,7 @@ impl MacOSWindow {
         // ─── GPU backend: WebRender transaction ───
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
-        eprintln!("[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
+        log_trace!(LogCategory::Rendering, "[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
             display_list_needs_rebuild, self.common.frame_needs_regeneration, self.common.display_list_initialized);
         if display_list_needs_rebuild {
             // Full rebuild: fonts, images, display lists, everything
@@ -5549,7 +5559,7 @@ impl MacOSWindow {
                     // Store WebRender's dirty rects for per-rect compositor invalidation.
                     // request_redraw() uses these to call setNeedsDisplayInRect: instead
                     // of setNeedsDisplay: so macOS only recomposites changed regions.
-                    let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+                    let dpi_scale = self.common.current_window_state.size.dpi as f32 / BASE_DPI;
                     self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
                         azul_core::geom::LogicalRect {
                             origin: azul_core::geom::LogicalPosition {
