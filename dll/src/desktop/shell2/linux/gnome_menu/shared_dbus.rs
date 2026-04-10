@@ -47,21 +47,9 @@ pub fn get_shared_dbus_lib() -> Option<Rc<DBusLib>> {
 
 /// Check if DBus library is available
 ///
-/// This is a quick check without trying to load the library.
+/// Returns `true` if the library can be (or has been) loaded successfully.
 pub fn is_dbus_available() -> bool {
-    unsafe {
-        INIT.call_once(|| {
-            // Ensure initialization
-            get_shared_dbus_lib();
-        });
-
-        if let Some(ref lib_mutex) = DBUS_LIB {
-            let guard = lib_mutex.lock().unwrap();
-            guard.is_some()
-        } else {
-            false
-        }
-    }
+    get_shared_dbus_lib().is_some()
 }
 
 #[cfg(test)]
