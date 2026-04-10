@@ -2,14 +2,23 @@
 //!
 //! This module bridges between azul-layout's DisplayList and WebRender's rendering pipeline.
 //! It handles both GPU (hardware) and CPU (software) rendering paths.
+//!
+//! The main entry point is [`translate_displaylist_to_wr`], which iterates over an azul
+//! `DisplayList` and emits the corresponding WebRender display list primitives.  Three
+//! stacks manage the coordinate translation:
+//!
+//! - **clip_stack** – tracks nested clip chain IDs (`PushClip` / `PopClip`)
+//! - **spatial_stack** – tracks spatial nodes (`PushScrollFrame` / `PushReferenceFrame`)
+//! - **offset_stack** – converts absolute window coordinates to frame-relative coordinates
+//!
+//! Called from `generate_frame` in `wr_translate2.rs`.
 
 use alloc::collections::BTreeMap;
 
 use azul_core::{
     dom::DomId,
-    geom::LogicalSize,
     hit_test::PipelineId as AzulPipelineId,
-    resources::{DpiScaleFactor, FontInstanceKey, GlyphOptions, ImageRefHash, PrimitiveFlags},
+    resources::{DpiScaleFactor, FontInstanceKey, ImageRefHash},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::{
@@ -23,15 +32,15 @@ use azul_layout::{
 use webrender::{
     api::{
         units::{
-            DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
+            DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
             LayoutVector2D,
         },
-        APZScrollGeneration, AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
+        AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
         BoxShadowClipMode as WrBoxShadowClipMode,
         BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
         ClipMode as WrClipMode, ColorF, CommonItemProperties,
         ComplexClipRegion as WrComplexClipRegion, ConicGradient as WrConicGradient,
-        DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ExtendMode as WrExtendMode,
+        DisplayListBuilder as WrDisplayListBuilder, ExtendMode as WrExtendMode,
         ExternalScrollId, FilterOp as WrFilterOp, Gradient as WrGradient,
         GradientStop as WrGradientStop,
         HasScrollLinkedEffect, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
@@ -40,13 +49,12 @@ use webrender::{
         SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
-    Transaction,
 };
 
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::wr_translate2::{
     translate_image_key, wr_translate_border_radius, wr_translate_color_f,
-    wr_translate_logical_size, wr_translate_pipeline_id,
+    wr_translate_pipeline_id,
 };
 use crate::log_debug;
 
@@ -67,7 +75,7 @@ fn scale_bounds_to_layout_rect(bounds: &azul_core::geom::LogicalRect, dpi: f32) 
 /// This combines DPI scaling **and** scroll-frame offset subtraction so that
 /// callers cannot accidentally forget one of the two conversion steps.
 ///
-/// See `doc/SCROLL_COORDINATE_ARCHITECTURE.md` for design rationale.
+/// See `scripts/SCROLL_COORDINATE_ARCHITECTURE.md` for design rationale.
 #[inline]
 fn resolve_rect(
     bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
@@ -209,7 +217,6 @@ pub fn translate_displaylist_to_wr(
     }
 
     // Translate display list items to WebRender
-    let mut in_reference_frame = false;
     for item in &display_list.items {
         match item {
             DisplayListItem::Rect {
@@ -1433,11 +1440,9 @@ pub fn translate_displaylist_to_wr(
                 // NO offset push - origin is (0,0), items keep absolute coordinates.
                 spatial_stack.push(new_spatial_id);
 
-                in_reference_frame = true;
             }
 
             DisplayListItem::PopReferenceFrame => {
-                in_reference_frame = false;
                 builder.pop_reference_frame();
                 spatial_stack.pop();
                 // NO offset_stack.pop() - we didn't push one
@@ -1588,8 +1593,8 @@ pub fn translate_displaylist_to_wr(
                 let layout_rect = CssLayoutRect {
                     origin: CssLayoutPoint::new(0, 0),
                     size: CssLayoutSize {
-                        width: scaled_width as isize,
-                        height: scaled_height as isize,
+                        width: scaled_width.round() as isize,
+                        height: scaled_height.round() as isize,
                     },
                 };
 
@@ -2466,7 +2471,7 @@ fn push_text(
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
     log_debug!(LogCategory::DisplayList,
-        "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, container_origin=({}, {}), dpi={}",
+        "[push_text] Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, container_origin=({}, {}), dpi={}",
         wr_glyphs.len(),
         wr_font_instance_key,
         wr_color,
