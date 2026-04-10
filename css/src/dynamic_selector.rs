@@ -555,14 +555,22 @@ fn parse_linux_version(s: &str) -> Option<OsVersion> {
 }
 
 /// Linux desktop environment for `@os-version linux de` CSS selectors
+///
+/// Note: `from_system_desktop_env` currently only maps Gnome, KDE, and Other.
+/// XFCE, Unity, Cinnamon, and MATE can be matched via CSS parsing (`@os-version linux de xfce`)
+/// but will not be auto-detected from the system — they map to `Other` at runtime.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LinuxDesktopEnv {
     Gnome,
     KDE,
+    /// CSS-parse-only: not auto-detected from system (maps to `Other` at runtime)
     XFCE,
+    /// CSS-parse-only: not auto-detected from system (maps to `Other` at runtime)
     Unity,
+    /// CSS-parse-only: not auto-detected from system (maps to `Other` at runtime)
     Cinnamon,
+    /// CSS-parse-only: not auto-detected from system (maps to `Other` at runtime)
     MATE,
     Other,
 }
@@ -693,6 +701,11 @@ impl_option!(
     [Debug, Clone, Copy, PartialEq, Eq, Hash]
 );
 
+/// Default viewport width used when actual window size is not yet known.
+pub const DEFAULT_VIEWPORT_WIDTH: f32 = 800.0;
+/// Default viewport height used when actual window size is not yet known.
+pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
+
 /// Context for evaluating dynamic selectors
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -742,8 +755,8 @@ impl Default for DynamicSelectorContext {
             desktop_env: OptionLinuxDesktopEnv::None,
             theme: ThemeCondition::Light,
             media_type: MediaType::Screen,
-            viewport_width: 800.0,
-            viewport_height: 600.0,
+            viewport_width: DEFAULT_VIEWPORT_WIDTH,
+            viewport_height: DEFAULT_VIEWPORT_HEIGHT,
             container_width: f32::NAN,
             container_height: f32::NAN,
             container_name: OptionString::None,
@@ -774,8 +787,8 @@ impl DynamicSelectorContext {
             desktop_env,
             theme,
             media_type: MediaType::Screen,
-            viewport_width: 800.0, // Will be updated with window size
-            viewport_height: 600.0,
+            viewport_width: DEFAULT_VIEWPORT_WIDTH, // Will be updated with window size
+            viewport_height: DEFAULT_VIEWPORT_HEIGHT,
             container_width: f32::NAN,
             container_height: f32::NAN,
             container_name: OptionString::None,
