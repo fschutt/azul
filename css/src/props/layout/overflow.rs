@@ -308,6 +308,7 @@ impl PrintAsCssValue for StyleOverflowClipMargin {
     fn print_as_css_value(&self) -> String {
         let edge = self.clip_edge.print_as_css_value();
         let len = self.inner.print_as_css_value();
+        #[allow(clippy::float_cmp)] // exact zero check: value is default-initialized, not computed
         if self.inner.number.get() == 0.0 {
             edge
         } else if self.clip_edge == VisualBox::PaddingBox {
