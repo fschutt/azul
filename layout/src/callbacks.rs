@@ -751,7 +751,9 @@ impl CallbackInfo {
             // Read-only data (single reference to consolidated refs)
             // SAFETY: We cast away the lifetime 'a to 'static because CallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
-            ref_data: unsafe { core::mem::transmute(ref_data) },
+            // SAFETY: pointer cast only — erases lifetime 'a to 'static.
+            // CallbackInfo only lives for the duration of the callback, which is shorter than 'a.
+            ref_data: ref_data as *const CallbackInfoRefData<'a> as *const CallbackInfoRefData<'static>,
 
             // Context info (immutable event data)
             hit_dom_node,
@@ -772,7 +774,8 @@ impl CallbackInfo {
         cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
-            ref_data: unsafe { core::mem::transmute(ref_data) },
+            // SAFETY: pointer cast only — erases lifetime 'a to 'static.
+            ref_data: ref_data as *const CallbackInfoRefData<'a> as *const CallbackInfoRefData<'static>,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -1774,10 +1777,13 @@ impl CallbackInfo {
 
     // Public query Api
     // All methods below delegate to LayoutWindow for read-only access
+
+    /// Get the logical size of a node, or `None` if the node doesn't exist
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         self.get_layout_window().get_node_size(node_id)
     }
 
+    /// Get the logical position of a node, or `None` if the node doesn't exist
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.get_layout_window().get_node_position(node_id)
     }
@@ -1854,6 +1860,7 @@ impl CallbackInfo {
 
     // Node Hierarchy Navigation
 
+    /// Get the DOM node that was hit by the event that triggered this callback
     pub fn get_hit_node(&self) -> DomNodeId {
         self.hit_dom_node
     }
@@ -1873,6 +1880,7 @@ impl CallbackInfo {
         node_data.is_anonymous()
     }
 
+    /// Get the parent of a node, skipping anonymous (table-generated) nodes
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -1896,6 +1904,7 @@ impl CallbackInfo {
         }
     }
 
+    /// Get the previous sibling of a node, skipping anonymous nodes
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -1919,6 +1928,7 @@ impl CallbackInfo {
         }
     }
 
+    /// Get the next sibling of a node, skipping anonymous nodes
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -1942,6 +1952,7 @@ impl CallbackInfo {
         }
     }
 
+    /// Get the first child of a node, skipping anonymous nodes
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -1965,6 +1976,7 @@ impl CallbackInfo {
         }
     }
 
+    /// Get the last child of a node, skipping anonymous nodes
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -1990,6 +2002,7 @@ impl CallbackInfo {
 
     // Node Data and State
 
+    /// Get the dataset (user-attached `RefAny`) of a node, or `None` if unset
     pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -1999,6 +2012,7 @@ impl CallbackInfo {
         node_data.get_dataset().cloned()
     }
 
+    /// Find the root-level node whose dataset matches the type of `search_key`
     pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
         let mut found: Option<(u64, DomNodeId)> = None;
         let search_type_id = search_key.get_type_id();
@@ -2038,6 +2052,7 @@ impl CallbackInfo {
         found.map(|s| s.1)
     }
 
+    /// Get the text content of a text node, or `None` if the node is not a text node
     pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -2150,27 +2165,6 @@ impl CallbackInfo {
                     return Some(nv.value.clone());
                 }
                 _ => continue,
-            }
-        }
-
-        // Fallback: check attributes for "id" and "class"
-        if attr_name == "id" {
-            for attr in node_data.attributes().as_ref().iter() {
-                if let Some(id) = attr.as_id() {
-                    return Some(id.to_string().into());
-                }
-            }
-        }
-
-        if attr_name == "class" {
-            let classes: Vec<&str> = node_data
-                .attributes()
-                .as_ref()
-                .iter()
-                .filter_map(|attr| attr.as_class())
-                .collect();
-            if !classes.is_empty() {
-                return Some(classes.join(" ").into());
             }
         }
 
@@ -3385,7 +3379,7 @@ impl CallbackInfo {
     pub fn get_scroll_offset(&self) -> Option<LogicalPosition> {
         self.get_scroll_offset_for_node(
             self.hit_dom_node.dom,
-            self.hit_dom_node.node.into_crate_internal().unwrap(),
+            self.hit_dom_node.node.into_crate_internal()?,
         )
     }
 
@@ -3687,12 +3681,7 @@ impl CallbackInfo {
     /// # Arguments
     /// * `content` - The clipboard content to write to system clipboard
     pub fn set_clipboard_content(&mut self, content: ClipboardContent) {
-        // Queue the clipboard content to be set after callback returns
-        // This will be picked up by the clipboard manager
-        self.push_change(CallbackChange::SetCopyContent {
-            target: self.hit_dom_node,
-            content,
-        });
+        self.set_copy_content(self.hit_dom_node, content);
     }
 
     /// Set/modify the clipboard content before a copy operation
@@ -4089,21 +4078,6 @@ pub struct ExternalSystemCallbacks {
 }
 
 impl ExternalSystemCallbacks {
-    #[cfg(not(feature = "std"))]
-    pub fn rust_internal() -> Self {
-        use crate::thread::create_thread_libstd;
-
-        Self {
-            create_thread_fn: CreateThreadCallback {
-                cb: create_thread_libstd,
-            },
-            get_system_time_fn: GetSystemTimeCallback {
-                cb: azul_core::task::get_system_time_libstd,
-            },
-        }
-    }
-
-    #[cfg(feature = "std")]
     pub fn rust_internal() -> Self {
         use crate::thread::create_thread_libstd;
 
