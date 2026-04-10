@@ -19,6 +19,10 @@
 //! 3. Apply break-before/break-after rules
 //! 4. Split or defer content as needed
 //! 5. Handle orphans/widows for text content
+//!
+//! **Note**: `solver3/pagination.rs` provides an alternative page-layout implementation
+//! with its own `PageGeometer`, `PageTemplate`, and `PageMargins`. See that module for
+//! the currently active paged-layout pipeline.
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::fmt;
@@ -159,7 +163,17 @@ pub enum PageSlotContent {
     Dynamic(Arc<DynamicSlotContentFn>),
 }
 
-/// Wrapper for dynamic slot content functions to allow Debug impl
+/// Wrapper for dynamic slot content functions to allow Debug impl.
+///
+/// Use [`DynamicSlotContentFn::new`] to wrap a closure, then place it
+/// inside [`PageSlotContent::Dynamic`] via `Arc`:
+///
+/// ```ignore
+/// let func = DynamicSlotContentFn::new(|counter| {
+///     format!("Page {}", counter.page_number)
+/// });
+/// let content = PageSlotContent::Dynamic(Arc::new(func));
+/// ```
 pub struct DynamicSlotContentFn {
     func: Box<dyn Fn(&PageCounter) -> String + Send + Sync>,
 }
@@ -238,6 +252,9 @@ impl Default for PageTemplate {
     }
 }
 
+/// Default font size in points for page template slots
+const DEFAULT_SLOT_FONT_SIZE_PT: f32 = 10.0;
+
 impl PageTemplate {
     pub fn new() -> Self {
         Self::default()
@@ -249,7 +266,7 @@ impl PageTemplate {
         self.slots.push(PageSlot {
             position: PageSlotPosition::BottomCenter,
             content: PageSlotContent::PageNumber(PageNumberStyle::Decimal),
-            font_size_pt: Some(10.0),
+            font_size_pt: Some(DEFAULT_SLOT_FONT_SIZE_PT),
             color: None,
         });
         self
@@ -261,7 +278,7 @@ impl PageTemplate {
         self.slots.push(PageSlot {
             position: PageSlotPosition::BottomCenter,
             content: PageSlotContent::PageOfTotal,
-            font_size_pt: Some(10.0),
+            font_size_pt: Some(DEFAULT_SLOT_FONT_SIZE_PT),
             color: None,
         });
         self
@@ -273,13 +290,13 @@ impl PageTemplate {
         self.slots.push(PageSlot {
             position: PageSlotPosition::TopLeft,
             content: PageSlotContent::Text(title),
-            font_size_pt: Some(10.0),
+            font_size_pt: Some(DEFAULT_SLOT_FONT_SIZE_PT),
             color: None,
         });
         self.slots.push(PageSlot {
             position: PageSlotPosition::TopRight,
             content: PageSlotContent::PageNumber(PageNumberStyle::Decimal),
-            font_size_pt: Some(10.0),
+            font_size_pt: Some(DEFAULT_SLOT_FONT_SIZE_PT),
             color: None,
         });
         self
@@ -287,17 +304,12 @@ impl PageTemplate {
 
     /// Get slots for a specific page (handles left/right page differences)
     pub fn slots_for_page(&self, page_number: usize) -> &[PageSlot] {
-        let is_left_page = page_number % 2 == 0;
-        if is_left_page {
-            if let Some(ref left_slots) = self.left_page_slots {
-                return left_slots;
-            }
+        let override_slots = if page_number % 2 == 0 {
+            self.left_page_slots.as_deref()
         } else {
-            if let Some(ref right_slots) = self.right_page_slots {
-                return right_slots;
-            }
-        }
-        &self.slots
+            self.right_page_slots.as_deref()
+        };
+        override_slots.unwrap_or(&self.slots)
     }
 
     /// Check if header should be shown on this page
@@ -600,18 +612,9 @@ impl FragmentationLayoutContext {
 
     /// Recalculate content height based on template
     fn recalculate_content_height(&mut self) {
-        let header = if self.template.show_header(self.current_page + 1) {
-            self.template.header_height
-        } else {
-            0.0
-        };
-        let footer = if self.template.show_footer(self.current_page + 1) {
-            self.template.footer_height
-        } else {
-            0.0
-        };
+        let page_height = self.page_size.height - self.margins.vertical();
         self.page_content_height =
-            self.page_size.height - self.margins.vertical() - header - footer;
+            self.template.content_area_height(page_height, self.current_page + 1);
         self.available_height = self.page_content_height - self.current_y;
     }
 
@@ -661,7 +664,11 @@ impl FragmentationLayoutContext {
         self.avoid_break_before_next = false;
     }
 
-    /// Advance to a left (even) page
+    /// Advance to a left (even) page.
+    ///
+    /// May insert a blank page if the current page is already even,
+    /// in order to land on the next even-numbered page (standard
+    /// recto/verso paged-media behavior).
     pub fn advance_to_left_page(&mut self) {
         self.advance_page();
         if self.current_page % 2 != 0 {
@@ -670,7 +677,11 @@ impl FragmentationLayoutContext {
         }
     }
 
-    /// Advance to a right (odd) page
+    /// Advance to a right (odd) page.
+    ///
+    /// May insert a blank page if the current page is already odd,
+    /// in order to land on the next odd-numbered page (standard
+    /// recto/verso paged-media behavior).
     pub fn advance_to_right_page(&mut self) {
         self.advance_page();
         if self.current_page % 2 == 0 {
@@ -843,7 +854,7 @@ pub fn decide_break(
 fn decide_monolithic_break(
     height: f32,
     ctx: &FragmentationLayoutContext,
-    break_before: PageBreak,
+    _break_before: PageBreak,
 ) -> BreakDecision {
     // Monolithic content cannot be split
     if ctx.can_fit(height) {
@@ -859,9 +870,9 @@ fn decide_monolithic_break(
 
 fn decide_keep_together_break(
     height: f32,
-    priority: KeepTogetherPriority,
+    _priority: KeepTogetherPriority,
     ctx: &FragmentationLayoutContext,
-    break_before: PageBreak,
+    _break_before: PageBreak,
 ) -> BreakDecision {
     if ctx.can_fit(height) {
         BreakDecision::FitOnCurrentPage
@@ -882,9 +893,9 @@ fn decide_keep_together_break(
 
 fn decide_splittable_break(
     min_before: f32,
-    min_after: f32,
+    _min_after: f32,
     ctx: &FragmentationLayoutContext,
-    break_before: PageBreak,
+    _break_before: PageBreak,
 ) -> BreakDecision {
     // For splittable content, we need to consider orphans/widows
     let available = ctx.available_height;
@@ -918,6 +929,10 @@ fn is_avoid_break(page_break: &PageBreak) -> bool {
 }
 
 // Roman numeral conversion
+//
+// Note: Roman numerals and alphabetic numbering have no representation for
+// zero. These functions return `"0"` as a fallback when `n == 0`.
+
 fn to_lower_roman(n: usize) -> String {
     to_upper_roman(n).to_lowercase()
 }
