@@ -1,11 +1,13 @@
+//! Logging initialization (via `fern`) and panic hook setup with backtrace formatting.
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use log::LevelFilter;
 
-use crate::desktop::dialogs::msg_box_ok;
-
+/// Whether to show a message box to the user when a panic occurs.
 pub static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
+/// Configures the global logger using `fern` to write to stdout at the given level.
 #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
 pub fn set_up_logging(log_level: LevelFilter) {
     use std::error::Error;
@@ -78,9 +80,9 @@ pub fn set_up_panic_hooks() {
         let thread_name = thread.name().unwrap_or("<unnamed thread>");
 
         let error_str = format!(
-            "An unexpected panic ocurred, the program has to exit.\r\nPlease report this error \
+            "An unexpected panic occurred, the program has to exit.\r\nPlease report this error \
              and attach the log file found in the directory of the executable.\r\n\r\nThe error \
-             ocurred in: {} in thread {}\r\n\r\nError \
+             occurred in: {} in thread {}\r\n\r\nError \
              information:\r\n{}\r\n\r\nBacktrace:\r\n\r\n{}\r\n",
             location_str.unwrap_or(format!("<unknown location>")),
             thread_name,
@@ -125,8 +127,6 @@ pub fn set_up_panic_hooks() {
                 return format!("{} @ {:?}", UNRESOLVED_FN_STR, ip);
             }
 
-            // skip the first 10 symbols because they belong to the
-            // backtrace library and aren't relevant for debugging
             symbols
                 .iter()
                 .map(|symbol| {
@@ -155,7 +155,7 @@ pub fn set_up_panic_hooks() {
                             .file_name()
                             .unwrap_or(OsStr::new("unresolved file name"))
                             .to_string_lossy();
-                        file_string.push_str(&format!("{}", origin_file_name));
+                        file_string.push_str(&origin_file_name);
                     }
 
                     if let Some(line) = symbol.lineno() {
