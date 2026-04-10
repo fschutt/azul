@@ -3,6 +3,9 @@
 //! This module implements the org.gtk.Menus and org.gtk.Actions interfaces
 //! using the raw libdbus-1 C API loaded via dlopen. This allows GNOME menu
 //! integration without compile-time linking to libdbus.
+//!
+//! Entry points: [`register_menus_interface`] and [`register_actions_interface`],
+//! called from `manager.rs` to set up DBus object path handlers.
 
 use std::{
     collections::HashMap,
@@ -12,12 +15,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{debug_log, DbusAction, DbusMenuGroup, DbusMenuItem, GnomeMenuError};
+use super::{debug_log, DbusAction, DbusMenuGroup, GnomeMenuError};
 use crate::desktop::shell2::linux::dbus::{
     DBusConnection, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
     DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NEED_MEMORY,
     DBUS_HANDLER_RESULT_NOT_YET_HANDLED, DBUS_TYPE_ARRAY, DBUS_TYPE_STRING, DBUS_TYPE_UINT32,
-    DBUS_TYPE_VARIANT,
 };
 
 /// Shared state for DBus message handlers
@@ -236,7 +238,7 @@ unsafe fn handle_menus_start(
     }
 
     // Add menu groups for requested subscriptions
-    let menu_groups = state.menu_groups.lock().unwrap();
+    let menu_groups = state.menu_groups.lock().unwrap_or_else(|e| e.into_inner());
     for group_id in subscriptions {
         if let Some(_group) = menu_groups.get(&group_id) {
             // TODO: Serialize menu group to DBus format
@@ -337,7 +339,7 @@ unsafe fn handle_actions_list(
 ) -> c_int {
     debug_log("Handling List() method");
 
-    let actions = state.actions.lock().unwrap();
+    let actions = state.actions.lock().unwrap_or_else(|e| e.into_inner());
     let action_names: Vec<String> = actions.keys().cloned().collect();
 
     let reply = (state.dbus_lib.dbus_message_new_method_return)(message);
@@ -411,7 +413,7 @@ unsafe fn handle_actions_describe(
     }
 
     let action_name = CStr::from_ptr(name_ptr).to_string_lossy();
-    let actions = state.actions.lock().unwrap();
+    let actions = state.actions.lock().unwrap_or_else(|e| e.into_inner());
 
     let action = match actions.get(action_name.as_ref()) {
         Some(a) => a,
@@ -514,7 +516,7 @@ unsafe fn handle_actions_activate(
 
     // Get and invoke callback
     let callback = {
-        let actions = state.actions.lock().unwrap();
+        let actions = state.actions.lock().unwrap_or_else(|e| e.into_inner());
         match actions.get(&action_name) {
             Some(action) if action.enabled => Some(action.callback.clone()),
             Some(_) => {
