@@ -1,5 +1,8 @@
 //! Generate the azul-loader.js bootstrap script.
 //!
+//! Phase 0 = no WASM transpilation; all callbacks run server-side.
+//! Future phases will move callbacks client-side via WASM.
+//!
 //! Phase 0: Server-side callback execution via fetch() POST.
 //! Includes routing support: intercepts `<a>` clicks with `data-az-route`
 //! and handles browser back/forward via `popstate`.
@@ -109,10 +112,12 @@ if (document.readyState === 'loading') {
 
 /// Content hash for the loader JS (for cache-busting).
 pub fn loader_js_hash(content: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash: u64 = FNV_OFFSET_BASIS;
     for byte in content.as_bytes() {
         hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
+        hash = hash.wrapping_mul(FNV_PRIME);
     }
     format!("{:016x}", hash)
 }
