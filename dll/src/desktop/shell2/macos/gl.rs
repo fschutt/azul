@@ -1,3 +1,8 @@
+//! macOS OpenGL function-pointer loader.
+//!
+//! Opens `OpenGL.framework` via `dlopen` and resolves every GL entry point
+//! with `dlsym`, storing them in a [`GenericGlContext`] for the renderer.
+
 use std::{
     ffi::{c_char, c_void, CString},
     fmt,
@@ -28,8 +33,8 @@ impl fmt::Debug for GlFunctions {
         // Just show the pointer’s numeric value
         write!(
             f,
-            "GlFunctions {{ handle = {:0x?} }}",
-            self._opengl_lib_handle as usize
+            "GlFunctions {{ handle = {:p} }}",
+            self._opengl_lib_handle
         )
     }
 }
@@ -42,10 +47,8 @@ impl GlFunctions {
             (unsafe { dlsym(handle, c_string.as_ptr()) }) as *mut _
         }
 
-        // Typical flags for dlopen:
         const RTLD_NOW: i32 = 2;
-        const RTLD_LOCAL: i32 = 0;
-        const RTLD_GLOBAL: i32 = 8; // Or 0x100 if needed
+        const RTLD_GLOBAL: i32 = 8;
 
         // Full path to Apple’s OpenGL framework library
         // Alternatively: "/System/Library/Frameworks/OpenGL.framework/OpenGL"
@@ -59,7 +62,7 @@ impl GlFunctions {
             return Err("Could not dlopen OpenGL.framework/OpenGL".to_string());
         }
 
-        // Zero-init the entire function table
+        // Load all GL function pointers from the framework
         let context = GenericGlContext {
             glAccum: get_func("glAccum", handle),
             glActiveTexture: get_func("glActiveTexture", handle),
