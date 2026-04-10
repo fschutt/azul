@@ -17,6 +17,10 @@
 //!
 //! These link modes are mutually exclusive. If neither is enabled, only the
 //! desktop module is exported as a regular Rust library.
+//!
+//! ### Optional Features
+//! - `web`: Enable the web backend (serve the app as HTML over HTTP)
+//! - `python-extension`: Build as a Python extension module (PyInit_azul)
 
 #![deny(improper_ctypes_definitions)]
 #![allow(unused_imports)]
