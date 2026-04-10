@@ -101,13 +101,17 @@ fn configure_dynamic_linking(target: &str) {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
 
-    // Skip link directives when compiling azul-dll itself — we produce the
-    // library, not consume it.  The cdylib output would otherwise try to
-    // link against its own output ("can't link a dylib with itself").
-    let out_dir = env::var("OUT_DIR").unwrap_or_default();
-    if out_dir.contains("azul-dll") || out_dir.contains("azul_dll") {
+    // When build-dll or link-static is also active, dynamic linking is unused.
+    if env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
+        || env::var("CARGO_FEATURE_LINK_STATIC").is_ok()
+    {
         return;
     }
+
+    // To avoid the cdylib output linking against itself ("can't link a dylib
+    // with itself"), we copy the prebuilt dylib into OUT_DIR and point the
+    // search path there instead of target/release/.
+    let out_dir = env::var("OUT_DIR").unwrap_or_default();
 
     if target.contains("ios") {
         println!("cargo:warning=link-dynamic on iOS: consider link-static for production");
@@ -140,20 +144,38 @@ fn configure_dynamic_linking(target: &str) {
     // Try shared library first
     for dir in &dirs {
         if probe_dir(dir, target) {
-            println!("cargo:rustc-link-search=native={}", dir.display());
+            let src = dir.join(lib_filename(target));
+
+            // Copy the dylib into OUT_DIR and link from there, so the
+            // cdylib output in target/release/ doesn't self-link.
+            let link_dir = PathBuf::from(&out_dir);
+            let dst = link_dir.join(lib_filename(target));
+            if src != dst && src.exists() {
+                let _ = fs::copy(&src, &dst);
+                // On macOS, change the install_name of the copy so the linker
+                // doesn't consider it the same dylib being built.
+                if target.contains("apple") {
+                    let _ = Command::new("install_name_tool")
+                        .args(["-id", "@rpath/libazul.dylib"])
+                        .arg(&dst)
+                        .status();
+                }
+            }
+            println!("cargo:rustc-link-search=native={}", link_dir.display());
             println!("cargo:rustc-link-lib=dylib=azul");
+
             if target.contains("apple") {
                 println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
                 println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
             } else if !target.contains("windows") {
                 println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
             }
-            // Copy dylib next to the binary for runtime discovery
+
+            // Also copy next to the final binary for runtime discovery
             if let Some(ref bd) = bin_dir {
-                let src = dir.join(lib_filename(target));
-                let dst = bd.join(lib_filename(target));
-                if src != dst && src.exists() {
-                    let _ = fs::copy(&src, &dst);
+                let rt_dst = bd.join(lib_filename(target));
+                if src != rt_dst && src.exists() {
+                    let _ = fs::copy(&src, &rt_dst);
                 }
             }
             return;
