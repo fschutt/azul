@@ -8,6 +8,9 @@ use std::time::Duration;
 use azul_layout::managers::clipboard::ClipboardManager;
 use x11_clipboard::Clipboard;
 
+use super::super::super::common::debug_server::LogCategory;
+use crate::log_error;
+
 /// Synchronize clipboard manager content to X11 system clipboard
 ///
 /// This is called after user callbacks to commit clipboard changes.
@@ -17,7 +20,9 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
     // Check if there's pending content to copy
     if let Some(content) = clipboard_manager.get_copy_content() {
         // Write to X11 clipboard
-        let _ = write_to_clipboard(&content.plain_text);
+        if let Err(e) = write_to_clipboard(&content.plain_text) {
+            log_error!(LogCategory::Resources, "Failed to sync clipboard to X11: {e}");
+        }
     }
 
     // Clear the clipboard manager after sync
@@ -56,6 +61,9 @@ pub fn write_to_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> 
 ///
 /// Attempts to read from CLIPBOARD selection first, falls back to PRIMARY.
 /// Returns the clipboard text content if available.
+///
+/// Note: Each selection read uses a 3-second timeout, so this function may
+/// block for up to 6 seconds in the worst case (both selections time out).
 pub fn get_clipboard_content() -> Option<String> {
     let clipboard = Clipboard::new().ok()?;
     let timeout = Duration::from_secs(3);
