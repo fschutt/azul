@@ -1,7 +1,11 @@
 //! Window registry for multi-window support
 //!
 //! This module provides a centralized registry for managing multiple Win32 windows.
-//! Uses thread-local storage for simplicity and to avoid complex Rc<RefCell> patterns.
+//! Uses thread-local storage for simplicity and to avoid complex `Rc<RefCell>` patterns.
+//!
+//! Public API: `register_window`, `unregister_window`, `get_window`,
+//! `get_all_window_handles`, `is_empty`, `window_count`.
+//! Primary consumers are `run.rs` (event loop) and `mod.rs` (window lifecycle).
 
 use std::{cell::RefCell, collections::BTreeMap};
 
