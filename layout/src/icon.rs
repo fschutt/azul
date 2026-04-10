@@ -29,11 +29,8 @@ use alloc::{
 };
 
 use azul_css::{
-    AzString, OptionString, 
     system::SystemStyle,
     props::basic::{FontRef, StyleFontFamily, StyleFontFamilyVec},
-    props::basic::font::StyleFontSize,
-    props::basic::color::ColorU,
     props::basic::length::FloatValue,
     props::layout::{LayoutWidth, LayoutHeight},
     props::property::CssProperty,
@@ -44,19 +41,21 @@ use azul_css::{
 };
 
 use azul_core::{
-    dom::{Dom, NodeData, NodeType, AccessibilityInfo, AccessibilityRole, OptionDomNodeId, AccessibilityStateVec},
-    icon::{IconProviderHandle, IconResolverCallbackType},
+    dom::{Dom, NodeData},
+    icon::IconProviderHandle,
     refany::{OptionRefAny, RefAny},
     resources::ImageRef,
     styled_dom::StyledDom,
-    window::OptionVirtualKeyCodeCombo,
 };
 
 // ============================================================================
 // Icon Data Marker Structs (for RefAny::downcast)
 // ============================================================================
 
-/// Marker for image-based icon data stored in RefAny
+/// Image-based icon data stored in `RefAny` for the icon resolver.
+///
+/// Pass to `register_image_icon` or wrap in `RefAny::new(...)` and register
+/// directly via `IconProviderHandle::register_icon`.
 pub struct ImageIconData {
     pub image: ImageRef,
     /// Width duplicated from ImageRef at registration time
@@ -65,7 +64,10 @@ pub struct ImageIconData {
     pub height: f32,
 }
 
-/// Marker for font-based icon data stored in RefAny
+/// Font-based icon data stored in `RefAny` for the icon resolver.
+///
+/// Pass to `register_font_icon` or wrap in `RefAny::new(...)` and register
+/// directly via `IconProviderHandle::register_icon`.
 pub struct FontIconData {
     pub font: FontRef,
     /// The character/codepoint for this specific icon (e.g., "\u{e88a}" for home)
