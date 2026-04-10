@@ -15,10 +15,11 @@ pub const CG_MAIN_DISPLAY_ID: CGDirectDisplayID = 0;
 
 /// Core Graphics function pointers loaded via dlopen
 pub struct CoreGraphicsFunctions {
+    /// Function pointer to `CGMainDisplayID()` — returns the display ID of the main display
     cg_main_display_id: unsafe extern "C" fn() -> CGDirectDisplayID,
+    /// Function pointer to `CGDisplayBounds()` — returns the bounding rectangle of a display
     cg_display_bounds: unsafe extern "C" fn(display: CGDirectDisplayID) -> objc2_foundation::NSRect,
-
-    // Keep the library handle to prevent unloading
+    /// Loaded library handle — kept alive to prevent unloading the function pointers
     #[allow(dead_code)]
     lib: libloading::Library,
 }
@@ -86,12 +87,8 @@ pub fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CG
             return None;
         }
 
-        // Try to cast to NSNumber and extract u32
+        // Cast to NSNumber and extract u32 (value is known non-null from check above)
         let ns_number = value as *const NSNumber;
-        if ns_number.is_null() {
-            return None;
-        }
-
         let display_id: u32 = msg_send![ns_number, unsignedIntValue];
         Some(display_id)
     }
@@ -115,12 +112,10 @@ pub fn compute_monitor_hash(
     // Hash display ID (stable across sessions for the same physical monitor)
     display_id.hash(&mut hasher);
 
-    // Hash bounds dimensions (width, height)
+    // Hash bounds dimensions (width, height) using to_bits() to preserve exact f64 representation
     // We don't hash position because it can change when monitors are rearranged
-    let width = bounds.size.width as u64;
-    let height = bounds.size.height as u64;
-    width.hash(&mut hasher);
-    height.hash(&mut hasher);
+    bounds.size.width.to_bits().hash(&mut hasher);
+    bounds.size.height.to_bits().hash(&mut hasher);
 
     hasher.finish()
 }
