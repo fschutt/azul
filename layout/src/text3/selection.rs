@@ -8,14 +8,14 @@ use crate::text3::cache::{PositionedItem, ShapedCluster, ShapedItem, UnifiedLayo
 
 /// Select the word at the given cursor position
 ///
-/// Uses Unicode word boundaries to determine word start/end.
-/// Returns a SelectionRange covering the entire word.
+/// Uses a simple word character heuristic (alphanumeric and underscore)
+/// to determine word start/end. Returns a SelectionRange covering the entire word.
 pub fn select_word_at_cursor(
     cursor: &TextCursor,
     layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
     // Find the item containing this cursor
-    let (item_idx, cluster) = find_cluster_at_cursor(cursor, layout)?;
+    let (item_idx, _cluster) = find_cluster_at_cursor(cursor, layout)?;
 
     // Get the text from this cluster and surrounding clusters on the same line
     let line_text = extract_line_text_at_item(item_idx, layout);
@@ -116,18 +116,11 @@ fn find_cluster_at_cursor<'a>(
 fn extract_line_text_at_item(item_idx: usize, layout: &UnifiedLayout) -> String {
     let line_index = layout.items[item_idx].line_index;
 
-    let mut text = String::new();
-    for item in &layout.items {
-        if item.line_index != line_index {
-            continue;
-        }
-
-        if let ShapedItem::Cluster(cluster) = &item.item {
-            text.push_str(&cluster.text);
-        }
-    }
-
-    text
+    layout.items.iter()
+        .filter(|item| item.line_index == line_index)
+        .filter_map(|item| item.item.as_cluster())
+        .map(|c| c.text.as_str())
+        .collect()
 }
 
 /// Find word boundaries around the given byte offset
@@ -140,7 +133,7 @@ fn find_word_boundaries(text: &str, cursor_offset: usize) -> (usize, usize) {
 
     // Find word start (scan backwards)
     let mut word_start = 0;
-    let mut char_indices: Vec<(usize, char)> = text.char_indices().collect();
+    let char_indices: Vec<(usize, char)> = text.char_indices().collect();
 
     for (i, (byte_idx, ch)) in char_indices.iter().enumerate().rev() {
         if *byte_idx >= cursor_offset {
