@@ -2,7 +2,7 @@
 //!
 //! This module provides the resource management and rendering pipeline for
 //! running Azul applications without any platform windowing APIs. It works
-//! in combination with `StubWindow` (in `dll/src/desktop/shell2/stub/`) which
+//! in combination with `HeadlessWindow` (in `dll/src/desktop/shell2/headless/`) which
 //! provides the `PlatformWindow` trait implementation.
 //!
 //! # Architecture
@@ -39,7 +39,7 @@
 //!
 //! | Concern             | GPU Path                | Headless Path          |
 //! |---------------------|-------------------------|------------------------|
-//! | Window              | NSWindow / HWND / X11   | StubWindow (no-op)     |
+//! | Window              | NSWindow / HWND / X11   | HeadlessWindow (no-op) |
 //! | OpenGL              | GlContextPtr            | None                   |
 //! | Renderer            | webrender::Renderer     | None (skip)            |
 //! | RenderApi           | WrRenderApi             | None (skip)            |
@@ -82,18 +82,6 @@
 //! ```bash
 //! AZUL_HEADLESS=1 AZUL_DEBUG=1 ./my_azul_app
 //! ```
-//!
-//! ## Future: Screenshots
-//!
-//! Screenshot support will use the existing `cpurender` module:
-//!
-//! ```rust,ignore
-//! use azul_layout::headless::HeadlessRenderer;
-//!
-//! let renderer = HeadlessRenderer::new(800.0, 600.0, 2.0);
-//! let pixmap = renderer.render_frame(&display_list, &renderer_resources)?;
-//! pixmap.save_png("screenshot.png")?;
-//! ```
 
 use std::collections::BTreeMap;
 
@@ -120,6 +108,9 @@ pub struct HeadlessConfig {
     pub max_iterations: Option<usize>,
 }
 
+/// Default safety limit for event loop iterations in headless/test mode.
+const DEFAULT_MAX_ITERATIONS: usize = 1000;
+
 impl Default for HeadlessConfig {
     fn default() -> Self {
         Self {
@@ -127,7 +118,7 @@ impl Default for HeadlessConfig {
             height: 600.0,
             dpi_factor: 1.0,
             enable_rendering: false,
-            max_iterations: Some(1000),
+            max_iterations: Some(DEFAULT_MAX_ITERATIONS),
         }
     }
 }
@@ -158,6 +149,7 @@ pub struct CpuHitTester {
 /// A single entry in the CPU hit test acceleration structure.
 #[derive(Debug, Clone)]
 struct HitTestEntry {
+    /// The DOM node that this entry corresponds to.
     node_id: NodeId,
     /// Absolute position and size of this node in logical pixels.
     rect: LogicalRect,
@@ -266,9 +258,9 @@ impl CpuHitTester {
 /// Simple point-in-rect test.
 fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
     point.x >= rect.origin.x
-        && point.x <= rect.origin.x + rect.size.width
+        && point.x < rect.origin.x + rect.size.width
         && point.y >= rect.origin.y
-        && point.y <= rect.origin.y + rect.size.height
+        && point.y < rect.origin.y + rect.size.height
 }
 
 /// Headless renderer for CPU-based screenshot capture.
@@ -328,7 +320,7 @@ mod tests {
         assert_eq!(config.height, 600.0);
         assert_eq!(config.dpi_factor, 1.0);
         assert!(!config.enable_rendering);
-        assert_eq!(config.max_iterations, Some(1000));
+        assert_eq!(config.max_iterations, Some(DEFAULT_MAX_ITERATIONS));
     }
 
     #[test]
