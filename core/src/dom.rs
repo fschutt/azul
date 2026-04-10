@@ -2742,8 +2742,9 @@ impl NodeData {
     }
 
     /// Parse CSS from a string and add as unconditional properties
-    /// 
+    ///
     /// Deprecated: Use `set_css()` for full selector support
+    #[deprecated(note = "Use set_css() for full selector support")]
     pub fn set_inline_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let parsed_vec = parsed.into_library_owned_vec();
@@ -2755,15 +2756,17 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the normal state
-    /// 
+    ///
     /// Deprecated: Use `with_css()` for full selector support
+    #[deprecated(note = "Use with_css() for full selector support")]
     pub fn with_inline_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_style(style);
         self
     }
-    
+
     /// Parse and set CSS styles with full selector support.
-    /// 
+    ///
     /// This is the unified API for setting inline CSS on a node. It supports:
     /// - Simple properties: `color: red; font-size: 14px;`
     /// - Pseudo-selectors: `:hover { background: blue; }`
@@ -2795,8 +2798,9 @@ impl NodeData {
     }
 
     /// Sets inline CSS styles for the hover state, parsing from a CSS string
-    /// 
+    ///
     /// Deprecated: Use `with_css(":hover { ... }")` instead
+    #[deprecated(note = "Use set_css(\":hover { ... }\") instead")]
     pub fn set_inline_hover_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse_hover(style);
         let mut current = Vec::new().into();
@@ -2807,16 +2811,19 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the hover state
-    /// 
+    ///
     /// Deprecated: Use `with_css(":hover { ... }")` instead
+    #[deprecated(note = "Use with_css(\":hover { ... }\") instead")]
     pub fn with_inline_hover_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_hover_style(style);
         self
     }
 
     /// Sets inline CSS styles for the active state, parsing from a CSS string
-    /// 
+    ///
     /// Deprecated: Use `with_css(":active { ... }")` instead
+    #[deprecated(note = "Use set_css(\":active { ... }\") instead")]
     pub fn set_inline_active_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse_active(style);
         let mut current = Vec::new().into();
@@ -2827,16 +2834,19 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the active state
-    /// 
+    ///
     /// Deprecated: Use `with_css(":active { ... }")` instead
+    #[deprecated(note = "Use with_css(\":active { ... }\") instead")]
     pub fn with_inline_active_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_active_style(style);
         self
     }
 
     /// Sets inline CSS styles for the focus state, parsing from a CSS string
-    /// 
+    ///
     /// Deprecated: Use `with_css(":focus { ... }")` instead
+    #[deprecated(note = "Use set_css(\":focus { ... }\") instead")]
     pub fn set_inline_focus_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse_focus(style);
         let mut current = Vec::new().into();
@@ -2847,9 +2857,11 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the focus state
-    /// 
+    ///
     /// Deprecated: Use `with_css(":focus { ... }")` instead
+    #[deprecated(note = "Use with_css(\":focus { ... }\") instead")]
     pub fn with_inline_focus_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_focus_style(style);
         self
     }
@@ -4953,17 +4965,21 @@ impl Dom {
         self
     }
 
+    #[deprecated(note = "Use set_css() for full selector support")]
     pub fn set_inline_style(&mut self, style: &str) {
+        #[allow(deprecated)]
         self.root.set_inline_style(style);
     }
 
+    #[deprecated(note = "Use with_css() for full selector support")]
     pub fn with_inline_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_style(style);
         self
     }
-    
+
     /// Parse and set CSS styles with full selector support.
-    /// 
+    ///
     /// This is the unified API for setting inline CSS on a DOM node. It supports:
     /// - Simple properties: `color: red; font-size: 14px;`
     /// - Pseudo-selectors: `:hover { background: blue; }`
@@ -5006,36 +5022,58 @@ impl Dom {
     }
 
     /// Sets inline CSS styles for the hover state on the root node
-    /// 
+    ///
     /// Deprecated: Use `with_css(":hover { ... }")` instead
+    #[deprecated(note = "Use set_css(\":hover { ... }\") instead")]
     pub fn set_inline_hover_style(&mut self, style: &str) {
+        #[allow(deprecated)]
         self.root.set_inline_hover_style(style);
     }
 
     /// Builder method for setting inline CSS styles for the hover state
+    ///
+    /// Deprecated: Use `with_css(":hover { ... }")` instead
+    #[deprecated(note = "Use with_css(\":hover { ... }\") instead")]
     pub fn with_inline_hover_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_hover_style(style);
         self
     }
 
     /// Sets inline CSS styles for the active state on the root node
+    ///
+    /// Deprecated: Use `with_css(":active { ... }")` instead
+    #[deprecated(note = "Use set_css(\":active { ... }\") instead")]
     pub fn set_inline_active_style(&mut self, style: &str) {
+        #[allow(deprecated)]
         self.root.set_inline_active_style(style);
     }
 
     /// Builder method for setting inline CSS styles for the active state
+    ///
+    /// Deprecated: Use `with_css(":active { ... }")` instead
+    #[deprecated(note = "Use with_css(\":active { ... }\") instead")]
     pub fn with_inline_active_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_active_style(style);
         self
     }
 
     /// Sets inline CSS styles for the focus state on the root node
+    ///
+    /// Deprecated: Use `with_css(":focus { ... }")` instead
+    #[deprecated(note = "Use set_css(\":focus { ... }\") instead")]
     pub fn set_inline_focus_style(&mut self, style: &str) {
+        #[allow(deprecated)]
         self.root.set_inline_focus_style(style);
     }
 
     /// Builder method for setting inline CSS styles for the focus state
+    ///
+    /// Deprecated: Use `with_css(":focus { ... }")` instead
+    #[deprecated(note = "Use with_css(\":focus { ... }\") instead")]
     pub fn with_inline_focus_style(mut self, style: &str) -> Self {
+        #[allow(deprecated)]
         self.set_inline_focus_style(style);
         self
     }
