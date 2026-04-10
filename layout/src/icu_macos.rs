@@ -13,7 +13,7 @@ use core::cmp::Ordering;
 use azul_css::AzString;
 use objc2::rc::Retained;
 use objc2_foundation::{
-    NSArray, NSCalendar, NSCalendarIdentifierGregorian, NSComparisonResult, NSDate,
+    NSArray, NSCalendar, NSCalendarIdentifierGregorian, NSDate,
     NSDateComponents, NSDateFormatter, NSDateFormatterStyle, NSListFormatter, NSLocale, NSNumber,
     NSNumberFormatter, NSNumberFormatterStyle, NSString,
 };
@@ -171,7 +171,7 @@ fn plural_for(n: i64, lang: &str) -> PluralCategory {
         },
         // French, Kabyle: 0 and 1 are "one"
         "fr" | "ff" | "kab" => {
-            if n <= 1 {
+            if n == 0 || n == 1 {
                 PluralCategory::One
             } else {
                 PluralCategory::Other
@@ -222,7 +222,7 @@ impl IcuLocalizer {
     }
 
     pub fn get_region(&self) -> Option<AzString> {
-        self.locale_string.as_str().split('-').nth(1).map(AzString::from)
+        self.locale_string.as_str().split(['-', '_']).nth(1).map(AzString::from)
     }
 
     pub fn set_locale(&mut self, locale_str: &str) -> bool {
@@ -230,6 +230,8 @@ impl IcuLocalizer {
         true
     }
 
+    /// No-op on macOS: Foundation always uses system-provided locale data,
+    /// so externally loaded ICU data blobs are not needed and are silently ignored.
     pub fn load_data_blob(&mut self, _data: Vec<u8>) {
         // no-op: Foundation always uses system locale data
     }
@@ -391,11 +393,7 @@ impl IcuLocalizer {
     }
 
     pub fn sort_strings(&mut self, strings: &mut [AzString]) {
-        strings.sort_by(|a, b| unsafe {
-            let a_ns = NSString::from_str(a.as_str());
-            let b_ns = NSString::from_str(b.as_str());
-            Ordering::from(a_ns.localizedCompare(&b_ns))
-        });
+        strings.sort_by(|a, b| self.compare(a.as_str(), b.as_str()));
     }
 
     pub fn sorted_strings(&mut self, strings: &[AzString]) -> Vec<AzString> {
@@ -408,9 +406,13 @@ impl IcuLocalizer {
         self.compare(a, b) == Ordering::Equal
     }
 
+    /// Returns raw UTF-8 bytes of the string as an identity key.
+    ///
+    /// **Note:** Foundation does not expose raw collation sort keys, so this
+    /// does *not* produce locale-aware ordering.  The result is suitable for
+    /// identity / cache-key use cases only — it will not sort the same way
+    /// as [`compare`](Self::compare).
     pub fn get_sort_key(&mut self, s: &str) -> Vec<u8> {
-        // Foundation doesn't expose raw collation sort keys; return UTF-8 bytes
-        // as a proxy (sufficient for identity / cache-key use cases).
         s.as_bytes().to_vec()
     }
 }
@@ -453,6 +455,11 @@ unsafe fn make_ns_date(year: i32, month: isize, day: isize) -> Option<Retained<N
 unsafe fn make_ns_time(hour: isize, minute: isize, second: isize) -> Option<Retained<NSDate>> {
     let cal = gregorian()?;
     let c = NSDateComponents::new();
+    // Set a known-good date so dateFromComponents doesn't fail
+    // when only time components are provided.
+    c.setYear(2000);
+    c.setMonth(1);
+    c.setDay(1);
     c.setHour(hour);
     c.setMinute(minute);
     c.setSecond(second);
