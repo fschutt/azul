@@ -509,13 +509,7 @@ file other than `{src}`.**
 4. If there are **zero** small fixes to make, output exactly:
    `NO_SMALL_FIXES` and stop immediately.
 5. Otherwise, apply all small fixes to `{abs_src}` using the Edit tool.
-6. After editing, update the report file at `{rpt}` using the Edit tool:
-   - **Remove** every finding section (`### [SEVERITY] ...`) that you fixed.
-   - **Update** the Summary line counts (findings: X high, Y medium, Z low).
-   - Keep all unfixed findings exactly as they are.
-   - If all findings were fixed, replace the Findings section with:
-     `All findings resolved by small-fixes pass.`
-7. Create exactly **one git commit** for the source file ONLY.
+6. Create exactly **one git commit** for the source file ONLY.
 
    **CRITICAL git rules:**
    - Stage ONLY your source file by name: `git add {src}`
@@ -536,6 +530,12 @@ file other than `{src}`.**
    ```
    Keep it concise but specific — the body should let a reviewer understand
    what changed without reading the diff.
+7. **After committing**, update the report file at `{rpt}` using the Edit tool:
+   - **Remove** every finding section (`### [SEVERITY] ...`) that you fixed.
+   - **Update** the Summary line counts (findings: X high, Y medium, Z low).
+   - Keep all unfixed findings exactly as they are.
+   - If all findings were fixed, replace the Findings section with:
+     `All findings resolved by small-fixes pass.`
 
 ## Rules
 
