@@ -1,7 +1,12 @@
 //! Dynamic loading for Wayland and related libraries.
+//!
+//! Provides the [`Wayland`] struct which holds dynamically loaded function
+//! pointers from `libwayland-client`, `libwayland-egl`, and optionally
+//! `libwayland-cursor`. Re-exports [`Library`], [`Xkb`], and [`Gtk3Im`]
+//! from the X11 dlopen module.
 
 use std::{
-    ffi::{c_char, c_void, CStr, CString},
+    ffi::{c_char, c_void},
     rc::Rc,
 };
 
@@ -21,7 +26,7 @@ macro_rules! load_symbol {
     };
 }
 
-// Dynamically loaded Wayland client and EGL functions
+/// Dynamically loaded Wayland client, EGL, and cursor function pointers.
 pub struct Wayland {
     _lib_client: Library,
     _lib_egl: Library,
@@ -193,6 +198,8 @@ pub struct Wayland {
 }
 
 impl Wayland {
+    /// Loads `libwayland-client`, `libwayland-egl`, and optionally
+    /// `libwayland-cursor`, resolving all required symbols.
     pub fn new() -> Result<Rc<Self>, DlError> {
         let lib_client = load_first_available::<Library>(&["libwayland-client.so.0"])?;
         let lib_egl = load_first_available::<Library>(&["libwayland-egl.so.1"])?;
@@ -204,20 +211,17 @@ impl Wayland {
         // so we load them as raw pointers and transmute when calling.
         let wl_proxy_marshal_constructor_ptr = unsafe {
             lib_client
-                .get_symbol::<*const c_void>("wl_proxy_marshal_constructor")
-                .expect("wl_proxy_marshal_constructor not found")
+                .get_symbol::<*const c_void>("wl_proxy_marshal_constructor")?
         };
 
         // Load wl_proxy_marshal and wl_proxy_add_listener once
         let wl_proxy_marshal_ptr = unsafe {
             lib_client
-                .get_symbol::<*const c_void>("wl_proxy_marshal")
-                .expect("wl_proxy_marshal not found")
+                .get_symbol::<*const c_void>("wl_proxy_marshal")?
         };
         let wl_proxy_add_listener_ptr = unsafe {
             lib_client
-                .get_symbol::<*const c_void>("wl_proxy_add_listener")
-                .expect("wl_proxy_add_listener not found")
+                .get_symbol::<*const c_void>("wl_proxy_add_listener")?
         };
 
         Ok(Rc::new(Self {
