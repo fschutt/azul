@@ -4504,8 +4504,7 @@ impl CssProperty {
             CssProperty::SelectionRadius(_) => CssPropertyType::SelectionRadius,
 
             CssProperty::TextJustify(_) => CssPropertyType::TextJustify,
-            CssProperty::LayoutTextJustify(_) => CssPropertyType::TextAlign, /* oder ggf. ein */
-            // eigener Typ
+            CssProperty::LayoutTextJustify(_) => CssPropertyType::TextJustify,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
