@@ -677,8 +677,8 @@ impl RustGenerator {
         // Create RefAny with the trampolines
         builder.line("// Create RefAny using internal new() then set the function pointers");
         builder.line("let mut refany = Self::new(value);");
-        builder.line("refany.set_serialize_fn(serialize::<T> as usize);");
-        builder.line("refany.set_deserialize_fn(deserialize::<T> as usize);");
+        builder.line("refany.set_serialize_fn(serialize::<T> as *const () as usize);");
+        builder.line("refany.set_deserialize_fn(deserialize::<T> as *const () as usize);");
         builder.line("refany");
 
         builder.dedent();

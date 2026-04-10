@@ -1700,7 +1700,7 @@ pub trait PlatformWindow {
             CallbackChange::AddCursor { dom_id, node_id, cursor } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        mc.add_cursor(*cursor);
+                        let _ = mc.add_cursor(*cursor);
                     } else {
                         // Create new MultiCursorState with the cursor
                         let dom_node_id = azul_core::dom::DomNodeId {
@@ -1719,7 +1719,7 @@ pub trait PlatformWindow {
             CallbackChange::AddSelectionRange { dom_id, node_id, range } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        mc.add_selection(*range);
+                        let _ = mc.add_selection(*range);
                     } else {
                         let dom_node_id = azul_core::dom::DomNodeId {
                             dom: *dom_id,
@@ -1737,7 +1737,7 @@ pub trait PlatformWindow {
             CallbackChange::RemoveSelectionById { selection_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        mc.remove_selection(*selection_id);
+                        let _ = mc.remove_selection(*selection_id);
                         lw.text_edit_manager.mark_dirty();
                     }
                 }

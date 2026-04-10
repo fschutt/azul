@@ -378,7 +378,7 @@ fn create_string_menu_item_dom(
             callbacks.push(CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
-                    cb: menu_item_click_callback as usize,
+                    cb: menu_item_click_callback as *const () as usize,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },
                 refany: RefAny::new(callback_data),
@@ -396,7 +396,7 @@ fn create_string_menu_item_dom(
             callbacks.push(CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseOver),
                 callback: CoreCallback {
-                    cb: submenu_hover_callback as usize,
+                    cb: submenu_hover_callback as *const () as usize,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },
                 refany: RefAny::new(submenu_data),

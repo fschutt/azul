@@ -128,7 +128,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
                         callback: CoreCallback {
-                            cb: csd_menubar_item_callback as usize,
+                            cb: csd_menubar_item_callback as *const () as usize,
                             ctx: azul_core::refany::OptionRefAny::None,
                         },
                         refany: RefAny::new(submenu),
