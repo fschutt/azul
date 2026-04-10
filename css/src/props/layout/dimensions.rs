@@ -193,6 +193,20 @@ fn find_value_end(s: &str) -> usize {
     i
 }
 
+/// Format a `CalcAstItemVec` as a CSS `calc(...)` string.
+fn calc_ast_to_css_string(items: &CalcAstItemVec) -> String {
+    let inner: Vec<String> = items.iter().map(|i| match i {
+        CalcAstItem::Value(v) => v.to_string(),
+        CalcAstItem::Add => "+".to_string(),
+        CalcAstItem::Sub => "-".to_string(),
+        CalcAstItem::Mul => "*".to_string(),
+        CalcAstItem::Div => "/".to_string(),
+        CalcAstItem::BraceOpen => "(".to_string(),
+        CalcAstItem::BraceClose => ")".to_string(),
+    }).collect();
+    alloc::format!("calc({})", inner.join(" "))
+}
+
 // -- Type Definitions --
 
 macro_rules! define_dimension_property {
@@ -259,18 +273,7 @@ impl PrintAsCssValue for LayoutWidth {
             LayoutWidth::MinContent => "min-content".to_string(),
             LayoutWidth::MaxContent => "max-content".to_string(),
             LayoutWidth::FitContent(v) => alloc::format!("fit-content({})", v),
-            LayoutWidth::Calc(items) => {
-                let inner: Vec<String> = items.iter().map(|i| match i {
-                    CalcAstItem::Value(v) => v.to_string(),
-                    CalcAstItem::Add => "+".to_string(),
-                    CalcAstItem::Sub => "-".to_string(),
-                    CalcAstItem::Mul => "*".to_string(),
-                    CalcAstItem::Div => "/".to_string(),
-                    CalcAstItem::BraceOpen => "(".to_string(),
-                    CalcAstItem::BraceClose => ")".to_string(),
-                }).collect();
-                alloc::format!("calc({})", inner.join(" "))
-            }
+            LayoutWidth::Calc(items) => calc_ast_to_css_string(items),
         }
     }
 }
@@ -331,18 +334,7 @@ impl PrintAsCssValue for LayoutHeight {
             LayoutHeight::MinContent => "min-content".to_string(),
             LayoutHeight::MaxContent => "max-content".to_string(),
             LayoutHeight::FitContent(v) => alloc::format!("fit-content({})", v),
-            LayoutHeight::Calc(items) => {
-                let inner: Vec<String> = items.iter().map(|i| match i {
-                    CalcAstItem::Value(v) => v.to_string(),
-                    CalcAstItem::Add => "+".to_string(),
-                    CalcAstItem::Sub => "-".to_string(),
-                    CalcAstItem::Mul => "*".to_string(),
-                    CalcAstItem::Div => "/".to_string(),
-                    CalcAstItem::BraceOpen => "(".to_string(),
-                    CalcAstItem::BraceClose => ")".to_string(),
-                }).collect();
-                alloc::format!("calc({})", inner.join(" "))
-            }
+            LayoutHeight::Calc(items) => calc_ast_to_css_string(items),
         }
     }
 }

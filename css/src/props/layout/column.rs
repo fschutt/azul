@@ -22,6 +22,9 @@ use crate::props::{
 
 // --- column-count ---
 
+/// CSS `column-count` property: specifies the number of columns in a multi-column layout.
+///
+/// Values: `auto` or a positive integer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ColumnCount {
@@ -46,6 +49,9 @@ impl PrintAsCssValue for ColumnCount {
 
 // --- column-width ---
 
+/// CSS `column-width` property: specifies the optimal width of columns.
+///
+/// Values: `auto` or a length value (e.g. `200px`, `15em`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ColumnWidth {
@@ -70,6 +76,9 @@ impl PrintAsCssValue for ColumnWidth {
 
 // --- column-span ---
 
+/// CSS `column-span` property: whether an element spans across all columns.
+///
+/// Values: `none` (default) or `all`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum ColumnSpan {
@@ -94,6 +103,9 @@ impl PrintAsCssValue for ColumnSpan {
 
 // --- column-fill ---
 
+/// CSS `column-fill` property: how content is distributed across columns.
+///
+/// Values: `balance` (default) or `auto`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum ColumnFill {
@@ -118,6 +130,9 @@ impl PrintAsCssValue for ColumnFill {
 
 // --- column-rule ---
 
+/// CSS `column-rule-width` property: the width of the rule between columns.
+///
+/// Defaults to `medium` (3px).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ColumnRuleWidth {
@@ -138,6 +153,9 @@ impl PrintAsCssValue for ColumnRuleWidth {
     }
 }
 
+/// CSS `column-rule-style` property: the style of the rule between columns.
+///
+/// Uses `BorderStyle` values (e.g. `none`, `solid`, `dotted`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ColumnRuleStyle {
@@ -158,6 +176,11 @@ impl PrintAsCssValue for ColumnRuleStyle {
     }
 }
 
+/// CSS `column-rule-color` property: the color of the rule between columns.
+///
+/// Per the CSS spec this should default to `currentcolor`, but currently
+/// defaults to black as `currentcolor` requires a resolved-value pass at
+/// layout time.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ColumnRuleColor {
@@ -166,9 +189,10 @@ pub struct ColumnRuleColor {
 
 impl Default for ColumnRuleColor {
     fn default() -> Self {
+        // NOTE: should be `currentcolor` per CSS spec, see doc comment on type
         Self {
             inner: ColorU::BLACK,
-        } // should be `currentcolor`
+        }
     }
 }
 
@@ -286,7 +310,10 @@ pub mod parser {
         pub fn to_shared<'a>(&'a self) -> ColumnCountParseError<'a> {
             match self {
                 Self::InvalidValue(s) => ColumnCountParseError::InvalidValue(s),
-                Self::ParseInt(_) => ColumnCountParseError::InvalidValue("invalid integer"), /* Can't reconstruct */
+                // ParseIntError cannot be reconstructed from its Display string,
+                // so we fall back to a generic message. The original error text
+                // is preserved in the owned `AzString` but not round-trippable.
+                Self::ParseInt(_) => ColumnCountParseError::InvalidValue("invalid integer"),
             }
         }
     }
