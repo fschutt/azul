@@ -2,10 +2,8 @@
 //!
 //! The `Transpiler` trait abstracts over the x86-64 → WASM lifting pipeline.
 //! Phase 0 uses `StubTranspiler` which returns errors for all lift operations.
-//! When remill-rs is available, `RemillTranspiler` will implement this trait
-//! with real x86-64 → LLVM IR → WASM compilation.
-
-use std::collections::HashMap;
+//! When remill-rs is available, a real transpiler will implement this trait
+//! with x86-64 → LLVM IR → WASM compilation.
 
 /// Error returned when a function cannot be transpiled.
 #[derive(Debug, Clone)]
@@ -37,7 +35,7 @@ pub struct WasmModule {
 ///
 /// Implementations:
 /// - `StubTranspiler`: Phase 0 — returns errors, callbacks run server-side
-/// - `RemillTranspiler` (future): Uses remill to lift x86-64 → LLVM IR → WASM
+/// - (future): Real transpiler using remill to lift x86-64 → LLVM IR → WASM
 pub trait Transpiler {
     /// Lift a single function from the running binary into a WASM module.
     ///
@@ -109,6 +107,6 @@ impl Transpiler for StubTranspiler {
 ///
 /// Returns `StubTranspiler` until remill-rs is integrated.
 pub fn default_transpiler() -> Box<dyn Transpiler> {
-    // Future: check for remill availability and return RemillTranspiler
+    // Future: check for remill availability and return a real transpiler
     Box::new(StubTranspiler)
 }
