@@ -1395,7 +1395,7 @@ pub trait PlatformWindow {
             // === Scroll ===
 
             CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
-                eprintln!("[SCROLL] ScrollTo dom={:?} node={:?} pos=({:.1},{:.1}) unclamped={}", dom_id, node_id, position.x, position.y, unclamped);
+                log_debug!(super::debug_server::LogCategory::EventLoop, "[SCROLL] ScrollTo dom={:?} node={:?} pos=({:.1},{:.1}) unclamped={}", dom_id, node_id, position.x, position.y, unclamped);
                 let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
@@ -1541,17 +1541,17 @@ pub trait PlatformWindow {
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     }
                 }
-                ProcessEventResult::ShouldReRenderCurrentWindow
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
-            CallbackChange::MoveCursor { dom_id, node_id, cursor } => {
+            CallbackChange::MoveCursor { dom_id: _, node_id: _, cursor } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(*cursor); }
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
-            CallbackChange::SetSelection { dom_id, node_id, selection } => {
+            CallbackChange::SetSelection { dom_id: _, node_id: _, selection } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     match selection {
                         azul_core::selection::Selection::Cursor(cursor) => {
@@ -2050,7 +2050,8 @@ pub trait PlatformWindow {
                         );
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {
-                    eprintln!(
+                    log_warn!(
+                        super::debug_server::LogCategory::EventLoop,
                         "[azul] SwitchRoute: no route found for pattern '{}'",
                         pattern.as_str(),
                     );
@@ -2098,7 +2099,7 @@ pub trait PlatformWindow {
             }
 
             SystemChange::TextSelectionDrag { start_position, current_position } => {
-                eprintln!("[DRAG] TextSelectionDrag start=({:.1},{:.1}) current=({:.1},{:.1})", start_position.x, start_position.y, current_position.x, current_position.y);
+                log_debug!(super::debug_server::LogCategory::Input, "[DRAG] TextSelectionDrag start=({:.1},{:.1}) current=({:.1},{:.1})", start_position.x, start_position.y, current_position.x, current_position.y);
                 // Suppress text selection if a node drag is active
                 let node_dragging = self.get_layout_window()
                     .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
@@ -2120,7 +2121,7 @@ pub trait PlatformWindow {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                ProcessEventResult::DoNothing
             }
 
             // === Keyboard Shortcuts ===
@@ -2878,12 +2879,6 @@ pub trait PlatformWindow {
                             > = std::collections::BTreeMap::new();
 
                             for node_idx in 0..node_data_container.len() {
-                                let node_id = match NodeId::from_usize(node_idx + 1) {
-                                    // +1 for 1-based encoding
-                                    Some(nid) => nid,
-                                    None => NodeId::new(node_idx),
-                                };
-                                // NodeId::new(idx) creates 0-based NodeId directly
                                 let node_id = NodeId::new(node_idx);
                                 if let Some(nd) = node_data_container.get(node_id) {
                                     let matching_filters: Vec<EventFilter> = nd
@@ -3418,21 +3413,8 @@ pub trait PlatformWindow {
 
         // If DragStart event occurred and we have a hit test, save it in the manager
         // This allows callbacks to query which nodes were hit at drag start
-        if synthetic_events
-            .iter()
-            .any(|e| matches!(e.event_type, azul_core::events::EventType::DragStart))
-        {
-            if let Some(layout_window) = self.get_layout_window_mut() {
-                // Extract first hit from current state (the hovered DOM node)
-                // NOTE: With the unified DragContext system, hit tests are stored
-                // directly in the DragContext when the drag is activated.
-                // No need for separate update_*_hit_test() calls.
-                let _hit_test_clone = hit_test_for_dispatch.as_ref().and_then(|ht| {
-                    // Get first hovered node's hit test
-                    ht.hovered_nodes.values().next().cloned()
-                });
-            }
-        }
+        // NOTE: DragStart hit tests are stored directly in the DragContext
+        // when the drag is activated. No separate hit test update needed here.
 
         // PRE-EVENT-DISPATCH PROCESSING
         // Process input BEFORE event filtering and callback invocation.
@@ -3851,7 +3833,6 @@ pub trait PlatformWindow {
                                                 let line_px: f32 = 20.0;
                                                 let anc_bounds = lw.get_node_bounds(ancestor.dom, anc_node);
                                                 let vp_h = anc_bounds.map(|b| b.size.height as f32).unwrap_or(600.0);
-                                                let vp_w = anc_bounds.map(|b| b.size.width as f32).unwrap_or(800.0);
 
                                                 let magnitude = match amount {
                                                     ScrollAmount::Line => line_px,
