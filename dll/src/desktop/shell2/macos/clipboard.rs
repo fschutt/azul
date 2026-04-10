@@ -1,6 +1,11 @@
-//! macOS clipboard integration
+//! macOS clipboard integration via Cocoa NSPasteboard API
 //!
-//! Uses Cocoa NSPasteboard API via objc bindings
+//! Public API:
+//! - [`sync_clipboard`]: commits pending `ClipboardManager` content to the system pasteboard
+//! - [`get_clipboard_content`]: reads the current pasteboard text
+//! - [`write_to_clipboard`]: writes a string to the pasteboard
+//!
+//! Called from `common/event.rs` during event processing.
 
 use std::mem::transmute;
 
@@ -12,7 +17,6 @@ use objc_id::{Id, Owned};
 use super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
-#[macro_use]
 use objc::{msg_send, sel, sel_impl};
 
 // Required to bring NSPasteboard into the path of the class-resolver
@@ -112,11 +116,17 @@ fn class(name: &str) -> *mut Class {
     unsafe { transmute(Class::get(name)) }
 }
 
+/// Errors that can occur during macOS clipboard operations
 #[derive(Debug, Copy, Clone)]
 pub enum ClipboardError {
+    /// `NSPasteboard` class could not be found in the Objective-C runtime
     PasteboardNotFound,
+    /// `generalPasteboard` returned a null pointer
     NullPasteboard,
+    /// `writeObjects:` call to the pasteboard returned false
     WriteError,
+    /// `readObjectsForClasses:options:` returned null
     ReadError,
+    /// Pasteboard contained no string items
     EmptyClipboard,
 }
