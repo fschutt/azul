@@ -1,8 +1,18 @@
 // +spec:box-model:b3a79e - box assigned same styles as generating element; getters read from styled DOM per node
-//! Getter functions for CSS properties from the styled DOM
+//! Getter functions for CSS properties from the styled DOM.
 //!
 //! This module provides clean, consistent access to CSS properties with proper
-//! fallbacks and type conversions.
+//! fallbacks and type conversions. It is the centralized CSS property access
+//! layer used by the layout solver pipeline (layout_tree → sizing → positioning
+//! → display_list).
+//!
+//! Key components:
+//! - [`MultiValue<T>`] — wrapper preserving CSS cascade semantics (Auto / Initial / Inherit / Exact)
+//! - `get_css_property!` / `get_css_property_pixel!` — macros generating typed getters with
+//!   optional compact-cache fast paths and UA CSS fallback
+//! - Font chain collection and resolution ([`CollectedFontStacks`], [`ResolvedFontChains`])
+//! - Scrollbar style computation ([`ComputedScrollbarStyle`])
+//! - Selection and caret styling ([`SelectionStyle`], [`CaretStyle`])
 
 use azul_core::{
     dom::{NodeId, NodeType},
@@ -390,7 +400,7 @@ macro_rules! get_css_property_pixel {
                 .ptr
                 .$cache_method(node_data, &node_id, node_state);
 
-            // FIX: Check for Auto FIRST - CssPropertyValue::Auto is a valid value
+            // NOTE: Check for Auto FIRST — CssPropertyValue::Auto is a valid value
             // that should NOT fall through to UA CSS. Previously, get_property()
             // returned None for Auto, causing inline "margin: auto" to be ignored.
             if let Some(ref val) = author_css {
@@ -2085,12 +2095,25 @@ pub fn get_selection_style(
     }
 }
 
-/// Style information for caret rendering
-#[derive(Debug, Clone, Copy, Default)]
+/// Style information for caret rendering.
+#[derive(Debug, Clone, Copy)]
 pub struct CaretStyle {
+    /// Color of the caret bar
     pub color: ColorU,
+    /// Width of the caret bar in pixels
     pub width: f32,
+    /// Blink animation duration in milliseconds (0 = no blink)
     pub animation_duration: u32,
+}
+
+impl Default for CaretStyle {
+    fn default() -> Self {
+        Self {
+            color: ColorU::BLACK,
+            width: 2.0,
+            animation_duration: 500,
+        }
+    }
 }
 
 /// Get caret style for a node
@@ -3317,19 +3340,9 @@ pub fn resolve_font_chains(
         chains.insert(cache_key, chain);
     }
 
-    // Create single-font chains for direct FontRefs
-    // These bypass fontconfig and cover the entire Unicode range
-    // NOTE: FontRefs are handled differently - they don't go through fontconfig at all.
-    // The shaping code checks style.font_stack for FontStack::Ref and uses the font directly.
-    // We just need to record that we have these font refs for font loading purposes.
-    for (ptr, _font_ref) in &collected.font_refs {
-        let cache_key = FontChainKeyOrRef::Ref(*ptr);
-        
-        // For FontRef, we create an empty pattern that will be handled specially
-        // during shaping. The font data is already available via the FontRef pointer.
-        // We don't insert anything - the shaping code handles FontStack::Ref directly.
-        let _ = cache_key; // Mark as used
-    }
+    // NOTE: FontRefs bypass fontconfig entirely — the shaping code checks
+    // style.font_stack for FontStack::Ref and uses the font data directly.
+    // No entries are inserted into `chains` for them.
 
     ResolvedFontChains { chains }
 }
@@ -3353,23 +3366,14 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     font_manager: &crate::text3::cache::FontManager<T>,
     platform: &azul_css::system::Platform,
 ) -> ResolvedFontChains {
-    let t0 = std::time::Instant::now();
     let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
-    let collect_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     // Register embedded FontRefs (from the same scan, no second pass)
     for (_ptr, font_ref) in &collected.font_refs {
         font_manager.register_embedded_font(font_ref);
     }
 
-    let t1 = std::time::Instant::now();
-    let resolved = resolve_font_chains(&collected, fc_cache);
-    let resolve_ms = t1.elapsed().as_secs_f64() * 1000.0;
-
-    // Font chain timing is logged via AZ_RECORD, not stderr
-    let _ = (collect_ms, resolve_ms);
-
-    resolved
+    resolve_font_chains(&collected, fc_cache)
 }
 
 /// Legacy wrapper: collect + resolve without registration.
