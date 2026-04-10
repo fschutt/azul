@@ -73,6 +73,7 @@ fn quantize_subpx(frac: f32) -> u8 {
 }
 
 impl GlyphCache {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             paths: HashMap::new(),
@@ -135,6 +136,7 @@ impl GlyphCache {
         }
         let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
         let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
+        debug_assert!(scale >= 0.0 && scale < 65536.0, "scale out of range for fixed-point: {}", scale);
         let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
 
         let cell_key = GlyphCellKey {
@@ -191,12 +193,17 @@ impl GlyphCache {
     /// Called automatically by get_or_build / get_or_build_cells, but can
     /// also be called manually between frames to enforce bounds.
     pub fn evict_if_needed(&mut self) {
-        if self.paths.len() > MAX_PATH_ENTRIES {
+        if self.paths.len() >= MAX_PATH_ENTRIES {
             self.paths.clear();
         }
-        if self.cells.len() > MAX_CELL_ENTRIES {
+        if self.cells.len() >= MAX_CELL_ENTRIES {
             self.cells.clear();
         }
+    }
+
+    /// Returns `true` if the path cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.paths.is_empty()
     }
 
     /// Number of cached path entries.
