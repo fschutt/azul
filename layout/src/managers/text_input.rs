@@ -32,10 +32,8 @@
 //! - preventDefault to cancel the edit
 //! - Consistent behavior across keyboard/IME/A11y sources
 
-use std::collections::BTreeMap;
-
 use azul_core::{
-    dom::{DomId, DomNodeId, NodeId},
+    dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
     selection::TextCursor,
     task::Instant,
@@ -164,10 +162,6 @@ impl TextInputManager {
         old_text: String,
         source: TextInputSource,
     ) -> DomNodeId {
-        // Clear any previous changeset
-        self.pending_changeset = None;
-
-        // Store the new changeset
         self.pending_changeset = Some(PendingTextEdit {
             node,
             inserted_text: inserted_text.into(),
