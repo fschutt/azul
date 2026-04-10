@@ -107,9 +107,10 @@ impl StyleExclusionMarginParseError {
 impl StyleExclusionMarginParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> StyleExclusionMarginParseError {
         match self {
-            Self::FloatValue(e) => {
-                // ParseFloatError doesn't have to_shared, so we recreate it from string
-                StyleExclusionMarginParseError::FloatValue(e.parse::<f32>().unwrap_err())
+            Self::FloatValue(_) => {
+                // ParseFloatError can't be reconstructed from its display string,
+                // so we create one by parsing a known-invalid string
+                StyleExclusionMarginParseError::FloatValue("".parse::<f32>().unwrap_err())
             }
         }
     }
