@@ -137,9 +137,13 @@ macro_rules! define_position_property {
     };
 }
 
+/// Represents the CSS `top` offset property for positioned elements.
 define_position_property!(LayoutTop);
+/// Represents the CSS `right` offset property for positioned elements.
 define_position_property!(LayoutRight);
+/// Represents the CSS `bottom` offset property for positioned elements.
 define_position_property!(LayoutInsetBottom);
+/// Represents the CSS `left` offset property for positioned elements.
 define_position_property!(LayoutLeft);
 
 // -- Parser for LayoutTop
@@ -399,6 +403,11 @@ impl<'a> LayoutZIndexParseError<'a> {
 }
 
 impl LayoutZIndexParseErrorOwned {
+    /// Converts back to the borrowed error type.
+    ///
+    /// **Note:** This conversion is lossy for `ParseInt` — the original
+    /// `core::num::ParseIntError` cannot be reconstructed from its string
+    /// representation, so `ParseInt` is mapped to `InvalidValue` instead.
     pub fn to_shared<'a>(&'a self) -> LayoutZIndexParseError<'a> {
         match self {
             LayoutZIndexParseErrorOwned::InvalidValue(s) => {
