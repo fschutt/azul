@@ -569,6 +569,12 @@ file other than `{src}`.**
 
 ## Rules
 
+- **NEVER delete functional code.**  Before removing any block of code (not
+  moving — *removing*), rigorously verify it is truly dead/unreachable.  Grep
+  for call sites, check if it is invoked via macro, trait impl, or FFI.
+  If there is ANY doubt, skip the removal.  A previous agent deleted a live
+  73-line global CSS cascade block because a review flagged "duplication" —
+  the code was actively used.  Do not repeat this mistake.
 - Edit ONLY `{abs_src}` (source) and `{rpt}` (report).  No other files.
 - Stage and commit ONLY `{src}` — never the report, never other source files.
 - Do NOT run `cargo build`, `cargo test`, `cargo check`, or any compilation.
@@ -1604,6 +1610,12 @@ and wiring up dead code.  You MAY edit multiple files.
 
 ## Rules
 
+- **NEVER delete functional code.**  Before removing any block of code (not
+  moving — *removing*), rigorously verify it is truly dead/unreachable.  Grep
+  for call sites, check if it is invoked via macro, trait impl, or FFI.
+  If there is ANY doubt, skip the removal.  A previous agent deleted a live
+  73-line global CSS cascade block because a review flagged "duplication" —
+  the code was actively used.  Do not repeat this mistake.
 - All public API types must be `#[repr(C)]`.  Do NOT remove `#[repr(C)]`.
 - Do NOT modify `// +spec` comments.
 - Keep changes focused — fix what the report identified, don't go beyond.
