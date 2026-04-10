@@ -17,6 +17,8 @@ pub enum LayoutTextJustify {
     None,
     InterWord,
     InterCharacter,
+    /// Legacy value; the parser maps `"distribute"` to `InterCharacter` per spec.
+    /// Retained for `#[repr(C)]` FFI backward compatibility.
     Distribute,
 }
 
