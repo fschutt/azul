@@ -32,6 +32,11 @@ use crate::{
 };
 use azul_css::LayoutDebugMessage;
 
+/// Delay in ms before scrollbar overlay starts fading out after scroll stops.
+const SCROLLBAR_FADE_DELAY_MS: u64 = 500;
+/// Duration in ms of the scrollbar fade-out animation.
+const SCROLLBAR_FADE_DURATION_MS: u64 = 200;
+
 /// Result of `regenerate_layout()` indicating whether the DOM structure changed.
 ///
 /// When the DOM is structurally unchanged (same node types, hierarchy, classes,
@@ -40,10 +45,13 @@ use azul_css::LayoutDebugMessage;
 /// need to be re-invoked since their content (e.g. GL textures) may have changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutRegenerateResult {
-    /// DOM structure changed — full layout was performed.
+    /// DOM structure changed — full layout was performed
+    /// (CSS cascade, flexbox, and display list were all recomputed).
     LayoutChanged,
     /// DOM structure is unchanged — layout was reused from previous frame.
-    /// Image callbacks still need to be re-invoked.
+    /// Image callbacks still need to be re-invoked since their content
+    /// (e.g. GL textures) may have changed, but the expensive CSS cascade
+    /// and flexbox passes were skipped.
     LayoutUnchanged,
 }
 
@@ -142,7 +150,7 @@ pub fn regenerate_layout(
 
     drop(app_data_borrowed); // Release borrow
 
-    // 1.5. PHASE 7.2: Flatten recursive Dom → StyledDom (single deferred cascade pass)
+    // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
     // The user callback now returns a recursive `Dom` with CSS attached via `.style()`.
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
@@ -194,7 +202,7 @@ pub fn regenerate_layout(
         user_styled_dom
     };
 
-    // 3.4. PHASE 7.1 FIX: Re-compute inheritance and compact cache on the composed tree.
+    // 3.4. Re-compute inheritance and compact cache on the composed tree.
     //
     // The user's layout callback may have merged multiple StyledDom subtrees via
     // append_child(). Each subtree was independently styled (restyle → apply_ua_css
@@ -315,8 +323,11 @@ pub fn regenerate_layout(
     let window_size_changed = {
         let old_dims = layout_window.current_window_state.size.dimensions;
         let new_dims = current_window_state.size.dimensions;
-        (old_dims.width - new_dims.width).abs() > 0.5
-            || (old_dims.height - new_dims.height).abs() > 0.5
+        // Half a logical pixel — below this threshold, size differences are
+        // subpixel rounding noise and do not warrant a full relayout.
+        const SIZE_CHANGE_THRESHOLD: f32 = 0.5;
+        (old_dims.width - new_dims.width).abs() > SIZE_CHANGE_THRESHOLD
+            || (old_dims.height - new_dims.height).abs() > SIZE_CHANGE_THRESHOLD
     };
 
     if !window_size_changed {
@@ -348,7 +359,8 @@ pub fn regenerate_layout(
 
             // Now apply image callback updates to old DOM's node data
             if !image_updates.is_empty() {
-                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID).unwrap();
+                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID)
+                    .expect("layout_result must exist after get() succeeded");
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
                 for (idx, new_cb) in image_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
@@ -363,7 +375,8 @@ pub fn regenerate_layout(
             // so that future events use fresh app state references
             let mut callback_updates: Vec<(usize, azul_core::callbacks::CoreCallbackDataVec)> = Vec::new();
             {
-                let old_nd_ref = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID).unwrap().styled_dom.node_data.as_ref();
+                let old_nd_ref = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID)
+                    .expect("layout_result must exist after get() succeeded").styled_dom.node_data.as_ref();
                 let new_nd_ref = styled_dom.node_data.as_ref();
                 for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate() {
                     if !new_nd.callbacks.as_ref().is_empty() {
@@ -372,7 +385,8 @@ pub fn regenerate_layout(
                 }
             }
             if !callback_updates.is_empty() {
-                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID).unwrap();
+                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID)
+                    .expect("layout_result must exist after get() succeeded");
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
                 for (idx, new_callbacks) in callback_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
@@ -523,8 +537,8 @@ pub fn regenerate_layout(
             *dom_id,
             &layout_result.layout_tree,
             &system_callbacks,
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)), /* fade_delay */
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)), /* fade_duration */
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DELAY_MS)),
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DURATION_MS)),
         );
     }
 
@@ -584,7 +598,7 @@ pub fn incremental_relayout(
 
     // Re-register scrollable nodes
     let now: azul_core::task::Instant = std::time::Instant::now().into();
-    for (_dom_id, layout_result) in &layout_window.layout_results {
+    for (dom_id, layout_result) in &layout_window.layout_results {
         for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
             let scrollbar_info = layout_result.layout_tree.warm(node_idx)
                 .and_then(|w| w.scrollbar_info.as_ref());
@@ -615,7 +629,7 @@ pub fn incremental_relayout(
                         let scrollbar_thickness = scrollbar_info.scrollbar_width
                             .max(scrollbar_info.scrollbar_height);
                         layout_window.scroll_manager.register_or_update_scroll_node(
-                            *_dom_id,
+                            *dom_id,
                             dom_node_id,
                             container_rect,
                             content_size,
@@ -740,70 +754,6 @@ fn apply_runtime_states_before_layout(
     }
 
     styled_dom
-}
-
-/// Apply runtime states (focus, hover, active) to the StyledDom after layout
-/// (DEPRECATED - use apply_runtime_states_before_layout instead)
-///
-/// The layout callback creates a fresh StyledDom where all StyledNodeState fields
-/// are set to their defaults (focused=false, hover=false, active=false).
-/// This function synchronizes those states with the current runtime state from
-/// the various managers (FocusManager, mouse state, etc.).
-///
-/// This is critical for `:focus`, `:hover`, `:active` CSS pseudo-class styling
-/// to work correctly after a DOM refresh.
-#[allow(dead_code)]
-fn apply_runtime_states_to_styled_dom(
-    layout_window: &mut LayoutWindow,
-    current_window_state: &FullWindowState,
-) {
-    // 1. Apply focus state
-    if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
-        if let Some(layout_result) = layout_window.layout_results.get_mut(&focused_node.dom) {
-            if let Some(node_id) = focused_node.node.into_crate_internal() {
-                let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                if let Some(styled_node) = styled_nodes.get_mut(node_id) {
-                    styled_node.styled_node_state.focused = true;
-                    log_debug!(
-                        LogCategory::Layout,
-                        "[apply_runtime_states] Set focused=true for node {:?}",
-                        node_id
-                    );
-                }
-            }
-        }
-    }
-    
-    // 2. Apply hover state based on hover manager
-    // hovered_nodes is BTreeMap<DomId, HitTest>, and HitTest contains regular_hit_test_nodes
-    if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
-        for (dom_id, hit_test) in last_hit_test.hovered_nodes.iter() {
-            if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
-                let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                for (node_id, _hit_item) in hit_test.regular_hit_test_nodes.iter() {
-                    if let Some(styled_node) = styled_nodes.get_mut(*node_id) {
-                        styled_node.styled_node_state.hover = true;
-                    }
-                }
-            }
-        }
-    }
-    
-    // 3. Apply active state (mouse button down on a hovered element)
-    if current_window_state.mouse_state.left_down {
-        if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
-            for (dom_id, hit_test) in last_hit_test.hovered_nodes.iter() {
-                if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
-                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                    for (node_id, _hit_item) in hit_test.regular_hit_test_nodes.iter() {
-                        if let Some(styled_node) = styled_nodes.get_mut(*node_id) {
-                            styled_node.styled_node_state.active = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// Update managers (FocusManager, ScrollManager, etc.) with new NodeIds after DOM reconciliation
