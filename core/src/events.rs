@@ -8,31 +8,20 @@ use alloc::{
     vec::Vec,
 };
 
-use azul_css::{
-    props::{
-        basic::{LayoutPoint, LayoutRect, LayoutSize},
-        property::CssProperty,
-    },
-    AzString, LayoutDebugMessage,
-};
-use rust_fontconfig::FcFontCache;
+use azul_css::AzString;
 
 use crate::{
     callbacks::Update,
     dom::{DomId, DomNodeId, On},
     geom::{LogicalPosition, LogicalRect},
-    gl::OptionGlContextPtr,
-    gpu::GpuEventChanges,
-    hit_test::{FullHitTest, HitTestItem, ScrollPosition},
+    hit_test::{FullHitTest, HitTestItem},
     id::NodeId,
-    resources::{ImageCache, RendererResources},
     styled_dom::{ChangedCssProperty, NodeHierarchyItemId},
     task::Instant,
-    window::RawWindowHandle,
-    FastBTreeSet, FastHashMap,
+    FastHashMap,
 };
 
-/// Easing functions für smooth scrolling (für Scroll-Animationen)
+/// Easing functions for smooth scroll animations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EasingFunction {
     Linear,
@@ -106,8 +95,6 @@ impl ProcessEventResult {
         self.max(other)
     }
 }
-
-// Phase 3.5: New Event System Types
 
 /// Tracks the origin of an event for proper handling.
 ///
@@ -722,8 +709,6 @@ impl SyntheticEvent {
     }
 }
 
-// Phase 3.5, Step 3: Event Propagation System
-
 /// Result of event propagation through DOM tree.
 #[derive(Debug, Clone)]
 pub struct PropagationResult {
@@ -1316,8 +1301,6 @@ fn matches_window_filter(
     }
 }
 
-// Phase 3.5, Step 4: Lifecycle Event Detection
-
 /// Detect lifecycle events by comparing old and new DOM state.
 ///
 /// This is the simple, index-based lifecycle detection that doesn't account for
@@ -1554,8 +1537,6 @@ pub fn detect_lifecycle_events_with_reconciliation(
     }
 }
 
-// Phase 3.5: Event Filter System
-
 /// Event filter that only fires when an element is hovered over.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
@@ -1712,7 +1693,7 @@ impl HoverEventFilter {
             HoverEventFilter::ScrollEnd => Some(FocusEventFilter::ScrollEnd),
             HoverEventFilter::TextInput => Some(FocusEventFilter::TextInput),
             HoverEventFilter::VirtualKeyDown => Some(FocusEventFilter::VirtualKeyDown),
-            HoverEventFilter::VirtualKeyUp => Some(FocusEventFilter::VirtualKeyDown),
+            HoverEventFilter::VirtualKeyUp => Some(FocusEventFilter::VirtualKeyUp),
             HoverEventFilter::HoveredFile => None,
             HoverEventFilter::DroppedFile => None,
             HoverEventFilter::HoveredFileCancelled => None,
@@ -1997,7 +1978,7 @@ impl WindowEventFilter {
             WindowEventFilter::ScrollEnd => Some(HoverEventFilter::ScrollEnd),
             WindowEventFilter::TextInput => Some(HoverEventFilter::TextInput),
             WindowEventFilter::VirtualKeyDown => Some(HoverEventFilter::VirtualKeyDown),
-            WindowEventFilter::VirtualKeyUp => Some(HoverEventFilter::VirtualKeyDown),
+            WindowEventFilter::VirtualKeyUp => Some(HoverEventFilter::VirtualKeyUp),
             WindowEventFilter::HoveredFile => Some(HoverEventFilter::HoveredFile),
             WindowEventFilter::DroppedFile => Some(HoverEventFilter::DroppedFile),
             WindowEventFilter::HoveredFileCancelled => Some(HoverEventFilter::HoveredFileCancelled),
@@ -2215,10 +2196,6 @@ impl From<On> for EventFilter {
 // NOTE: The old dispatch_synthetic_events / CallbackTarget / CallbackToInvoke / EventDispatchResult
 // pipeline has been removed. Event dispatch now goes through dispatch_events_propagated() in
 // event_v2.rs which uses propagate_event() for W3C Capture→Target→Bubble propagation.
-
-/// Process callback results and potentially generate new synthetic events.
-///
-// Unified Event Determination System (Phase 3.5+)
 
 /// Trait for managers to provide their pending events.
 ///
@@ -2756,6 +2733,12 @@ pub extern "C" fn default_input_interpreter_extern(
     _user_data: crate::refany::RefAny,
     info_ptr: *const InputInterpreterInfo<'static>,
 ) -> PreCallbackFilterResult {
+    if info_ptr.is_null() {
+        return PreCallbackFilterResult {
+            system_changes: Vec::new(),
+            user_events: Vec::new(),
+        };
+    }
     let info = unsafe { &*info_ptr };
     default_input_interpreter(info)
 }
