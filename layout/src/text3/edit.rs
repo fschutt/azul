@@ -1,4 +1,8 @@
 //! Pure functions for editing a `Vec<InlineContent>` based on selections.
+//!
+//! Entry points: [`edit_text`] (single edit, multiple cursors),
+//! [`edit_text_multi`] (per-cursor text), and [`inspect_delete`]
+//! (preview what a delete would remove).
 
 use std::sync::Arc;
 
@@ -11,8 +15,11 @@ use crate::text3::cache::{ContentIndex, InlineContent, StyledRun};
 /// An enum representing a single text editing action.
 #[derive(Debug, Clone)]
 pub enum TextEdit {
+    /// Insert the given string at the cursor position.
     Insert(String),
+    /// Delete one grapheme cluster before the cursor (Backspace).
     DeleteBackward,
+    /// Delete one grapheme cluster after the cursor (Delete key).
     DeleteForward,
 }
 
@@ -454,21 +461,9 @@ pub fn edit_text_multi(
     (new_content, new_selections)
 }
 
-/// Inspect what would be deleted by a delete operation without actually deleting
-///
-/// Returns (range_that_would_be_deleted, text_that_would_be_deleted).
-/// This is useful for callbacks to inspect pending delete operations.
-///
-/// # Arguments
-///
-/// - `content` - The current text content
-/// - `selection` - The current selection (cursor or range)
-/// - `forward` - If true, delete forward (Delete key); if false, delete backward (Backspace key)
-///
-/// # Returns
-///
-/// - `Some((range, deleted_text))` - The range and text that would be deleted
-/// - `None` - Nothing would be deleted (e.g., cursor at start/end of document)
+/// Returns the range and text that a delete operation would remove, without
+/// actually modifying the content. Useful for callbacks that need to inspect
+/// pending deletes. Returns `None` if nothing would be deleted.
 pub fn inspect_delete(
     content: &[InlineContent],
     selection: &Selection,
