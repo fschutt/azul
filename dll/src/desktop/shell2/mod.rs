@@ -16,7 +16,7 @@
 //! ├── linux/
 //! │   ├── x11/         X11 implementation (dynamic loading)
 //! │   └── wayland/     Wayland implementation (dynamic loading)
-//! └── stub/            Headless testing backend
+//! └── headless/        Headless testing backend
 //! ```
 //!
 //! # Feature Flags
@@ -28,7 +28,6 @@
 //! # Environment Variables
 //!
 //! - `AZ_BACKEND` - Rendering backend: "auto" (default), "gpu", "cpu", "headless"
-//! - `AZ_DISPLAY` - Force Linux display server: "x11", "wayland" (auto-detect default)
 
 pub mod common;
 
@@ -36,7 +35,7 @@ pub mod common;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "ios")]
-pub mod linux;
+pub mod ios;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "windows")]
@@ -78,6 +77,7 @@ cfg_if::cfg_if! {
 }
 
 /// Get the current windowing backend name.
+#[must_use]
 pub fn get_backend_name() -> &'static str {
     #[cfg(target_os = "macos")]
     return "macos-appkit";
@@ -91,11 +91,10 @@ pub fn get_backend_name() -> &'static str {
     #[cfg(target_os = "linux")]
     {
         // Runtime detection on Linux
-        if std::env::var("AZUL_BACKEND").as_deref() == Ok("x11") {
-            return "linux-x11";
-        }
-        if std::env::var("AZUL_BACKEND").as_deref() == Ok("wayland") {
-            return "linux-wayland";
+        match std::env::var("AZ_BACKEND").as_deref() {
+            Ok("x11") => return "linux-x11",
+            Ok("wayland") => return "linux-wayland",
+            _ => {}
         }
         if std::env::var("WAYLAND_DISPLAY").is_ok() {
             return "linux-wayland";
@@ -116,6 +115,7 @@ pub fn get_backend_name() -> &'static str {
 }
 
 /// Get shell2 version information.
+#[must_use]
 pub fn get_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
