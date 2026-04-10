@@ -1,15 +1,7 @@
 //! CPU compositor stub.
 //!
-//! This is a placeholder for the CPU-based software renderer.
-//!
-//! TODO: Implement based on webrender's sw_compositor.rs
-//! Reference: https://github.com/servo/webrender/blob/master/swgl/src/sw_compositor.rs
-//!
-//! The CPU compositor should:
-//! 1. Rasterize DisplayList to RGBA8 framebuffer
-//! 2. Handle basic primitives: rectangles, text, images, gradients
-//! 3. Support clipping and transformations
-//! 4. Optimize with SIMD where possible
+//! Placeholder for a CPU-based software renderer. Currently only clears
+//! the framebuffer to white — no actual rasterization is implemented yet.
 
 use azul_core::geom::PhysicalSizeU32;
 use azul_layout::solver3::display_list::DisplayList;
@@ -28,7 +20,7 @@ impl CpuCompositor {
     pub fn new_cpu(size: PhysicalSizeU32) -> Result<Self, CompositorError> {
         let width = size.width;
         let height = size.height;
-        let framebuffer = vec![0u8; (width * height * 4) as usize];
+        let framebuffer = vec![0u8; (width as usize) * (height as usize) * 4];
 
         Ok(Self {
             framebuffer,
@@ -77,7 +69,7 @@ impl Compositor for CpuCompositor {
     fn resize(&mut self, new_size: PhysicalSizeU32) -> Result<(), CompositorError> {
         self.width = new_size.width;
         self.height = new_size.height;
-        self.framebuffer = vec![0u8; (self.width * self.height * 4) as usize];
+        self.framebuffer = vec![0u8; (self.width as usize) * (self.height as usize) * 4];
         Ok(())
     }
 
@@ -107,8 +99,6 @@ impl Compositor for CpuCompositor {
 
 #[cfg(test)]
 mod tests {
-    use azul_core::geom::PhysicalSize;
-
     use super::*;
 
     #[test]
@@ -123,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_cpu_compositor_clear() {
-        let size = PhysicalSize {
+        let size = PhysicalSizeU32 {
             width: 2,
             height: 2,
         };
@@ -136,14 +126,14 @@ mod tests {
 
     #[test]
     fn test_cpu_compositor_resize() {
-        let mut compositor = CpuCompositor::new_cpu(PhysicalSize {
+        let mut compositor = CpuCompositor::new_cpu(PhysicalSizeU32 {
             width: 800,
             height: 600,
         })
         .unwrap();
 
         compositor
-            .resize(PhysicalSize {
+            .resize(PhysicalSizeU32 {
                 width: 1024,
                 height: 768,
             })
