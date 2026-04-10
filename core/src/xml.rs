@@ -117,8 +117,11 @@ impl core::ops::DerefMut for XmlAttributeMap {
     }
 }
 
+/// Name of a component argument (e.g. `"text"`, `"href"`).
 pub type ComponentArgumentName = String;
+/// Type of a component argument as a string (e.g. `"String"`, `"bool"`).
 pub type ComponentArgumentType = String;
+/// Zero-based position of an argument in the component's argument list.
 pub type ComponentArgumentOrder = usize;
 
 /// FFI-safe replacement for `(ComponentArgumentName, ComponentArgumentType)` tuple.
@@ -148,9 +151,13 @@ pub struct ComponentArguments {
     pub accepts_text: bool,
 }
 
+/// Name of an XML/HTML component (e.g. `"button"`, `"my-widget"`).
 pub type ComponentName = String;
+/// Compiled source code string for a component.
 pub type CompiledComponent = String;
 
+/// Universal HTML attribute names that are handled by the framework
+/// and should not be passed through to component-specific argument lists.
 pub const DEFAULT_ARGS: [&str; 8] = [
     "id",
     "class",
@@ -162,9 +169,12 @@ pub const DEFAULT_ARGS: [&str; 8] = [
     "args",
 ];
 
+/// Opaque void type for FFI pointers. Uses a custom definition instead of
+/// `core::ffi::c_void` for `#[repr(C)]` compatibility in the generated API.
 #[allow(non_camel_case_types)]
 pub enum c_void {}
 
+/// Type of an XML node in the parsed tree.
 #[repr(C)]
 pub enum XmlNodeType {
     Root,
@@ -174,6 +184,7 @@ pub enum XmlNodeType {
     Text,
 }
 
+/// A namespace-qualified XML name (e.g. `svg:rect` has namespace `"svg"` and local name `"rect"`).
 #[repr(C)]
 pub struct XmlQualifiedName {
     pub local_name: AzString,
@@ -3466,7 +3477,7 @@ fn builtin_map_render_fn(
         .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s.as_str().to_string()), _ => None })
         .unwrap_or_else(|| "[]".to_string());
 
-    let label = alloc::format!("map: {} items", data_str.len());
+    let label = alloc::format!("map: data_json={}", data_str);
     let mut dom = Dom::create_node(NodeType::Div)
         .with_children(alloc::vec![Dom::create_text(label)].into());
     let css = Css::empty();
