@@ -1,7 +1,8 @@
 //! GNOME Menu Manager V2 - Uses dlopen DBus implementation
 //!
-//! This is the new implementation that loads DBus dynamically and uses
-//! low-level protocol handlers from protocol_impl.rs
+//! This is the newer implementation that loads libdbus-1.so dynamically
+//! and uses low-level protocol handlers from protocol_impl.rs.
+//! The older V1 implementation lives in `dbus_connection.rs`.
 
 use std::{
     collections::HashMap,
@@ -35,6 +36,21 @@ pub struct GnomeMenuManager {
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 }
 
+/// Extract the error message string from a DBusError, falling back to "Unknown error".
+///
+/// # Safety
+///
+/// The caller must ensure `error.message` is either null or points to a valid C string.
+unsafe fn dbus_error_message(error: &crate::desktop::shell2::linux::dbus::DBusError) -> String {
+    if !error.message.is_null() {
+        std::ffi::CStr::from_ptr(error.message)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        "Unknown error".to_string()
+    }
+}
+
 impl GnomeMenuManager {
     /// Create a new GNOME menu manager with dlopen DBus
     ///
@@ -45,7 +61,7 @@ impl GnomeMenuManager {
     ///
     /// # Returns
     ///
-    /// Returns `None` if DBus connection fails or GNOME menus not available.
+    /// Returns `Err` if DBus connection fails or GNOME menus not available.
     pub fn new(app_name: &str, dbus_lib: Rc<DBusLib>) -> Result<Self, GnomeMenuError> {
         debug_log(&format!(
             "Creating GNOME menu manager V2 for app: {}",
@@ -89,12 +105,7 @@ impl GnomeMenuManager {
         };
 
         if connection.is_null() {
-            let error_msg = if !error.message.is_null() {
-                let c_str = unsafe { std::ffi::CStr::from_ptr(error.message) };
-                c_str.to_string_lossy().into_owned()
-            } else {
-                "Unknown error".to_string()
-            };
+            let error_msg = unsafe { dbus_error_message(&error) };
             unsafe {
                 (dbus_lib.dbus_error_free)(&mut error);
             }
@@ -118,12 +129,7 @@ impl GnomeMenuManager {
         };
 
         if result < 0 {
-            let error_msg = if !error.message.is_null() {
-                let c_str = unsafe { std::ffi::CStr::from_ptr(error.message) };
-                c_str.to_string_lossy().into_owned()
-            } else {
-                "Unknown error".to_string()
-            };
+            let error_msg = unsafe { dbus_error_message(&error) };
             unsafe {
                 (dbus_lib.dbus_error_free)(&mut error);
                 (dbus_lib.dbus_connection_unref)(connection);
