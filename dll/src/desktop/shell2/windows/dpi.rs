@@ -1,4 +1,10 @@
-#![allow(non_snake_case, unused_unsafe)]
+//! Windows DPI awareness setup and per-window/monitor DPI queries.
+//!
+//! Provides [`DpiFunctions`], which runtime-loads DPI-related Win32 APIs from
+//! user32.dll so the application can support DPI awareness from Windows Vista
+//! through Windows 10 1703+ without hard link-time dependencies.
+
+#![allow(non_snake_case)]
 
 use std::{ffi::c_void, mem};
 
@@ -14,7 +20,7 @@ use winapi::{
     },
     um::{
         wingdi::{GetDeviceCaps, LOGPIXELSX},
-        winuser::{GetDC, IsProcessDPIAware, MonitorFromWindow, MONITOR_DEFAULTTONEAREST},
+        winuser::{GetDC, IsProcessDPIAware, MonitorFromWindow, ReleaseDC, MONITOR_DEFAULTTONEAREST},
     },
 };
 
@@ -53,6 +59,7 @@ pub type AdjustWindowRectExForDpi = unsafe extern "system" fn(
     dpi: u32,
 ) -> BOOL;
 
+/// Runtime-loaded Win32 DPI functions for backward-compatible DPI awareness.
 #[derive(Default, Debug)]
 pub struct DpiFunctions {
     user32_dll_handle: Option<HINSTANCE>,
@@ -68,15 +75,16 @@ pub struct DpiFunctions {
 impl Drop for DpiFunctions {
     fn drop(&mut self) {
         use winapi::um::libloaderapi::FreeLibrary;
-        if let Some(opengl32) = self.user32_dll_handle {
+        if let Some(user32) = self.user32_dll_handle {
             unsafe {
-                FreeLibrary(opengl32);
+                FreeLibrary(user32);
             }
         }
     }
 }
 
 impl DpiFunctions {
+    /// Loads DPI-related functions from user32.dll at runtime.
     pub fn init() -> Self {
         let user32_dll = super::load_dll("user32.dll")
             .map(|dll| unsafe { std::mem::transmute::<_, HINSTANCE>(dll) });
@@ -85,28 +93,28 @@ impl DpiFunctions {
             Self {
                 user32_dll_handle: user32_dll,
                 get_dpi_for_window: Self::get_func(user32_dll, "GetDpiForWindow")
-                    .map(|e| unsafe { mem::transmute(e) }),
+                    .map(|e| mem::transmute(e)),
                 adjust_window_rect_ex_for_dpi: Self::get_func(
                     user32_dll,
                     "AdjustWindowRectExForDpi",
                 )
-                .map(|e| unsafe { mem::transmute(e) }),
+                .map(|e| mem::transmute(e)),
                 get_dpi_for_monitor: Self::get_func(user32_dll, "GetDpiForMonitor")
-                    .map(|e| unsafe { mem::transmute(e) }),
+                    .map(|e| mem::transmute(e)),
                 enable_non_client_dpi_scaling: Self::get_func(
                     user32_dll,
                     "EnableNonClientDpiScaling",
                 )
-                .map(|e| unsafe { mem::transmute(e) }),
+                .map(|e| mem::transmute(e)),
                 set_process_dpi_awareness_context: Self::get_func(
                     user32_dll,
                     "SetProcessDpiAwarenessContext",
                 )
-                .map(|e| unsafe { mem::transmute(e) }),
+                .map(|e| mem::transmute(e)),
                 set_process_dpi_awareness: Self::get_func(user32_dll, "SetProcessDpiAwareness")
-                    .map(|e| unsafe { mem::transmute(e) }),
+                    .map(|e| mem::transmute(e)),
                 set_process_dpi_aware: Self::get_func(user32_dll, "SetProcessDPIAware")
-                    .map(|e| unsafe { mem::transmute(e) }),
+                    .map(|e| mem::transmute(e)),
             }
         }
     }
@@ -124,6 +132,7 @@ impl DpiFunctions {
         })
     }
 
+    /// Sets the process as DPI-aware using the best available API.
     pub fn become_dpi_aware(&self) {
         unsafe {
             if let Some(SetProcessDpiAwarenessContext) =
@@ -176,11 +185,8 @@ impl DpiFunctions {
         None
     }
 
+    /// Returns the DPI for the given window handle.
     pub unsafe fn hwnd_dpi(&self, hwnd: HWND) -> u32 {
-        let hdc = GetDC(hwnd);
-        if hdc.is_null() {
-            return BASE_DPI;
-        }
         if let Some(GetDpiForWindow) = self.get_dpi_for_window.clone() {
             // We are on Windows 10 Anniversary Update (1607) or later.
             match GetDpiForWindow(hwnd) {
@@ -209,7 +215,12 @@ impl DpiFunctions {
             }
         } else {
             // We are on Vista or later.
-            if IsProcessDPIAware() != 0 {
+            // Only this fallback branch needs a device context.
+            let hdc = GetDC(hwnd);
+            if hdc.is_null() {
+                return BASE_DPI;
+            }
+            let dpi = if IsProcessDPIAware() != 0 {
                 // If the process is DPI aware, then scaling must be handled by the application
                 // using this DPI value.
                 GetDeviceCaps(hdc, LOGPIXELSX) as u32
@@ -218,13 +229,17 @@ impl DpiFunctions {
                 // return 96 (scale factor 1.0) to prevent the window from being
                 // re-scaled by both the application and the WM.
                 BASE_DPI
-            }
+            };
+            ReleaseDC(hwnd, hdc);
+            dpi
         }
     }
 }
 
+/// The default DPI value (100% scaling) on Windows.
 pub const BASE_DPI: u32 = 96;
 
+/// Converts a DPI value to a scale factor relative to [`BASE_DPI`].
 pub fn dpi_to_scale_factor(dpi: u32) -> f32 {
     dpi as f32 / BASE_DPI as f32
 }
