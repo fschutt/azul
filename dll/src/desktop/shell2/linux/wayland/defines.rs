@@ -1,4 +1,9 @@
-//! C-style definitions for Wayland, EGL, and xkbcommon.
+//! C-style FFI definitions for Wayland protocols, EGL, and xkbcommon.
+//!
+//! Covers: `wl_*` (core), `xdg_shell`, `zwp_text_input_v3`, `org_kde_kwin_blur`.
+//! XKB types and EGL constants are re-exported from `x11::defines` (shared across backends).
+//! The `get_*_interface()` functions construct `wl_interface` descriptors at runtime
+//! for protocols that lack a generated C header (text-input-v3).
 
 #![allow(non_camel_case_types, non_snake_case)]
 
@@ -178,7 +183,9 @@ pub type EGLContext = *mut c_void;
 pub type EGLSurface = *mut c_void;
 pub type EGLNativeDisplayType = *mut c_void;
 
-// Listener structs
+// Listener structs (wayland-client protocol)
+
+/// Listener for `wl_registry` global/global_remove events.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_registry_listener {
@@ -192,6 +199,7 @@ pub struct wl_registry_listener {
     pub global_remove: extern "C" fn(data: *mut c_void, registry: *mut wl_registry, name: u32),
 }
 
+/// Listener for `wl_seat` capability/name events.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_seat_listener {
@@ -199,6 +207,7 @@ pub struct wl_seat_listener {
     pub name: extern "C" fn(data: *mut c_void, seat: *mut wl_seat, name: *const i8),
 }
 
+/// Listener for `wl_pointer` events (enter, leave, motion, button, axis).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_pointer_listener {
@@ -245,6 +254,7 @@ pub struct wl_pointer_listener {
         extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, axis: u32, discrete: i32),
 }
 
+/// Listener for `wl_keyboard` events (keymap, enter, leave, key, modifiers, repeat_info).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_keyboard_listener {
@@ -289,18 +299,23 @@ pub struct wl_keyboard_listener {
         extern "C" fn(data: *mut c_void, wl_keyboard: *mut wl_keyboard, rate: i32, delay: i32),
 }
 
+// Listener structs (xdg-shell protocol)
+
+/// Listener for `xdg_wm_base` ping events.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct xdg_wm_base_listener {
     pub ping: extern "C" fn(data: *mut c_void, xdg_wm_base: *mut xdg_wm_base, serial: u32),
 }
 
+/// Listener for `xdg_surface` configure events.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct xdg_surface_listener {
     pub configure: extern "C" fn(data: *mut c_void, xdg_surface: *mut xdg_surface, serial: u32),
 }
 
+/// Listener for `xdg_toplevel` events (configure, close, configure_bounds, wm_capabilities).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct xdg_toplevel_listener {
@@ -321,6 +336,7 @@ pub struct xdg_toplevel_listener {
     ),
 }
 
+/// Listener for `xdg_popup` events (configure, popup_done).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct xdg_popup_listener {
@@ -335,13 +351,14 @@ pub struct xdg_popup_listener {
     pub popup_done: extern "C" fn(data: *mut c_void, xdg_popup: *mut xdg_popup),
 }
 
+/// Listener for `wl_callback` done events (used for frame callbacks).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_callback_listener {
     pub done: extern "C" fn(data: *mut c_void, callback: *mut wl_callback, callback_data: u32),
 }
 
-// wl_output listener for monitor information
+/// Listener for `wl_output` events (geometry, mode, done, scale).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_output_listener {
@@ -369,7 +386,7 @@ pub struct wl_output_listener {
     pub scale: extern "C" fn(data: *mut c_void, wl_output: *mut wl_output, factor: i32),
 }
 
-// wl_surface listener for enter/leave events
+/// Listener for `wl_surface` enter/leave events (output tracking).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_surface_listener {
@@ -379,7 +396,7 @@ pub struct wl_surface_listener {
         extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
 }
 
-// XDG Positioner Enums (from xdg-shell protocol)
+// XDG Positioner constants (xdg-shell protocol, version 3+)
 pub const XDG_POSITIONER_ANCHOR_NONE: u32 = 0;
 pub const XDG_POSITIONER_ANCHOR_TOP: u32 = 1;
 pub const XDG_POSITIONER_ANCHOR_BOTTOM: u32 = 2;
@@ -408,7 +425,7 @@ pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y: u32 = 8;
 pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_X: u32 = 16;
 pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y: u32 = 32;
 
-// Wayland Constants
+// Wayland core protocol constants
 pub const WL_SEAT_CAPABILITY_POINTER: u32 = 1;
 pub const WL_SEAT_CAPABILITY_KEYBOARD: u32 = 2;
 
@@ -527,145 +544,137 @@ pub const ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT: u32 = 1;
 /// on the proxy and expects it to live as long as the proxy. This is a
 /// one-time ~300 byte allocation per process.
 pub fn get_text_input_v3_interface() -> &'static wl_interface {
-    use std::sync::Once;
-    static ONCE: Once = Once::new();
-    static mut INTERFACE_PTR: *const wl_interface = std::ptr::null();
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<&'static wl_interface> = OnceLock::new();
 
-    unsafe {
-        ONCE.call_once(|| {
-            let null_types: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-            ]));
+    INTERFACE.get_or_init(|| {
+        let null_types: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+        ]));
 
-            let events: &'static [wl_message] = Box::leak(Box::new([
-                wl_message {
-                    name: b"enter\0".as_ptr() as _,
-                    signature: b"o\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"leave\0".as_ptr() as _,
-                    signature: b"o\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"preedit_string\0".as_ptr() as _,
-                    signature: b"?sii\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"commit_string\0".as_ptr() as _,
-                    signature: b"?s\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"delete_surrounding_text\0".as_ptr() as _,
-                    signature: b"uu\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"done\0".as_ptr() as _,
-                    signature: b"u\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-            ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message {
+                name: b"enter\0".as_ptr() as _,
+                signature: b"o\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"leave\0".as_ptr() as _,
+                signature: b"o\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"preedit_string\0".as_ptr() as _,
+                signature: b"?sii\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"commit_string\0".as_ptr() as _,
+                signature: b"?s\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"delete_surrounding_text\0".as_ptr() as _,
+                signature: b"uu\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"done\0".as_ptr() as _,
+                signature: b"u\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+        ]));
 
-            let requests: &'static [wl_message] = Box::leak(Box::new([
-                wl_message {
-                    name: b"destroy\0".as_ptr() as _,
-                    signature: b"\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"enable\0".as_ptr() as _,
-                    signature: b"\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"disable\0".as_ptr() as _,
-                    signature: b"\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"set_surrounding_text\0".as_ptr() as _,
-                    signature: b"sii\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"set_text_change_cause\0".as_ptr() as _,
-                    signature: b"u\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"set_content_type\0".as_ptr() as _,
-                    signature: b"uu\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"set_cursor_rectangle\0".as_ptr() as _,
-                    signature: b"iiii\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"commit\0".as_ptr() as _,
-                    signature: b"\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-            ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message {
+                name: b"destroy\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"enable\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"disable\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"set_surrounding_text\0".as_ptr() as _,
+                signature: b"sii\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"set_text_change_cause\0".as_ptr() as _,
+                signature: b"u\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"set_content_type\0".as_ptr() as _,
+                signature: b"uu\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"set_cursor_rectangle\0".as_ptr() as _,
+                signature: b"iiii\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"commit\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+        ]));
 
-            INTERFACE_PTR = Box::leak(Box::new(wl_interface {
-                name: b"zwp_text_input_v3\0".as_ptr() as _,
-                version: 1,
-                method_count: 8,
-                methods: requests.as_ptr(),
-                event_count: 6,
-                events: events.as_ptr(),
-            }));
-        });
-        &*INTERFACE_PTR
-    }
+        Box::leak(Box::new(wl_interface {
+            name: b"zwp_text_input_v3\0".as_ptr() as _,
+            version: 1,
+            method_count: 8,
+            methods: requests.as_ptr(),
+            event_count: 6,
+            events: events.as_ptr(),
+        }))
+    })
 }
 
 /// Create the wl_interface for zwp_text_input_manager_v3 at runtime.
 pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
-    use std::sync::Once;
-    static ONCE: Once = Once::new();
-    static mut INTERFACE_PTR: *const wl_interface = std::ptr::null();
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<&'static wl_interface> = OnceLock::new();
 
-    unsafe {
-        ONCE.call_once(|| {
-            let null_types: &'static [*const wl_interface; 2] = Box::leak(Box::new([
-                std::ptr::null(),
-                std::ptr::null(),
-            ]));
+    INTERFACE.get_or_init(|| {
+        let null_types: &'static [*const wl_interface; 2] = Box::leak(Box::new([
+            std::ptr::null(),
+            std::ptr::null(),
+        ]));
 
-            let requests: &'static [wl_message] = Box::leak(Box::new([
-                wl_message {
-                    name: b"destroy\0".as_ptr() as _,
-                    signature: b"\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-                wl_message {
-                    name: b"get_text_input\0".as_ptr() as _,
-                    signature: b"no\0".as_ptr() as _,
-                    types: null_types.as_ptr(),
-                },
-            ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message {
+                name: b"destroy\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+            wl_message {
+                name: b"get_text_input\0".as_ptr() as _,
+                signature: b"no\0".as_ptr() as _,
+                types: null_types.as_ptr(),
+            },
+        ]));
 
-            INTERFACE_PTR = Box::leak(Box::new(wl_interface {
-                name: b"zwp_text_input_manager_v3\0".as_ptr() as _,
-                version: 1,
-                method_count: 2,
-                methods: requests.as_ptr(),
-                event_count: 0,
-                events: std::ptr::null(),
-            }));
-        });
-        &*INTERFACE_PTR
-    }
+        Box::leak(Box::new(wl_interface {
+            name: b"zwp_text_input_manager_v3\0".as_ptr() as _,
+            version: 1,
+            method_count: 2,
+            methods: requests.as_ptr(),
+            event_count: 0,
+            events: std::ptr::null(),
+        }))
+    })
 }
 
 // XKB Constants
