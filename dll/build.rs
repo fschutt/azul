@@ -144,16 +144,14 @@ fn probe_dir(dir: &Path, target: &str) -> Option<PathBuf> {
 /// - An absolute path: `/usr/local/lib`
 /// - A relative path:  `target/release` (resolved from workspace root)
 ///
-/// If a directory contains the wrong library type (e.g. `.a` instead of
-/// `.dylib`), a helpful warning is printed.
+/// If a directory contains only a static library (`.a` / `.lib`) instead of
+/// a shared library, we link statically against the prebuilt library.
 ///
 /// On iOS and Android, dynamic linking is not the typical deployment model
 /// (libraries are embedded in the app bundle / APK).  We still allow it for
 /// simulator / development builds, but print a note.
 fn configure_dynamic_linking(target: &str) {
     println!("cargo:rerun-if-env-changed=AZUL_DLL_PATH");
-    // Legacy env var name — accept both
-    println!("cargo:rerun-if-env-changed=AZUL_LINK_PATH");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
@@ -174,10 +172,8 @@ fn configure_dynamic_linking(target: &str) {
     // Collect candidate directories
     let mut search_dirs: Vec<PathBuf> = Vec::new();
 
-    // 1. AZUL_DLL_PATH (preferred) or legacy AZUL_LINK_PATH
-    let env_path = env::var("AZUL_DLL_PATH")
-        .or_else(|_| env::var("AZUL_LINK_PATH"))
-        .unwrap_or_default();
+    // 1. AZUL_DLL_PATH (comma-separated list of paths)
+    let env_path = env::var("AZUL_DLL_PATH").unwrap_or_default();
 
     if !env_path.is_empty() {
         for entry in env_path.split(',') {
@@ -196,66 +192,81 @@ fn configure_dynamic_linking(target: &str) {
         }
     }
 
-    // 2. Default paths relative to workspace
-    search_dirs.push(workspace_root.join("target/release"));
-    search_dirs.push(workspace_root.join("target/debug"));
+    // 2. Default paths relative to workspace (only if AZUL_DLL_PATH was not set,
+    //    and only if we're not building azul-dll itself — otherwise the linker
+    //    finds the dylib it's currently producing and errors with
+    //    "can't link a dylib with itself")
+    if env_path.is_empty() {
+        let out_dir = env::var("OUT_DIR").unwrap_or_default();
+        let is_self_build = out_dir.contains("azul-dll") || out_dir.contains("azul_dll");
+        if !is_self_build {
+            search_dirs.push(workspace_root.join("target/release"));
+            search_dirs.push(workspace_root.join("target/debug"));
+        }
+    }
 
-    // Probe each directory
-    let mut found = false;
+    // Probe each directory for a shared library first, then static
+    enum Found { Dylib(PathBuf), Static(PathBuf), None }
+    let mut result = Found::None;
+
+    // First pass: look for shared library (dylib/so/dll/framework)
     for dir in &search_dirs {
         if let Some(lib_dir) = probe_dir(dir, target) {
-            println!("cargo:rustc-link-search=native={}", lib_dir.display());
-            found = true;
+            result = Found::Dylib(lib_dir);
             break;
         }
     }
 
-    if !found {
-        // Check if user has a static lib in one of the dirs (common mistake)
+    // Second pass (only if no shared lib): look for static library (.a/.lib)
+    if matches!(result, Found::None) {
         let static_name = static_lib_filename(target);
         for dir in &search_dirs {
             if dir.join(static_name).exists() {
-                println!(
-                    "cargo:warning=Found {} in {} but link-dynamic needs {}.",
-                    static_name, dir.display(), lib_filename(target),
-                );
-                println!(
-                    "cargo:warning=Build the shared library first: \
-                     cargo build --release -p azul-dll --features build-dll"
-                );
+                result = Found::Static(dir.clone());
                 break;
             }
         }
-
-        println!(
-            "cargo:warning=Could not find {} in any search path.",
-            lib_filename(target),
-        );
-        println!(
-            "cargo:warning=Set AZUL_DLL_PATH to the directory containing {}",
-            lib_filename(target),
-        );
-        println!(
-            "cargo:warning=Searched: {}",
-            search_dirs.iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
     }
 
-    // Tell the linker to link against libazul
-    if target.contains("windows") {
-        println!("cargo:rustc-link-lib=dylib=azul");
-    } else if target.contains("apple") {
-        // macOS/iOS: use -lazul, set rpath to @loader_path for relocatable binaries
-        println!("cargo:rustc-link-lib=dylib=azul");
-        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
-        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
-    } else {
-        // Linux/Android/FreeBSD: use -lazul, set rpath to $ORIGIN for relocatable binaries
-        println!("cargo:rustc-link-lib=dylib=azul");
-        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+    match result {
+        Found::Dylib(lib_dir) => {
+            println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            println!("cargo:rustc-link-lib=dylib=azul");
+            // Set rpath so the binary can find libazul next to itself
+            if target.contains("apple") {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+                println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+            } else if !target.contains("windows") {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+            }
+        }
+        Found::Static(lib_dir) => {
+            println!(
+                "cargo:warning=No {} found, but {} exists in {}. \
+                 Linking statically against prebuilt library.",
+                lib_filename(target), static_lib_filename(target), lib_dir.display(),
+            );
+            println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            println!("cargo:rustc-link-lib=static=azul");
+        }
+        Found::None => {
+            println!(
+                "cargo:warning=Could not find {} or {} in any search path.",
+                lib_filename(target), static_lib_filename(target),
+            );
+            println!(
+                "cargo:warning=Set AZUL_DLL_PATH to the directory containing the library",
+            );
+            println!(
+                "cargo:warning=Searched: {}",
+                search_dirs.iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            // Emit dylib link anyway so the linker error is clear
+            println!("cargo:rustc-link-lib=dylib=azul");
+        }
     }
 }
 
