@@ -84,7 +84,7 @@ impl HoverManager {
     }
 
     /// Get the hit test result from N frames ago for an input point
-    // (0 = current frame)
+    /// (0 = current frame)
     ///
     /// Returns None if the requested frame is not in history.
     pub fn get_frame(&self, input_id: &InputPointId, frames_ago: usize) -> Option<&FullHitTest> {
@@ -142,6 +142,8 @@ impl HoverManager {
     ///
     /// Returns the NodeId of the most specific (deepest in DOM tree) node
     /// that the mouse cursor is currently over, or None if not hovering anything.
+    ///
+    /// NOTE: Assumes single-DOM architecture (uses `DomId { inner: 0 }`).
     pub fn current_hover_node(&self) -> Option<azul_core::id::NodeId> {
         let current = self.get_current_mouse()?;
         let dom_id = azul_core::dom::DomId { inner: 0 };
@@ -153,6 +155,8 @@ impl HoverManager {
     ///
     /// Returns the NodeId from one frame ago, or None if not hovering anything
     /// or no previous frame exists.
+    ///
+    /// NOTE: Assumes single-DOM architecture (uses `DomId { inner: 0 }`).
     pub fn previous_hover_node(&self) -> Option<azul_core::id::NodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         let previous = history.get(1)?; // index 1 = one frame ago
@@ -174,41 +178,9 @@ impl HoverManager {
         for history in self.hover_histories.values_mut() {
             for hit_test in history.iter_mut() {
                 if let Some(ht) = hit_test.hovered_nodes.get_mut(&dom_id) {
-                    // Remap regular_hit_test_nodes
-                    let old_regular: Vec<_> = ht.regular_hit_test_nodes.keys().cloned().collect();
-                    let mut new_regular = std::collections::BTreeMap::new();
-                    for old_nid in old_regular {
-                        if let Some(&new_nid) = node_id_map.get(&old_nid) {
-                            if let Some(item) = ht.regular_hit_test_nodes.remove(&old_nid) {
-                                new_regular.insert(new_nid, item);
-                            }
-                        }
-                    }
-                    ht.regular_hit_test_nodes = new_regular;
-
-                    // Remap scroll_hit_test_nodes
-                    let old_scroll: Vec<_> = ht.scroll_hit_test_nodes.keys().cloned().collect();
-                    let mut new_scroll = std::collections::BTreeMap::new();
-                    for old_nid in old_scroll {
-                        if let Some(&new_nid) = node_id_map.get(&old_nid) {
-                            if let Some(item) = ht.scroll_hit_test_nodes.remove(&old_nid) {
-                                new_scroll.insert(new_nid, item);
-                            }
-                        }
-                    }
-                    ht.scroll_hit_test_nodes = new_scroll;
-
-                    // Remap cursor_hit_test_nodes
-                    let old_cursor: Vec<_> = ht.cursor_hit_test_nodes.keys().cloned().collect();
-                    let mut new_cursor = std::collections::BTreeMap::new();
-                    for old_nid in old_cursor {
-                        if let Some(&new_nid) = node_id_map.get(&old_nid) {
-                            if let Some(item) = ht.cursor_hit_test_nodes.remove(&old_nid) {
-                                new_cursor.insert(new_nid, item);
-                            }
-                        }
-                    }
-                    ht.cursor_hit_test_nodes = new_cursor;
+                    remap_btreemap(&mut ht.regular_hit_test_nodes, node_id_map);
+                    remap_btreemap(&mut ht.scroll_hit_test_nodes, node_id_map);
+                    remap_btreemap(&mut ht.cursor_hit_test_nodes, node_id_map);
 
                     // Remap scrollbar_hit_test_nodes (ScrollbarHitId contains NodeId)
                     let old_sb: Vec<_> = ht.scrollbar_hit_test_nodes.keys().cloned().collect();
@@ -230,6 +202,24 @@ impl Default for HoverManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Remap all keys in a BTreeMap<NodeId, V> using the reconciliation map.
+/// Entries whose old NodeId is not in the map are dropped.
+fn remap_btreemap<V>(
+    map: &mut std::collections::BTreeMap<azul_core::id::NodeId, V>,
+    node_id_map: &std::collections::BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
+) {
+    let old_keys: Vec<_> = map.keys().cloned().collect();
+    let mut new_map = std::collections::BTreeMap::new();
+    for old_nid in old_keys {
+        if let Some(&new_nid) = node_id_map.get(&old_nid) {
+            if let Some(item) = map.remove(&old_nid) {
+                new_map.insert(new_nid, item);
+            }
+        }
+    }
+    *map = new_map;
 }
 
 /// Remap a ScrollbarHitId's NodeId using the reconciliation map.
