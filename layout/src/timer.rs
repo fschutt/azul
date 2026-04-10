@@ -8,7 +8,7 @@ use core::ffi::c_void;
 use azul_core::{
     callbacks::{TimerCallbackReturn, Update},
     dom::{DomId, OptionDomNodeId},
-    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, CursorNodePosition},
+    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition},
     id::NodeId,
     menu::Menu,
     refany::{OptionRefAny, RefAny},
@@ -27,6 +27,9 @@ use crate::{
     thread::Thread,
     window_state::{FullWindowState, WindowCreateOptions},
 };
+
+/// Default timer tick interval in milliseconds when no interval is configured.
+const DEFAULT_TIMER_TICK_MS: u64 = 10;
 
 /// Callback type for timers
 pub type TimerCallbackType = extern "C" fn(
@@ -78,7 +81,7 @@ impl From<TimerCallbackType> for TimerCallback {
 
 impl PartialEq for TimerCallback {
     fn eq(&self, other: &Self) -> bool {
-        self.cb as usize == other.cb as usize
+        self.cb as *const () as usize == other.cb as *const () as usize
     }
 }
 
@@ -86,19 +89,19 @@ impl Eq for TimerCallback {}
 
 impl PartialOrd for TimerCallback {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        (self.cb as usize).partial_cmp(&(other.cb as usize))
+        (self.cb as *const () as usize).partial_cmp(&(other.cb as *const () as usize))
     }
 }
 
 impl Ord for TimerCallback {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.cb as usize).cmp(&(other.cb as usize))
+        (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
     }
 }
 
 impl core::hash::Hash for TimerCallback {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.cb as usize).hash(state);
+        (self.cb as *const () as usize).hash(state);
     }
 }
 
@@ -140,18 +143,17 @@ impl Timer {
         match self.interval.as_ref() {
             Some(Duration::System(s)) => s.millis(),
             Some(Duration::Tick(s)) => s.tick_diff,
-            None => 10,
+            None => DEFAULT_TIMER_TICK_MS,
         }
     }
 
     pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
-        let mut finish = false;
-        if let OptionDuration::Some(timeout) = self.timeout {
-            finish = instant_now
-                .duration_since(&self.created)
-                .greater_than(&timeout);
+        match self.timeout {
+            OptionDuration::Some(timeout) => {
+                instant_now.duration_since(&self.created).greater_than(&timeout)
+            }
+            OptionDuration::None => false,
         }
-        finish
     }
 
     pub fn instant_of_next_run(&self) -> Instant {
@@ -184,10 +186,11 @@ impl Timer {
         self
     }
 
-    /// Invoke the timer callback and update internal state
+    /// Invoke the timer callback and update internal state.
     ///
-    /// Returns `DoNothing` + `Continue` if the timer is not ready to run yet
-    /// (delay not elapsed for first run, or interval not elapsed for subsequent runs).
+    /// Returns a `TimerCallbackReturn` with `DoNothing` + `Continue` if the timer
+    /// is not ready to run yet (delay not elapsed for first run, or interval not
+    /// elapsed for subsequent runs). Forces `Terminate` when the timeout expires.
     pub fn invoke(
         &mut self,
         callback_info: &CallbackInfo,
@@ -266,11 +269,10 @@ impl Default for Timer {
     }
 }
 
-/// Information passed to timer callbacks
+/// Information passed to timer callbacks.
 ///
-/// This wraps `CallbackInfo` and adds timer-specific fields like call_count and frame_start.
-/// Through `Deref<Target = CallbackInfo>`, all methods from `CallbackInfo` are available,
-/// including the transactional `push_change()` API.
+/// This wraps `CallbackInfo` and adds timer-specific fields like `call_count` and `frame_start`.
+/// `CallbackInfo` methods are available via explicit delegation methods below.
 #[derive(Clone)]
 #[repr(C)]
 pub struct TimerCallbackInfo {
@@ -579,19 +581,14 @@ impl TimerCallbackInfo {
         self.callback_info.set_cursor_visibility(visible);
     }
     
-    /// Toggle cursor visibility (for cursor blink timer)
+    /// Toggle cursor visibility (for cursor blink timer).
     ///
-    /// This is a shortcut that reads the current visibility state,
-    /// toggles it, and queues the change. Used by the cursor blink timer.
+    /// NOTE: Currently always sets visibility to `true` — proper toggle logic
+    /// requires a `CallbackChange::ToggleCursorVisibility` variant or reading
+    /// current state, which is not yet implemented.
     pub fn set_cursor_visibility_toggle(&mut self) {
-        // We can't read the current state from here, so we queue a special toggle action
-        // The actual toggle will be handled in apply_user_change using CursorManager.toggle_visibility()
         use crate::callbacks::CallbackChange;
-        // Use SetCursorVisibility with a special sentinel value to indicate toggle
-        // Actually, let's just add a separate toggle method or use the existing ones smartly
-        
-        // For simplicity, we'll queue both a reset_cursor_blink (to handle idle detection)
-        // and let apply_user_change handle the visibility toggle based on should_blink()
+        // TODO: implement actual toggle — needs CallbackChange::ToggleCursorVisibility
         self.callback_info.push_change(CallbackChange::SetCursorVisibility { visible: true });
     }
     
@@ -599,67 +596,6 @@ impl TimerCallbackInfo {
     pub fn reset_cursor_blink(&mut self) {
         self.callback_info.reset_cursor_blink();
     }
-}
-
-/// Invokes the timer if it should run
-pub fn invoke_timer(
-    timer: &mut Timer,
-    callback_info: CallbackInfo,
-    frame_start: Instant,
-    get_system_time_fn: GetSystemTimeCallback,
-) -> TimerCallbackReturn {
-    let instant_now = (get_system_time_fn.cb)();
-
-    // Check if timer should run based on last_run, delay, and interval
-    match timer.last_run.as_ref() {
-        Some(last_run) => {
-            // Timer has run before - check interval
-            if let OptionDuration::Some(interval) = timer.interval {
-                if instant_now.duration_since(last_run).smaller_than(&interval) {
-                    return TimerCallbackReturn {
-                        should_update: Update::DoNothing,
-                        should_terminate: TerminateTimer::Continue,
-                    };
-                }
-            }
-        }
-        None => {
-            // Timer has never run - check delay (first run)
-            if let OptionDuration::Some(delay) = timer.delay {
-                if instant_now
-                    .duration_since(&timer.created)
-                    .smaller_than(&delay)
-                {
-                    return TimerCallbackReturn {
-                        should_update: Update::DoNothing,
-                        should_terminate: TerminateTimer::Continue,
-                    };
-                }
-            }
-        }
-    }
-
-    let run_count = timer.run_count;
-    let is_about_to_finish = timer.is_about_to_finish(&instant_now);
-    let mut timer_callback_info = TimerCallbackInfo {
-        callback_info,
-        node_id: timer.node_id,
-        frame_start,
-        call_count: run_count,
-        is_about_to_finish,
-        _abi_ref: core::ptr::null(),
-        _abi_mut: core::ptr::null_mut(),
-    };
-    let mut res = (timer.callback.cb)(timer.refany.clone(), timer_callback_info);
-
-    if is_about_to_finish {
-        res.should_terminate = TerminateTimer::Terminate;
-    }
-
-    timer.last_run = OptionInstant::Some(instant_now);
-    timer.run_count += 1;
-
-    res
 }
 
 /// Optional Timer type for API compatibility
