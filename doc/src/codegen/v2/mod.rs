@@ -101,10 +101,10 @@ fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
 // String-returning generators (all configs return String, caller writes to file)
 // ============================================================================
 
-/// Generate DLL static API code as String
-pub fn generate_dll_static(api_data: &ApiData) -> Result<String> {
+/// Generate DLL internal bindings API code as String
+pub fn generate_dll_internal(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
-    let config = CodegenConfig::dll_static();
+    let config = CodegenConfig::dll_internal();
     CodeGenerator::generate(&ir, &config)
 }
 
@@ -176,8 +176,8 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
         ir.functions.len()
     );
 
-    // Generate using static DLL config
-    let config = CodegenConfig::dll_static();
+    // Generate using internal DLL config
+    let config = CodegenConfig::dll_internal();
 
     let output_path = project_root
         .join("target")

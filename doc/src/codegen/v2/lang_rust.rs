@@ -156,28 +156,33 @@ impl LanguageGenerator for RustGenerator {
 
         // When using transmute-based trait impls, we don't need C-ABI trait functions
         // because traits are implemented directly using transmute, not via C-ABI calls.
-        // HOWEVER: When building the DLL (no_mangle = true), we MUST export all trait
+        // HOWEVER: When cabi_export is enabled, we MUST include all trait
         // functions because C/C++/Python need to call them for destructors (_delete),
-        // cloning (_deepCopy), etc. The trait impls inside Rust can use transmute,
-        // but we still need the exported C-ABI functions for FFI.
+        // cloning (_deepCopy), etc. These are gated behind #[cfg(feature = "cabi_export")].
         let skip_trait_functions = matches!(
             config.trait_impl_mode,
             TraitImplMode::UsingTransmute { .. } | TraitImplMode::UsingDerive
         );
 
         match &config.cabi_functions {
-            CAbiFunctionMode::InternalBindings { no_mangle } => {
+            CAbiFunctionMode::InternalBindings { export_feature } => {
                 for func in &ir.functions {
                     if !config.should_include_type(&func.class_name) {
                         continue;
                     }
-                    // Skip trait functions when using transmute impls ONLY for internal use.
-                    // When no_mangle is true (DLL build), we need to export all functions
-                    // for C/C++/Python bindings to call _delete, _deepCopy, etc.
-                    if skip_trait_functions && !*no_mangle && func.kind.is_trait_function() {
-                        continue;
-                    }
-                    self.generate_function_definition(&mut builder, func, ir, config, *no_mangle);
+                    // Trait functions (_delete, _deepCopy, etc.) are only needed for C/C++ FFI.
+                    // Gate them behind #[cfg(feature = "cabi_export")] so they're compiled out
+                    // when statically linking into a Rust app (where transmute impls are used).
+                    let is_export_only_trait_fn =
+                        skip_trait_functions && func.kind.is_trait_function();
+                    self.generate_function_definition(
+                        &mut builder,
+                        func,
+                        ir,
+                        config,
+                        export_feature,
+                        is_export_only_trait_fn,
+                    );
                 }
             }
             CAbiFunctionMode::ExternalBindings { .. } => {
@@ -2765,13 +2770,19 @@ impl RustGenerator {
         func: &FunctionDef,
         ir: &CodegenIR,
         config: &CodegenConfig,
-        no_mangle: bool,
+        export_feature: &str,
+        is_export_only: bool,
     ) {
+        // Trait functions only exist when cabi_export is enabled
+        if is_export_only {
+            builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
+        }
         // Attributes
         builder.line("#[allow(unused_variables)]");
-        if no_mangle {
-            builder.line("#[no_mangle]");
-        }
+        // Gate #[no_mangle] behind the export feature flag
+        builder.line(&format!(
+            "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+        ));
 
         // Apply callback wrapper substitution for API functions (Constructor, Method, etc.)
         // NOT for trait functions (Delete, DeepCopy, etc.) which operate on the callback wrapper itself

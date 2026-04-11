@@ -134,12 +134,68 @@ default = [
 ]
 
 # -----------------------------------------------------------------------------
+# Codegen Block Features (granular — each gates a generated include!() file)
+# -----------------------------------------------------------------------------
+
+# Internal C-ABI bindings: types + function bodies via transmute
+# Uses: target/codegen/dll_api_internal.rs
+# Requires the full azul stack (azul-core, azul-css, azul-layout)
+cabi_internal = []
+
+# Export C-ABI symbols with #[no_mangle] (for dlsym / C/C++/Python FFI)
+# Implies cabi_internal. Also includes trait functions (_delete, _deepCopy, etc.)
+# Needed by: build-dll (shared library), link-static + web (remill dlsym)
+cabi_export = ["cabi_internal"]
+
+# External C-ABI declarations: extern "C" { ... } for dynamic linking
+# Uses: target/codegen/dll_api_external.rs
+# Does NOT require azul-core or other internal crates
+cabi_external = []
+
+# Public Rust API re-exports (azul::dom::Dom, azul::app::App, etc.)
+# Uses: target/codegen/reexports.rs
+rust_api = []
+
+# -----------------------------------------------------------------------------
 # Build Modes
 # -----------------------------------------------------------------------------
 
 # Build the full desktop DLL with windowing, OpenGL, fonts, etc.
 # This compiles all the platform-specific code in src/desktop/
+# Exports C-ABI symbols with #[no_mangle] for use from C/C++/Python
 build-dll = [
+    "cabi_export",
+    "rust_api",
+    "_internal_deps",
+    "font_loading_multithreaded",
+    "font_async_registry",
+]
+
+# -----------------------------------------------------------------------------
+# Link Modes (for consumers of the library)
+# -----------------------------------------------------------------------------
+
+# Static linking: Include transmute-based implementations
+# Uses: target/codegen/dll_api_internal.rs (without #[no_mangle])
+# Requires the full azul stack to be compiled in
+link-static = [
+    "cabi_internal",
+    "rust_api",
+    "_internal_deps",
+]
+
+# Dynamic linking: Include extern "C" declarations
+# Uses: target/codegen/dll_api_external.rs
+# Requires libazul.dylib/so/dll to be available at runtime
+# Set AZUL_LINK_PATH environment variable to the directory containing libazul
+# NOTE: Does NOT require azul-core or other internal crates
+link-dynamic = [
+    "cabi_external",
+    "rust_api",
+]
+
+# Shared dependencies for build-dll and link-static (not user-facing)
+_internal_deps = [
     "std",
     "azul-core",
     "azul-css",
@@ -156,8 +212,6 @@ build-dll = [
     "serde-json",
     "backtrace",
     "font_loading",
-    "font_loading_multithreaded",
-    "font_async_registry",
     "text_layout",
     "svg",
     "xml",
@@ -202,79 +256,6 @@ build-dll = [
     "libc",
     "winapi",
 ]
-
-# -----------------------------------------------------------------------------
-# Link Modes (for consumers of the library)
-# -----------------------------------------------------------------------------
-
-# Static linking: Include transmute-based implementations
-# Uses: target/codegen/dll_api_static.rs
-# Requires the full azul stack to be compiled in
-link-static = [
-    "std",
-    "azul-core",
-    "azul-css",
-    "azul-layout",
-    "cpurender",
-    "tfd",
-    "rust-fontconfig",
-    "gl-context-loader",
-    "webrender",
-    "once_cell",
-    "bitflags",
-    "serde",
-    "serde_json",
-    "serde-json",
-    "backtrace",
-    "font_loading",
-    "text_layout",
-    "svg",
-    "xml",
-    "strum",
-    "spmc",
-    "dep:png",
-    # Platform-specific clipboard
-    "x11-clipboard",
-    "clipboard-win",
-    # Windows needs libm
-    "libm",
-    # ICU backends
-    "icu",
-    "icu_macos",
-    "icu_windows",
-    # Fluent localization support
-    "fluent",
-    # HTTP client support
-    "http",
-    # ZIP file manipulation
-    "zip_support",
-    # JSON support
-    "json",
-    # Icon provider support
-    "icons",
-    # Platform-specific deps (optional, only linked on matching OS)
-    "cfg-if",
-    "cgl",
-    "dispatch2",
-    "objc2",
-    "objc",
-    "objc-foundation",
-    "objc_id",
-    "block2",
-    "libloading",
-    "objc2-core-foundation",
-    "objc2-foundation",
-    "objc2-app-kit",
-    "libc",
-    "winapi",
-]
-
-# Dynamic linking: Include extern "C" declarations
-# Uses: target/codegen/dll_api_dynamic.rs
-# Requires libazul.dylib/so/dll to be available at runtime
-# Set AZUL_LINK_PATH environment variable to the directory containing libazul
-# NOTE: Does NOT require azul-core or other internal crates
-link-dynamic = []
 
 # -----------------------------------------------------------------------------
 # Core Features

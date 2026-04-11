@@ -5,7 +5,7 @@ fn main() {
 
     check_generated_files();
 
-    if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
+    if env::var("CARGO_FEATURE_CABI_EXTERNAL").is_ok() {
         configure_dynamic_linking(&target);
     }
 
@@ -27,9 +27,8 @@ fn check_generated_files() {
     let codegen_dir = Path::new(&manifest_dir).join("../target/codegen");
 
     let checks: &[(&str, &str)] = &[
-        ("CARGO_FEATURE_BUILD_DLL",        "dll_api_build.rs"),
-        ("CARGO_FEATURE_LINK_STATIC",      "dll_api_static.rs"),
-        ("CARGO_FEATURE_LINK_DYNAMIC",     "dll_api_dynamic.rs"),
+        ("CARGO_FEATURE_CABI_INTERNAL",    "dll_api_internal.rs"),
+        ("CARGO_FEATURE_CABI_EXTERNAL",    "dll_api_external.rs"),
         ("CARGO_FEATURE_PYTHON_EXTENSION", "python_api.rs"),
     ];
 
@@ -47,12 +46,8 @@ fn check_generated_files() {
         }
     }
 
-    // reexports.rs is needed by any link/build mode
-    let needs_reexports = env::var("CARGO_FEATURE_LINK_STATIC").is_ok()
-        || env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok()
-        || env::var("CARGO_FEATURE_BUILD_DLL").is_ok();
-
-    if needs_reexports {
+    // reexports.rs is needed when rust_api feature is enabled
+    if env::var("CARGO_FEATURE_RUST_API").is_ok() {
         let path = codegen_dir.join("reexports.rs");
         if !path.exists() {
             panic!(
@@ -101,10 +96,9 @@ fn configure_dynamic_linking(target: &str) {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
 
-    // When build-dll or link-static is also active, dynamic linking is unused.
-    if env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
-        || env::var("CARGO_FEATURE_LINK_STATIC").is_ok()
-    {
+    // When cabi_internal is also active, dynamic linking is unused
+    // (internal bindings take precedence over external declarations).
+    if env::var("CARGO_FEATURE_CABI_INTERNAL").is_ok() {
         return;
     }
 

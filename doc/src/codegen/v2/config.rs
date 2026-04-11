@@ -138,23 +138,26 @@ impl CppStandard {
 /// How to generate C-ABI functions
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CAbiFunctionMode {
-    /// Generate function definitions with bodies (for DLL compilation)
+    /// Generate function definitions with bodies (internal bindings)
     ///
+    /// When `export_feature` is set, `#[no_mangle]` is gated behind a cfg_attr:
     /// ```rust,ignore
-    /// #[no_mangle]
+    /// #[cfg_attr(feature = "cabi_export", no_mangle)]
     /// pub extern "C" fn AzDom_new() -> AzDom {
     ///     unsafe { transmute(Dom::create_node()) }
     /// }
     /// ```
+    /// Trait functions (Delete, DeepCopy, etc.) are also gated behind
+    /// `#[cfg(feature = "...")]` since they're only needed for C/C++ FFI.
     InternalBindings {
-        /// Generate #[no_mangle] attribute
-        no_mangle: bool,
+        /// Feature flag name that controls `#[no_mangle]` via `cfg_attr`.
+        /// Trait functions are gated behind `#[cfg(feature = "...")]`.
+        export_feature: String,
     },
 
     /// Generate extern "C" declarations for dynamic linking
     ///
     /// ```rust,ignore
-    /// #[link(name = "azul_dll")]
     /// extern "C" {
     ///     fn AzDom_new() -> AzDom;
     /// }
@@ -450,15 +453,19 @@ fn is_primitive_or_builtin(name: &str) -> bool {
 // ============================================================================
 
 impl CodegenConfig {
-    /// DLL static linking API
+    /// DLL internal bindings API (replaces old dll_static + dll_build)
     ///
-    /// This is used when statically linking Azul into your application.
-    /// Generates types + C-API functions (without #[no_mangle]) + trait impls via transmute.
-    /// The C-API functions are internal (not exported) but still used by impl blocks.
-    pub fn dll_static() -> Self {
+    /// Generates types + C-ABI function bodies (via transmute) + trait impls.
+    /// The `#[no_mangle]` attribute is gated behind `#[cfg_attr(feature = "cabi_export", no_mangle)]`
+    /// so the same generated file works for both static linking and DLL export.
+    /// Trait functions (_delete, _deepCopy, etc.) are gated behind `#[cfg(feature = "cabi_export")]`
+    /// since they're only needed when exporting for C/C++/Python.
+    pub fn dll_internal() -> Self {
         Self {
             target_lang: TargetLang::Rust,
-            cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: false },
+            cabi_functions: CAbiFunctionMode::InternalBindings {
+                export_feature: "cabi_export".into(),
+            },
             struct_mode: StructMode::Prefixed,
             trait_impl_mode: TraitImplMode::UsingTransmute {
                 external_crate: "azul_core".into(),
@@ -480,39 +487,6 @@ impl CodegenConfig {
             external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
             generate_tests: false,
             extra_module_declarations: vec![],
-        }
-    }
-
-    /// DLL build API (for building libazul.dylib/so/dll)
-    ///
-    /// This is used when compiling the azul-dll crate itself to produce
-    /// the shared library. Generates types + C-API functions with #[no_mangle].
-    pub fn dll_build() -> Self {
-        Self {
-            target_lang: TargetLang::Rust,
-            cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: true },
-            struct_mode: StructMode::Prefixed,
-            trait_impl_mode: TraitImplMode::UsingTransmute {
-                external_crate: "azul_core".into(),
-            },
-            type_prefix: "Az".into(),
-            module_wrapper: Some("dll".into()),
-            imports: vec![
-                "extern crate alloc;".into(),
-                "use core::ffi::c_void;".into(),
-                "use core::ffi::c_int;".into(),
-                "use core::mem::transmute;".into(),
-                "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),
-            ],
-            extra_module_declarations: vec![],
-            type_filter: None,
-            type_exclude: BTreeSet::new(),
-            indent: "    ".into(),
-            generate_docs: true,
-            callback_typedef_use_external: false,
-            // Replace azul_dll:: with crate:: since we're inside azul-dll
-            external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
-            generate_tests: false,
         }
     }
 
@@ -681,7 +655,7 @@ impl CodegenConfig {
     pub fn memtest() -> Self {
         Self {
             target_lang: TargetLang::Rust,
-            cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: false },
+            cabi_functions: CAbiFunctionMode::InternalBindings { export_feature: "cabi_export".into() },
             struct_mode: StructMode::Prefixed,
             trait_impl_mode: TraitImplMode::UsingTransmute {
                 external_crate: "azul_core".into(),

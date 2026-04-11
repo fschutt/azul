@@ -95,44 +95,37 @@ impl GenerationTargets {
     pub fn generate_all(ir: &CodegenIR, project_root: &Path) -> Result<()> {
         let codegen_dir = project_root.join("target").join("codegen");
 
-        // 1. DLL static API (types + trait impls, NO C-API functions)
-        println!("[1/9] Generating DLL static API...");
+        // 1. DLL internal API (types + C-ABI function bodies, #[no_mangle] gated via cfg_attr)
+        //    Used by both build-dll (with cabi_export) and link-static (without cabi_export)
+        println!("[1/13] Generating DLL internal API...");
         CodeGenerator::generate_to_file(
             ir,
-            &CodegenConfig::dll_static(),
-            &codegen_dir.join("dll_api_static.rs"),
+            &CodegenConfig::dll_internal(),
+            &codegen_dir.join("dll_api_internal.rs"),
         )?;
 
-        // 2. DLL dynamic API (types + trait impls via C-API + extern declarations)
-        println!("[2/9] Generating DLL dynamic API...");
+        // 2. DLL external API (types + extern "C" declarations for dynamic linking)
+        println!("[2/13] Generating DLL external API...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::dll_dynamic(),
-            &codegen_dir.join("dll_api_dynamic.rs"),
+            &codegen_dir.join("dll_api_external.rs"),
         )?;
 
-        // 3. DLL build API (types + C-API functions for building libazul.dylib)
-        println!("[3/9] Generating DLL build API...");
-        CodeGenerator::generate_to_file(
-            ir,
-            &CodegenConfig::dll_build(),
-            &codegen_dir.join("dll_api_build.rs"),
-        )?;
-
-        // 4. Re-exports (public API without Az prefix)
-        println!("[4/9] Generating re-exports...");
+        // 3. Re-exports (public API without Az prefix)
+        println!("[3/13] Generating re-exports...");
         Self::generate_reexports_file(ir, &codegen_dir.join("reexports.rs"))?;
 
-        // 5. C header
-        println!("[5/14] Generating C header...");
+        // 4. C header
+        println!("[4/13] Generating C header...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::c_header(),
             &codegen_dir.join("azul.h"),
         )?;
 
-        // 6-11. C++ headers for all versions
-        println!("[6-11/14] Generating C++ headers for all versions...");
+        // 5-10. C++ headers for all versions
+        println!("[5-10/13] Generating C++ headers for all versions...");
         for cpp_std in CppStandard::all() {
             let filename = cpp_std.header_filename();
             println!("  Generating {}...", filename);
@@ -143,20 +136,20 @@ impl GenerationTargets {
             )?;
         }
 
-        // 12. Public Rust API (legacy, may be removed)
-        println!("[12/14] Generating public Rust API...");
+        // 11. Public Rust API (legacy, may be removed)
+        println!("[11/13] Generating public Rust API...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::rust_public_api(),
             &codegen_dir.join("azul.rs"),
         )?;
 
-        // 13. Python extension (separate from C-API!) - goes to target/codegen/ for include!() in dll
-        println!("[13/14] Generating Python extension...");
+        // 12. Python extension (separate from C-API!) - goes to target/codegen/ for include!() in dll
+        println!("[12/13] Generating Python extension...");
         Self::generate_python(ir, &codegen_dir.join("python_api.rs"))?;
 
-        // 14. Memtest (memory layout tests) - goes to target/codegen/ for include!() in dll
-        println!("[14/14] Generating memtest...");
+        // 13. Memtest (memory layout tests) - goes to target/codegen/ for include!() in dll
+        println!("[13/13] Generating memtest...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::memtest(),

@@ -393,9 +393,9 @@ impl RustStaticGenerator {
             }
         }
 
-        // #[no_mangle] attribute if configured
-        if let CAbiFunctionMode::InternalBindings { no_mangle: true } = &config.cabi_functions {
-            builder.line("#[no_mangle]");
+        // #[no_mangle] gated behind export feature
+        if let CAbiFunctionMode::InternalBindings { export_feature } = &config.cabi_functions {
+            builder.line(&format!("#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"));
             builder.line("#[inline]");
         }
 
