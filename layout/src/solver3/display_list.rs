@@ -20,7 +20,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
-    hit_test_tag::{CursorType, TAG_TYPE_CURSOR},
+    hit_test_tag::{CursorType, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE},
     resources::{
         IdNamespace, ImageRef, OpacityKey, RendererResources, TransformKey,
     },
@@ -4665,9 +4665,7 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     let tag_mapping = dom.tag_ids_to_node_ids.as_ref().iter().find(|m| {
         m.node_id.into_crate_internal() == Some(node_id)
     })?;
-    // Use TAG_TYPE_DOM_NODE (0x0100) as namespace marker in u16 field
-    // This distinguishes DOM nodes from scrollbars (0x0200) and other tag types
-    Some((tag_mapping.tag_id.inner, 0x0100))
+    Some((tag_mapping.tag_id.inner, TAG_TYPE_DOM_NODE))
 }
 
 fn get_image_ref_for_image_source(
