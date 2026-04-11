@@ -298,6 +298,17 @@ impl BinaryAsset {
             description: "macOS Intel x86_64 .a",
             platform: Platform::MacOS,
         },
+        // rust9x (Win98/XP experimental)
+        BinaryAsset {
+            filename: "azul.rust9x.dll",
+            description: "Windows 32-bit DLL (Win98/XP via rust9x)",
+            platform: Platform::Windows,
+        },
+        BinaryAsset {
+            filename: "azul.rust9x.lib",
+            description: "Windows 32-bit import lib (Win98/XP via rust9x)",
+            platform: Platform::Windows,
+        },
     ];
 
     pub fn all() -> Vec<&'static BinaryAsset> {

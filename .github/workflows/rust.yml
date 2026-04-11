@@ -342,16 +342,76 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # NOTE: rust9x (Win98/XP) support
-  # rust9x (https://github.com/rust9x/rust/) is a custom Rust fork targeting
-  # i586-rust9x-windows-msvc (Win9x) and i686-rust9x-windows-msvc (WinXP).
-  # It requires building the compiler from source (no prebuilt binaries),
-  # so it's not practical for CI. To build locally:
-  #   1. Build rust9x per https://github.com/rust9x/rust/wiki
-  #   2. rustup toolchain link rust9x /path/to/build/.../stage1
-  #   3. cargo +rust9x build --target i686-rust9x-windows-msvc -p azul-dll --features build-dll
-  # Azul is compatible because it uses pure-Rust TLS (no ring), dlopen for
-  # all Win32 APIs, and has SetWindowLongW fallback for 32-bit.
+  # rust9x: Build azul for Windows 98/XP using the rust9x fork.
+  # Builds the rust9x compiler from source, then compiles azul with it.
+  # Only runs on deploy mode (compiler build takes ~30-60 min).
+  build_rust9x:
+    name: Build rust9x (Win98/XP experimental)
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: windows-2022
+    continue-on-error: true
+    steps:
+      - name: Checkout azul
+        uses: actions/checkout@v4
+        with:
+          path: azul
+
+      - name: Install Rust (for bootstrap)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install Python (for x.py)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache rust9x compiler build
+        uses: actions/cache@v4
+        with:
+          path: rust9x/build
+          key: rust9x-compiler-${{ hashFiles('rust9x/src/version') }}
+          restore-keys: rust9x-compiler-
+
+      - name: Clone and build rust9x compiler
+        shell: bash
+        run: |
+          if [ ! -d rust9x ]; then
+            git clone --depth 1 --branch rust9x https://github.com/nickelc/rust.git rust9x || \
+            git clone --depth 1 --branch rust9x https://github.com/nickelc/rust9x.git rust9x || \
+            git clone --depth 1 --branch rust9x https://github.com/nickelc/rust.git rust9x
+          fi
+          cd rust9x
+          if [ ! -f build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe ]; then
+            cp bootstrap.rust9x.toml bootstrap.toml 2>/dev/null || true
+            python x.py build --stage 1
+          fi
+          # Link as a rustup toolchain
+          rustup toolchain link rust9x "$(pwd)/build/x86_64-pc-windows-msvc/stage1"
+        timeout-minutes: 90
+
+      - name: Generate DLL API bindings
+        working-directory: azul
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build azul with rust9x (i686, WinXP+)
+        working-directory: azul
+        shell: bash
+        run: |
+          cargo +rust9x build --release \
+            --target i686-rust9x-windows-msvc \
+            -p azul-dll --features="build-dll" || echo "rust9x build failed (experimental)"
+
+      - name: Upload rust9x artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: azul-windows-i686-rust9x
+          path: |
+            azul/target/i686-rust9x-windows-msvc/release/azul.dll
+            azul/target/i686-rust9x-windows-msvc/release/azul.lib
+          retention-days: 30
+          if-no-files-found: ignore
 
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
@@ -864,7 +924,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_linux_packages, build_website_skeleton]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton]
     runs-on: ubuntu-22.04
     environment:
       name: github-pages
@@ -939,6 +999,13 @@ jobs:
         with:
           name: azul-macos-x86_64
           path: artifacts-macos-x86_64
+
+      - name: Download rust9x binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-windows-i686-rust9x
+          path: artifacts-windows-rust9x
 
       - name: Download .deb package
         uses: actions/download-artifact@v4
@@ -1036,6 +1103,10 @@ jobs:
           # macOS x86_64 (Intel)
           find artifacts-macos-x86_64 -name "libazul.dylib" -exec cp {} "$RELEASE_DIR/libazul.x86_64.dylib" \; 2>/dev/null || true
           find artifacts-macos-x86_64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.macos-x86_64.a" \; 2>/dev/null || true
+
+          # rust9x (Win98/XP experimental)
+          find artifacts-windows-rust9x -name "azul.dll" -exec cp {} "$RELEASE_DIR/azul.rust9x.dll" \; 2>/dev/null || true
+          find artifacts-windows-rust9x -name "azul.lib" -exec cp {} "$RELEASE_DIR/azul.rust9x.lib" \; 2>/dev/null || true
 
           # Headers
           find artifacts-headers -name "*.h" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
