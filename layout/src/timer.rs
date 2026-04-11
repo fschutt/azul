@@ -8,7 +8,7 @@ use core::ffi::c_void;
 use azul_core::{
     callbacks::{TimerCallbackReturn, Update},
     dom::{DomId, OptionDomNodeId},
-    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition},
+    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition},
     id::NodeId,
     menu::Menu,
     refany::{OptionRefAny, RefAny},
