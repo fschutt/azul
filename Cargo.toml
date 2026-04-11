@@ -35,6 +35,16 @@ lto = "thin"      # Thin LTO: good size/perf wins without full-LTO build cost.
 codegen-units = 1 # Single codegen unit for best optimization.
 strip = "symbols" # Strip symbols for smallest binary.
 
+# Minimum-size profile: smallest possible binary without losing functionality.
+#   cargo build --profile min-size -p azul-dll --features build-dll
+[profile.min-size]
+inherits = "release"
+opt-level = "z"   # Optimize for size over speed.
+lto = "fat"       # Full LTO: maximum cross-crate inlining + dead code elimination.
+codegen-units = 1 # Single codegen unit for best optimization.
+strip = "symbols" # Strip debug symbols and local symbols.
+debug = 0         # No debug info at all.
+
 [profile.coverage]
 inherits = "release"
 strip = false     # Keep symbols for grcov source mapping.
