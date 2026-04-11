@@ -1,8 +1,24 @@
+//! Core types and layout pipeline for the text/inline formatting context.
+//!
+//! This module defines the central data structures (`UnifiedConstraints`,
+//! `LayoutCache`, `FontManager`, `UnifiedLayout`, etc.) and implements the
+//! 5-stage inline layout pipeline:
+//!
+//! 1. **Logical Analysis** — `InlineContent` → `LogicalItem`
+//! 2. **BiDi Reordering** — `LogicalItem` → `VisualItem`
+//! 3. **Shaping** — `VisualItem` → `ShapedItem`
+//! 4. **Text Orientation** — vertical writing-mode transforms
+//! 5. **Flow / Positioning** — line breaking + final `PositionedItem` placement
+//!
+//! The module also contains cursor movement helpers, caching infrastructure
+//! (per-item and monolithic), and font management (`FontContext`, `FontManager`,
+//! `LoadedFonts`).  Integration with the box layout solver lives in
+//! `solver3/fc.rs`.
+
 use std::{
-    any::{Any, TypeId},
     cmp::Ordering,
     collections::{
-        hash_map::{DefaultHasher, Entry, HashMap},
+        hash_map::{DefaultHasher, HashMap},
         BTreeSet, HashSet,
     },
     hash::{Hash, Hasher},
@@ -67,7 +83,7 @@ impl LineHeight {
     }
 
     /// Resolve using a `LayoutFontMetrics` struct for convenience.
-    pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &super::cache::LayoutFontMetrics) -> f32 {
+    pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
         self.resolve(font_size_px, metrics.ascent, metrics.descent, metrics.line_gap, metrics.units_per_em)
     }
 }
@@ -108,7 +124,7 @@ impl Standard {
 /// Result of hyphenation (stub when feature is disabled)
 #[cfg(not(feature = "text_layout_hyphenation"))]
 pub struct StubHyphenationBreaks {
-    pub breaks: alloc::vec::Vec<usize>,
+    pub breaks: Vec<usize>,
 }
 
 // Always import Language from script module
@@ -1003,15 +1019,19 @@ impl Hash for UnifiedConstraints {
         (self.strut_x_height.round() as usize).hash(state);
         (self.ch_width.round() as usize).hash(state);
         self.overflow.hash(state);
+        self.segment_alignment.hash(state);
         self.text_combine_upright.hash(state);
         (self.exclusion_margin.round() as usize).hash(state);
         self.hyphenation.hash(state);
         self.hyphenation_language.hash(state);
+        (self.text_indent.round() as usize).hash(state);
+        self.text_indent_each_line.hash(state);
+        self.text_indent_hanging.hash(state);
+        self.initial_letter.hash(state);
+        self.line_clamp.hash(state);
         self.columns.hash(state);
         (self.column_gap.round() as usize).hash(state);
         self.hanging_punctuation.hash(state);
-        self.text_indent_each_line.hash(state);
-        self.text_indent_hanging.hash(state);
         self.overflow_wrap.hash(state);
         self.text_align_last.hash(state);
         self.word_break.hash(state);
@@ -1043,15 +1063,19 @@ impl PartialEq for UnifiedConstraints {
             && round_eq(self.strut_x_height, other.strut_x_height)
             && round_eq(self.ch_width, other.ch_width)
             && self.overflow == other.overflow
+            && self.segment_alignment == other.segment_alignment
             && self.text_combine_upright == other.text_combine_upright
             && round_eq(self.exclusion_margin, other.exclusion_margin)
             && self.hyphenation == other.hyphenation
             && self.hyphenation_language == other.hyphenation_language
+            && round_eq(self.text_indent, other.text_indent)
+            && self.text_indent_each_line == other.text_indent_each_line
+            && self.text_indent_hanging == other.text_indent_hanging
+            && self.initial_letter == other.initial_letter
+            && self.line_clamp == other.line_clamp
             && self.columns == other.columns
             && round_eq(self.column_gap, other.column_gap)
             && self.hanging_punctuation == other.hanging_punctuation
-            && self.text_indent_each_line == other.text_indent_each_line
-            && self.text_indent_hanging == other.text_indent_hanging
             && self.overflow_wrap == other.overflow_wrap
             && self.text_align_last == other.text_align_last
             && self.word_break == other.word_break
@@ -3153,8 +3177,13 @@ impl StyleProperties {
     }
     
     /// Check if two StyleProperties have the same layout-affecting properties.
-    /// 
+    ///
     /// Returns true if the layouts would be identical (only rendering differs).
+    ///
+    /// **Note:** This is a fast-path comparison using 64-bit hashes.  Hash
+    /// collisions are theoretically possible, which could cause the cache to
+    /// serve a stale layout.  In practice the probability is negligible for
+    /// the number of distinct `StyleProperties` values in a single document.
     pub fn layout_eq(&self, other: &Self) -> bool {
         self.layout_hash() == other.layout_hash()
     }
@@ -6739,10 +6768,6 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 glyphs: current_cluster_glyphs
                     .iter()
                     .map(|g| {
-                        let source_char = text
-                            .get(g.logical_byte_index..)
-                            .and_then(|s| s.chars().next())
-                            .unwrap_or('\u{FFFD}');
                         // Calculate cluster_offset safely
                         let cluster_offset = if g.logical_byte_index >= cluster_start_byte_in_text {
                             (g.logical_byte_index - cluster_start_byte_in_text) as u32
@@ -6801,10 +6826,6 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             glyphs: current_cluster_glyphs
                 .iter()
                 .map(|g| {
-                    let source_char = text
-                        .get(g.logical_byte_index..)
-                        .and_then(|s| s.chars().next())
-                        .unwrap_or('\u{FFFD}');
                     // Calculate cluster_offset safely
                     let cluster_offset = if g.logical_byte_index >= cluster_start_byte_in_text {
                         (g.logical_byte_index - cluster_start_byte_in_text) as u32
@@ -9032,21 +9053,6 @@ pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
     }
 }
 
-/// Helper to get the final positioned bounds of an item.
-fn get_item_bounds(item: &PositionedItem) -> Rect {
-    let measure = get_item_measure(&item.item, false); // for simplicity, use horizontal
-    let cross_measure = match &item.item {
-        ShapedItem::Object { bounds, .. } => bounds.height,
-        _ => 20.0, // placeholder line height
-    };
-    Rect {
-        x: item.position.x,
-        y: item.position.y,
-        width: measure,
-        height: cross_measure,
-    }
-}
-
 /// Calculates the available horizontal segments for a line at a given vertical position,
 /// considering both shape boundaries and exclusions.
 fn get_line_constraints(
@@ -9252,7 +9258,7 @@ fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment> {
     merged
 }
 
-// TODO: Dummy polygon function to make it compile
+/// Computes horizontal line segments where a polygon intersects a scanline at the given y range.
 fn polygon_line_intersection(
     points: &[Point],
     y: f32,
