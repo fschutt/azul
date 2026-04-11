@@ -5,7 +5,7 @@
 use alloc::collections::BTreeMap;
 use core::{
     fmt,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    sync::atomic::{AtomicU32, Ordering as AtomicOrdering},
 };
 
 use crate::{
@@ -186,14 +186,14 @@ impl ::core::fmt::Debug for PipelineId {
     }
 }
 
-static LAST_PIPELINE_ID: AtomicUsize = AtomicUsize::new(0);
+static LAST_PIPELINE_ID: AtomicU32 = AtomicU32::new(0);
 
 impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
 
     pub fn new() -> Self {
         PipelineId(
-            LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u32,
+            LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst),
             0,
         )
     }
