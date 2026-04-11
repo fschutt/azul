@@ -36,15 +36,18 @@ use azul_css::{
 };
 use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFunction};
 
+/// CSS reference pixels per inch (96 dpi per CSS Values spec).
+const CSS_PX_PER_INCH: f32 = 96.0;
+
 /// Convert PixelValue to pixels, only for absolute units (no %, and em/rem use fallback)
 /// Used where proper resolution context is not available (grid tracks, etc.)
 fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
     match pv.metric {
         SizeMetric::Px => Some(pv.number.get()),
         SizeMetric::Pt => Some(pv.number.get() * PT_TO_PX),
-        SizeMetric::In => Some(pv.number.get() * 96.0),
-        SizeMetric::Cm => Some(pv.number.get() * 96.0 / 2.54),
-        SizeMetric::Mm => Some(pv.number.get() * 96.0 / 25.4),
+        SizeMetric::In => Some(pv.number.get() * CSS_PX_PER_INCH),
+        SizeMetric::Cm => Some(pv.number.get() * CSS_PX_PER_INCH / 2.54),
+        SizeMetric::Mm => Some(pv.number.get() * CSS_PX_PER_INCH / 25.4),
         // For em/rem, use DEFAULT_FONT_SIZE as fallback (not ideal but needed without context)
         SizeMetric::Em | SizeMetric::Rem => Some(pv.number.get() * DEFAULT_FONT_SIZE),
         SizeMetric::Percent => None, // Cannot resolve without containing block
@@ -53,7 +56,8 @@ fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
     }
 }
 
-pub fn grid_template_rows_to_taffy(
+/// Converts an Azul `grid-template-rows` value into Taffy grid template components.
+fn grid_template_rows_to_taffy(
     val: LayoutGridTemplateRowsValue,
 ) -> Vec<taffy::GridTemplateComponent<String>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
@@ -64,7 +68,8 @@ pub fn grid_template_rows_to_taffy(
         .collect()
 }
 
-pub fn grid_template_columns_to_taffy(
+/// Converts an Azul `grid-template-columns` value into Taffy grid template components.
+fn grid_template_columns_to_taffy(
     val: LayoutGridTemplateColumnsValue,
 ) -> Vec<taffy::GridTemplateComponent<String>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
@@ -75,7 +80,8 @@ pub fn grid_template_columns_to_taffy(
         .collect()
 }
 
-pub fn grid_auto_rows_to_taffy(
+/// Converts an Azul `grid-auto-rows` value into Taffy min/max track sizing pairs.
+fn grid_auto_rows_to_taffy(
     val: LayoutGridAutoRowsValue,
 ) -> Vec<taffy::MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
@@ -89,7 +95,8 @@ pub fn grid_auto_rows_to_taffy(
         .collect()
 }
 
-pub fn grid_auto_columns_to_taffy(
+/// Converts an Azul `grid-auto-columns` value into Taffy track sizing functions.
+fn grid_auto_columns_to_taffy(
     val: LayoutGridAutoColumnsValue,
 ) -> Vec<taffy::TrackSizingFunction> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
@@ -153,7 +160,7 @@ fn minmax(min: MinTrackSizingFunction, max: MaxTrackSizingFunction) -> taffy::Tr
     TrackSizingFunction { min, max }
 }
 
-pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
+fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutDisplay::None => taffy::Display::None,
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => taffy::Display::Flex,
@@ -163,7 +170,7 @@ pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
 }
 
 // to determine their CB; Taffy's Position::Absolute handles this for both flex and grid
-pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
+fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutPosition::Absolute => taffy::Position::Absolute,
         LayoutPosition::Fixed => taffy::Position::Absolute, // Taffy has no Fixed variant
@@ -173,7 +180,7 @@ pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     }
 }
 
-pub fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
+fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutGridAutoFlow::Row => taffy::GridAutoFlow::Row,
         LayoutGridAutoFlow::Column => taffy::GridAutoFlow::Column,
@@ -216,7 +223,7 @@ fn grid_placement_to_taffy(
     }
 }
 
-pub fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::FlexDirection {
+fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::FlexDirection {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutFlexDirection::Row => taffy::FlexDirection::Row,
         LayoutFlexDirection::RowReverse => taffy::FlexDirection::RowReverse,
@@ -225,7 +232,7 @@ pub fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::F
     }
 }
 
-pub fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> taffy::FlexWrap {
+fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> taffy::FlexWrap {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutFlexWrap::NoWrap => taffy::FlexWrap::NoWrap,
         LayoutFlexWrap::Wrap => taffy::FlexWrap::Wrap,
@@ -233,7 +240,7 @@ pub fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> taffy::FlexWrap {
     }
 }
 
-pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignItems {
+fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignItems {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignItems::Stretch => taffy::AlignItems::Stretch,
         LayoutAlignItems::Center => taffy::AlignItems::Center,
@@ -243,7 +250,7 @@ pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignIt
     }
 }
 
-pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
+fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items (for non-abspos; abspos auto computes to itself per spec)
         LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
@@ -254,7 +261,7 @@ pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::Al
     }
 }
 
-pub fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::AlignContent {
+fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::AlignContent {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignContent::Start => taffy::AlignContent::FlexStart,
         LayoutAlignContent::End => taffy::AlignContent::FlexEnd,
@@ -265,7 +272,7 @@ pub fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::Ali
     }
 }
 
-pub fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy::JustifyContent {
+fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy::JustifyContent {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutJustifyContent::FlexStart => taffy::JustifyContent::FlexStart,
         LayoutJustifyContent::FlexEnd => taffy::JustifyContent::FlexEnd,
@@ -278,7 +285,7 @@ pub fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy:
     }
 }
 
-pub fn layout_justify_items_to_taffy(
+fn layout_justify_items_to_taffy(
     val: azul_css::props::property::LayoutJustifyItemsValue,
 ) -> taffy::AlignItems {
     use azul_css::props::layout::grid::LayoutJustifyItems;
@@ -1139,7 +1146,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let Some(parent_idx) = node.parent else {
                     return (false, false);
                 };
-                let parent_style = self.get_taffy_style(parent_idx);
+                let parent_dom_id = self.tree.get(parent_idx).and_then(|n| n.dom_node_id);
+                let parent_style = self.translate_style_to_taffy(parent_dom_id);
 
                 // Determine if flex container is row or column
                 let is_row = matches!(
