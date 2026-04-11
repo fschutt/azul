@@ -1,3 +1,7 @@
+//! Titlebar widget for custom window chrome (CSD and title-only modes).
+//!
+//! Key type: [`Titlebar`]
+
 use azul_core::{
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClass::Id, IdOrClassVec},
     refany::RefAny,
@@ -6,7 +10,7 @@ use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
-            color::{ColorU, ColorOrSystem, SystemColorRef},
+            color::ColorU,
             font::{StyleFontFamily, StyleFontFamilyVec},
             *,
         },
@@ -186,7 +190,7 @@ impl Titlebar {
         let safe_right = tm.safe_area.right.as_ref()
             .map(|pv| pv.to_pixels_internal(0.0, 0.0))
             .unwrap_or(0.0);
-        // Bug 9: apply padding_horizontal from TitlebarMetrics
+        // Apply padding_horizontal from TitlebarMetrics
         let pad_h = tm.padding_horizontal.as_ref()
             .map(|pv| pv.to_pixels_internal(0.0, 0.0))
             .unwrap_or(0.0);
@@ -200,7 +204,7 @@ impl Titlebar {
             half_btn + safe_right + pad_h,
         );
 
-        // Bug 8: resolve title color from system style, with dark/light fallback
+        // Resolve title color from system style, with dark/light fallback
         let title_color = system_style.colors.text.into_option().unwrap_or(
             match system_style.theme {
                 azul_css::system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
@@ -231,7 +235,6 @@ impl Titlebar {
     }
 
     /// Build inline CSS for the container div.
-    /// Build inline CSS for the container div.
     fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
         if show_buttons {
@@ -247,7 +250,7 @@ impl Titlebar {
             ));
         } else {
             // Title-only mode: block layout — title fills width automatically.
-            // Bug 12: avoids flex-grow complexity; text centers via text-align.
+            // Avoids flex-grow complexity; text centers via text-align.
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_display(LayoutDisplay::Block),
             ));
@@ -291,7 +294,7 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_family(font_family),
         ));
-        // Bug 8: use resolved title color from SystemStyle (adapts to dark mode)
+        // Use resolved title color from SystemStyle (adapts to dark mode)
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_text_color(StyleTextColor { inner: self.title_color }),
         ));
