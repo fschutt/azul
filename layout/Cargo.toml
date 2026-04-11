@@ -28,6 +28,7 @@ image                   = { version = "0.25", default-features = false, optional
 zune-jpeg               = { version = "0.5", default-features = false, features = ["std"], optional = true }
 rust-fontconfig         = { version = "3.2.1", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
+brotli-decompressor     = { version = "5", default-features = false, features = ["std"], optional = true }
 accesskit               = { version = "0.24", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
@@ -226,7 +227,7 @@ zip_support = ["dep:zip", "std"]
 json = ["dep:serde_json", "std", "azul-core/serde-json"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
-icons = ["std", "zip_support", "dep:material-icons"]
+icons = ["std", "zip_support", "dep:material-icons", "dep:brotli-decompressor"]
 
 [[test]]
 name = "solver3_calc"

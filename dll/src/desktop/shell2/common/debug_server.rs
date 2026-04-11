@@ -2781,16 +2781,21 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
         return;
     }
 
-    // ── Route: GET /debugger.css → serve CSS ──
+    // Compressed debugger assets (gzip, built by build.rs)
+    // Browsers decompress transparently via Content-Encoding: br.
+    static DEBUGGER_CSS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.css.br"));
+    static DEBUGGER_JS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.js.br"));
+    static DEBUGGER_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.html.br"));
+
+    // ── Route: GET /debugger.css → serve gzip-compressed CSS ──
     if method == "GET" && path == "/debugger.css" {
-        let css = include_str!("debugger/debugger.css");
         let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            css.len()
+            "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            DEBUGGER_CSS_BR.len()
         );
         stream.set_nodelay(true).ok();
         let _ = stream.write_all(header.as_bytes());
-        for chunk in css.as_bytes().chunks(8192) {
+        for chunk in DEBUGGER_CSS_BR.chunks(8192) {
             if stream.write_all(chunk).is_err() { return; }
         }
         let _ = stream.flush();
@@ -2800,16 +2805,15 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
         return;
     }
 
-    // ── Route: GET /debugger.js → serve JS ──
+    // ── Route: GET /debugger.js → serve gzip-compressed JS ──
     if method == "GET" && path == "/debugger.js" {
-        let js = include_str!("debugger/debugger.js");
         let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            js.len()
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            DEBUGGER_JS_BR.len()
         );
         stream.set_nodelay(true).ok();
         let _ = stream.write_all(header.as_bytes());
-        for chunk in js.as_bytes().chunks(8192) {
+        for chunk in DEBUGGER_JS_BR.chunks(8192) {
             if stream.write_all(chunk).is_err() { return; }
         }
         let _ = stream.flush();
@@ -2819,21 +2823,19 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
         return;
     }
 
-    // ── Route: GET / → serve the debugger UI ──
+    // ── Route: GET / → serve gzip-compressed debugger HTML ──
     if method == "GET" && (path == "/" || path == "/index.html") {
-        let html = include_str!("debugger/debugger.html");
         let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            html.len()
+            "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            DEBUGGER_HTML_BR.len()
         );
         stream.set_nodelay(true).ok();
         let _ = stream.write_all(header.as_bytes());
-        for chunk in html.as_bytes().chunks(8192) {
+        for chunk in DEBUGGER_HTML_BR.chunks(8192) {
             if stream.write_all(chunk).is_err() { return; }
         }
         let _ = stream.flush();
         let _ = stream.shutdown(std::net::Shutdown::Write);
-        // Read client close
         let mut drain = [0u8; 64];
         while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
         return;

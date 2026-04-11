@@ -217,7 +217,118 @@ pub fn generate_all_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     // Generate all targets
     GenerationTargets::generate_all(&ir, project_root)?;
 
+    // Generate minified + brotli-compressed api.json for web backend embedding
+    generate_compressed_api_json(project_root)?;
+
+    // Brotli-compress the Material Icons font for embedding
+    compress_material_icons_font(project_root)?;
+
     println!("\n[OK] All outputs generated successfully!");
+
+    Ok(())
+}
+
+/// Generate a minified, gzip-compressed api.json for embedding in the web backend.
+///
+/// The web backend needs the full API description at runtime for function
+/// classification (framework vs callback vs server-entry-point). Storing it
+/// compressed reduces binary size from ~3.7 MB to ~150 KB.
+///
+/// Output: target/codegen/api.json.gz
+fn generate_compressed_api_json(project_root: &Path) -> Result<()> {
+    let api_path = project_root.join("api.json");
+    if !api_path.exists() {
+        anyhow::bail!("api.json not found at {}", api_path.display());
+    }
+
+    let raw = std::fs::read_to_string(&api_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let minified = serde_json::to_string(&parsed)?;
+
+    let mut compressed = Vec::new();
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 11,
+        ..Default::default()
+    };
+    brotli::BrotliCompress(&mut minified.as_bytes(), &mut compressed, &params)?;
+
+    let output_path = project_root
+        .join("target")
+        .join("codegen")
+        .join("api.json.br");
+    std::fs::write(&output_path, &compressed)?;
+
+    println!(
+        "[OK] Generated {} ({} bytes, {:.0}x compression from {} bytes raw)",
+        output_path.display(),
+        compressed.len(),
+        raw.len() as f64 / compressed.len() as f64,
+        raw.len(),
+    );
+
+    Ok(())
+}
+
+/// Brotli-compress the Material Icons font for embedding.
+///
+/// The compressed font is written to target/codegen/material_icons.ttf.br
+/// and included via include_bytes! in azul-layout's icon module.
+/// This lets the linker DCE the raw 348KB `material_icons::FONT` constant
+/// since nothing references it directly.
+fn compress_material_icons_font(project_root: &Path) -> Result<()> {
+    // Try local development path first, then cargo registry
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+
+    let local = project_root.join("../material-icons/assets/MaterialIcons-Regular.ttf");
+    let font_path = if local.exists() {
+        local
+    } else {
+        // Search cargo registry
+        let registry_base = Path::new(&home).join(".cargo/registry/src");
+        let mut found = None;
+        if registry_base.exists() {
+            if let Ok(entries) = std::fs::read_dir(&registry_base) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path()
+                        .join("material-icons-0.3.0/assets/MaterialIcons-Regular.ttf");
+                    if candidate.exists() {
+                        found = Some(candidate);
+                        break;
+                    }
+                }
+            }
+        }
+        match found {
+            Some(p) => p,
+            None => {
+                println!("[SKIP] Material Icons font not found, skipping compression");
+                return Ok(());
+            }
+        }
+    };
+
+    let raw = std::fs::read(&font_path)?;
+    let mut compressed = Vec::new();
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 11,
+        ..Default::default()
+    };
+    brotli::BrotliCompress(&mut &raw[..], &mut compressed, &params)?;
+
+    let output_dir = project_root.join("target").join("codegen");
+    std::fs::create_dir_all(&output_dir)?;
+    let output_path = output_dir.join("material_icons.ttf.br");
+    std::fs::write(&output_path, &compressed)?;
+
+    println!(
+        "[OK] Generated {} ({} bytes, {:.0}x compression from {} bytes raw)",
+        output_path.display(),
+        compressed.len(),
+        raw.len() as f64 / compressed.len() as f64,
+        raw.len(),
+    );
 
     Ok(())
 }

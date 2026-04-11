@@ -35,7 +35,7 @@ use webrender_build::shader::{
     shader_source_from_file, ProgramSourceDigest, ShaderKind, ShaderVersion,
 };
 
-use super::super::shader_source::{OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS};
+use super::super::shader_source::{OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS, decompress_shader};
 use crate::{
     internal_types::{FastHashMap, RenderTargetInfo, Swizzle, SwizzleSettings},
     profiler,
@@ -193,12 +193,10 @@ pub fn get_unoptimized_shader_source(
         let shader_path = base.join(&format!("{}.glsl", shader_name));
         Cow::Owned(shader_source_from_file(&shader_path))
     } else {
-        Cow::Borrowed(
-            UNOPTIMIZED_SHADERS
-                .get(shader_name)
-                .expect("Shader not found")
-                .source,
-        )
+        let entry = UNOPTIMIZED_SHADERS
+            .get(shader_name)
+            .expect("Shader not found");
+        Cow::Owned(decompress_shader(entry.compressed_source))
     }
 }
 

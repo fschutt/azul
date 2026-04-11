@@ -58,6 +58,9 @@ spmc = { version = "0.3", optional = true }
 
 cfg-if = { version = "1.0", optional = true }
 
+# Brotli decompression for embedded compressed assets (web backend api.json)
+brotli-decompressor = { version = "5", default-features = false, features = ["std"], optional = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 x11-clipboard = { version = "0.9.3", optional = true }
@@ -117,6 +120,9 @@ objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, f
     "NSOpenGL",
     "NSOpenGLView",
 ] }
+
+[build-dependencies]
+brotli = "8"
 
 # =============================================================================
 # Features
@@ -279,6 +285,8 @@ web = [
     "azul-css",
     "azul-layout",
     "rust-fontconfig",
+    "serde_json",
+    "brotli-decompressor",
 ]
 
 # -----------------------------------------------------------------------------

@@ -17,6 +17,7 @@ serde = { version = "1", default-features = false, features = ["derive"] }
 serde_derive = { version = "1", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 anyhow = "1.0"
+brotli = "8"
 indexmap = { version = "2.12", features = ["serde"] } # For ordered maps
 cargo-license = "0.7.0"
 cargo_metadata = "0.21"

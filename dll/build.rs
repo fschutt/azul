@@ -4,6 +4,7 @@ fn main() {
     let target = env::var("TARGET").unwrap_or_default();
 
     check_generated_files();
+    compress_debugger_assets();
 
     if env::var("CARGO_FEATURE_CABI_EXTERNAL").is_ok() {
         configure_dynamic_linking(&target);
@@ -293,3 +294,43 @@ APP_BUNDLE_PATH="$(dirname "$EXECUTABLE_PATH")/${APP_NAME}.app"
 echo "Deploying ${APP_BUNDLE_PATH}..."
 ios-deploy --bundle "${APP_BUNDLE_PATH}" --justlaunch
 "#;
+
+// ── Debugger asset compression ───────────────────────────────────────
+
+/// Brotli-compress debugger UI assets (CSS, JS, HTML) at build time.
+/// The compressed files are written to OUT_DIR and included via include_bytes!
+/// in debug_server.rs, then served with Content-Encoding: br.
+fn compress_debugger_assets() {
+    let out_dir = env::var("OUT_DIR").unwrap_or_default();
+    if out_dir.is_empty() { return; }
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let debugger_dir = Path::new(&manifest_dir)
+        .join("src/desktop/shell2/common/debugger");
+
+    let assets = &[
+        ("debugger.css", "debugger.css.br"),
+        ("debugger.js", "debugger.js.br"),
+        ("debugger.html", "debugger.html.br"),
+    ];
+
+    for &(src_name, br_name) in assets {
+        let src_path = debugger_dir.join(src_name);
+        if !src_path.exists() { continue; }
+
+        println!("cargo:rerun-if-changed={}", src_path.display());
+        brotli_compress_file(&src_path, &Path::new(&out_dir).join(br_name));
+    }
+
+}
+
+fn brotli_compress_file(src: &Path, dst: &Path) {
+    let raw = fs::read(src).unwrap();
+    let mut compressed = Vec::new();
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 11,
+        ..Default::default()
+    };
+    brotli::BrotliCompress(&mut &raw[..], &mut compressed, &params).unwrap();
+    fs::write(dst, &compressed).unwrap();
+}

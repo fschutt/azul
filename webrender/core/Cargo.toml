@@ -14,6 +14,7 @@ default = []
 
 [build-dependencies]
 webrender_build = { path = "../build" }
+brotli = "8"
 
 [dependencies]
 bincode = "2.0"
@@ -35,6 +36,7 @@ azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }
 svg_fmt = "0.4"
+brotli-decompressor = "5"
 derive_more = { version = "2.0", default-features = false, features = ["add_assign"] }
 etagere = "0.2.13"
 topological-sort = "0.2"
