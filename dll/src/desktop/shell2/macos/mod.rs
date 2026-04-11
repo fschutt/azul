@@ -99,7 +99,7 @@ use gl::GlFunctions;
 type IOPMAssertionID = u32;
 type IOReturn = i32;
 
-const kIOReturnSuccess: IOReturn = 0;
+const K_IORETURN_SUCCESS: IOReturn = 0;
 
 // IOPMAssertion types
 #[allow(non_upper_case_globals)]
@@ -117,7 +117,7 @@ extern "C" {
     fn IOPMAssertionRelease(assertion_id: IOPMAssertionID) -> IOReturn;
 }
 
-const kIOPMAssertionLevelOn: u32 = 255;
+const K_IOPMASSERTION_LEVEL_ON: u32 = 255;
 
 /// Timer interval for ~60 FPS tick callbacks (16ms).
 const TIMER_INTERVAL_60FPS: f64 = 0.016;
@@ -2178,7 +2178,7 @@ fn create_opengl_pixel_format(
     unsafe {
         let attrs_ptr = std::ptr::NonNull::new_unchecked(attrs.as_ptr() as *mut u32);
         NSOpenGLPixelFormat::initWithAttributes(NSOpenGLPixelFormat::alloc(), attrs_ptr)
-            .ok_or_else(|| WindowError::ContextCreationFailed)
+            .ok_or(WindowError::ContextCreationFailed)
     }
 }
 
@@ -2285,7 +2285,7 @@ impl event::PlatformWindow for MacOSWindow {
         })
     }
 
-    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
+    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
         let layout_window = self
             .common.layout_window
             .as_mut()
@@ -2546,11 +2546,11 @@ impl MacOSWindow {
 
         // Get OpenGL context
         let gl_context =
-            unsafe { gl_view.openGLContext() }.ok_or_else(|| WindowError::ContextCreationFailed)?;
+            unsafe { gl_view.openGLContext() }.ok_or(WindowError::ContextCreationFailed)?;
 
         // Load GL functions
         let gl_functions = GlFunctions::initialize()
-            .map_err(|e| WindowError::PlatformError(format!("Failed to load GL: {}", e).into()))?;
+            .map_err(|e| WindowError::PlatformError(format!("Failed to load GL: {}", e)))?;
 
         Ok((gl_view, gl_context, Rc::new(gl_functions)))
     }
@@ -2788,12 +2788,11 @@ impl MacOSWindow {
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
-        if options.window_state.background_color.is_none() {
-            if matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
+        if options.window_state.background_color.is_none()
+            && matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
                 options.window_state.background_color = config.system_style.colors.window_background;
             }
             // For materials, leave background_color as None - renderer handles transparency
-        }
         
         log_debug!(
             LogCategory::Window,
@@ -3130,7 +3129,7 @@ impl MacOSWindow {
 
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
-            let mut render_api = sender.create_api();
+            let render_api = sender.create_api();
             let physical_size = azul_core::geom::PhysicalSize {
                 width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
                 height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
@@ -3177,7 +3176,7 @@ impl MacOSWindow {
 
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
-        let mut current_window_state = FullWindowState {
+        let current_window_state = FullWindowState {
             window_id: options.window_state.window_id.clone(),
             title: options.window_state.title.clone(),
             size: WindowSize {
@@ -3413,14 +3412,14 @@ impl MacOSWindow {
                 .common.layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
-            let mut fc_cache_clone = (*window.common.fc_cache).clone();
+            let fc_cache_clone = (*window.common.fc_cache).clone();
 
             // Get app_data for callback
             let mut app_data_ref = window.common.app_data.borrow_mut();
 
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
-                &mut *app_data_ref,
+                &mut app_data_ref,
                 &raw_handle,
                 &window.common.gl_context_ptr,
                 window.common.system_style.clone(),
@@ -4572,7 +4571,7 @@ impl MacOSWindow {
         });
 
         // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
-        let mut fc_cache_clone = (*self.common.fc_cache).clone();
+        let fc_cache_clone = (*self.common.fc_cache).clone();
 
         // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
         let (changes, update) = layout_window.invoke_single_callback(
@@ -4805,12 +4804,12 @@ impl MacOSWindow {
 
                 let result = IOPMAssertionCreateWithName(
                     assertion_type.as_ref(),
-                    kIOPMAssertionLevelOn,
+                    K_IOPMASSERTION_LEVEL_ON,
                     assertion_name.as_ref(),
                     &mut assertion_id,
                 );
 
-                if result == kIOReturnSuccess {
+                if result == K_IORETURN_SUCCESS {
                     self.pm_assertion_id = Some(assertion_id);
                     log_debug!(
                         LogCategory::Platform,
@@ -4825,7 +4824,7 @@ impl MacOSWindow {
                 // Release assertion
                 if let Some(assertion_id) = self.pm_assertion_id.take() {
                     let result = IOPMAssertionRelease(assertion_id);
-                    if result == kIOReturnSuccess {
+                    if result == K_IORETURN_SUCCESS {
                         log_debug!(
                             LogCategory::Platform,
                             "[macOS] System sleep allowed (assertion: {})",
@@ -4885,11 +4884,7 @@ impl MacOSWindow {
 
         let view = if let Some(ref gl_view) = self.gl_view {
             Some(&**gl_view as &objc2::runtime::AnyObject)
-        } else if let Some(ref cpu_view) = self.cpu_view {
-            Some(&**cpu_view as &objc2::runtime::AnyObject)
-        } else {
-            None
-        };
+        } else { self.cpu_view.as_ref().map(|cpu_view| &**cpu_view as &objc2::runtime::AnyObject) };
 
         if let Some(view) = view {
             log_debug!(
@@ -5264,7 +5259,7 @@ impl MacOSWindow {
                         e
                     );
                     return Err(WindowError::PlatformError(
-                        format!("Layout failed: {}", e).into(),
+                        format!("Layout failed: {}", e),
                     ));
                 }
             };
@@ -5513,7 +5508,7 @@ impl MacOSWindow {
                 &self.common.gl_context_ptr,
             )
             .map_err(|e| {
-                WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
+                WindowError::PlatformError(format!("Failed to build transaction: {}", e))
             })?;
             // Mark that WebRender now has a valid display list
             self.common.display_list_initialized = true;
@@ -5527,7 +5522,7 @@ impl MacOSWindow {
                 &self.common.gl_context_ptr,
             )
             .map_err(|e| {
-                WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e).into())
+                WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e))
             })?;
         }
 
@@ -5607,7 +5602,7 @@ impl MacOSWindow {
                         errors
                     );
                     return Err(WindowError::PlatformError(
-                        format!("WebRender render failed: {:?}", errors).into(),
+                        format!("WebRender render failed: {:?}", errors),
                     ));
                 }
             }
@@ -5729,7 +5724,7 @@ impl MacOSWindow {
     pub fn poll_event(&mut self) -> Option<MacOSEvent> {
         // Check if a frame is ready without blocking
         let frame_ready = {
-            let &(ref lock, _) = &*self.new_frame_ready;
+            let (lock, _) = &*self.new_frame_ready;
             let mut ready_guard = lock.lock().unwrap();
             if *ready_guard {
                 *ready_guard = false; // Consume the signal
@@ -6411,7 +6406,7 @@ fn position_window_on_monitor(
 
     // Get all available monitors
     let monitors = get_monitors();
-    if monitors.len() == 0 {
+    if monitors.is_empty() {
         unsafe {
             window.center();
         }
@@ -6420,7 +6415,7 @@ fn position_window_on_monitor(
 
     // Get all NSScreens
     let screens = unsafe { NSScreen::screens(mtm) };
-    if screens.len() == 0 {
+    if screens.is_empty() {
         unsafe {
             window.center();
         }

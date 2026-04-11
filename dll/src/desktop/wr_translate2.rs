@@ -65,7 +65,7 @@ impl AsyncHitTester {
     pub fn resolve(&mut self) -> Arc<dyn WrApiHitTester> {
         let mut _swap: Self = unsafe { mem::zeroed() };
         mem::swap(self, &mut _swap);
-        let mut new = match _swap {
+        let new = match _swap {
             AsyncHitTester::Requested(r) => r.resolve(),
             AsyncHitTester::Resolved(r) => r.clone(),
         };
@@ -73,7 +73,7 @@ impl AsyncHitTester {
         let mut swap_back = AsyncHitTester::Resolved(new.clone());
         mem::swap(self, &mut swap_back);
         mem::forget(swap_back);
-        return r;
+        r
     }
 }
 
@@ -92,7 +92,7 @@ impl WrRenderNotifier for Notifier {
 
     fn wake_up(&self, _composite_needed: bool) {
         // Signal that something happened (non-frame-generating update)
-        let &(ref lock, ref cvar) = &*self.new_frame_ready;
+        let (lock, cvar) = &*self.new_frame_ready;
         let mut new_frame_ready = lock.lock().unwrap();
         *new_frame_ready = true;
         cvar.notify_one();
@@ -112,7 +112,7 @@ impl WrRenderNotifier for Notifier {
              {_scrolled:?} _composite_needed: {_composite_needed:?} _frame_publish_id: \
              {_frame_publish_id:?}"
         );
-        let &(ref lock, ref cvar) = &*self.new_frame_ready;
+        let (lock, cvar) = &*self.new_frame_ready;
         let mut new_frame_ready = lock.lock().unwrap();
         *new_frame_ready = true;
         cvar.notify_one();
@@ -230,7 +230,7 @@ impl webrender::api::ExternalImageHandler for Compositor {
         &mut self,
         key: webrender::api::ExternalImageId,
         _channel_index: u8,
-    ) -> webrender::api::ExternalImage {
+    ) -> webrender::api::ExternalImage<'_> {
         use azul_core::resources::ExternalImageId;
         use webrender::api::{
             units::{DevicePoint as WrDevicePoint, TexelRect as WrTexelRect},
@@ -605,7 +605,7 @@ pub fn fullhittest_new_webrender(
         styled_dom::NodeHierarchyItemId,
     };
 
-    let mut cursor_location = match cursor_position {
+    let cursor_location = match cursor_position {
         CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => {
             return FullHitTest::empty(old_focus_node);
         }
@@ -683,7 +683,7 @@ pub fn fullhittest_new_webrender(
                         .node_data
                         .as_container()
                         .get(node_id)
-                        .map_or(false, |nd| {
+                        .is_some_and(|nd| {
                             matches!(nd.get_node_type(), azul_core::dom::NodeType::VirtualView)
                         });
 
@@ -732,7 +732,7 @@ pub fn fullhittest_new_webrender(
 
                     ret.hovered_nodes
                         .entry(*dom_id)
-                        .or_insert_with(|| azul_core::hit_test::HitTest::empty())
+                        .or_insert_with(azul_core::hit_test::HitTest::empty)
                         .scroll_hit_test_nodes
                         .insert(node_id, ScrollHitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
@@ -745,7 +745,7 @@ pub fn fullhittest_new_webrender(
             // First pass: Process scroll container tags (TAG_TYPE_SCROLL_CONTAINER = 0x0500)
             // These are hit-test areas for scrollable containers, enabling trackpad/wheel scrolling
             // Only process items from this DOM's pipeline.
-            for (_depth, i) in wr_result.items.iter().enumerate() {
+            for i in wr_result.items.iter() {
                 if i.pipeline != wr_translate_pipeline_id(PipelineId(
                     dom_id.inner as u32, document_id.id)) {
                     continue;
@@ -814,7 +814,7 @@ pub fn fullhittest_new_webrender(
 
                 ret.hovered_nodes
                     .entry(*dom_id)
-                    .or_insert_with(|| azul_core::hit_test::HitTest::empty())
+                    .or_insert_with(azul_core::hit_test::HitTest::empty)
                     .scroll_hit_test_nodes
                     .insert(node_id, ScrollHitTestItem {
                         point_in_viewport: *cursor_relative_to_dom,
@@ -845,7 +845,7 @@ pub fn fullhittest_new_webrender(
 
                 ret.hovered_nodes
                     .entry(*dom_id)
-                    .or_insert_with(|| azul_core::hit_test::HitTest::empty())
+                    .or_insert_with(azul_core::hit_test::HitTest::empty)
                     .cursor_hit_test_nodes
                     .insert(node_id, azul_core::hit_test::CursorHitTestItem {
                         cursor_type,
@@ -930,7 +930,7 @@ pub fn fullhittest_new_webrender(
                 // Always insert into regular_hit_test_nodes
                 ret.hovered_nodes
                     .entry(*dom_id)
-                    .or_insert_with(|| HitTest::empty())
+                    .or_insert_with(HitTest::empty)
                     .regular_hit_test_nodes
                     .insert(node_id, item);
 
@@ -996,7 +996,7 @@ pub fn fullhittest_new_webrender(
 
                 ret.hovered_nodes
                     .entry(*dom_id)
-                    .or_insert_with(|| HitTest::empty())
+                    .or_insert_with(HitTest::empty)
                     .scroll_hit_test_nodes
                     .insert(
                         node_id,
@@ -1081,7 +1081,7 @@ pub fn collect_image_resource_updates(
     // Collect all unique ImageRefs from display lists
     let mut images_in_display_list = FastBTreeSet::new();
 
-    for (_dom_id, layout_result) in &layout_window.layout_results {
+    for layout_result in layout_window.layout_results.values() {
         // Scan display list for Image and PushImageMaskClip items
         for item in &layout_result.display_list.items {
             match item {
@@ -1154,7 +1154,7 @@ pub fn collect_font_resource_updates(
             {
                 let font_sizes = font_hash_sizes
                     .entry(font_hash.font_hash)
-                    .or_insert_with(HashSet::new);
+                    .or_default();
                 let font_size_au = Au::from_px(*font_size_px);
                 font_sizes.insert(font_size_au);
             }
@@ -1674,7 +1674,7 @@ pub fn generate_frame(
         if !font_updates.is_empty() {
             let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
                 .into_iter()
-                .filter_map(|r| translate_resource_update(r))
+                .filter_map(translate_resource_update)
                 .collect();
 
             log_debug!(
@@ -1689,10 +1689,9 @@ pub fn generate_frame(
         if !image_updates.is_empty() {
             let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
                 .into_iter()
-                .map(|(_, add_image_msg)| {
+                .filter_map(|(_, add_image_msg)| {
                     translate_resource_update(add_image_msg.into_resource_update())
                 })
-                .filter_map(|x| x)
                 .collect();
 
             log_debug!(
@@ -1893,7 +1892,7 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     };
 
     // Synchronize opacity values from GPU cache
-    for (dom_id, _layout_result) in &layout_window.layout_results {
+    for dom_id in layout_window.layout_results.keys() {
         let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(*dom_id);
 
         // Synchronize vertical scrollbar opacities
@@ -2118,10 +2117,10 @@ pub fn wr_translate_border_radius(
     let bottom_right_px_v = bottom_right.to_pixels_internal(h, DEFAULT_FONT_SIZE);
 
     WrBorderRadius {
-        top_left: WrLayoutSize::new(top_left_px_h as f32, top_left_px_v as f32),
-        top_right: WrLayoutSize::new(top_right_px_h as f32, top_right_px_v as f32),
-        bottom_left: WrLayoutSize::new(bottom_left_px_h as f32, bottom_left_px_v as f32),
-        bottom_right: WrLayoutSize::new(bottom_right_px_h as f32, bottom_right_px_v as f32),
+        top_left: WrLayoutSize::new(top_left_px_h, top_left_px_v),
+        top_right: WrLayoutSize::new(top_right_px_h, top_right_px_v),
+        bottom_left: WrLayoutSize::new(bottom_left_px_h, bottom_left_px_v),
+        bottom_right: WrLayoutSize::new(bottom_right_px_h, bottom_right_px_v),
     }
 }
 
@@ -2495,7 +2494,7 @@ pub fn build_webrender_transaction(
         // Translate to WebRender resources and add to transaction
         let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
             .into_iter()
-            .filter_map(|r| translate_resource_update(r))
+            .filter_map(translate_resource_update)
             .collect();
 
         if !wr_resources.is_empty() {
@@ -3009,62 +3008,59 @@ fn process_image_callback_updates(
         // Process the returned ImageRef
         if let Some(image_ref) = new_image_ref {
             // Check if this is a GL texture
-            match image_ref.get_data() {
-                DecodedImage::Gl(ref texture) => {
-                    // Insert texture into gl_texture_cache using stable (dom_id, node_id) key
-                    // This ensures the same DOM node always gets the same ExternalImageId
-                    let external_image_id = crate::desktop::gl_texture_cache::insert_texture_for_node(
-                        layout_window.document_id,
-                        dom_id,
-                        node_id,
-                        layout_window.epoch,
-                        texture.clone(),
-                    );
+            if let DecodedImage::Gl(ref texture) = image_ref.get_data() {
+                // Insert texture into gl_texture_cache using stable (dom_id, node_id) key
+                // This ensures the same DOM node always gets the same ExternalImageId
+                let external_image_id = crate::desktop::gl_texture_cache::insert_texture_for_node(
+                    layout_window.document_id,
+                    dom_id,
+                    node_id,
+                    layout_window.epoch,
+                    texture.clone(),
+                );
 
-                    // Create AddImage resource update for WebRender
-                    let descriptor = texture.get_descriptor();
-                    
-                    // Generate ImageKey from the stable ExternalImageId
-                    let image_key = azul_core::resources::ImageKey {
-                        namespace: layout_window.id_namespace,
-                        key: external_image_id.inner as u32,
-                    };
+                // Create AddImage resource update for WebRender
+                let descriptor = texture.get_descriptor();
+                
+                // Generate ImageKey from the stable ExternalImageId
+                let image_key = azul_core::resources::ImageKey {
+                    namespace: layout_window.id_namespace,
+                    key: external_image_id.inner as u32,
+                };
 
-                    let wr_key = translate_image_key(image_key);
-                    let wr_descriptor = wr_translate_image_descriptor(&descriptor);
-                    let wr_data = WrImageData::External(webrender::api::ExternalImageData {
-                        id: webrender::api::ExternalImageId(external_image_id.inner),
-                        channel_index: 0,
-                        image_type: webrender::api::ExternalImageType::TextureHandle(
-                            webrender::api::ImageBufferKind::Texture2D,
-                        ),
-                        normalized_uvs: false,
-                    });
+                let wr_key = translate_image_key(image_key);
+                let wr_descriptor = wr_translate_image_descriptor(&descriptor);
+                let wr_data = WrImageData::External(webrender::api::ExternalImageData {
+                    id: webrender::api::ExternalImageId(external_image_id.inner),
+                    channel_index: 0,
+                    image_type: webrender::api::ExternalImageType::TextureHandle(
+                        webrender::api::ImageBufferKind::Texture2D,
+                    ),
+                    normalized_uvs: false,
+                });
 
-                    // Check if this stable key was already registered (in a previous frame)
-                    // If so, use update_image instead of add_image
-                    let already_registered = layout_window.renderer_resources
-                        .image_key_map.contains_key(&image_key);
-                    
-                    if already_registered {
-                        txn.update_image(wr_key, wr_descriptor, wr_data, &webrender::api::DirtyRect::All);
-                    } else {
-                        txn.add_image(wr_key, wr_descriptor, wr_data, None);
-                    }
-
-                    // Register in renderer_resources using BOTH original_image_hash AND stable key
-                    layout_window.renderer_resources.currently_registered_images.insert(
-                        original_image_hash,
-                        azul_core::resources::ResolvedImage {
-                            key: image_key,
-                            descriptor: descriptor.clone(),
-                        },
-                    );
-                    
-                    // Also register the stable image_key in image_key_map
-                    layout_window.renderer_resources.image_key_map.insert(image_key, original_image_hash);
+                // Check if this stable key was already registered (in a previous frame)
+                // If so, use update_image instead of add_image
+                let already_registered = layout_window.renderer_resources
+                    .image_key_map.contains_key(&image_key);
+                
+                if already_registered {
+                    txn.update_image(wr_key, wr_descriptor, wr_data, &webrender::api::DirtyRect::All);
+                } else {
+                    txn.add_image(wr_key, wr_descriptor, wr_data, None);
                 }
-                _ => {}
+
+                // Register in renderer_resources using BOTH original_image_hash AND stable key
+                layout_window.renderer_resources.currently_registered_images.insert(
+                    original_image_hash,
+                    azul_core::resources::ResolvedImage {
+                        key: image_key,
+                        descriptor,
+                    },
+                );
+                
+                // Also register the stable image_key in image_key_map
+                layout_window.renderer_resources.image_key_map.insert(image_key, original_image_hash);
             }
         }
     }

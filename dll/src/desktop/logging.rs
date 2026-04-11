@@ -65,7 +65,7 @@ pub fn set_up_panic_hooks() {
         let panic_str = payload
             .downcast_ref::<String>()
             .map(|s| s.as_ref())
-            .or_else(|| payload.downcast_ref::<&str>().map(|s| *s))
+            .or_else(|| payload.downcast_ref::<&str>().copied())
             .unwrap_or(payload_str.as_str());
 
         let location_str = location.map(|loc| format!("{} at line {}", loc.file(), loc.line()));
@@ -84,7 +84,7 @@ pub fn set_up_panic_hooks() {
              and attach the log file found in the directory of the executable.\r\n\r\nThe error \
              occurred in: {} in thread {}\r\n\r\nError \
              information:\r\n{}\r\n\r\nBacktrace:\r\n\r\n{}\r\n",
-            location_str.unwrap_or(format!("<unknown location>")),
+            location_str.unwrap_or("<unknown location>".to_string()),
             thread_name,
             panic_str,
             backtrace_str
@@ -166,7 +166,7 @@ pub fn set_up_panic_hooks() {
                         nice_string.push_str(" @ ");
                         nice_string.push_str(&file_string);
                         if !nice_string.ends_with("\n") {
-                            nice_string.push_str("\n");
+                            nice_string.push('\n');
                         }
                     }
 
@@ -179,7 +179,7 @@ pub fn set_up_panic_hooks() {
         backtrace
             .frames()
             .iter()
-            .map(|frame| format_frame(frame))
+            .map(format_frame)
             .collect::<Vec<String>>()
             .join("\r\n")
     }

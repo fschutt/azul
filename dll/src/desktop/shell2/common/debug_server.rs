@@ -3017,6 +3017,7 @@ fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<DebugReq
 /// Runtime configuration that governs how the E2E runner executes tests.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
+#[derive(Default)]
 pub struct E2eConfig {
     /// failure instead of aborting the test immediately.  Default: `false`.
     #[serde(default)]
@@ -3028,14 +3029,6 @@ pub struct E2eConfig {
 }
 
 #[cfg(feature = "std")]
-impl Default for E2eConfig {
-    fn default() -> Self {
-        Self {
-            continue_on_failure: false,
-            delay_between_steps_ms: 0,
-        }
-    }
-}
 
 /// A single E2E test containing setup + steps.
 #[cfg(feature = "std")]
@@ -3253,7 +3246,7 @@ fn eval_assert_text(
     use azul_core::dom::{DomId, DomNodeId};
     let dom_id = DomId { inner: 0 };
     let dom_node_id = DomNodeId {
-        dom: dom_id.clone(),
+        dom: dom_id,
         node: Some(node_id).into(),
     };
 
@@ -3602,7 +3595,7 @@ fn eval_assert_scroll(
     use azul_core::dom::{DomId, DomNodeId};
     let dom_id = DomId { inner: 0 };
     let dom_node_id = DomNodeId {
-        dom: dom_id.clone(),
+        dom: dom_id,
         node: Some(node_id).into(),
     };
 
@@ -3729,7 +3722,7 @@ fn eval_assert_screenshot(
 
         if !result.dimensions_match {
             return AssertionResult::fail_with(
-                format!("assert_screenshot: dimension mismatch"),
+                "assert_screenshot: dimension mismatch".to_string(),
                 format!("{}x{}", result.ref_width, result.ref_height),
                 format!("{}x{}", result.test_width, result.test_height),
             );
@@ -4296,7 +4289,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     let mut symbol_name: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut source_file: Option<String> = None;
-    let mut source_line: Option<u32> = None;
+    let source_line: Option<u32> = None;
     let mut hint: Option<String> = None;
     let mut approximate = false;
 
@@ -4674,7 +4667,7 @@ fn override_data_model_defaults(
     let empty_map = std::collections::HashMap::new();
     let map = json_args.unwrap_or(&empty_map);
 
-    let mut fields: Vec<ComponentDataField> = data_model.fields.as_ref().iter().cloned().collect();
+    let mut fields: Vec<ComponentDataField> = data_model.fields.as_ref().to_vec();
 
     for field in fields.iter_mut() {
         let name = field.name.as_str();
@@ -5074,14 +5067,12 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                 Ok(ComponentFieldType::VecType(
                     ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
                 ))
-            } else if other.starts_with("struct:") {
-                let name = &other[7..];
+            } else if let Some(name) = other.strip_prefix("struct:") {
                 if name.is_empty() {
                     return Err("Empty struct reference name in 'struct:'".to_string());
                 }
                 Ok(ComponentFieldType::StructRef(AzString::from(name)))
-            } else if other.starts_with("enum:") {
-                let name = &other[5..];
+            } else if let Some(name) = other.strip_prefix("enum:") {
                 if name.is_empty() {
                     return Err("Empty enum reference name in 'enum:'".to_string());
                 }
@@ -5130,7 +5121,7 @@ fn validate_exported_field(field: &ExportedDataField) -> Result<azul_core::xml::
 
     let default_value = match &field.default {
         Some(d) => parse_default_value(d, &field_type)
-            .map(|v| OptionComponentDefaultValue::Some(v))
+            .map(OptionComponentDefaultValue::Some)
             .map_err(|e| format!("Field '{}': invalid default '{}': {}", field.name, d, e))?,
         None => OptionComponentDefaultValue::None,
     };
@@ -5223,7 +5214,7 @@ fn validate_exported_fields(fields: &[ExportedDataField]) -> Result<Vec<azul_cor
 /// Convert a snake_case or kebab-case name to PascalCase
 #[cfg(feature = "std")]
 fn to_pascal_case(s: &str) -> String {
-    s.split(|c: char| c == '_' || c == '-')
+    s.split(['_', '-'])
         .filter(|part| !part.is_empty())
         .map(|part| {
             let mut chars = part.chars();
@@ -5505,7 +5496,7 @@ fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, Str
         let struct_name = to_pascal_case(&comp.name);
 
         component_typedefs.push_str(&format!("/* Data model for {} */\n", comp.display_name));
-        component_typedefs.push_str(&format!("typedef struct {{\n"));
+        component_typedefs.push_str("typedef struct {\n");
         for (field_name, field_type, _default) in &comp.data_fields {
             let c_type = map_type_to_c(field_type);
             component_typedefs.push_str(&format!("    {} {};\n", c_type, field_name));
@@ -6009,14 +6000,10 @@ fn process_debug_event(
                     dom: dom_id,
                     node: Some(NodeId::new(*nid as usize)).into(),
                 };
-                if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
-                    Some((
+                callback_info.get_node_hit_test_bounds(dom_node_id).map(|rect| (
                         rect.origin.x + rect.size.width / 2.0,
                         rect.origin.y + rect.size.height / 2.0,
                     ))
-                } else {
-                    None
-                }
             } else if let Some(sel) = selector {
                 // Click by CSS selector using matches_html_element
                 use azul_core::style::matches_html_element;
@@ -6047,7 +6034,7 @@ fn process_debug_event(
                                 None, // No expected pseudo-selector
                             ) {
                                 let dom_node_id = DomNodeId {
-                                    dom: dom_id.clone(),
+                                    dom: dom_id,
                                     node: Some(NodeId::new(i)).into(),
                                 };
                                 // Use get_node_hit_test_bounds for reliable positions from display list
@@ -6082,7 +6069,7 @@ fn process_debug_event(
                             if t.as_str().contains(txt.as_str()) {
                                 // For text nodes, get the parent's rect (the container)
                                 let dom_node_id = DomNodeId {
-                                    dom: dom_id.clone(),
+                                    dom: dom_id,
                                     node: Some(NodeId::new(i)).into(),
                                 };
                                 // Try parent first (text nodes might not have rects)
@@ -6094,7 +6081,7 @@ fn process_debug_event(
                                     i
                                 };
                                 let parent_dom_node_id = DomNodeId {
-                                    dom: dom_id.clone(),
+                                    dom: dom_id,
                                     node: Some(NodeId::new(parent_idx)).into(),
                                 };
                                 // Use get_node_hit_test_bounds for reliable positions from display list
@@ -6617,7 +6604,7 @@ fn process_debug_event(
                 let node_count = layout_result.styled_dom.node_data.len();
                 for i in 0..node_count {
                     let dom_node_id = DomNodeId {
-                        dom: dom_id.clone(),
+                        dom: dom_id,
                         node: Some(NodeId::new(i)).into(),
                     };
 
@@ -6764,7 +6751,7 @@ fn process_debug_event(
 
                     // Get layout rect
                     let dom_node_id = azul_core::dom::DomNodeId {
-                        dom: dom_id.clone(),
+                        dom: dom_id,
                         node: Some(NodeId::new(i)).into(),
                     };
                     let rect = callback_info.get_node_rect(dom_node_id).map(|r| LogicalRectJson {
@@ -7622,7 +7609,7 @@ fn process_debug_event(
                     if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
                         if t.as_str().contains(text.as_str()) {
                             let dom_node_id = DomNodeId {
-                                dom: dom_id.clone(),
+                                dom: dom_id,
                                 node: Some(NodeId::new(i)).into(),
                             };
                             found_node = Some((i, dom_node_id));
@@ -7683,7 +7670,7 @@ fn process_debug_event(
 
             let dom_id = DomId { inner: 0 };
             let dom_node_id = DomNodeId {
-                dom: dom_id.clone(),
+                dom: dom_id,
                 node: Some(NodeId::new(*node_id as usize)).into(),
             };
 
@@ -8077,7 +8064,7 @@ fn process_debug_event(
                     let node_count = layout_result.styled_dom.node_data.len();
                     for i in 0..node_count {
                         let dom_node_id = DomNodeId {
-                            dom: nested_dom_id.clone(),
+                            dom: nested_dom_id,
                             node: Some(NodeId::new(i)).into(),
                         };
 
@@ -8129,7 +8116,7 @@ fn process_debug_event(
                 let dom_id = mc.node_id.dom;
                 let node_id = mc.node_id.node.into_crate_internal().map(|n| n.index() as u64);
                 let selector = mc.node_id.node.into_crate_internal()
-                    .and_then(|nid| build_selector_for_node(&callback_info, dom_id, nid));
+                    .and_then(|nid| build_selector_for_node(callback_info, dom_id, nid));
                 let mut ranges = Vec::new();
                 for s in &mc.selections {
                     use azul_core::selection::Selection;
@@ -8171,7 +8158,7 @@ fn process_debug_event(
                 let dom_id = mc.node_id.dom;
                 let node_id = mc.node_id.node.into_crate_internal().map(|n| n.index() as u64);
                 let selector = mc.node_id.node.into_crate_internal()
-                    .and_then(|nid| build_selector_for_node(&callback_info, dom_id, nid));
+                    .and_then(|nid| build_selector_for_node(callback_info, dom_id, nid));
                 let mut sel_dumps = Vec::new();
                 for s in &mc.selections {
                     use azul_core::selection::Selection;
@@ -8460,11 +8447,11 @@ fn process_debug_event(
                             }
                         }
                         None => {
-                            send_err(request, &alloc::format!("Node {} has no dataset", node_id));
+                            send_err(request, alloc::format!("Node {} has no dataset", node_id));
                         }
                     }
                 } else {
-                    send_err(request, &alloc::format!("Node {} out of range (max {})", node_id, node_data.len()));
+                    send_err(request, alloc::format!("Node {} out of range (max {})", node_id, node_data.len()));
                 }
             } else {
                 send_err(request, "No layout result for DOM 0");
@@ -8489,23 +8476,23 @@ fn process_debug_event(
             // Parse the key string to VirtualKeyCode
             if let Some(keycode) = parse_virtual_keycode(key) {
                 // Add the key to pressed keys if not already present
-                if !pressed_keys.iter().any(|k| *k == keycode) {
+                if !pressed_keys.contains(&keycode) {
                     pressed_keys.push(keycode);
                 }
                 new_state.keyboard_state.current_virtual_keycode = Some(keycode).into();
             }
             
             // Set modifier keys based on modifiers struct
-            if modifiers.shift && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LShift) {
+            if modifiers.shift && !pressed_keys.contains(&VirtualKeyCode::LShift) {
                 pressed_keys.push(VirtualKeyCode::LShift);
             }
-            if modifiers.ctrl && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LControl) {
+            if modifiers.ctrl && !pressed_keys.contains(&VirtualKeyCode::LControl) {
                 pressed_keys.push(VirtualKeyCode::LControl);
             }
-            if modifiers.alt && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LAlt) {
+            if modifiers.alt && !pressed_keys.contains(&VirtualKeyCode::LAlt) {
                 pressed_keys.push(VirtualKeyCode::LAlt);
             }
-            if modifiers.meta && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LWin) {
+            if modifiers.meta && !pressed_keys.contains(&VirtualKeyCode::LWin) {
                 pressed_keys.push(VirtualKeyCode::LWin);
             }
             
@@ -8620,7 +8607,7 @@ fn process_debug_event(
                 
                 let focused_info = internal_node_id.map(|node_id| {
                     // Get node info
-                    let selector = build_selector_for_node(&callback_info, dom_id, node_id);
+                    let selector = build_selector_for_node(callback_info, dom_id, node_id);
                     
                     // Check if contenteditable
                     let is_contenteditable = callback_info
@@ -8900,9 +8887,9 @@ fn process_debug_event(
                 send_err(request, format!("Node {} not found", node_id));
             } else {
                 let key_map = get_css_key_map();
-                match CssPropertyType::from_str(&property, &key_map) {
+                match CssPropertyType::from_str(property, &key_map) {
                     Some(prop_type) => {
-                        match azul_css::props::property::parse_css_property(prop_type, &value) {
+                        match azul_css::props::property::parse_css_property(prop_type, value) {
                             Ok(css_prop) => {
                                 callback_info.change_node_css_properties(
                                     dom_id,
@@ -8966,7 +8953,7 @@ fn process_debug_event(
 
         DebugEvent::GetComponentRegistry => {
             let map_guard = component_map.lock().unwrap();
-            let registry = build_component_registry(&*map_guard);
+            let registry = build_component_registry(&map_guard);
             drop(map_guard);
             send_ok(
                 request,
@@ -8977,7 +8964,7 @@ fn process_debug_event(
 
         DebugEvent::GetLibraries => {
             let map_guard = component_map.lock().unwrap();
-            let registry = build_component_registry(&*map_guard);
+            let registry = build_component_registry(&map_guard);
             drop(map_guard);
             let libraries = registry.libraries.iter().map(|lib| LibrarySummary {
                 name: lib.name.clone(),
@@ -8996,7 +8983,7 @@ fn process_debug_event(
 
         DebugEvent::GetLibraryComponents { library } => {
             let map_guard = component_map.lock().unwrap();
-            let registry = build_component_registry(&*map_guard);
+            let registry = build_component_registry(&map_guard);
             drop(map_guard);
             if let Some(lib) = registry.libraries.iter().find(|l| l.name == *library) {
                 send_ok(
@@ -9009,7 +8996,7 @@ fn process_debug_event(
                 );
             } else {
                 let available: Vec<_> = registry.libraries.iter().map(|l| l.name.as_str()).collect();
-                send_err(request, &format!(
+                send_err(request, format!(
                     "Library '{}' not found. Available: {:?}", library, available
                 ));
             }
@@ -9017,7 +9004,7 @@ fn process_debug_event(
 
         DebugEvent::ExportCode { language } => {
             let map_guard = component_map.lock().unwrap();
-            let result = build_exported_code(&language, &*map_guard);
+            let result = build_exported_code(language, &map_guard);
             drop(map_guard);
             match result {
                 Ok(response) => {
@@ -9028,7 +9015,7 @@ fn process_debug_event(
                     );
                 }
                 Err(e) => {
-                    send_err(request, &format!("Export failed: {}", e));
+                    send_err(request, format!("Export failed: {}", e));
                 }
             }
         }
@@ -9036,7 +9023,7 @@ fn process_debug_event(
         DebugEvent::ExportCodeZip { language, library: _lib_filter } => {
             // G1/G3: Package exported code into a downloadable ZIP
             let map_guard = component_map.lock().unwrap();
-            let result = build_exported_code(&language, &*map_guard);
+            let result = build_exported_code(language, &map_guard);
 
             // Also collect component CSS
             let mut css_files = Vec::new();
@@ -9095,12 +9082,12 @@ fn process_debug_event(
                             }))));
                         }
                         Err(e) => {
-                            send_err(request, &format!("ZIP creation failed: {:?}", e));
+                            send_err(request, format!("ZIP creation failed: {:?}", e));
                         }
                     }
                 }
                 Err(e) => {
-                    send_err(request, &format!("Export failed: {}", e));
+                    send_err(request, format!("Export failed: {}", e));
                 }
             }
         }
@@ -9152,7 +9139,7 @@ fn process_debug_event(
             }
 
             if !validation_errors.is_empty() {
-                send_err(request, &format!(
+                send_err(request, format!(
                     "Validation errors in library '{}': {}",
                     lib_name,
                     validation_errors.join("; ")
@@ -9194,17 +9181,17 @@ fn process_debug_event(
 
         DebugEvent::ExportComponentLibrary { library: lib_name_opt } => {
             let map_guard = component_map.lock().unwrap();
-            let registry = build_component_registry(&*map_guard);
+            let registry = build_component_registry(&map_guard);
             drop(map_guard);
 
             let exportable_libs: Vec<&ComponentLibraryInfo> = registry.libraries.iter()
                 .filter(|lib| lib.exportable)
-                .filter(|lib| lib_name_opt.as_ref().map_or(true, |n| &lib.name == n))
+                .filter(|lib| lib_name_opt.as_ref().is_none_or(|n| &lib.name == n))
                 .collect();
 
             if exportable_libs.is_empty() {
                 if let Some(ref name) = lib_name_opt {
-                    send_err(request, &format!(
+                    send_err(request, format!(
                         "Library '{}' not found or is not exportable (builtin/compiled libraries cannot be exported)", name
                     ));
                 } else {
@@ -9256,7 +9243,7 @@ fn process_debug_event(
             // Check if library already exists
             if map_guard.libraries.iter().any(|l| l.name.as_str() == name.as_str()) {
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' already exists", name));
+                send_err(request, format!("Library '{}' already exists", name));
             } else {
                 let new_lib = ComponentLibrary {
                     name: AzString::from(name.as_str()),
@@ -9290,7 +9277,7 @@ fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, &format!("Library '{}' is not modifiable and cannot be deleted", name));
+                    send_err(request, format!("Library '{}' is not modifiable and cannot be deleted", name));
                 } else {
                     libs.retain(|l| l.name.as_str() != name.as_str());
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -9300,7 +9287,7 @@ fn process_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' not found", name));
+                send_err(request, format!("Library '{}' not found", name));
             }
         }
 
@@ -9316,7 +9303,7 @@ fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
                     let display = display_name.as_deref().unwrap_or(name.as_str());
                     let new_def = ComponentDef {
@@ -9345,7 +9332,7 @@ fn process_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{}' not found", library));
             }
         }
 
@@ -9360,7 +9347,7 @@ fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     comps.retain(|c| c.id.name.as_str() != name.as_str());
@@ -9372,7 +9359,7 @@ fn process_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{}' not found", library));
             }
         }
 
@@ -9388,7 +9375,7 @@ fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
@@ -9403,7 +9390,7 @@ fn process_debug_event(
                         }
                         // Replace data_model.fields with validated new fields (if provided)
                         if let Some(new_fields) = fields {
-                            match validate_exported_fields(&new_fields) {
+                            match validate_exported_fields(new_fields) {
                                 Ok(validated) => {
                                     comp.data_model.fields = validated.into();
                                 }
@@ -9411,7 +9398,7 @@ fn process_debug_event(
                                     lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                                     drop(map_guard);
-                                    send_err(request, &format!(
+                                    send_err(request, format!(
                                         "Validation error in component '{}': {}", name, e
                                     ));
                                     return needs_update;
@@ -9427,13 +9414,13 @@ fn process_debug_event(
                         lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                         map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, &format!("Component '{}' not found in library '{}'", name, library));
+                        send_err(request, format!("Component '{}' not found in library '{}'", name, library));
                     }
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{}' not found", library));
             }
         }
 
@@ -9464,7 +9451,7 @@ fn process_debug_event(
             let comp = match comp_found {
                 Some(c) => c,
                 None => {
-                    send_err(request, &format!(
+                    send_err(request, format!(
                         "Component '{}' not found in library '{}'", name, library
                     ));
                     return needs_update;
@@ -9478,7 +9465,7 @@ fn process_debug_event(
             ) {
                 Ok(v) => v,
                 Err(e) => {
-                    send_err(request, &format!(
+                    send_err(request, format!(
                         "Invalid args for '{}': {}", name, e
                     ));
                     return needs_update;
@@ -9490,7 +9477,7 @@ fn process_debug_event(
             let styled_dom = match (comp.render_fn)(&comp, &render_data_model, &map_guard) {
                 azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                 azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
-                    send_err(request, &format!(
+                    send_err(request, format!(
                         "render_fn failed for '{}': {:?}", name, e
                     ));
                     return needs_update;
@@ -9561,7 +9548,7 @@ fn process_debug_event(
                     );
                 }
                 Err(e) => {
-                    send_err(request, &format!("Preview render failed: {}", e));
+                    send_err(request, format!("Preview render failed: {}", e));
                 }
             }
         }
@@ -9586,7 +9573,7 @@ fn process_debug_event(
                     Ok(v) => v,
                     Err(e) => {
                         drop(map_guard);
-                        send_err(request, &format!(
+                        send_err(request, format!(
                             "Failed to build data model for '{}': {}", name, e
                         ));
                         return needs_update;
@@ -9598,7 +9585,7 @@ fn process_debug_event(
                     azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                     azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
                         drop(map_guard);
-                        send_err(request, &format!(
+                        send_err(request, format!(
                             "render_fn failed for '{}': {:?}", name, e
                         ));
                         return needs_update;
@@ -9611,7 +9598,7 @@ fn process_debug_event(
                 send_ok(request, None, Some(ResponseData::Json(tree_json)));
             } else {
                 drop(map_guard);
-                send_err(request, &format!(
+                send_err(request, format!(
                     "Component '{}' not found in library '{}'", name, library
                 ));
             }
@@ -9660,7 +9647,7 @@ fn process_debug_event(
                     "source": source_code
                 }))));
             } else {
-                send_err(request, &format!(
+                send_err(request, format!(
                     "Component '{}' not found in library '{}'", name, library
                 ));
             }
@@ -9676,7 +9663,7 @@ fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
@@ -9690,13 +9677,13 @@ fn process_debug_event(
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, &format!("Component '{}' not found", name));
+                        send_err(request, format!("Component '{}' not found", name));
                     }
                 }
             } else {
                 map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{}' not found", library));
             }
         }
 
@@ -9710,7 +9697,7 @@ fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
                     if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
@@ -9723,13 +9710,13 @@ fn process_debug_event(
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, &format!("Component '{}' not found", name));
+                        send_err(request, format!("Component '{}' not found", name));
                     }
                 }
             } else {
                 map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, &format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{}' not found", library));
             }
         }
 
@@ -9849,7 +9836,7 @@ pub fn register_debug_timer(
     log(
         LogLevel::Debug,
         LogCategory::DebugServer,
-        &format!("[Window Init] Debug timer registered with ID 0x{:X}", timer_id),
+        format!("[Window Init] Debug timer registered with ID 0x{:X}", timer_id),
         None,
     );
 }

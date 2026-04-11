@@ -243,7 +243,7 @@ impl AppInternal {
     /// takes one `WindowCreateOptions` as an argument, which is the "root" window, i.e.
     /// the main application window.
     #[cfg(feature = "std")]
-    pub fn run(mut self, root_window: WindowCreateOptions) {
+    pub fn run(self, root_window: WindowCreateOptions) {
         // Use shell2 for new implementation
         let err = crate::desktop::shell2::run(
             self.data,

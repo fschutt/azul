@@ -142,6 +142,12 @@ pub struct CpuBackend {
     pub previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
 }
 
+impl Default for CpuBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpuBackend {
     pub fn new() -> Self {
         Self {
@@ -652,10 +658,7 @@ impl HeadlessWindow {
             // ── Phase 4: Pump child windows ──────────────────────
             children.retain_mut(|child| {
                 while let Some(ev) = child.poll_event() {
-                    match ev {
-                        HeadlessEvent::Close => { child.close(); }
-                        _ => {}
-                    }
+                    if let HeadlessEvent::Close = ev { child.close(); }
                 }
                 child.pending_window_creates.clear();
                 child.is_open()
@@ -728,7 +731,7 @@ impl PlatformWindow for HeadlessWindow {
         RawWindowHandle::Unsupported
     }
 
-    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
+    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
         let layout_window = self
             .common
             .layout_window

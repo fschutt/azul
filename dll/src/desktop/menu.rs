@@ -75,7 +75,7 @@ pub fn calculate_menu_position(
         .unwrap_or(parent_window_pos);
 
     let display = get_display_at_point(reference_point)
-        .or_else(|| get_primary_display())
+        .or_else(get_primary_display)
         .expect("No display found");
 
     let work_area = display.work_area;
@@ -400,11 +400,11 @@ pub fn create_menu_window(
 
     WindowCreateOptions {
         window_state,
-        size_to_content: true.into(), // Auto-size to menu content
+        size_to_content: true, // Auto-size to menu content
         renderer: None.into(),
         theme: None.into(),
         create_callback: None.into(),
-        hot_reload: false.into(),
+        hot_reload: false,
     }
 }
 

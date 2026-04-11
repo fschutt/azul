@@ -103,7 +103,7 @@ pub fn insert_texture_for_node(
         }
 
         let cache = TEXTURE_CACHE.as_mut().unwrap();
-        let document_storage = cache.entry(document_id).or_insert_with(FastHashMap::new);
+        let document_storage = cache.entry(document_id).or_default();
 
         // Insert or update the texture entry
         document_storage.insert(key, TextureEntry { texture, epoch });
@@ -123,7 +123,7 @@ pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -
         }
 
         let cache = TEXTURE_CACHE.as_mut().unwrap();
-        let document_storage = cache.entry(document_id).or_insert_with(FastHashMap::new);
+        let document_storage = cache.entry(document_id).or_default();
         
         // Use a pseudo-key based on the external_image_id (not stable, but backwards compatible)
         let pseudo_key = TextureSlotKey::from_external_image_id(&external_image_id);

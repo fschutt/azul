@@ -132,14 +132,14 @@ pub fn regenerate_layout(
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache,
         gl_context: gl_context_ptr,
-        system_fonts: &*layout_window.font_manager.fc_cache,
+        system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
     };
 
     let callback_info = LayoutCallbackInfo::new(
         &layout_ref_data,
-        current_window_state.size.clone(),
+        current_window_state.size,
         current_window_state.theme,
     );
 

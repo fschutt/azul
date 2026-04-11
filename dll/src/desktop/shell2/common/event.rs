@@ -667,7 +667,7 @@ macro_rules! impl_platform_window_getters {
         fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
             &self.$field.app_data
         }
-        fn get_common_mut(&mut self) -> &mut crate::desktop::shell2::common::event::CommonWindowState {
+        fn get_common_mut(&mut self) -> &mut $crate::desktop::shell2::common::event::CommonWindowState {
             &mut self.$field
         }
         fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
@@ -895,7 +895,7 @@ pub trait PlatformWindow {
     ///
     /// ## Returns
     /// * `InvokeSingleCallbackBorrows` - All borrowed resources needed for callback invocation
-    fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows;
+    fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows<'_>;
 
     // REQUIRED: Timer Management (Platform-Specific Implementation)
 
@@ -1085,7 +1085,7 @@ pub trait PlatformWindow {
             // === Window State ===
 
             CallbackChange::ModifyWindowState { state } => {
-                let old_mouse_state = self.get_current_window_state().mouse_state.clone();
+                let old_mouse_state = self.get_current_window_state().mouse_state;
                 let old_keyboard_state = self.get_current_window_state().keyboard_state.clone();
                 let mouse_state_changed = old_mouse_state != state.mouse_state;
                 let keyboard_state_changed = old_keyboard_state != state.keyboard_state;
@@ -1104,7 +1104,7 @@ pub trait PlatformWindow {
                     current.position = state.position;
                     current.flags = state.flags;
                     current.background_color = state.background_color;
-                    current.mouse_state = state.mouse_state.clone();
+                    current.mouse_state = state.mouse_state;
                     current.keyboard_state = state.keyboard_state.clone();
                 }
 
@@ -1142,7 +1142,7 @@ pub trait PlatformWindow {
 
                     {
                         let current = self.get_current_window_state_mut();
-                        current.mouse_state = queued_state.mouse_state.clone();
+                        current.mouse_state = queued_state.mouse_state;
                         current.keyboard_state = queued_state.keyboard_state.clone();
                         current.title = queued_state.title.clone();
                         current.size = queued_state.size;
@@ -1407,14 +1407,14 @@ pub trait PlatformWindow {
                             // Physics timer provides pre-clamped rubber-band positions
                             lw.scroll_manager.set_scroll_position_unclamped(
                                 *dom_id, internal_node_id, *position,
-                                now.clone().into(),
+                                now.clone(),
                             );
                         } else {
                             lw.scroll_manager.scroll_to(
                                 *dom_id, internal_node_id, *position,
                                 std::time::Duration::from_millis(0).into(),
                                 azul_core::events::EasingFunction::Linear,
-                                now.clone().into(),
+                                now.clone(),
                             );
                         }
 
@@ -1445,7 +1445,7 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     azul_layout::managers::scroll_into_view::scroll_node_into_view(
                         *node_id, &lw.layout_results, &mut lw.scroll_manager,
-                        options.clone(), now,
+                        *options, now,
                     );
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
@@ -1523,10 +1523,8 @@ pub trait PlatformWindow {
                         let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
                         if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
-                    } else {
-                    }
-                } else {
-                }
+                    } 
+                } 
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
@@ -2088,7 +2086,7 @@ pub trait PlatformWindow {
                         #[cfg(not(feature = "std"))]
                         { 0u64 }
                     }
-                    azul_core::task::Duration::Tick(t) => t.tick_diff as u64,
+                    azul_core::task::Duration::Tick(t) => t.tick_diff,
                 };
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if layout_window.process_mouse_click_for_selection(*position, current_time_ms).is_some() {
@@ -2141,11 +2139,10 @@ pub trait PlatformWindow {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     let dom_id = azul_core::dom::DomId { inner: 0 };
                     if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
-                        if set_system_clipboard(clipboard_content.plain_text.as_str().to_string()) {
-                            if layout_window.delete_selection(*target, false).is_some() {
+                        if set_system_clipboard(clipboard_content.plain_text.as_str().to_string())
+                            && layout_window.delete_selection(*target, false).is_some() {
                                 affected = true;
                             }
-                        }
                     }
                 }
                 if affected { ProcessEventResult::ShouldUpdateDisplayListCurrentWindow } else { ProcessEventResult::DoNothing }
@@ -2227,7 +2224,7 @@ pub trait PlatformWindow {
                         None => return ProcessEventResult::DoNothing,
                     };
                     let external = ExternalSystemCallbacks::rust_internal();
-                    let timestamp = (external.get_system_time_fn.cb)().into();
+                    let timestamp = (external.get_system_time_fn.cb)();
 
                     if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
                         use azul_layout::managers::undo_redo::create_revert_changeset;
@@ -2274,11 +2271,8 @@ pub trait PlatformWindow {
                         let node_id_internal = target.node.into_crate_internal();
                         if let Some(_node_id_internal) = node_id_internal {
                             use azul_layout::managers::changeset::TextOperation;
-                            match &operation.changeset.operation {
-                                TextOperation::InsertText(op) => {
-                                    let _affected = layout_window.process_text_input(&op.text);
-                                }
-                                _ => {}
+                            if let TextOperation::InsertText(op) = &operation.changeset.operation {
+                                let _affected = layout_window.process_text_input(&op.text);
                             }
                         }
                         layout_window.undo_redo_manager.push_undo(operation);
@@ -2369,7 +2363,7 @@ pub trait PlatformWindow {
             }
 
             SystemChange::ActivateWindowDrag => {
-                let win_pos = self.get_current_window_state().position.clone();
+                let win_pos = self.get_current_window_state().position;
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window.gesture_drag_manager.activate_window_drag(win_pos, None);
                 }
@@ -2397,10 +2391,10 @@ pub trait PlatformWindow {
                             }
 
                             let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                            if !gpu_cache.transform_keys.contains_key(&node_id) {
+                            if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.transform_keys.entry(node_id) {
                                 let transform_key = azul_core::resources::TransformKey::unique();
                                 let identity = azul_core::transform::ComputedTransform3D::IDENTITY;
-                                gpu_cache.transform_keys.insert(node_id, transform_key);
+                                e.insert(transform_key);
                                 gpu_cache.current_transform_values.insert(node_id, identity);
                             }
                         }
@@ -2428,8 +2422,8 @@ pub trait PlatformWindow {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context_mut() {
                         if let Some(node_drag) = ctx.as_node_drag_mut() {
-                            node_drag.previous_drop_target = node_drag.current_drop_target.clone();
-                            node_drag.current_drop_target = azul_core::dom::OptionDomNodeId::Some(target.clone());
+                            node_drag.previous_drop_target = node_drag.current_drop_target;
+                            node_drag.current_drop_target = azul_core::dom::OptionDomNodeId::Some(*target);
                         }
                     }
                 }
@@ -2690,7 +2684,7 @@ pub trait PlatformWindow {
                                                         scroll_container.dom, scroll_node_id, scroll_delta,
                                                         std::time::Duration::from_millis(0).into(),
                                                         azul_core::events::EasingFunction::Linear,
-                                                        now.into(),
+                                                        now,
                                                     );
                                                     return ProcessEventResult::ShouldReRenderCurrentWindow;
                                                 }
@@ -3001,7 +2995,7 @@ pub trait PlatformWindow {
             return (ProcessEventResult::DoNothing, Update::DoNothing, false);
         }
 
-        let mut borrows = self.prepare_callback_invocation();
+        let borrows = self.prepare_callback_invocation();
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
@@ -3015,7 +3009,7 @@ pub trait PlatformWindow {
 
         for planned in planned_callbacks {
             // W3C stopImmediatePropagation: break immediately
-            if propagation_stopped && propagation_stopped_node.map_or(true, |(dom, nid)| {
+            if propagation_stopped && propagation_stopped_node.is_none_or(|(dom, nid)| {
                 dom != planned.dom_id || nid != planned.node_id
             }) {
                 // We crossed to a different node and stop_propagation was called → skip
@@ -3475,7 +3469,7 @@ pub trait PlatformWindow {
                 },
             };
             let interpreter = &layout_window.input_interpreter;
-            let mut ctx = interpreter.ctx.as_ref()
+            let ctx = interpreter.ctx.as_ref()
                 .map(|r| r.clone())
                 .unwrap_or_else(|| {
                     #[repr(C)] struct D(u8);
@@ -3618,15 +3612,15 @@ pub trait PlatformWindow {
             match event.event_type {
                 azul_core::events::EventType::DragEnter => {
                     post_system_changes.push(SystemChange::SetDragOverState {
-                        target: event.target.clone(), active: true,
+                        target: event.target, active: true,
                     });
                     post_system_changes.push(SystemChange::UpdateDropTarget {
-                        target: event.target.clone(),
+                        target: event.target,
                     });
                 }
                 azul_core::events::EventType::DragLeave => {
                     post_system_changes.push(SystemChange::SetDragOverState {
-                        target: event.target.clone(), active: false,
+                        target: event.target, active: false,
                     });
                 }
                 _ => {}
@@ -3686,7 +3680,7 @@ pub trait PlatformWindow {
         post_system_changes.extend(post_filter_changes);
 
         // Detect if focus changed (for focus event dispatch later)
-        let mut focus_changed = post_system_changes.iter().any(|c| matches!(c, SystemChange::SetFocus { .. }));
+        let focus_changed = post_system_changes.iter().any(|c| matches!(c, SystemChange::SetFocus { .. }));
 
         // Apply all post-callback system changes via apply_system_change
         for system_change in &post_system_changes {
@@ -3819,7 +3813,7 @@ pub trait PlatformWindow {
                             }
 
                             DefaultAction::ActivateFocusedElement { target } => {
-                                synthetic_click_target = Some(target.clone());
+                                synthetic_click_target = Some(*target);
                             }
 
                             DefaultAction::ScrollFocusedContainer { direction, amount } => {
@@ -4309,7 +4303,7 @@ pub trait PlatformWindow {
         // Get current system time
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
         let current_time = (system_callbacks.get_system_time_fn.cb)();
-        let frame_start: azul_core::task::Instant = current_time.clone().into();
+        let frame_start: azul_core::task::Instant = current_time.clone();
 
         // First, get expired timer IDs without borrowing self
         let expired_timer_ids: Vec<TimerId> = {
@@ -4330,7 +4324,7 @@ pub trait PlatformWindow {
         // Process each expired timer
         for timer_id in expired_timer_ids {
             // Prepare borrows fresh for each timer invocation
-            let mut borrows = self.prepare_callback_invocation();
+            let borrows = self.prepare_callback_invocation();
 
             let (changes, update) = borrows.layout_window.run_single_timer(
                 timer_id.id,
@@ -4387,10 +4381,7 @@ pub trait PlatformWindow {
 
         // Check if we have threads to poll
         let has_threads = {
-            let layout_window = match self.get_layout_window() {
-                Some(lw) => lw,
-                None => return None,
-            };
+            let layout_window = self.get_layout_window()?;
             !layout_window.threads.is_empty()
         };
 
@@ -4402,12 +4393,12 @@ pub trait PlatformWindow {
         let app_data_arc = self.get_app_data().clone();
 
         // Prepare borrows for thread invocation
-        let mut borrows = self.prepare_callback_invocation();
+        let borrows = self.prepare_callback_invocation();
 
         // Call run_all_threads on the layout_window
         let mut app_data = app_data_arc.borrow_mut();
         let (changes, update) = borrows.layout_window.run_all_threads(
-            &mut *app_data,
+            &mut app_data,
             &borrows.window_handle,
             borrows.gl_context_ptr,
             borrows.system_style.clone(),

@@ -74,7 +74,7 @@ impl AzulMenuTarget {
     /// and simplify the notification dispatch system.
     pub fn shared_instance(mtm: MainThreadMarker) -> Retained<Self> {
         thread_local! {
-            static SHARED: RefCell<Option<Retained<AzulMenuTarget>>> = RefCell::new(None);
+            static SHARED: RefCell<Option<Retained<AzulMenuTarget>>> = const { RefCell::new(None) };
         }
 
         SHARED.with(|shared| {

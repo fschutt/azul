@@ -24,6 +24,7 @@ use crate::log_warn;
 
 /// Compositor mode selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum CompositorMode {
     /// Hardware GPU rendering (OpenGL/Metal/D3D/Vulkan)
     GPU,
@@ -32,14 +33,10 @@ pub enum CompositorMode {
     CPU,
 
     /// Automatic selection based on capabilities
+    #[default]
     Auto,
 }
 
-impl Default for CompositorMode {
-    fn default() -> Self {
-        CompositorMode::Auto
-    }
-}
 
 impl CompositorMode {
     /// Parse compositor mode from string (for environment variable).
@@ -72,8 +69,10 @@ impl CompositorMode {
 /// The old env vars (`AZUL_HEADLESS`, `AZUL_RENDERER`) are still
 /// recognised for backward compatibility but `AZ_BACKEND` takes priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum AzBackend {
     /// Try GPU, fall back to CPU on GL init failure or blacklisted GPU.
+    #[default]
     Auto,
     /// Force GPU rendering (OpenGL / Metal / D3D). Fails if unavailable.
     Gpu,
@@ -91,11 +90,6 @@ pub enum AzBackend {
     Web(std::net::SocketAddr),
 }
 
-impl Default for AzBackend {
-    fn default() -> Self {
-        AzBackend::Auto
-    }
-}
 
 impl AzBackend {
     /// Resolve the backend from environment variable and config.

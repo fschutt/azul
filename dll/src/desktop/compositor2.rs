@@ -188,7 +188,7 @@ pub fn translate_displaylist_to_wr(
     // When we enter a scroll frame, items inside have absolute coordinates but
     // WebRender expects coordinates relative to the scroll frame's content_rect origin.
     // We push the scroll frame's origin when entering, and subtract it from all coordinates.
-    let mut offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    let offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
     // Helper to apply current offset to a rect
     let apply_offset = |rect: LayoutRect, offset: (f32, f32)| -> LayoutRect {

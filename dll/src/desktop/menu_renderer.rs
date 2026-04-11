@@ -63,13 +63,13 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
     };
 
     // Invoke the menu item's callback if present
-    if let Some(ref menu_callback) = callback_data.menu_item.callback.as_option() {
+    if let Some(menu_callback) = callback_data.menu_item.callback.as_option() {
         // Convert CoreCallback to actual function pointer using safe wrapper
         let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback.clone());
 
         // Invoke with the menu item's data
         let callback_data_refany = menu_callback.refany.clone();
-        let result = callback.invoke(callback_data_refany, info.clone());
+        let result = callback.invoke(callback_data_refany, info);
 
         log_debug!(
             LogCategory::General,
@@ -330,7 +330,7 @@ fn create_string_menu_item_dom(
     item_dom = item_dom.with_child(label_dom);
 
     // Keyboard shortcut (if present)
-    if let Some(ref combo) = item.accelerator.as_option() {
+    if let Some(combo) = item.accelerator.as_option() {
         let shortcut_text = format_accelerator(combo);
         let shortcut_dom =
             Dom::create_text(shortcut_text).with_ids_and_classes(IdOrClassVec::from_vec(vec![
@@ -612,7 +612,7 @@ impl SystemStyleMenuExt for SystemStyle {
         ));
 
         // Parse CSS and extract first stylesheet
-        let (mut parsed_css, errors) = new_from_str(&css);
+        let (parsed_css, errors) = new_from_str(&css);
         if !errors.is_empty() {
             log_debug!(
                 LogCategory::General,

@@ -548,9 +548,7 @@ impl MacOSWindow {
             { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
         };
 
-        let text_events: Vec<azul_core::events::SyntheticEvent> = affected_nodes
-            .iter()
-            .map(|(dom_node_id, _)| {
+        let text_events: Vec<azul_core::events::SyntheticEvent> = affected_nodes.keys().map(|dom_node_id| {
                 azul_core::events::SyntheticEvent::new(
                     azul_core::events::EventType::Input,
                     azul_core::events::EventSource::User,
@@ -1035,11 +1033,7 @@ impl MacOSWindow {
 
         let view = if let Some(ref gl_view) = self.gl_view {
             Some(&**gl_view as &objc2::runtime::AnyObject)
-        } else if let Some(ref cpu_view) = self.cpu_view {
-            Some(&**cpu_view as &objc2::runtime::AnyObject)
-        } else {
-            None
-        };
+        } else { self.cpu_view.as_ref().map(|cpu_view| &**cpu_view as &objc2::runtime::AnyObject) };
 
         if let Some(view) = view {
             log_debug!(
