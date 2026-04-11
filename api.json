@@ -15336,7 +15336,10 @@
                         ],
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "Menu system: context menus, menu bars, and menu items."
+                ]
             },
             "css": {
                 "doc": [
@@ -80006,7 +80009,10 @@
                         ],
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "Application entry point, configuration, and lifecycle management."
+                ]
             },
             "task": {
                 "classes": {
@@ -80555,7 +80561,10 @@
                         ],
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "Timer, thread, and async task management."
+                ]
             },
             "misc": {
                 "classes": {
@@ -81703,7 +81712,10 @@
                         },
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "Miscellaneous utility types and helper functions."
+                ]
             },
             "icu": {
                 "classes": {
@@ -81794,7 +81806,10 @@
                         ],
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "ICU internationalization: date/time formatting, plurals, and list formatting."
+                ]
             },
             "fluent": {
                 "classes": {
@@ -82460,7 +82475,10 @@
                         },
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "Project Fluent localization: message bundles and argument formatting."
+                ]
             },
             "component": {
                 "classes": {
@@ -83337,7 +83355,10 @@
                         ],
                         "repr": "C"
                     }
-                }
+                },
+                "doc": [
+                    "Component system for reusable UI building blocks."
+                ]
             }
         }
     }

@@ -40,6 +40,9 @@ pub struct CodegenIR {
 
     /// Lookup table: type name → external path (e.g., "azul_core::dom::Dom")
     pub type_to_external: BTreeMap<String, String>,
+
+    /// Module-level documentation from api.json (module name → first doc line)
+    pub module_docs: BTreeMap<String, String>,
 }
 
 impl CodegenIR {
@@ -54,6 +57,7 @@ impl CodegenIR {
             callback_typedefs: Vec::new(),
             type_to_module: BTreeMap::new(),
             type_to_external: BTreeMap::new(),
+            module_docs: BTreeMap::new(),
         }
     }
 

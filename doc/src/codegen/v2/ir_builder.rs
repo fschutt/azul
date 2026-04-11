@@ -71,6 +71,17 @@ impl<'a> IRBuilder<'a> {
         // This ensures types are defined before they are used
         self.sort_types_by_dependencies();
 
+        // Phase 10: Extract module-level documentation from api.json
+        for (module_name, module_data) in &self.version_data.api {
+            if let Some(doc_lines) = &module_data.doc {
+                if let Some(first_line) = doc_lines.first() {
+                    if !first_line.is_empty() {
+                        self.ir.module_docs.insert(module_name.clone(), first_line.clone());
+                    }
+                }
+            }
+        }
+
         Ok(self.ir)
     }
 

@@ -143,8 +143,16 @@ pub fn generate_reexports_with_config(ir: &CodegenIR, config: &ReexportConfig) -
             continue;
         }
 
-        // Module doc comment
-        builder.line(&format!("/// Types from the `{}` module", module_name));
+        // Module doc comment — use api.json doc if available, otherwise generic
+        let doc = ir.module_docs
+            .get(module_name.as_str())
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| "");
+        if doc.is_empty() {
+            builder.line(&format!("/// Types from the `{}` module", module_name));
+        } else {
+            builder.line(&format!("/// {}", doc));
+        }
         builder.line(&format!("pub mod {} {{", module_name));
         builder.indent();
 
