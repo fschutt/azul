@@ -22,11 +22,31 @@
 //! - `web`: Enable the web backend (serve the app as HTML over HTTP)
 //! - `python-extension`: Build as a Python extension module (PyInit_azul)
 
+// Lint policy: deny correctness/safety issues, warn on style
 #![deny(improper_ctypes_definitions)]
-#![allow(unused_imports)]
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(non_snake_case)]
+#![deny(unused_must_use)]
+#![warn(clippy::all)]
+#![allow(
+    clippy::non_canonical_partial_ord_impl,
+    clippy::legacy_numeric_constants,
+    clippy::should_implement_trait,
+    clippy::result_unit_err,
+    clippy::ptr_as_ptr,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::needless_return,              // generated FFI code
+    clippy::let_and_return,               // generated FFI code
+    clippy::manual_map,                   // generated FFI code
+    unused_imports,                        // conditional compilation
+    unused_variables,                      // platform-gated code
+    dead_code,                             // feature-gated code
+    unused_mut,
+    unused_unsafe,                         // objc2 macro expansions
+    non_snake_case,                        // Win32 API naming (DwmSetWindowAttribute etc.)
+    mismatched_lifetime_syntaxes,
+    unexpected_cfgs,
+    deprecated,                            // we're removing deprecated fns in this release
+)]
 
 #[macro_use]
 extern crate alloc;

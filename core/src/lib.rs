@@ -10,7 +10,27 @@
 //! It supports `no_std` environments via `#![cfg_attr(not(feature = "std"), no_std)]`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(warnings)]
+// Lint policy: deny correctness/safety issues, warn on style
+#![deny(unused_must_use)]
+#![warn(clippy::all)]
+#![allow(
+    clippy::non_canonical_partial_ord_impl,
+    clippy::legacy_numeric_constants,
+    clippy::should_implement_trait,
+    clippy::result_unit_err,
+    clippy::ptr_as_ptr,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    unused_parens,
+    dead_code,
+    unused_doc_comments,
+    mismatched_lifetime_syntaxes,
+    unexpected_cfgs,
+    deprecated,                            // removing deprecated fns in this release
+)]
 
 // `extern crate` + `#[macro_use]` required for `no_std` support:
 // makes `core` and `alloc` macros available without `use` imports.

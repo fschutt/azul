@@ -9,7 +9,26 @@
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
-#![allow(warnings)]
+// Lint policy: deny correctness/safety issues, warn on style
+#![deny(unused_must_use)]
+#![warn(clippy::all)]
+#![allow(
+    clippy::non_canonical_partial_ord_impl,
+    clippy::legacy_numeric_constants,
+    clippy::should_implement_trait,
+    clippy::result_unit_err,
+    clippy::ptr_as_ptr,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    dead_code,
+    unused_parens,
+    unused_doc_comments,                   // doc comments before macro invocations
+    mismatched_lifetime_syntaxes,
+    unexpected_cfgs,
+)]
 
 #[macro_use]
 extern crate alloc;
