@@ -86,6 +86,7 @@ static DEFAULT_COLOR_INPUT_STYLE: &[CssPropertyWithConditions] = &[
 impl ColorInput {
     /// Creates a new `ColorInput` displaying the given color.
     #[inline]
+    #[must_use]
     pub fn create(color: ColorU) -> Self {
         Self {
             color_input_state: ColorInputStateWrapper {
@@ -112,6 +113,7 @@ impl ColorInput {
 
     /// Builder-style method to set the value-change callback.
     #[inline]
+    #[must_use]
     pub fn with_on_value_change<C: Into<ColorInputOnValueChangeCallback>>(
         mut self,
         data: RefAny,
@@ -123,6 +125,7 @@ impl ColorInput {
 
     /// Replaces `self` with a default `ColorInput` and returns the previous value.
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
         core::mem::swap(&mut s, self);
@@ -131,6 +134,7 @@ impl ColorInput {
 
     /// Converts this `ColorInput` into a styled [`Dom`] node with a click callback.
     #[inline]
+    #[must_use]
     pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
@@ -170,9 +174,8 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         None => return Update::DoNothing,
     };
 
-    // Color picker dialog is not available in azul_layout
-    // The user must provide their own color picker callback via on_value_change
-    // For now, just trigger the callback with the current color
+    // No built-in color picker dialog — the on_value_change callback
+    // receives the current color so the caller can open their own picker.
     let color_input = &mut *color_input;
     let onvaluechange = &mut color_input.on_value_change;
     let inner = color_input.inner.clone();
