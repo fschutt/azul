@@ -41,17 +41,28 @@ extern crate alloc;
 extern crate core;
 
 #[macro_use]
+/// Internal macros for reducing boilerplate in property definitions.
 pub mod macros;
+/// Three-tier numeric property cache for fast style resolution.
 pub mod compact_cache;
+/// FFI-safe core type aliases (`AzString`, `AzVec`, `OptionT`, etc.).
 pub mod corety;
+/// Stylesheet types: rules, selectors, declarations, and specificity.
 pub mod css;
+/// Runtime CSS selector matching (`:hover`, `@os`, `@media`, etc.).
 pub mod dynamic_selector;
+/// Const-compatible Rust source code generation from parsed CSS.
 pub mod format_rust_code;
+/// CSS string parser (tokenizer, declaration parser, shorthand expansion).
 #[cfg(feature = "parser")]
 pub mod parser2;
+/// Typed CSS property values: colors, lengths, layout, backgrounds, etc.
 pub mod props;
+/// CSS Shape data structures (`shape-inside`, `shape-outside`, `clip-path`).
 pub mod shape;
+/// Parser for CSS shape functions and font metrics.
 pub mod shape_parser;
+/// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
 
 pub use self::corety::*;

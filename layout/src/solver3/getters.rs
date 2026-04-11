@@ -1,18 +1,5 @@
 // +spec:box-model:b3a79e - box assigned same styles as generating element; getters read from styled DOM per node
-//! Getter functions for CSS properties from the styled DOM.
-//!
-//! This module provides clean, consistent access to CSS properties with proper
-//! fallbacks and type conversions. It is the centralized CSS property access
-//! layer used by the layout solver pipeline (layout_tree → sizing → positioning
-//! → display_list).
-//!
-//! Key components:
-//! - [`MultiValue<T>`] — wrapper preserving CSS cascade semantics (Auto / Initial / Inherit / Exact)
-//! - `get_css_property!` / `get_css_property_pixel!` — macros generating typed getters with
-//!   optional compact-cache fast paths and UA CSS fallback
-//! - Font chain collection and resolution ([`CollectedFontStacks`], [`ResolvedFontChains`])
-//! - Scrollbar style computation ([`ComputedScrollbarStyle`])
-//! - Selection and caret styling ([`SelectionStyle`], [`CaretStyle`])
+//! Centralized CSS property getters for the layout solver pipeline
 
 use azul_core::{
     dom::{NodeId, NodeType},

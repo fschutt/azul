@@ -41,80 +41,80 @@ extern crate alloc;
 #[macro_use]
 extern crate azul_css;
 
-/// Useful macros for implementing Azul APIs without duplicating code
+/// Internal macros for `Vec`, `Option`, and callback boilerplate.
 #[macro_use]
 pub mod macros;
-/// Unified debug logging system
+/// Debug logging system with category filtering.
 #[macro_use]
 pub mod debug;
-/// Type definitions for various types of callbacks plus focus and scroll handling
+/// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
-/// Accessibility types: core data definitions and helper functions
+/// Accessibility types for screen-reader integration (AccessKit).
 pub mod a11y;
-/// `Dom` construction, `NodeData` and `NodeType` management functions
+/// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
-/// Unified drag context for text selection, scrollbar, node, and window drags
+/// Drag context for text selection, scrollbar, node, and window drags.
 pub mod drag;
-/// Icon system for loading and resolving icons from fonts, images, or zip packs
+/// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
-/// Type definitions for Glyphs
+/// Glyph types: advance metrics, variation selectors, and placement data.
 pub mod glyph;
-/// Functions to manage adding fonts + images, garbage collection
+/// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
-/// Primitives for cursor and text selection handling
+/// Text selection and cursor positioning for inline content.
 pub mod selection;
-/// Algorithms to create git-like diffs between two doms in linear time
+/// Linear-time DOM diffing for incremental updates.
 pub mod diff;
-/// Animation system
+/// CSS animation and transition configuration.
 pub mod animation;
-/// Event handling (mouse, keyboard, window events)
+/// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
-/// Geometry module for physical and logical sizes
+/// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
-/// Contains OpenGL helper functions (to compile / link shaders)
+/// OpenGL context wrappers, shader compilation, and texture cache.
 pub mod gl;
-/// FXAA (Fast Approximate Anti-Aliasing) shader implementation
+/// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
-/// OpenGL constants
+/// OpenGL constants (GL 1.1 through GL 4.x).
 pub mod glconst;
-/// GPU value synchronization (colors, transforms) for WebRender preparation
+/// GPU value cache for CSS transforms and opacity.
 pub mod gpu;
-/// Hit-testing module
+/// Hit-test results: which DOM nodes are under the cursor.
 pub mod hit_test;
-/// Type-safe hit-test tag system for WebRender integration
+/// Type-safe hit-test tag system for compositor integration.
 pub mod hit_test_tag;
-/// Internal, arena-based storage for Dom nodes
+/// Arena-based node tree storage and hierarchy management.
 pub mod id;
-/// Types for handling menus (context menu, menubar)
+/// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
-/// Cache for CSS Properties
+/// CSS property cache for efficient per-node style resolution.
 pub mod prop_cache;
-/// Compact cache builder: CssPropertyCache → CompactLayoutCache
+/// Converts `CssPropertyCache` into compact three-tier numeric cache.
 pub mod compact_cache_builder;
-/// Type-erased reference wrapper (like `Box<dyn Any>` but for references)
+/// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;
-/// CSS cascading module
+/// CSS cascade: selector matching, specificity, and property inheritance.
 pub mod style;
-/// `StyledDom` = CSSOM
+/// `StyledDom` — the result of applying CSS to a DOM tree (the CSSOM).
 pub mod styled_dom;
-/// SVG module
+/// SVG rendering, path tessellation, and geometric operations.
 pub mod svg;
-/// SVG path `d=""` attribute parser
+/// SVG `d=""` path data parser.
 pub mod svg_path_parser;
-/// Async (task, thread, timer) helper functions
+/// Timer, thread, and async task management.
 pub mod task;
-/// CSS transform computation
+/// 3D transform matrix computation for CSS transforms.
 pub mod transform;
-/// User-agent default stylesheet
+/// Built-in user-agent default stylesheet.
 pub mod ua_css;
-/// Handles the UI layout and UI layout solver
+/// Default font/text constants and small geometry helpers for layout.
 pub mod ui_solver;
-/// Window creation / interaction with the OS' windowing API
+/// Window configuration, input state, and platform-specific options.
 pub mod window;
-/// XML structures
+/// XML and XHTML parsing for declarative UI definitions.
 pub mod xml;
-/// JSON value types (data definitions, no serde_json dependency)
+/// JSON value types for the C API (no serde dependency).
 pub mod json;
 
 // Typedef for possible faster implementation of hashing

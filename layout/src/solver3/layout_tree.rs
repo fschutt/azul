@@ -1,16 +1,4 @@
-//! solver3/layout_tree.rs
-//!
-//! Layout tree generation and anonymous box handling.
-//!
-//! Key types:
-//! - [`LayoutTree`]: The complete layout tree using struct-of-arrays (SoA) storage
-//!   split into hot/warm/cold tiers for cache performance.
-//! - [`LayoutNode`]: Monolithic node representation used during construction.
-//! - [`LayoutTreeBuilder`]: Builds a `LayoutTree` from a `StyledDom`, generating
-//!   anonymous boxes for CSS table fixup and inline/block wrapping.
-//!
-//! This module is called by `generate_layout_tree()` during the tree construction
-//! phase of the layout pipeline (before sizing and positioning).
+//! Layout tree construction from a styled DOM, including anonymous box generation
 use std::{
     collections::{BTreeMap, HashMap},
     hash::{Hash, Hasher},

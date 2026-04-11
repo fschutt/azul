@@ -1,5 +1,4 @@
-//! solver3/positioning.rs
-//! Pass 3: Final positioning of layout nodes
+//! Final positioning of layout nodes (relative, absolute, and fixed schemes)
 // +spec:positioning:79d47e - Implements relative, absolute, and fixed positioning schemes
 
 use std::collections::BTreeMap;

@@ -34,33 +34,36 @@
 extern crate alloc;
 extern crate core;
 
+/// Font traits available regardless of text layout feature.
 pub mod font_traits;
+/// Image decoding and encoding (wraps the `image` crate).
 #[cfg(feature = "image_decoding")]
 pub mod image;
+/// Scroll, hover, clipboard, cursor, and focus managers.
 #[cfg(feature = "text_layout")]
 pub mod managers;
+/// CSS layout solver: block, inline, flex, grid, and table formatting.
 #[cfg(feature = "text_layout")]
 pub mod solver3;
 
-// String formatting utilities
+/// C-compatible string formatting via `strfmt`.
 #[cfg(feature = "strfmt")]
 pub mod fmt;
 #[cfg(feature = "strfmt")]
 pub use fmt::{FmtArg, FmtArgVec, FmtArgVecDestructor, FmtValue, fmt_string};
 
-// Widget modules (behind feature flags)
+/// Built-in widgets: button, text input, tabs, tree view, node graph, etc.
 #[cfg(feature = "widgets")]
 pub mod widgets;
 
-// Extra APIs (dialogs, file operations)
+/// Desktop platform helpers (file dialogs, notifications).
 #[cfg(feature = "extra")]
 pub mod desktop;
+/// Color parsing, XML DOM construction, and misc utilities.
 #[cfg(feature = "extra")]
 pub mod extra;
 
-// ICU internationalization support.
-// Active with the ICU4X backend (`icu` feature), the macOS Foundation backend
-// (`icu_macos` on macOS), or the Windows NLS backend (`icu_windows` on Windows).
+/// ICU internationalization: date/time formatting, plurals, list formatting.
 #[cfg(any(
     feature = "icu",
     all(target_os = "macos", feature = "icu_macos"),
@@ -78,7 +81,7 @@ pub use icu::{
     LayoutCallbackInfoIcuExt, ListType, PluralCategory,
 };
 
-// Project Fluent localization support
+/// Project Fluent localization: message bundles, argument formatting, ZIP I/O.
 #[cfg(feature = "fluent")]
 pub mod fluent;
 #[cfg(feature = "fluent")]
@@ -90,13 +93,13 @@ pub use fluent::{
     FluentSyntaxError, FluentZipLoadResult, LayoutCallbackInfoFluentExt,
 };
 
-// URL parsing support
+/// URL parsing (RFC 3986 compliant).
 #[cfg(feature = "http")]
 pub mod url;
 #[cfg(feature = "http")]
 pub use url::{Url, UrlParseError, ResultUrlUrlParseError};
 
-// File system operations (C-compatible wrapper for std::fs)
+/// File system operations (C-compatible wrappers for `std::fs`).
 pub mod file;
 pub use file::{
     dir_create, dir_create_all, dir_list, dir_delete, dir_delete_all,
@@ -106,7 +109,7 @@ pub use file::{
     FileError, FileErrorKind, FileMetadata, FilePath, OptionFilePath,
 };
 
-// HTTP client support
+/// HTTP client: GET/POST requests with pure-Rust TLS.
 #[cfg(feature = "http")]
 pub mod http;
 #[cfg(feature = "http")]
@@ -117,7 +120,7 @@ pub use http::{
     HttpStatusError,
 };
 
-// JSON parsing support
+/// JSON parsing and serialization for the C API.
 #[cfg(feature = "json")]
 pub mod json;
 #[cfg(feature = "json")]
@@ -128,7 +131,7 @@ pub use json::{
     ResultJsonJsonParseError, OptionJson, OptionJsonVec, OptionJsonKeyValueVec,
 };
 
-// ZIP file manipulation support
+/// ZIP file creation, extraction, and listing.
 #[cfg(feature = "zip_support")]
 pub mod zip;
 #[cfg(feature = "zip_support")]
@@ -138,7 +141,7 @@ pub use zip::{
     ZipReadConfig, ZipWriteConfig, ZipReadError, ZipWriteError,
 };
 
-// Icon provider support (always available)
+/// Icon provider: resolves icons from Material Icons font, images, or ZIP packs.
 pub mod icon;
 pub use icon::{
     // Resolver
@@ -157,16 +160,22 @@ pub use azul_core::icon::{
     resolve_icons_in_styled_dom, OptionIconProviderHandle,
 };
 
+/// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
+/// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
 pub mod cpurender;
+/// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
 pub mod glyph_cache;
+/// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+/// Event determination: maps raw input to DOM node callbacks.
 #[cfg(feature = "text_layout")]
 pub mod event_determination;
+/// Font parsing, metrics extraction, and subsetting.
 #[cfg(feature = "text_layout")]
 pub mod font;
 
@@ -185,22 +194,32 @@ pub use font::parsed::{
 // Re-export hyphenation for external crates (like printpdf)
 #[cfg(feature = "text_layout_hyphenation")]
 pub use hyphenation;
+/// CSS fragmentation engine for paged media (page/column breaks).
 pub mod fragmentation;
+/// Hit-testing: maps screen coordinates to DOM nodes.
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
+/// Paged media layout engine (infinite canvas with physical spacers).
 pub mod paged;
+/// Text shaping, line breaking (Knuth-Plass), and inline formatting.
 #[cfg(feature = "text_layout")]
 pub mod text3;
+/// Thread callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod thread;
+/// Timer callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod timer;
+/// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
+/// Window layout management: relayout, event processing, state sync.
 #[cfg(feature = "text_layout")]
 pub mod window;
+/// Window state types (keyboard, mouse, DPI, focus).
 #[cfg(feature = "text_layout")]
 pub mod window_state;
+/// XML and XHTML parsing for declarative UI definitions.
 #[cfg(feature = "xml")]
 pub mod xml;
 

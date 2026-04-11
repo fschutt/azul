@@ -1,6 +1,4 @@
-//! solver3/sizing.rs
-//!
-//! Pass 2: Sizing calculations (intrinsic and used sizes)
+//! Intrinsic and used size calculations for layout nodes
 
 use std::{
     collections::{BTreeMap, BTreeSet},

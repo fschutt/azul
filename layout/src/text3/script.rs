@@ -1,3 +1,5 @@
+//! Unicode script detection and language identification for text shaping
+//!
 // Taken from: https://github.com/greyblake/whatlang-rs/blob/master/src/scripts/detect.rs
 //
 // See: https://github.com/greyblake/whatlang-rs/pull/67

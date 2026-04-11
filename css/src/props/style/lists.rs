@@ -1,9 +1,4 @@
-//! css/src/props/style/lists.rs
-//!
-//! CSS properties related to list styling:
-//! [`StyleListStyleType`] and [`StyleListStylePosition`].
-//!
-//! Parsing functions are gated behind `#[cfg(feature = "parser")]`.
+//! CSS list styling properties (`list-style-type` and `list-style-position`)
 
 use alloc::string::{String, ToString};
 use core::fmt;

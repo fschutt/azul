@@ -1,28 +1,4 @@
-//! solver3/fc.rs - Formatting Context Layout
-//!
-//! This module implements the CSS Visual Formatting Model's formatting contexts:
-//!
-//! - **Block Formatting Context (BFC)**: CSS 2.2 § 9.4.1 Block-level boxes in normal flow, with
-//!   margin collapsing and float positioning.
-//!
-//! - **Inline Formatting Context (IFC)**: CSS 2.2 § 9.4.2 Inline-level content (text,
-//!   inline-blocks) laid out in line boxes.
-//!
-//! - **Table Formatting Context**: CSS 2.2 § 17 Table layout with column width calculation and cell
-//!   positioning.
-//!
-//! - **Flex/Grid Formatting Contexts**: CSS Flexbox/Grid via Taffy Delegated to the Taffy layout
-//!   engine for modern layout modes.
-//!
-//! # Module Organization
-//!
-//! 1. **Constants & Types** - Magic numbers as named constants, core types
-//! 2. **Entry Point** - `layout_formatting_context` dispatcher
-//! 3. **BFC Layout** - Block formatting context implementation
-//! 4. **IFC Layout** - Inline formatting context implementation
-//! 5. **Table Layout** - Table formatting context implementation
-//! 6. **Flex/Grid Layout** - Taffy bridge wrappers
-//! 7. **Helper Functions** - Property getters, margin collapsing, utilities
+//! Formatting context layout (block, inline, table, and flex/grid via Taffy)
 
 use std::{
     collections::{BTreeMap, HashMap},
