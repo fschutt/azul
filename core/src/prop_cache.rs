@@ -124,6 +124,13 @@ use azul_css::dynamic_selector::{
     CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
 };
 
+// Unit conversion constants (CSS absolute units → pixels)
+const PT_TO_PX: f32 = 1.333333;
+const IN_TO_PX: f32 = 96.0;
+const CM_TO_PX: f32 = 37.7952755906;
+const MM_TO_PX: f32 = 3.7795275591;
+const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
 /// Macro to match on any CssProperty variant and access the inner CssPropertyValue<T>.
 /// This allows generic operations on cascade keywords without writing 190+ match arms.
 macro_rules! match_property_value {
@@ -628,11 +635,10 @@ impl CssPropertyCache {
 }
 
 impl CssPropertyCache {
-    /// Restyles the CSS property cache with a new CSS file
-    #[must_use]
     /// Match CSS selectors to nodes and populate css_props.
     /// Returns tag IDs for hit-testing. If compact_cache is available,
     /// uses it for fast display/overflow checks; otherwise falls back to slow path.
+    #[must_use]
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -4364,10 +4370,10 @@ impl CssPropertyCache {
         // Convert reference to absolute pixels first
         let reference_px = match reference_pixel_value.metric {
             SizeMetric::Px => reference_pixel_value.number.get(),
-            SizeMetric::Pt => reference_pixel_value.number.get() * 1.333333,
-            SizeMetric::In => reference_pixel_value.number.get() * 96.0,
-            SizeMetric::Cm => reference_pixel_value.number.get() * 37.7952755906,
-            SizeMetric::Mm => reference_pixel_value.number.get() * 3.7795275591,
+            SizeMetric::Pt => reference_pixel_value.number.get() * PT_TO_PX,
+            SizeMetric::In => reference_pixel_value.number.get() * IN_TO_PX,
+            SizeMetric::Cm => reference_pixel_value.number.get() * CM_TO_PX,
+            SizeMetric::Mm => reference_pixel_value.number.get() * MM_TO_PX,
             SizeMetric::Em => return None, // Reference can't be relative
             SizeMetric::Rem => return None, // Reference can't be relative
             SizeMetric::Percent => return None, // Reference can't be relative
@@ -4378,10 +4384,10 @@ impl CssPropertyCache {
         // Resolve target based on reference
         let resolved_px = match target_pixel_value.metric {
             SizeMetric::Px => target_pixel_value.number.get(),
-            SizeMetric::Pt => target_pixel_value.number.get() * 1.333333,
-            SizeMetric::In => target_pixel_value.number.get() * 96.0,
-            SizeMetric::Cm => target_pixel_value.number.get() * 37.7952755906,
-            SizeMetric::Mm => target_pixel_value.number.get() * 3.7795275591,
+            SizeMetric::Pt => target_pixel_value.number.get() * PT_TO_PX,
+            SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
+            SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
+            SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
             SizeMetric::Em => target_pixel_value.number.get() * reference_px,
             // Use reference as root font-size
             SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
@@ -4783,8 +4789,6 @@ impl CssPropertyCache {
         prop: &CssProperty,
         parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) -> CssProperty {
-        const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
-
         let parent_font_size = parent_computed
             .as_ref()
             .and_then(|p| {
@@ -4820,8 +4824,6 @@ impl CssPropertyCache {
             props::basic::{font::StyleFontSize, length::SizeMetric, pixel::PixelValue},
         };
 
-        const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
-
         let CssProperty::FontSize(css_val) = prop else {
             return prop.clone();
         };
@@ -4832,10 +4834,10 @@ impl CssPropertyCache {
 
         let resolved_px = match font_size.inner.metric {
             SizeMetric::Px => font_size.inner.number.get(),
-            SizeMetric::Pt => font_size.inner.number.get() * 1.333333,
-            SizeMetric::In => font_size.inner.number.get() * 96.0,
-            SizeMetric::Cm => font_size.inner.number.get() * 37.7952755906,
-            SizeMetric::Mm => font_size.inner.number.get() * 3.7795275591,
+            SizeMetric::Pt => font_size.inner.number.get() * PT_TO_PX,
+            SizeMetric::In => font_size.inner.number.get() * IN_TO_PX,
+            SizeMetric::Cm => font_size.inner.number.get() * CM_TO_PX,
+            SizeMetric::Mm => font_size.inner.number.get() * MM_TO_PX,
             SizeMetric::Em => font_size.inner.number.get() * reference_px,
             SizeMetric::Rem => font_size.inner.number.get() * DEFAULT_FONT_SIZE_PX,
             SizeMetric::Percent => font_size.inner.number.get() / 100.0 * reference_px,
