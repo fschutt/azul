@@ -70,16 +70,6 @@ impl Menu {
         self
     }
 
-    /// Swaps this menu with a default menu and returns the previous contents.
-    ///
-    /// This is useful for taking ownership of the menu's contents without cloning.
-    #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
-        let mut new = Self::default();
-        core::mem::swap(&mut new, self);
-        new
-    }
-
     /// Computes a 64-bit hash of this menu using the HighwayHash algorithm.
     ///
     /// This is used to detect changes in menu structure for caching and optimization.
@@ -218,23 +208,6 @@ impl StringMenuItem {
             icon: OptionMenuItemIcon::None,
             children: MenuItemVec::from_const_slice(&[]),
         }
-    }
-
-    /// Swaps this menu item with a default item and returns the previous contents.
-    ///
-    /// This is useful for taking ownership without cloning.
-    #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
-        let mut default = Self {
-            label: AzString::from_const_str(""),
-            accelerator: None.into(),
-            callback: None.into(),
-            menu_item_state: MenuItemState::Normal,
-            icon: None.into(),
-            children: Vec::new().into(),
-        };
-        core::mem::swap(&mut default, self);
-        default
     }
 
     /// Sets the child menu items for this item, creating a sub-menu.
