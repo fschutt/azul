@@ -4529,121 +4529,6 @@ impl Dom {
         Self::create_p().with_child(Self::create_text(text))
     }
 
-    // Accessibility-Aware Constructors
-    // These constructors require explicit accessibility information.
-
-    /// Creates a button with text content and accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `text`: The visible button text
-    /// - `aria`: Accessibility information (role, description, etc.)
-    #[inline]
-    pub fn button_with_aria<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
-        let mut btn = Self::create_button(text.into());
-        btn.root.set_accessibility_info(aria.to_full_info());
-        btn
-    }
-
-    /// Creates a link (anchor) with href, text, and accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `href`: The link destination
-    /// - `text`: The visible link text
-    /// - `aria`: Accessibility information (expanded description, etc.)
-    #[inline]
-    pub fn link_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
-        href: S1,
-        text: S2,
-        aria: SmallAriaInfo,
-    ) -> Self {
-        let mut link = Self::create_a(href.into(), OptionString::Some(text.into()));
-        link.root.set_accessibility_info(aria.to_full_info());
-        link
-    }
-
-    /// Creates an input element with type, name, and accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `input_type`: The input type (text, password, email, etc.)
-    /// - `name`: The form field name
-    /// - `label`: Base accessibility label
-    /// - `aria`: Additional accessibility information (description, etc.)
-    #[inline]
-    pub fn input_with_aria<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
-        input_type: S1,
-        name: S2,
-        label: S3,
-        aria: SmallAriaInfo,
-    ) -> Self {
-        let mut input = Self::create_input(input_type.into(), name.into(), label.into());
-        input.root.set_accessibility_info(aria.to_full_info());
-        input
-    }
-
-    /// Creates a textarea with name and accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `name`: The form field name
-    /// - `label`: Base accessibility label
-    /// - `aria`: Additional accessibility information (description, etc.)
-    #[inline]
-    pub fn textarea_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
-        name: S1,
-        label: S2,
-        aria: SmallAriaInfo,
-    ) -> Self {
-        let mut textarea = Self::create_textarea(name.into(), label.into());
-        textarea.root.set_accessibility_info(aria.to_full_info());
-        textarea
-    }
-
-    /// Creates a select dropdown with name and accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `name`: The form field name
-    /// - `label`: Base accessibility label
-    /// - `aria`: Additional accessibility information (description, etc.)
-    #[inline]
-    pub fn select_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
-        name: S1,
-        label: S2,
-        aria: SmallAriaInfo,
-    ) -> Self {
-        let mut select = Self::create_select(name.into(), label.into());
-        select.root.set_accessibility_info(aria.to_full_info());
-        select
-    }
-
-    /// Creates a table with caption and accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `caption`: Table caption (visible title)
-    /// - `aria`: Accessibility information describing table purpose
-    #[inline]
-    pub fn table_with_aria<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
-        let mut table = Self::create_table()
-            .with_child(Self::create_caption().with_child(Self::create_text(caption)));
-        table.root.set_accessibility_info(aria.to_full_info());
-        table
-    }
-
-    /// Creates a label for a form control with additional accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `for_id`: The ID of the associated form control
-    /// - `text`: The visible label text
-    /// - `aria`: Additional accessibility information (description, etc.)
-    #[inline]
-    pub fn label_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
-        for_id: S1,
-        text: S2,
-        aria: SmallAriaInfo,
-    ) -> Self {
-        let mut label = Self::create_label(for_id.into(), text.into());
-        label.root.set_accessibility_info(aria.to_full_info());
-        label
-    }
-
     /// Parse XML/XHTML string into a DOM
     ///
     /// This is a simple wrapper that parses XML and converts it to a DOM.
@@ -4702,14 +4587,6 @@ impl Dom {
         self.estimated_total_children = children_estimated;
     }
 
-    pub fn copy_except_for_root(&mut self) -> Self {
-        Self {
-            root: self.root.copy_special(),
-            children: self.children.clone(),
-            css: self.css.clone(),
-            estimated_total_children: self.estimated_total_children,
-        }
-    }
     pub fn node_count(&self) -> usize {
         self.estimated_total_children + 1
     }
