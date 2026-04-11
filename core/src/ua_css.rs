@@ -1059,19 +1059,22 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
 ];
 
 /// Resolved UA scrollbar defaults after evaluating conditions.
+///
+/// All fields are guaranteed to resolve because `UA_SCROLLBAR_CSS`
+/// contains unconditional fallback entries for every property type.
 pub struct ResolvedUaScrollbar {
-    pub color: Option<StyleScrollbarColor>,
-    pub width: Option<LayoutScrollbarWidth>,
-    pub visibility: Option<ScrollbarVisibilityMode>,
-    pub fade_delay: Option<ScrollbarFadeDelay>,
-    pub fade_duration: Option<ScrollbarFadeDuration>,
+    pub color: StyleScrollbarColor,
+    pub width: LayoutScrollbarWidth,
+    pub visibility: ScrollbarVisibilityMode,
+    pub fade_delay: ScrollbarFadeDelay,
+    pub fade_duration: ScrollbarFadeDuration,
 }
 
 /// Evaluate UA scrollbar CSS rules against a `DynamicSelectorContext`.
 ///
 /// Iterates `UA_SCROLLBAR_CSS` and picks the first matching entry per
-/// property type.  Returns `None` for a property if no rule matches
-/// (should not happen since there are unconditional fallbacks).
+/// property type.  Unconditional fallback entries in the table guarantee
+/// that every field resolves.
 pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
     let mut color: Option<StyleScrollbarColor> = None;
     let mut width: Option<LayoutScrollbarWidth> = None;
@@ -1118,5 +1121,16 @@ pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScro
         }
     }
 
-    ResolvedUaScrollbar { color, width, visibility, fade_delay, fade_duration }
+    // Unconditional `simple` entries in UA_SCROLLBAR_CSS guarantee all
+    // fields resolve; these defaults match those entries as a safety net.
+    ResolvedUaScrollbar {
+        color: color.unwrap_or(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+            thumb: ColorU { r: 193, g: 193, b: 193, a: 255 },
+            track: ColorU { r: 241, g: 241, b: 241, a: 255 },
+        })),
+        width: width.unwrap_or(LayoutScrollbarWidth::Auto),
+        visibility: visibility.unwrap_or(ScrollbarVisibilityMode::Always),
+        fade_delay: fade_delay.unwrap_or(ScrollbarFadeDelay { ms: 0 }),
+        fade_duration: fade_duration.unwrap_or(ScrollbarFadeDuration { ms: 0 }),
+    }
 }

@@ -3631,10 +3631,10 @@ impl ComputedScrollbarStyle {
     ///
     /// Each property is read individually from the resolved UA CSS.
     fn from_ua_resolved(ua: &azul_core::ua_css::ResolvedUaScrollbar) -> Self {
-        let width_mode = ua.width.unwrap_or(LayoutScrollbarWidth::Auto);
-        let visibility = ua.visibility.unwrap_or(ScrollbarVisibilityMode::Always);
-        let fade_delay_ms = ua.fade_delay.map(|d| d.ms).unwrap_or(0);
-        let fade_duration_ms = ua.fade_duration.map(|d| d.ms).unwrap_or(0);
+        let width_mode = ua.width;
+        let visibility = ua.visibility;
+        let fade_delay_ms = ua.fade_delay.ms;
+        let fade_duration_ms = ua.fade_duration.ms;
 
         let visual_width_px = match width_mode {
             LayoutScrollbarWidth::Thin => 8.0,
@@ -3658,7 +3658,7 @@ impl ComputedScrollbarStyle {
         let show_corner_rect = !is_overlay;
 
         let (thumb_color, track_color) = match ua.color {
-            Some(StyleScrollbarColor::Custom(c)) => (c.thumb, c.track),
+            StyleScrollbarColor::Custom(c) => (c.thumb, c.track),
             _ => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
         };
 
