@@ -227,7 +227,7 @@ pub struct DragData {
     /// e.g., "text/plain" -> "Hello World"
     pub data: BTreeMap<AzString, Vec<u8>>,
     /// Allowed drag operations
-    pub effect_allowed: DragEffect,
+    pub effect_allowed: DropEffect,
 }
 
 impl Default for DragData {
@@ -236,27 +236,15 @@ impl Default for DragData {
     }
 }
 
-/// Drag/drop effect (like HTML5 dropEffect)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(C)]
-pub enum DragEffect {
-    /// No drop allowed
-    #[default]
-    None,
-    /// Copy operation
-    Copy,
-    /// Move operation
-    Move,
-    /// Link/shortcut operation
-    Link,
-}
+/// Type alias for backward compatibility — `DragEffect` is now `DropEffect`.
+pub type DragEffect = DropEffect;
 
 impl DragData {
     /// Create new empty drag data
     pub fn new() -> Self {
         Self {
             data: BTreeMap::new(),
-            effect_allowed: DragEffect::Copy,
+            effect_allowed: DropEffect::Copy,
         }
     }
 
