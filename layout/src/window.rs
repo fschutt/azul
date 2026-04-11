@@ -2205,10 +2205,7 @@ impl LayoutWindow {
 
     /// Get or create a GPU value cache for a specific DOM
     pub fn get_or_create_gpu_cache(&mut self, dom_id: DomId) -> &mut GpuValueCache {
-        self.gpu_state_manager
-            .caches
-            .entry(dom_id)
-            .or_insert_with(GpuValueCache::default)
+        self.gpu_state_manager.get_or_create_cache(dom_id)
     }
 
     // Layout Result Access

@@ -20,15 +20,10 @@
 
 use alloc::vec::Vec;
 use std::collections::HashMap;
-use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-
-use azul_css::props::style::StyleTransformOrigin;
-
 use crate::{
     dom::{DomId, NodeId},
     resources::{OpacityKey, TransformKey},
-    styled_dom::StyledDom,
-    transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
+    transform::ComputedTransform3D,
 };
 
 /// Caches GPU transform and opacity keys and their current values for all nodes.
@@ -89,163 +84,6 @@ impl GpuValueCache {
     pub fn empty() -> Self {
         Self::default()
     }
-
-    /// Synchronizes the cache with the current `StyledDom`, generating change events
-    /// for CSS transform and opacity additions, modifications, and removals.
-    #[must_use]
-    pub fn synchronize(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
-        let css_property_cache = styled_dom.get_css_property_cache();
-        let node_data = styled_dom.node_data.as_container();
-        let node_states = styled_dom.styled_nodes.as_container();
-
-        let default_transform_origin = StyleTransformOrigin::default();
-
-        #[cfg(target_arch = "x86_64")]
-        unsafe {
-            if !INITIALIZED.load(AtomicOrdering::SeqCst) {
-                use core::arch::x86_64::__cpuid;
-
-                let mut cpuid = __cpuid(0);
-                let n_ids = cpuid.eax;
-
-                if n_ids > 0 {
-                    // cpuid instruction is present
-                    cpuid = __cpuid(1);
-                    USE_SSE.store((cpuid.edx & (1_u32 << 25)) != 0, AtomicOrdering::SeqCst);
-                    USE_AVX.store((cpuid.ecx & (1_u32 << 28)) != 0, AtomicOrdering::SeqCst);
-                }
-                INITIALIZED.store(true, AtomicOrdering::SeqCst);
-            }
-        }
-
-        // calculate the transform values of every single node that has a non-default transform
-        let all_current_transform_events = (0..styled_dom.node_data.len())
-            .filter_map(|node_id| {
-                let node_id = NodeId::new(node_id);
-                let styled_node_state = &node_states[node_id].styled_node_state;
-                let node_data = &node_data[node_id];
-                let current_transform = css_property_cache
-                    .get_transform(node_data, &node_id, styled_node_state)?
-                    .get_property()
-                    .map(|t| {
-                        // TODO: look up the parent nodes size properly to resolve animation of
-                        // transforms with %
-                        let parent_size_width = 0.0;
-                        let parent_size_height = 0.0;
-                        let transform_origin = css_property_cache.get_transform_origin(
-                            node_data,
-                            &node_id,
-                            styled_node_state,
-                        );
-                        let transform_origin = transform_origin
-                            .as_ref()
-                            .and_then(|o| o.get_property())
-                            .unwrap_or(&default_transform_origin);
-
-                        ComputedTransform3D::from_style_transform_vec(
-                            t.as_ref(),
-                            transform_origin,
-                            parent_size_width,
-                            parent_size_height,
-                            RotationMode::ForWebRender,
-                        )
-                    });
-
-                let existing_transform = self.css_current_transform_values.get(&node_id);
-
-                match (existing_transform, current_transform) {
-                    (None, None) => None, // no new transform, no old transform
-                    (None, Some(new)) => Some(GpuTransformKeyEvent::Added(
-                        node_id,
-                        TransformKey::unique(),
-                        new,
-                    )),
-                    (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(
-                        node_id,
-                        self.css_transform_keys.get(&node_id).copied()?,
-                        *old,
-                        new,
-                    )),
-                    (Some(_old), None) => Some(GpuTransformKeyEvent::Removed(
-                        node_id,
-                        self.css_transform_keys.get(&node_id).copied()?,
-                    )),
-                }
-            })
-            .collect::<Vec<GpuTransformKeyEvent>>();
-
-        // remove / add the CSS transform keys accordingly
-        for event in all_current_transform_events.iter() {
-            match &event {
-                GpuTransformKeyEvent::Added(node_id, key, matrix) => {
-                    self.css_transform_keys.insert(*node_id, *key);
-                    self.css_current_transform_values.insert(*node_id, *matrix);
-                }
-                GpuTransformKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
-                    self.css_current_transform_values.insert(*node_id, *new_state);
-                }
-                GpuTransformKeyEvent::Removed(node_id, _key) => {
-                    self.css_transform_keys.remove(node_id);
-                    self.css_current_transform_values.remove(node_id);
-                }
-            }
-        }
-
-        // calculate the opacity of every single node that has a non-default opacity
-        let all_current_opacity_events = (0..styled_dom.node_data.len())
-            .filter_map(|node_id| {
-                let node_id = NodeId::new(node_id);
-                let styled_node_state = &node_states[node_id].styled_node_state;
-                let node_data = &node_data[node_id];
-                let current_opacity =
-                    css_property_cache.get_opacity(node_data, &node_id, styled_node_state)?;
-                let current_opacity = current_opacity.get_property();
-                let existing_opacity = self.current_opacity_values.get(&node_id);
-
-                match (existing_opacity, current_opacity) {
-                    (None, None) => None, // no new opacity, no old opacity
-                    (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(
-                        node_id,
-                        OpacityKey::unique(),
-                        new.inner.normalized(),
-                    )),
-                    (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(
-                        node_id,
-                        self.opacity_keys.get(&node_id).copied()?,
-                        *old,
-                        new.inner.normalized(),
-                    )),
-                    (Some(_old), None) => Some(GpuOpacityKeyEvent::Removed(
-                        node_id,
-                        self.opacity_keys.get(&node_id).copied()?,
-                    )),
-                }
-            })
-            .collect::<Vec<GpuOpacityKeyEvent>>();
-
-        // remove / add the opacity keys accordingly
-        for event in all_current_opacity_events.iter() {
-            match &event {
-                GpuOpacityKeyEvent::Added(node_id, key, opacity) => {
-                    self.opacity_keys.insert(*node_id, *key);
-                    self.current_opacity_values.insert(*node_id, *opacity);
-                }
-                GpuOpacityKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
-                    self.current_opacity_values.insert(*node_id, *new_state);
-                }
-                GpuOpacityKeyEvent::Removed(node_id, _key) => {
-                    self.opacity_keys.remove(node_id);
-                    self.current_opacity_values.remove(node_id);
-                }
-            }
-        }
-
-        GpuEventChanges {
-            transform_key_changes: all_current_transform_events,
-            opacity_key_changes: all_current_opacity_events,
-            scrollbar_opacity_changes: Vec::new(), // Filled by separate synchronization
-        }
-    }
 }
 
 /// Represents a change to a scrollbar opacity key.
@@ -276,8 +114,6 @@ pub enum GpuScrollbarOpacityEvent {
 pub struct GpuEventChanges {
     /// All transform key changes (additions, modifications, removals)
     pub transform_key_changes: Vec<GpuTransformKeyEvent>,
-    /// All opacity key changes (additions, modifications, removals)
-    pub opacity_key_changes: Vec<GpuOpacityKeyEvent>,
     /// All scrollbar opacity key changes (additions, modifications, removals)
     pub scrollbar_opacity_changes: Vec<GpuScrollbarOpacityEvent>,
 }
@@ -288,36 +124,10 @@ impl GpuEventChanges {
         Self::default()
     }
 
-    /// Returns `true` if there are no transform, opacity, or scrollbar opacity changes.
+    /// Returns `true` if there are no transform or scrollbar opacity changes.
     pub fn is_empty(&self) -> bool {
         self.transform_key_changes.is_empty()
-            && self.opacity_key_changes.is_empty()
             && self.scrollbar_opacity_changes.is_empty()
     }
-
-    /// Merges another `GpuEventChanges` into this one, consuming the other.
-    ///
-    /// This is useful for combining changes from multiple sources.
-    pub fn merge(&mut self, other: &mut Self) {
-        self.transform_key_changes
-            .extend(other.transform_key_changes.drain(..));
-        self.opacity_key_changes
-            .extend(other.opacity_key_changes.drain(..));
-        self.scrollbar_opacity_changes
-            .extend(other.scrollbar_opacity_changes.drain(..));
-    }
 }
 
-/// Represents a change to a GPU opacity key.
-///
-/// These events are generated when synchronizing the cache with the `StyledDom`
-/// and are used to update WebRender's opacity state efficiently.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum GpuOpacityKeyEvent {
-    /// A new opacity was added to a node
-    Added(NodeId, OpacityKey, f32),
-    /// An existing opacity was modified (includes old and new values)
-    Changed(NodeId, OpacityKey, f32, f32),
-    /// An opacity was removed from a node
-    Removed(NodeId, OpacityKey),
-}
