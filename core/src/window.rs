@@ -491,10 +491,6 @@ impl MouseState {
     }
 }
 
-// TODO: returned by process_system_scroll
-#[derive(Debug)]
-pub struct ScrollResult {}
-
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum CursorPosition {
@@ -562,30 +558,6 @@ pub struct TouchState {
     /// Number of active touch points
     pub num_touches: usize,
 }
-
-/// Single touch point (finger, stylus, etc.)
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct TouchPoint {
-    /// Unique identifier for this touch point (persists across move events)
-    pub id: u64,
-    /// Current position of the touch point in logical coordinates
-    pub position: LogicalPosition,
-    /// Force/pressure of the touch (0.0 = no pressure, 1.0 = maximum pressure)
-    /// Set to 0.5 if pressure is not available
-    pub force: f32,
-}
-
-impl_option!(
-    TouchPoint,
-    OptionTouchPoint,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
-);
-
-impl_vec!(TouchPoint, TouchPointVec, TouchPointVecDestructor, TouchPointVecDestructorType, TouchPointVecSlice, OptionTouchPoint);
-impl_vec_debug!(TouchPoint, TouchPointVec);
-impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
-impl_vec_partialeq!(TouchPoint, TouchPointVec);
 
 /// State, size, etc of the window, for comparing to the last frame
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
@@ -1290,22 +1262,6 @@ pub struct WasmWindowOptions {
     pub _reserved: u8,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub enum FullScreenMode {
-    /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode
-    /// - other: Does the same as `FastFullScreen`.
-    SlowFullScreen,
-    /// Window should immediately go into fullscreen mode (on macOS this is not the default
-    /// behaviour).
-    FastFullScreen,
-    /// - macOS: If the window is in fullscreen mode, transitions slowly back to windowed state.
-    /// - other: Does the same as `FastWindowed`.
-    SlowWindowed,
-    /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS
-    /// this is not the default behaviour).
-    FastWindowed,
-}
 
 // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
 // of a struct, which makes things more complicated
@@ -1441,31 +1397,6 @@ impl ::core::fmt::Display for UpdateFocusWarning {
             CouldNotFindFocusNode(css_path) => {
                 write!(f, "Could not find focus node for path: {}", css_path)
             }
-        }
-    }
-}
-
-/// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C, u8)]
-pub enum AcceleratorKey {
-    Ctrl,
-    Alt,
-    Shift,
-    Key(VirtualKeyCode),
-}
-
-impl AcceleratorKey {
-    /// Checks if the current keyboard state contains the given char or modifier,
-    /// i.e. if the keyboard state currently has the shift key pressed and the
-    /// accelerator key is `Shift`, evaluates to true, otherwise to false.
-    pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
-        use self::AcceleratorKey::*;
-        match self {
-            Ctrl => keyboard_state.ctrl_down(),
-            Alt => keyboard_state.alt_down(),
-            Shift => keyboard_state.shift_down(),
-            Key(k) => keyboard_state.is_key_down(*k),
         }
     }
 }
@@ -1639,57 +1570,6 @@ pub enum VirtualKeyCode {
     Cut,
 }
 
-impl VirtualKeyCode {
-    pub fn get_lowercase(&self) -> Option<char> {
-        use self::VirtualKeyCode::*;
-        match self {
-            A => Some('a'),
-            B => Some('b'),
-            C => Some('c'),
-            D => Some('d'),
-            E => Some('e'),
-            F => Some('f'),
-            G => Some('g'),
-            H => Some('h'),
-            I => Some('i'),
-            J => Some('j'),
-            K => Some('k'),
-            L => Some('l'),
-            M => Some('m'),
-            N => Some('n'),
-            O => Some('o'),
-            P => Some('p'),
-            Q => Some('q'),
-            R => Some('r'),
-            S => Some('s'),
-            T => Some('t'),
-            U => Some('u'),
-            V => Some('v'),
-            W => Some('w'),
-            X => Some('x'),
-            Y => Some('y'),
-            Z => Some('z'),
-            Key0 | Numpad0 => Some('0'),
-            Key1 | Numpad1 => Some('1'),
-            Key2 | Numpad2 => Some('2'),
-            Key3 | Numpad3 => Some('3'),
-            Key4 | Numpad4 => Some('4'),
-            Key5 | Numpad5 => Some('5'),
-            Key6 | Numpad6 => Some('6'),
-            Key7 | Numpad7 => Some('7'),
-            Key8 | Numpad8 => Some('8'),
-            Key9 | Numpad9 => Some('9'),
-            Minus => Some('-'),
-            Asterisk => Some('*'),
-            At => Some('@'),
-            Period => Some('.'),
-            Semicolon => Some(';'),
-            Slash => Some('/'),
-            Caret => Some('^'),
-            _ => None,
-        }
-    }
-}
 
 /// 16x16x4 bytes icon
 #[derive(Debug, Clone)]
