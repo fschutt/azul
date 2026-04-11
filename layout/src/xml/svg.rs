@@ -1,3 +1,15 @@
+//! SVG tessellation, rendering, and geometric operations.
+//!
+//! This module provides:
+//! - **Tessellation** of SVG primitives (paths, circles, rects, multi-polygons)
+//!   via the lyon tessellation library (behind the `svg` feature flag).
+//! - **CPU clip-mask rendering** via the agg-rust rasterizer (`render_node_clipmask_cpu`).
+//! - **FXAA post-processing** for GPU-rendered textures (`apply_fxaa`).
+//! - **Boolean polygon operations** (union, intersection, difference, XOR)
+//!   on `SvgMultiPolygon` shapes via agg scanline boolean algebra.
+//! - **SVG parsing and rendering** (`svg_parse`, `svg_render`) using an
+//!   XML parser and the agg-rust rendering pipeline.
+
 use alloc::boxed::Box;
 use core::fmt;
 
@@ -95,6 +107,12 @@ extern crate agg_rust;
 
 use azul_core::gl::GL_RESTART_INDEX;
 
+/// Kappa constant for approximating a circle with 4 cubic Bezier curves: 4/3 * (sqrt(2) - 1).
+const CIRCLE_BEZIER_KAPPA: f64 = 0.5522847498;
+
+/// Default render size (width, height) when no target size is specified for SVG rendering.
+const DEFAULT_SVG_RENDER_SIZE: (u32, u32) = (800, 600);
+
 #[cfg(feature = "svg")]
 fn translate_svg_line_join(e: SvgLineJoin) -> lyon::tessellation::LineJoin {
     use azul_core::svg::SvgLineJoin::*;
@@ -182,7 +200,6 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
     for p in polygon.iter() {
         match p {
             SvgSimpleNode::Path(p) => {
-                let items = p.items.as_ref();
                 if p.items.as_ref().is_empty() {
                     continue;
                 }
@@ -551,8 +568,8 @@ fn shorten_line_end_by(line: SvgLine, distance: f32) -> SvgLine {
     SvgLine {
         start: line.start,
         end: SvgPoint {
-            x: line.start.x + (dt_short / dt) * (dx / dt),
-            y: line.start.y + (dt_short / dt) * (dx / dt),
+            x: line.start.x + (dt_short / dt) * dx,
+            y: line.start.y + (dt_short / dt) * dy,
         },
     }
 }
@@ -565,8 +582,8 @@ fn shorten_line_start_by(line: SvgLine, distance: f32) -> SvgLine {
 
     SvgLine {
         start: SvgPoint {
-            x: line.start.x + (1.0 - (dt_short / dt)) * (dx / dt),
-            y: line.start.y + (1.0 - (dt_short / dt)) * (dx / dt),
+            x: line.start.x + (1.0 - dt_short / dt) * dx,
+            y: line.start.y + (1.0 - dt_short / dt) * dy,
         },
         end: line.end,
     }
@@ -589,7 +606,7 @@ pub fn svg_path_bevel(p: &SvgPath, distance: f32) -> SvgPath {
     items.reverse();
 
     let mut final_items = Vec::new();
-    for i in 0..items.len() {
+    for i in 0..items.len().saturating_sub(1) {
         let a = items[i].clone();
         let b = items[i + 1].clone();
         match (a, b) {
@@ -737,7 +754,7 @@ pub fn tessellate_multi_shape_fill(
 
 #[cfg(not(feature = "svg"))]
 pub fn tessellate_multi_shape_fill(
-    ms: &[SvgMultiPolygon],
+    ms: &[SvgSimpleNode],
     fill_style: SvgFillStyle,
 ) -> TessellatedSvgNode {
     TessellatedSvgNode::default()
@@ -1454,19 +1471,7 @@ pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> Tessellated
                 .iter()
                 .map(|mp| tessellate_multi_polygon_stroke(mp, ss))
                 .collect::<Vec<_>>();
-            let mut all_vertices = Vec::new();
-            let mut all_indices = Vec::new();
-            for TessellatedSvgNode { vertices, indices } in tessellated_multipolygons {
-                let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
-                let mut indices: Vec<u32> = indices.into_library_owned_vec();
-                all_vertices.append(&mut vertices);
-                all_indices.append(&mut indices);
-                all_indices.push(GL_RESTART_INDEX);
-            }
-            TessellatedSvgNode {
-                vertices: all_vertices.into(),
-                indices: all_indices.into(),
-            }
+            join_tessellated_nodes(&tessellated_multipolygons)
         }
         SvgNode::MultiPolygon(ref mp) => tessellate_multi_polygon_stroke(mp, ss),
         SvgNode::Path(ref p) => tessellate_path_stroke(p, ss),
@@ -1800,7 +1805,7 @@ pub fn render_node_clipmask_cpu(
                 let cx = c.center_x as f64;
                 let cy = c.center_y as f64;
                 let r = c.radius as f64;
-                let k = 0.5522847498; // 4/3 * (sqrt(2) - 1)
+                let k = CIRCLE_BEZIER_KAPPA;
                 let kr = k * r;
                 path.move_to(cx + r, cy);
                 path.curve4(cx + r, cy + kr, cx + kr, cy + r, cx, cy + r);
@@ -1841,7 +1846,7 @@ pub fn render_node_clipmask_cpu(
                             let cx = c.center_x as f64;
                             let cy = c.center_y as f64;
                             let r = c.radius as f64;
-                            let k = 0.5522847498_f64;
+                            let k = CIRCLE_BEZIER_KAPPA;
                             let kr = k * r;
                             path.move_to(cx + r, cy);
                             path.curve4(cx + r, cy + kr, cx + kr, cy + r, cx, cy + r);
@@ -2285,7 +2290,7 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
 
     let (target_width, target_height) = match options.target_size.as_ref() {
         Some(s) => (s.width as u32, s.height as u32),
-        None => (800, 600), // default size
+        None => DEFAULT_SVG_RENDER_SIZE,
     };
 
     if target_width == 0 || target_height == 0 {
