@@ -414,29 +414,6 @@ impl VirtualViewReturn {
         }
     }
 
-    /// DEPRECATED: Use `with_dom()` instead for new content, or `keep_current()` to maintain
-    /// existing content.
-    ///
-    /// This method is kept for backward compatibility but will be removed in a future version.
-    #[deprecated(
-        since = "1.0.0",
-        note = "Use `with_dom()` for new content or `keep_current()` for no update"
-    )]
-    pub fn new(
-        dom: Dom,
-        scroll_size: LogicalSize,
-        scroll_offset: LogicalPosition,
-        virtual_scroll_size: LogicalSize,
-        virtual_scroll_offset: LogicalPosition,
-    ) -> Self {
-        Self::with_dom(
-            dom,
-            scroll_size,
-            scroll_offset,
-            virtual_scroll_size,
-            virtual_scroll_offset,
-        )
-    }
 }
 
 // --  thread callback
