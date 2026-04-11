@@ -1,7 +1,7 @@
-//! Rectangular input that, when clicked, spawns a color dialog
+//! Rectangular input that displays a color and invokes a callback when clicked
 
 use azul_core::{
-    callbacks::{CoreCallbackData, Update},
+    callbacks::Update,
     dom::Dom,
     refany::RefAny,
 };
