@@ -173,6 +173,186 @@ jobs:
           cargo check -p azul-layout --no-default-features --features "xml"
           cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
 
+  # Cross-compile cargo check for 32-bit and exotic targets
+  # Uses cargo check (no linker needed), so only the Rust std-lib for
+  # each target is required.  build-dll is tested on same-OS cross-arch
+  # targets (platform windowing code compiles via cfg gates); cross-OS
+  # targets check the sub-crates and link-static only.
+  cross_compile_check:
+    name: Cross-Compile Check (${{ matrix.target }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- 32-bit Linux (same-OS, can check build-dll) ----
+          - target: i686-unknown-linux-gnu
+            runner: ubuntu-22.04
+            check_build_dll: true
+          # ---- ARM64 Linux (same-OS cross-arch) ----
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            check_build_dll: true
+          # ---- ARMv7 Linux (32-bit ARM, e.g. Raspberry Pi) ----
+          - target: armv7-unknown-linux-gnueabihf
+            runner: ubuntu-22.04
+            check_build_dll: true
+          # ---- RISC-V 64 Linux ----
+          - target: riscv64gc-unknown-linux-gnu
+            runner: ubuntu-22.04
+            check_build_dll: true
+          # ---- PowerPC 64 Linux (big-endian) ----
+          - target: powerpc64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            check_build_dll: true
+          # ---- s390x Linux (IBM Z, big-endian) ----
+          - target: s390x-unknown-linux-gnu
+            runner: ubuntu-22.04
+            check_build_dll: true
+          # ---- 32-bit Windows (Win7+, tests old Windows compat) ----
+          - target: i686-pc-windows-msvc
+            runner: windows-2022
+            check_build_dll: true
+          # ---- macOS x86_64, deployment target 10.13 High Sierra ----
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            check_build_dll: true
+            macos_deployment_target: "10.13"
+          # ---- macOS x86_64, deployment target 10.15 Catalina ----
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            check_build_dll: true
+            macos_deployment_target: "10.15"
+          # ---- macOS ARM64, deployment target 11.0 Big Sur ----
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            check_build_dll: true
+            macos_deployment_target: "11.0"
+          # ---- WASM (no windowing, sub-crates only) ----
+          - target: wasm32-unknown-unknown
+            runner: ubuntu-22.04
+            check_build_dll: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Check sub-crates (azul-css, azul-core, azul-layout)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
+        run: |
+          cargo check --target ${{ matrix.target }} -p azul-css
+          cargo check --target ${{ matrix.target }} -p azul-core
+          cargo check --target ${{ matrix.target }} -p azul-layout --no-default-features --features "text_layout,svg,xml"
+
+      - name: Check azul-dll link-static
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
+        run: cargo check --target ${{ matrix.target }} -p azul-dll --no-default-features --features "link-static,logging"
+
+      - name: Check azul-dll build-dll
+        if: matrix.check_build_dll
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
+        run: cargo check --target ${{ matrix.target }} -p azul-dll --features "build-dll"
+
+  # Cross-compile actual binaries for additional architectures.
+  # Uses cross (https://github.com/cross-rs/cross) for Linux cross-compilation
+  # and native runners for Windows/macOS cross-arch.
+  cross_build_binaries:
+    name: Cross-Build (${{ matrix.target }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- 32-bit Linux x86 ----
+          - target: i686-unknown-linux-gnu
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-i686
+            use_cross: true
+            artifact_ext: so
+          # ---- Linux ARM64 (aarch64) ----
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-aarch64
+            use_cross: true
+            artifact_ext: so
+          # ---- Linux ARMv7 (Raspberry Pi) ----
+          - target: armv7-unknown-linux-gnueabihf
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-armv7
+            use_cross: true
+            artifact_ext: so
+          # ---- 32-bit Windows (native runner) ----
+          - target: i686-pc-windows-msvc
+            runner: windows-2022
+            artifact_name: azul-windows-i686
+            use_cross: false
+            artifact_ext: dll
+          # ---- macOS x86_64 (Intel, from ARM64 runner) ----
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            artifact_name: azul-macos-x86_64
+            use_cross: false
+            artifact_ext: dylib
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build with cross (Linux cross-arch)
+        if: matrix.use_cross
+        run: cross build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
+
+      - name: Build natively (Windows/macOS cross-arch)
+        if: "!matrix.use_cross"
+        run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            target/${{ matrix.target }}/prod-release/*azul*.${{ matrix.artifact_ext }}
+            target/${{ matrix.target }}/prod-release/*azul*.a
+            target/${{ matrix.target }}/prod-release/*azul*.lib
+          retention-days: 30
+          if-no-files-found: warn
+
+  # NOTE: rust9x (Win98/XP) support
+  # rust9x (https://github.com/rust9x/rust/) is a custom Rust fork targeting
+  # i586-rust9x-windows-msvc (Win9x) and i686-rust9x-windows-msvc (WinXP).
+  # It requires building the compiler from source (no prebuilt binaries),
+  # so it's not practical for CI. To build locally:
+  #   1. Build rust9x per https://github.com/rust9x/rust/wiki
+  #   2. rustup toolchain link rust9x /path/to/build/.../stage1
+  #   3. cargo +rust9x build --target i686-rust9x-windows-msvc -p azul-dll --features build-dll
+  # Azul is compatible because it uses pure-Rust TLS (no ring), dlopen for
+  # all Win32 APIs, and has SetWindowLongW fallback for 32-bit.
+
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
@@ -684,7 +864,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, build_linux_packages, build_website_skeleton]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_linux_packages, build_website_skeleton]
     runs-on: ubuntu-22.04
     environment:
       name: github-pages
@@ -723,6 +903,42 @@ jobs:
         with:
           name: azul-windows-amd64
           path: artifacts-windows
+
+      # Cross-built architecture artifacts
+      - name: Download Linux i686 binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-i686
+          path: artifacts-linux-i686
+
+      - name: Download Linux aarch64 binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-aarch64
+          path: artifacts-linux-aarch64
+
+      - name: Download Linux armv7 binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-armv7
+          path: artifacts-linux-armv7
+
+      - name: Download Windows i686 binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-windows-i686
+          path: artifacts-windows-i686
+
+      - name: Download macOS x86_64 binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-macos-x86_64
+          path: artifacts-macos-x86_64
 
       - name: Download .deb package
         uses: actions/download-artifact@v4
@@ -804,6 +1020,23 @@ jobs:
           find artifacts-windows -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-windows -name "azul.pyd" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           
+          # Cross-built architectures
+          # Linux i686 (32-bit x86)
+          find artifacts-linux-i686 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-i686.so" \; 2>/dev/null || true
+          find artifacts-linux-i686 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-i686.a" \; 2>/dev/null || true
+          # Linux aarch64 (ARM64)
+          find artifacts-linux-aarch64 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-aarch64.so" \; 2>/dev/null || true
+          find artifacts-linux-aarch64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-aarch64.a" \; 2>/dev/null || true
+          # Linux armv7 (Raspberry Pi)
+          find artifacts-linux-armv7 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-armv7.so" \; 2>/dev/null || true
+          find artifacts-linux-armv7 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-armv7.a" \; 2>/dev/null || true
+          # Windows i686 (32-bit, Win7+/XP compat)
+          find artifacts-windows-i686 -name "azul.dll" -exec cp {} "$RELEASE_DIR/azul.i686.dll" \; 2>/dev/null || true
+          find artifacts-windows-i686 -name "azul.lib" ! -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/azul.i686.lib" \; 2>/dev/null || true
+          # macOS x86_64 (Intel)
+          find artifacts-macos-x86_64 -name "libazul.dylib" -exec cp {} "$RELEASE_DIR/libazul.x86_64.dylib" \; 2>/dev/null || true
+          find artifacts-macos-x86_64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.macos-x86_64.a" \; 2>/dev/null || true
+
           # Headers
           find artifacts-headers -name "*.h" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-headers -name "*.hpp" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
