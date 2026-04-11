@@ -7,6 +7,7 @@
 pub mod common;
 pub mod registry;
 pub mod resources;
+pub(crate) mod system_style;
 pub mod timer;
 
 /// DBus dynamic loading (for GNOME menus)

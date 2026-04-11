@@ -48,12 +48,15 @@ impl App {
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
+        // Discover the real system style (replaces the hard-coded default from AppConfig::create)
+        app_config.system_style = discover_system_style();
+
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config.icon_provider.set_resolver(azul_layout::icon::default_icon_resolver);
-        
+
         // Register embedded Material Icons if the feature is enabled
         azul_layout::icon::register_embedded_material_icons(&mut app_config.icon_provider);
-        
+
         let app_internal = AppInternal::create(initial_data, app_config);
         let boxed = Box::new(app_internal);
         
@@ -273,4 +276,21 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
         AppLogLevel::Debug => log::LevelFilter::Debug,
         AppLogLevel::Trace => log::LevelFilter::Trace,
     }
+}
+
+/// Discover the system style using platform-specific native APIs.
+///
+/// Dispatches to the appropriate platform's discovery module:
+/// - macOS: `shell2/macos/system_style.rs` (dlopen + AppKit)
+/// - Windows: `shell2/windows/system_style.rs` (LoadLibrary + User32/Dwmapi)
+/// - Linux: `shell2/linux/system_style.rs` (D-Bus + gsettings)
+pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
+    #[cfg(target_os = "macos")]
+    { crate::desktop::shell2::macos::system_style::discover() }
+    #[cfg(target_os = "windows")]
+    { crate::desktop::shell2::windows::system_style::discover() }
+    #[cfg(target_os = "linux")]
+    { crate::desktop::shell2::linux::system_style::discover() }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    { azul_css::system::SystemStyle::detect() }
 }
