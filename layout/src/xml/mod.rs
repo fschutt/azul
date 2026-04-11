@@ -1,3 +1,16 @@
+//! XML/HTML parsing module for the Azul toolkit.
+//!
+//! Provides two parsing paths:
+//! - `parse_xml_string`: builds an `XmlNode` tree (used by `domxml_from_str`)
+//! - `parse_xml_to_fast_dom_with_css`: builds an arena-based `FastDom` directly
+//!   from XML tokens (used by `parse_xml_to_styled_dom`)
+//!
+//! Both paths handle HTML5-lite features: void elements, auto-closing tags,
+//! XML entity decoding, `<style>` CSS extraction, and BOM/DOCTYPE stripping.
+//!
+//! Data types (`XmlNode`, `XmlError`, etc.) live in `azul_core::xml`; this
+//! module provides the parsing implementations.
+
 #![allow(unused_variables)]
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
@@ -158,10 +171,13 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 
 /// Parse XML directly into FastDom + extracted CSS, ready for StyledDom.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
+    #[cfg(debug_assertions)]
     let t0 = std::time::Instant::now();
     let (mut fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
+    #[cfg(debug_assertions)]
     let parse_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
+    #[cfg(debug_assertions)]
     let t1 = std::time::Instant::now();
     // Attach CSS to the FastDom
     if !css.is_empty() {
@@ -173,16 +189,20 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
             css: combined_css,
         }].into();
     }
+    #[cfg(debug_assertions)]
     let css_attach_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
+    #[cfg(debug_assertions)]
     let t2 = std::time::Instant::now();
     let styled = StyledDom::create_from_fast_dom(fast_dom);
-    let cascade_ms = t2.elapsed().as_secs_f64() * 1000.0;
 
-    let node_count = styled.node_hierarchy.as_ref().len();
-    #[cfg(feature = "std")]
-    eprintln!("[parse_xml_to_styled_dom] {} nodes: parse={:.1}ms css_attach={:.1}ms cascade={:.1}ms total={:.1}ms",
-        node_count, parse_ms, css_attach_ms, cascade_ms, t0.elapsed().as_secs_f64() * 1000.0);
+    #[cfg(all(debug_assertions, feature = "std"))]
+    {
+        let cascade_ms = t2.elapsed().as_secs_f64() * 1000.0;
+        let node_count = styled.node_hierarchy.as_ref().len();
+        eprintln!("[parse_xml_to_styled_dom] {} nodes: parse={:.1}ms css_attach={:.1}ms cascade={:.1}ms total={:.1}ms",
+            node_count, parse_ms, css_attach_ms, cascade_ms, t0.elapsed().as_secs_f64() * 1000.0);
+    }
 
     Ok(styled)
 }
@@ -219,8 +239,8 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
 
-    // Estimate ~20 bytes per node for pre-allocation
-    let estimated_nodes = xml.len() / 20;
+    const ESTIMATED_BYTES_PER_NODE: usize = 20;
+    let estimated_nodes = xml.len() / ESTIMATED_BYTES_PER_NODE;
     let mut builder = CompactDomBuilder::with_capacity(estimated_nodes);
     let mut collected_css: Vec<Css> = Vec::new();
     let mut inside_style_tag = false;
@@ -407,16 +427,13 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 while let Some(top) = tag_stack.last() {
                     let is_match = top == close_str;
                     let was_head = top == "head";
-                    if is_match || !is_match {
-                        // Pop this tag
-                        let popped = tag_stack.pop().unwrap();
-                        if popped == "head" && head_depth > 0 { head_depth -= 1; }
-                        if head_depth == 0 && !was_head {
-                            builder.close_node();
-                        }
-                        if is_match { break; }
-                        // Auto-close mismatched (continue loop)
+                    // Pop this tag (unconditionally auto-close mismatched tags)
+                    let popped = tag_stack.pop().unwrap();
+                    if popped == "head" && head_depth > 0 { head_depth -= 1; }
+                    if head_depth == 0 && !was_head {
+                        builder.close_node();
                     }
+                    if is_match { break; }
                 }
             }
             Text { text } => {
@@ -466,9 +483,6 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     Ok((builder.finish(), collected_css))
 }
-
-/// Fast path: parse XML string to DomXml using arena-based FastDom.
-// domxml_from_str_fast() removed — domxml_from_str() uses the fast path by default
 
 /// Loads, parses and builds a DOM from an XML file
 ///
