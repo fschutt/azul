@@ -1,3 +1,16 @@
+//! Interactive node graph editor widget.
+//!
+//! Provides the [`NodeGraph`] widget for building visual node-based editors
+//! (e.g. shader graphs, data-flow pipelines). Key types:
+//!
+//! - [`NodeGraph`] — top-level widget holding nodes, types, and callbacks
+//! - [`Node`] — a single node with typed input/output connections and editable fields
+//! - [`NodeTypeInfo`] / [`InputOutputInfo`] — metadata describing node types and their I/O ports
+//! - [`NodeGraphCallbacks`] — user-provided callbacks for add, remove, drag, connect, etc.
+//!
+//! **Known limitation:** Connection curves between nodes are currently not rendered
+//! (`draw_connection` returns a null image pending `RenderImageCallbackInfo` support).
+
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -36,7 +49,7 @@ use crate::{
     },
 };
 
-/// Same as the NodeGraph but without generics and without the actual data
+/// Interactive node graph editor widget with typed input/output connections.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeGraph {
@@ -82,6 +95,7 @@ impl NodeGraph {
     }
 }
 
+/// Maps a [`NodeTypeId`] to its [`NodeTypeInfo`] metadata.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeTypeIdInfoMap {
@@ -99,6 +113,7 @@ impl_vec_clone!(
 impl_vec_mut!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec);
 impl_vec_debug!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec);
 
+/// Maps an [`InputOutputTypeId`] to its [`InputOutputInfo`] metadata.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct InputOutputTypeIdInfoMap {
@@ -116,6 +131,7 @@ impl_vec_clone!(
 impl_vec_mut!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec);
 impl_vec_debug!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec);
 
+/// Maps a [`NodeGraphNodeId`] to its [`Node`] data.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeIdNodeMap {
@@ -136,6 +152,7 @@ pub enum NodeGraphStyle {
     // to be extended
 }
 
+/// User-provided callbacks for node graph interaction events.
 #[derive(Default, Debug, Clone)]
 #[repr(C)]
 pub struct NodeGraphCallbacks {
@@ -250,6 +267,7 @@ impl_widget_callback!(
     OnNodeFieldEditedCallbackType
 );
 
+/// Unique identifier for an input/output port type.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct InputOutputTypeId {
@@ -266,18 +284,21 @@ impl_vec_clone!(
 impl_vec_mut!(InputOutputTypeId, InputOutputTypeIdVec);
 impl_vec_debug!(InputOutputTypeId, InputOutputTypeIdVec);
 
+/// Unique identifier for a node type (e.g. "Add", "Multiply").
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NodeTypeId {
     pub inner: u64,
 }
 
+/// Unique identifier for a node instance within the graph.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NodeGraphNodeId {
     pub inner: u64,
 }
 
+/// A single node with typed input/output connections and editable fields.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Node {
@@ -288,6 +309,7 @@ pub struct Node {
     pub connect_out: OutputConnectionVec,
 }
 
+/// A key-value field on a node (e.g. a text input labelled "Name").
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeTypeField {
@@ -301,6 +323,7 @@ impl_vec_clone!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor);
 impl_vec_debug!(NodeTypeField, NodeTypeFieldVec);
 impl_vec_mut!(NodeTypeField, NodeTypeFieldVec);
 
+/// The value of a node field, determining which widget is rendered.
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum NodeTypeFieldValue {
@@ -311,6 +334,7 @@ pub enum NodeTypeFieldValue {
     FileInput(OptionString),
 }
 
+/// An input port's connections to one or more output ports on other nodes.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct InputConnection {
@@ -328,6 +352,7 @@ impl_vec_clone!(
 impl_vec_debug!(InputConnection, InputConnectionVec);
 impl_vec_mut!(InputConnection, InputConnectionVec);
 
+/// Reference to a specific output port on a node.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct OutputNodeAndIndex {
@@ -345,6 +370,7 @@ impl_vec_clone!(
 impl_vec_debug!(OutputNodeAndIndex, OutputNodeAndIndexVec);
 impl_vec_mut!(OutputNodeAndIndex, OutputNodeAndIndexVec);
 
+/// An output port's connections to one or more input ports on other nodes.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct OutputConnection {
@@ -362,6 +388,7 @@ impl_vec_clone!(
 impl_vec_debug!(OutputConnection, OutputConnectionVec);
 impl_vec_mut!(OutputConnection, OutputConnectionVec);
 
+/// Reference to a specific input port on a node.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct InputNodeAndIndex {
@@ -379,6 +406,7 @@ impl_vec_clone!(
 impl_vec_debug!(InputNodeAndIndex, InputNodeAndIndexVec);
 impl_vec_mut!(InputNodeAndIndex, InputNodeAndIndexVec);
 
+/// Metadata describing a node type and its I/O port configuration.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeTypeInfo {
@@ -392,6 +420,7 @@ pub struct NodeTypeInfo {
     pub outputs: InputOutputTypeIdVec,
 }
 
+/// Display metadata for an input/output port type (name and color).
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct InputOutputInfo {
@@ -438,6 +467,7 @@ impl fmt::Display for NodeGraphError {
     }
 }
 
+/// Amount (in logical pixels) the entire graph was dragged.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct GraphDragAmount {
@@ -445,6 +475,7 @@ pub struct GraphDragAmount {
     pub y: f32,
 }
 
+/// Amount (in logical pixels) a single node was dragged.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct NodeDragAmount {
@@ -472,12 +503,11 @@ impl NodeGraph {
     ///
     /// One of:
     ///
-    /// - `NodeGraphError::NodeInvalidNode(n)`: The node at `` of the inputs does not exist
-    /// - `NodeGraphError::NodeInvalidIndex(n, u)`: One node has an invalid `output` or `input`
-    ///   index
+    /// - `NodeGraphError::NodeInvalidNode`: One of the input nodes does not exist
+    /// - `NodeGraphError::NodeInvalidIndex`: One node has an invalid `output` or `input` index
     /// - `NodeGraphError::NodeMimeTypeMismatch`: The types of two connected `outputs` and `inputs`
-    ///   isn't the same
-    /// - `Ok`: The insertion of the new node went well.
+    ///   aren't the same
+    /// - `Ok(())`: The connection was established successfully.
     fn connect_input_output(
         &mut self,
         input_node_id: NodeGraphNodeId,
@@ -569,13 +599,13 @@ impl NodeGraph {
     ///
     /// # Returns
     ///
-    /// - `Err(NodeGraphError::NodeInvalidNode(n))`: The node at index `input_node_id` does not
+    /// - `Err(NodeGraphError::NodeInvalidNode)`: The node at index `input_node_id` does not
     ///   exist
-    /// - `Err(NodeGraphError::NodeInvalidIndex(n, u))`: One node has an invalid `input` or `output`
+    /// - `Err(NodeGraphError::NodeInvalidIndex)`: One node has an invalid `input` or `output`
     ///   index
     /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and
-    ///   `output` does not match
-    /// - `Ok(())`: The insertion of the new node went well.
+    ///   `output` do not match
+    /// - `Ok(())`: The disconnection completed successfully.
     fn disconnect_input(
         &mut self,
         input_node_id: NodeGraphNodeId,
@@ -659,22 +689,20 @@ impl NodeGraph {
         Ok(())
     }
 
-    /// Disconnect an output if it is connected to an output
+    /// Disconnect an output if it is connected to an input
     ///
     /// # Inputs
     ///
-    /// - `output_node_id`: The ID of the input node (index in the NodeGraphs internal BTree)
-    /// - `output_index`: The index of the input *on the input node*
+    /// - `output_node_id`: The ID of the output node (index in the NodeGraphs internal BTree)
+    /// - `output_index`: The index of the output *on the output node*
     ///
     /// # Returns
     ///
-    /// - `Err(NodeGraphError::NodeInvalidNode(n))`: The node at index `output_node_id` does not
-    ///   exist
-    /// - `Err(NodeGraphError::NodeInvalidIndex(n, u))`: One node has an invalid `input` or `output`
-    ///   index
+    /// - `Err(NodeGraphError::NodeInvalidNode)`: The node at index `output_node_id` does not exist
+    /// - `Err(NodeGraphError::NodeInvalidIndex)`: One node has an invalid `input` or `output` index
     /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and
-    ///   `output` does not match
-    /// - `Ok(())`: The insertion of the new node went well.
+    ///   `output` do not match
+    /// - `Ok(())`: The disconnection completed successfully.
     fn disconnect_output(
         &mut self,
         output_node_id: NodeGraphNodeId,
@@ -910,7 +938,7 @@ impl NodeGraph {
                                 event: EventFilter::Hover(HoverEventFilter::MouseOver),
                                 refany: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
-                                    cb: nodegraph_drag_graph_or_nodes as usize as usize,
+                                    cb: nodegraph_drag_graph_or_nodes as usize,
                                     ctx: OptionRefAny::None,
                                 },
                             },
@@ -918,7 +946,7 @@ impl NodeGraph {
                                 event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
                                 refany: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
-                                    cb: nodegraph_unset_active_node as usize as usize,
+                                    cb: nodegraph_unset_active_node as usize,
                                     ctx: OptionRefAny::None,
                                 },
                             },
@@ -2606,17 +2634,6 @@ fn render_node(
 }
 
 fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> Dom {
-    const THEME_RED: ColorU = ColorU {
-        r: 255,
-        g: 0,
-        b: 0,
-        a: 255,
-    }; // #484c52
-    const BACKGROUND_THEME_RED: &[StyleBackgroundContent] =
-        &[StyleBackgroundContent::Color(THEME_RED)];
-    const BACKGROUND_COLOR_RED: StyleBackgroundContentVec =
-        StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_RED);
-
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
     )];
@@ -2766,143 +2783,6 @@ extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
 
     // Cannot call draw_connection_inner without RenderImageCallbackInfo
     invalid
-}
-
-fn draw_connection_inner(
-    mut refany: RefAny,
-    _info: &mut (),
-    _texture_size: PhysicalSizeU32,
-) -> Option<ImageRef> {
-    use crate::xml::svg::tessellate_path_stroke;
-
-    let refany = refany.downcast_ref::<ConnectionLocalDataset>()?;
-    let refany = &*refany;
-
-    // Cannot proceed without RenderImageCallbackInfo - all code below requires it
-    return None;
-
-    /* Commented out - requires RenderImageCallbackInfo
-    let gl_context = info.get_gl_context().into_option()?;
-
-    let mut texture = Texture::allocate_rgba8(
-        gl_context.clone(),
-        texture_size,
-        coloru_from_str("#00000000"),
-    );
-
-    texture.clear();
-
-    let mut stroke_style = SvgStrokeStyle::default();
-    stroke_style.line_width = 4.0;
-
-    let tex_half = (texture_size.width as f32) / 2.0;
-
-    let tessellated_stroke = tessellate_path_stroke(
-        &SvgPath {
-            items: vec![
-                // depending on in which quadrant the curve is drawn relative to the input node,
-                // we need a different curve
-                if refany.swap_vert {
-                    if refany.swap_horz {
-                        //          /- input
-                        //  output-/
-                        SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint {
-                                x: 0.0,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                            ctrl_1: SvgPoint {
-                                x: tex_half,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                            ctrl_2: SvgPoint {
-                                x: tex_half,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                            end: SvgPoint {
-                                x: texture_size.width as f32,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                        })
-                    } else {
-                        //  input -\
-                        //          \- output
-                        SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint {
-                                x: 0.0,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                            ctrl_1: SvgPoint {
-                                x: tex_half,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: tex_half,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                            end: SvgPoint {
-                                x: texture_size.width as f32,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                        })
-                    }
-                } else {
-                    if refany.swap_horz {
-                        //  output-\
-                        //          \- input
-                        SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint {
-                                x: 0.0,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                            ctrl_1: SvgPoint {
-                                x: tex_half,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: tex_half,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                            end: SvgPoint {
-                                x: texture_size.width as f32,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                        })
-                    } else {
-                        //         /- output
-                        // input -/
-                        SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint {
-                                x: 0.0,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                            ctrl_1: SvgPoint {
-                                x: tex_half,
-                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
-                            },
-                            ctrl_2: SvgPoint {
-                                x: tex_half,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                            end: SvgPoint {
-                                x: texture_size.width as f32,
-                                y: CONNECTION_DOT_HEIGHT / 2.0,
-                            },
-                        })
-                    }
-                },
-            ]
-            .into(),
-        },
-        stroke_style,
-    );
-
-    let tesselated_gpu_buffer = TessellatedGPUSvgNode::new(&tessellated_stroke, gl_context.clone());
-
-    tesselated_gpu_buffer.draw(&mut texture, texture_size, refany.color, Vec::new().into());
-
-    Some(ImageRef::new_gltexture(texture))
-    */
 }
 
 const NODE_WIDTH: f32 = 250.0;
