@@ -1635,44 +1635,117 @@ r#"{{
 
 /// Detect the Linux desktop environment from environment variables.
 ///
-/// Checks `XDG_CURRENT_DESKTOP` and `DESKTOP_SESSION` to identify
-/// GNOME, KDE, or other desktop environments.
+/// Checks `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`, and specific env markers
+/// to identify GNOME, KDE, XFCE, Cinnamon, MATE, Hyprland, Sway, i3, etc.
 pub fn detect_linux_desktop_env() -> DesktopEnvironment {
-    // Try XDG_CURRENT_DESKTOP first
+    // Check XDG_CURRENT_DESKTOP first (most reliable)
     if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
         let desktop_lower = desktop.to_lowercase();
-        if desktop_lower.contains("gnome") || desktop_lower.contains("unity") {
+        if desktop_lower.contains("gnome") {
             return DesktopEnvironment::Gnome;
         }
         if desktop_lower.contains("kde") || desktop_lower.contains("plasma") {
             return DesktopEnvironment::Kde;
         }
+        if desktop_lower.contains("xfce") {
+            return DesktopEnvironment::Other(AzString::from_const_str("XFCE"));
+        }
+        if desktop_lower.contains("unity") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Unity"));
+        }
+        if desktop_lower.contains("cinnamon") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Cinnamon"));
+        }
+        if desktop_lower.contains("mate") {
+            return DesktopEnvironment::Other(AzString::from_const_str("MATE"));
+        }
+        if desktop_lower.contains("lxde") || desktop_lower.contains("lxqt") {
+            return DesktopEnvironment::Other(AzString::from(desktop.to_uppercase()));
+        }
+        if desktop_lower.contains("budgie") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Budgie"));
+        }
+        if desktop_lower.contains("pantheon") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Pantheon"));
+        }
+        if desktop_lower.contains("deepin") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Deepin"));
+        }
+        if desktop_lower.contains("hyprland") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Hyprland"));
+        }
+        if desktop_lower.contains("sway") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Sway"));
+        }
+        if desktop_lower.contains("i3") {
+            return DesktopEnvironment::Other(AzString::from_const_str("i3"));
+        }
         return DesktopEnvironment::Other(AzString::from(desktop));
     }
-    // Try DESKTOP_SESSION
+
+    // Check DESKTOP_SESSION as fallback
     if let Ok(session) = std::env::var("DESKTOP_SESSION") {
         let session_lower = session.to_lowercase();
         if session_lower.contains("gnome") {
             return DesktopEnvironment::Gnome;
         }
-        if session_lower.contains("kde") || session_lower.contains("plasma") {
+        if session_lower.contains("plasma") || session_lower.contains("kde") {
             return DesktopEnvironment::Kde;
+        }
+        if session_lower.contains("xfce") {
+            return DesktopEnvironment::Other(AzString::from_const_str("XFCE"));
+        }
+        if session_lower.contains("cinnamon") {
+            return DesktopEnvironment::Other(AzString::from_const_str("Cinnamon"));
         }
         return DesktopEnvironment::Other(AzString::from(session));
     }
-    DesktopEnvironment::Other(AzString::from_const_str("unknown"))
+
+    // Check for specific environment markers
+    if std::env::var("GNOME_DESKTOP_SESSION_ID").is_ok() {
+        return DesktopEnvironment::Gnome;
+    }
+    if std::env::var("KDE_FULL_SESSION").is_ok() {
+        return DesktopEnvironment::Kde;
+    }
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        return DesktopEnvironment::Other(AzString::from_const_str("Hyprland"));
+    }
+    if std::env::var("SWAYSOCK").is_ok() {
+        return DesktopEnvironment::Other(AzString::from_const_str("Sway"));
+    }
+    if std::env::var("I3SOCK").is_ok() {
+        return DesktopEnvironment::Other(AzString::from_const_str("i3"));
+    }
+
+    DesktopEnvironment::Other(AzString::from_const_str("Unknown"))
 }
 
 /// Detect the system language as a BCP 47 tag.
 ///
-/// Returns a default of `"en-US"`. For actual detection via OS APIs,
-/// the platform discovery in `azul-dll` overrides this.
+/// Checks `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in priority order.
+/// Returns `"en-US"` if detection fails. For runtime detection via native
+/// OS APIs, the platform discovery in `azul-dll` overrides this.
 pub fn detect_system_language() -> AzString {
-    // Try LANG environment variable
-    if let Ok(lang) = std::env::var("LANG") {
-        // LANG is typically "en_US.UTF-8" — extract the language part
-        let lang = lang.split('.').next().unwrap_or("en_US");
-        return AzString::from(lang.replace('_', "-"));
+    let env_vars = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"];
+    for var in &env_vars {
+        if let Ok(value) = std::env::var(var) {
+            let value = value.trim();
+            if value.is_empty() || value == "C" || value == "POSIX" {
+                continue;
+            }
+            // Parse locale format: "de_DE.UTF-8" or "de_DE" or "de"
+            let lang = value
+                .split('.')  // Remove .UTF-8 suffix
+                .next()
+                .unwrap_or(value)
+                .split(':')  // LANGUAGE can be "de:en_US:en"
+                .next()
+                .unwrap_or(value);
+            if !lang.is_empty() {
+                return AzString::from(lang.replace('_', "-"));
+            }
+        }
     }
     AzString::from_const_str("en-US")
 }

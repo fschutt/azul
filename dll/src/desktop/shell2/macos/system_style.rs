@@ -12,12 +12,18 @@ use azul_css::system::{
     defaults,
     AccessibilitySettings,
     InputMetrics,
+    Platform,
     ScrollbarPreferences,
     ScrollbarVisibility,
     ScrollbarTrackClick,
+    SystemStyle,
     TextRenderingHints,
+    Theme,
 };
+use azul_css::dynamic_selector::{OsVersion, BoolCondition};
+use azul_css::corety::AzString;
 use azul_css::props::basic::color::{ColorU, OptionColorU};
+use azul_css::css::Stylesheet;
 
 // ── Raw dlopen / dlsym (provided by libSystem, always available) ─────────
 
@@ -393,7 +399,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         }
     }
 
-    style.platform = azul_css::system::Platform::MacOs;
+    style.platform = Platform::MacOs;
 
     // macOS HIG: fixed visual hints
     style.visual_hints = azul_css::system::VisualHints {
@@ -404,5 +410,262 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         flash_on_alert: true,
     };
 
+    // ── CLI-based fallback discovery ────────────────────────────────────
+    discover_macos_cli_extras(&mut style);
+
+    // OS version: if native detection did not set it, try sw_vers
+    if style.os_version == OsVersion::MACOS_SONOMA {
+        // Native may have set it to SONOMA as default; try CLI for a better answer
+        let cli_version = detect_macos_version();
+        if cli_version != OsVersion::MACOS_SONOMA {
+            style.os_version = cli_version;
+        }
+    }
+
+    // Reduced motion / high contrast: CLI fallback if native left them at False
+    if style.prefers_reduced_motion == BoolCondition::False {
+        style.prefers_reduced_motion = detect_macos_reduced_motion();
+    }
+    if style.prefers_high_contrast == BoolCondition::False {
+        style.prefers_high_contrast = detect_macos_high_contrast();
+    }
+
+    // App-specific stylesheet from ~/Library/Application Support/azul/styles/<exe>.css
+    if style.app_specific_stylesheet.is_none() {
+        style.app_specific_stylesheet = load_app_specific_stylesheet()
+            .map(|s| alloc::boxed::Box::new(s));
+    }
+
     style
+}
+
+// ── CLI fallback helpers ────────────────────────────────────────────────────
+
+/// Spawn a subprocess and return its stdout as a trimmed `String`.
+/// Returns `Err(())` if the process fails, times out, or returns non-zero.
+fn run_command_with_timeout(
+    program: &str,
+    args: &[&str],
+    timeout: core::time::Duration,
+) -> Result<alloc::string::String, ()> {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| ())?;
+
+    // Simple polling-based timeout
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return Err(());
+                }
+                let output = child.wait_with_output().map_err(|_| ())?;
+                let s = alloc::string::String::from_utf8(output.stdout).map_err(|_| ())?;
+                return Ok(s.trim().to_string());
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Err(());
+                }
+                std::thread::sleep(core::time::Duration::from_millis(5));
+            }
+            Err(_) => return Err(()),
+        }
+    }
+}
+
+/// Fill in SystemStyle fields from `defaults read` CLI commands.
+///
+/// Only overwrites fields that have not already been set by native discovery.
+fn discover_macos_cli_extras(style: &mut SystemStyle) {
+    let timeout = core::time::Duration::from_millis(500);
+
+    // ── Dark mode detection ─────────────────────────────────────────────
+    if style.theme == Theme::Light {
+        if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout) {
+            if val.eq_ignore_ascii_case("Dark") {
+                *style = defaults::macos_modern_dark();
+                style.platform = Platform::MacOs;
+            }
+        }
+    }
+
+    // ── Accent color ────────────────────────────────────────────────────
+    if style.colors.accent == OptionColorU::None {
+        if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleAccentColor"], timeout) {
+            if let Ok(code) = val.parse::<i32>() {
+                let (r, g, b) = match code {
+                    -1 => (142, 142, 147), // Graphite
+                     0 => (255,  59,  48), // Red
+                     1 => (255, 149,   0), // Orange
+                     2 => (255, 204,   0), // Yellow
+                     3 => ( 40, 205,  65), // Green
+                     4 => (  0, 122, 255), // Blue
+                     5 => (175,  82, 222), // Purple
+                     6 => (255,  45,  85), // Pink
+                     _ => (  0, 122, 255), // Default to Blue
+                };
+                style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, 255));
+            }
+        }
+    }
+
+    // ── Selection / highlight color ─────────────────────────────────────
+    if style.colors.selection_background == OptionColorU::None {
+        if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleHighlightColor"], timeout) {
+            // Format: "R G B" as floats 0.0-1.0, e.g. "0.698 0.843 1.000"
+            let parts: Vec<&str> = val.split_whitespace().collect();
+            if parts.len() >= 3 {
+                if let (Ok(r), Ok(g), Ok(b)) = (
+                    parts[0].parse::<f64>(),
+                    parts[1].parse::<f64>(),
+                    parts[2].parse::<f64>(),
+                ) {
+                    style.colors.selection_background = OptionColorU::Some(ColorU::new(
+                        (r.clamp(0.0, 1.0) * 255.0) as u8,
+                        (g.clamp(0.0, 1.0) * 255.0) as u8,
+                        (b.clamp(0.0, 1.0) * 255.0) as u8,
+                        255,
+                    ));
+                }
+            }
+        }
+    }
+
+    // ── Locale / language ───────────────────────────────────────────────
+    if style.language.as_str().is_empty() {
+        style.language = detect_language_macos();
+    }
+}
+
+/// Detect the macOS version by running `sw_vers -productVersion`.
+///
+/// Returns a best-effort `OsVersion`, falling back to `MACOS_SONOMA` if
+/// the command fails or the version is unrecognised.
+fn detect_macos_version() -> OsVersion {
+    let timeout = core::time::Duration::from_millis(500);
+    let version_str = match run_command_with_timeout("sw_vers", &["-productVersion"], timeout) {
+        Ok(s) => s,
+        Err(()) => return OsVersion::MACOS_SONOMA,
+    };
+
+    // Parse "Major.Minor.Patch" or "Major.Minor"
+    let parts: Vec<&str> = version_str.split('.').collect();
+    let major: u32 = match parts.first().and_then(|s| s.parse().ok()) {
+        Some(v) => v,
+        None => return OsVersion::MACOS_SONOMA,
+    };
+    let minor: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    match major {
+        26 => OsVersion::MACOS_TAHOE,
+        15 => OsVersion::MACOS_SEQUOIA,
+        14 => OsVersion::MACOS_SONOMA,
+        13 => OsVersion::MACOS_VENTURA,
+        12 => OsVersion::MACOS_MONTEREY,
+        11 => OsVersion::MACOS_BIG_SUR,
+        10 => match minor {
+            15 => OsVersion::MACOS_CATALINA,
+            14 => OsVersion::MACOS_MOJAVE,
+            13 => OsVersion::MACOS_HIGH_SIERRA,
+            12 => OsVersion::MACOS_SIERRA,
+            11 => OsVersion::MACOS_EL_CAPITAN,
+            10 => OsVersion::MACOS_YOSEMITE,
+             9 => OsVersion::MACOS_MAVERICKS,
+             _ => OsVersion::MACOS_SONOMA,
+        },
+        _ => OsVersion::MACOS_SONOMA,
+    }
+}
+
+/// Detect whether the user has enabled "Reduce motion" via the CLI.
+fn detect_macos_reduced_motion() -> BoolCondition {
+    let timeout = core::time::Duration::from_millis(500);
+    match run_command_with_timeout(
+        "defaults",
+        &["read", "com.apple.universalaccess", "reduceMotion"],
+        timeout,
+    ) {
+        Ok(val) if val.trim() == "1" => BoolCondition::True,
+        _ => BoolCondition::False,
+    }
+}
+
+/// Detect whether the user has enabled "Increase contrast" via the CLI.
+fn detect_macos_high_contrast() -> BoolCondition {
+    let timeout = core::time::Duration::from_millis(500);
+    match run_command_with_timeout(
+        "defaults",
+        &["read", "com.apple.universalaccess", "increaseContrast"],
+        timeout,
+    ) {
+        Ok(val) if val.trim() == "1" => BoolCondition::True,
+        _ => BoolCondition::False,
+    }
+}
+
+/// Detect the system language from `defaults read -g AppleLocale`,
+/// falling back to `AppleLanguages` array.  Returns a BCP 47 string
+/// (e.g. "de-DE"), or an empty string on failure.
+fn detect_language_macos() -> AzString {
+    let timeout = core::time::Duration::from_millis(500);
+
+    // Try AppleLocale first: returns e.g. "de_DE"
+    if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleLocale"], timeout) {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            let bcp47 = trimmed.replace('_', "-");
+            return AzString::from(bcp47);
+        }
+    }
+
+    // Fallback: AppleLanguages array, e.g. '(\n    "en-US",\n    "de-DE"\n)'
+    if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleLanguages"], timeout) {
+        // Extract the first quoted language tag
+        for line in val.lines() {
+            let trimmed = line.trim().trim_matches(|c: char| c == '"' || c == ',' || c == '(' || c == ')');
+            let trimmed = trimmed.trim();
+            if !trimmed.is_empty() && trimmed.contains('-') {
+                return AzString::from(alloc::string::String::from(trimmed));
+            }
+        }
+    }
+
+    AzString::from(alloc::string::String::new())
+}
+
+/// Attempt to load an app-specific stylesheet from
+/// `~/Library/Application Support/azul/styles/<exe_name>.css`.
+///
+/// Returns `None` if the file does not exist, is unreadable, or the
+/// `AZUL_DISABLE_RICING` environment variable is set.
+fn load_app_specific_stylesheet() -> Option<Stylesheet> {
+    if std::env::var("AZUL_DISABLE_RICING").is_ok() {
+        return None;
+    }
+
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_name = exe_path.file_stem()?.to_str()?;
+
+    let home = std::env::var("HOME").ok()?;
+    let css_path = alloc::format!(
+        "{}/Library/Application Support/azul/styles/{}.css",
+        home, exe_name,
+    );
+
+    let contents = std::fs::read_to_string(&css_path).ok()?;
+    if contents.trim().is_empty() {
+        return None;
+    }
+
+    let (css, _warnings) = azul_css::parser2::new_from_str(&contents);
+    // Extract the first stylesheet from the Css wrapper
+    css.stylesheets.into_iter().next()
 }
