@@ -185,9 +185,6 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// Type alias for compatibility - OptionAzString is the same as OptionString
-pub type OptionAzString = OptionString;
-
 static DEFAULT_STR: &str = "";
 
 impl Default for AzString {
@@ -246,11 +243,14 @@ impl AzString {
 
     /// Copies bytes from a pointer into a new AzString.
     /// This is useful for C FFI where you have a char* buffer.
+    ///
+    /// Invalid UTF-8 sequences are replaced with U+FFFD to maintain
+    /// the UTF-8 invariant required by [`as_str()`](Self::as_str).
     #[inline]
     pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
-        Self {
-            vec: U8Vec::copy_from_bytes(ptr, start, len),
-        }
+        let raw = U8Vec::copy_from_bytes(ptr, start, len);
+        let s = String::from_utf8_lossy(raw.as_ref()).into_owned();
+        Self::from_string(s)
     }
 
     #[inline]
@@ -493,11 +493,19 @@ impl_vec_hash!(u8, U8Vec);
 impl U8Vec {
     /// Copies bytes from a pointer into a new Vec.
     /// This is useful for C FFI where you have a uint8_t* buffer.
+    ///
+    /// # Safety contract (caller must ensure)
+    /// - `ptr` must be valid for reading `start + len` bytes
+    /// - `start + len` must not overflow
     #[inline]
     pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();
         }
+        debug_assert!(
+            start.checked_add(len).is_some(),
+            "U8Vec::copy_from_bytes: start + len overflows"
+        );
         let slice = unsafe { core::slice::from_raw_parts(ptr.add(start), len) };
         Self::from_vec(slice.to_vec())
     }
