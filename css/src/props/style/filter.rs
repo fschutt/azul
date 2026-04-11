@@ -681,7 +681,7 @@ pub mod parser {
                 let val = parse_percentage_value(filter_values)?;
                 // CSS filter opacity must be between 0 and 1 (or 0% to 100%)
                 let normalized = val.normalized();
-                if normalized < 0.0 || normalized > 1.0 {
+                if !(0.0..=1.0).contains(&normalized) {
                     return Err(CssStyleFilterParseError::Opacity(
                         PercentageParseError::InvalidUnit(filter_values.to_string().into()),
                     ));

@@ -34,17 +34,13 @@ use crate::props::basic::ColorU;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub struct Void {
     /// Reserved byte to ensure the struct has non-zero size.
     /// Always initialized to 0.
     pub _reserved: u8,
 }
 
-impl Default for Void {
-    fn default() -> Self {
-        Self { _reserved: 0 }
-    }
-}
 
 impl Void {
     /// Create a new Void value (equivalent to `()`)
@@ -62,7 +58,7 @@ impl From<()> for Void {
 
 impl From<Void> for () {
     fn from(_: Void) -> Self {
-        ()
+        
     }
 }
 
@@ -73,7 +69,9 @@ impl From<Void> for () {
 /// Debug message severity or category for layout diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutDebugMessageType {
+    #[default]
     Info,
     Warning,
     Error,
@@ -89,11 +87,6 @@ pub enum LayoutDebugMessageType {
     PositionCalculation,
 }
 
-impl Default for LayoutDebugMessageType {
-    fn default() -> Self {
-        Self::Info
-    }
-}
 
 /// A debug message emitted during layout, with severity, text, and source location.
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
@@ -210,7 +203,7 @@ impl<'a> From<&'a str> for AzString {
 }
 
 impl AsRef<str> for AzString {
-    fn as_ref<'a>(&'a self) -> &'a str {
+    fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
@@ -351,7 +344,7 @@ impl AzString {
         }
 
         // UTF-16 requires pairs of bytes
-        if len % 2 != 0 {
+        if !len.is_multiple_of(2) {
             return Self::default();
         }
 

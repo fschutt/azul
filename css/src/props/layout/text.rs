@@ -12,7 +12,9 @@ use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValu
 /// CSS `text-justify` property value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutTextJustify {
+    #[default]
     Auto,
     None,
     InterWord,
@@ -22,11 +24,6 @@ pub enum LayoutTextJustify {
     Distribute,
 }
 
-impl Default for LayoutTextJustify {
-    fn default() -> Self {
-        LayoutTextJustify::Auto
-    }
-}
 
 impl PrintAsCssValue for LayoutTextJustify {
     fn print_as_css_value(&self) -> String {
@@ -79,7 +76,7 @@ impl<'a> TextJustifyParseError<'a> {
 }
 
 impl TextJustifyParseErrorOwned {
-    pub fn to_borrowed(&self) -> TextJustifyParseError {
+    pub fn to_borrowed(&self) -> TextJustifyParseError<'_> {
         match self {
             TextJustifyParseErrorOwned::InvalidValue(s) => {
                 TextJustifyParseError::InvalidValue(s.as_str())

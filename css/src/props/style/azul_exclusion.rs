@@ -105,7 +105,7 @@ impl StyleExclusionMarginParseError {
 
 #[cfg(feature = "parser")]
 impl StyleExclusionMarginParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleExclusionMarginParseError {
+    pub fn to_shared(&self) -> StyleExclusionMarginParseError {
         match self {
             Self::FloatValue(_) => {
                 // ParseFloatError can't be reconstructed from its display string,
@@ -122,7 +122,7 @@ pub fn parse_style_exclusion_margin(
 ) -> Result<StyleExclusionMargin, StyleExclusionMarginParseError> {
     parse_float_value(input)
         .map(|inner| StyleExclusionMargin { inner })
-        .map_err(|e| StyleExclusionMarginParseError::FloatValue(e))
+        .map_err(StyleExclusionMarginParseError::FloatValue)
 }
 
 /// `-azul-hyphenation-language` property: specifies language for hyphenation
@@ -211,7 +211,7 @@ impl StyleHyphenationLanguageParseError {
 
 #[cfg(feature = "parser")]
 impl StyleHyphenationLanguageParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleHyphenationLanguageParseError {
+    pub fn to_shared(&self) -> StyleHyphenationLanguageParseError {
         match self {
             Self::InvalidString(e) => StyleHyphenationLanguageParseError::InvalidString(e.to_string()),
         }

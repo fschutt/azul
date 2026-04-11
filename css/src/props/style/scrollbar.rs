@@ -344,17 +344,14 @@ impl PrintAsCssValue for OverflowScrolling {
 /// Represents the standard `scrollbar-width` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutScrollbarWidth {
+    #[default]
     Auto,
     Thin,
     None,
 }
 
-impl Default for LayoutScrollbarWidth {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for LayoutScrollbarWidth {
     fn print_as_css_value(&self) -> String {
@@ -377,16 +374,13 @@ pub struct ScrollbarColorCustom {
 /// Represents the standard `scrollbar-color` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum StyleScrollbarColor {
+    #[default]
     Auto,
     Custom(ScrollbarColorCustom),
 }
 
-impl Default for StyleScrollbarColor {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for StyleScrollbarColor {
     fn print_as_css_value(&self) -> String {

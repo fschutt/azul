@@ -9,14 +9,14 @@ use crate::corety::AzString;
 /// E.g. `url(something,else), url(another,thing)` becomes `["url(something,else)",
 /// "url(another,thing)"]` whereas a normal split by comma would yield `["url(something", "else)",
 /// "url(another", "thing)"]`
-pub fn split_string_respect_comma<'a>(input: &'a str) -> Vec<&'a str> {
+pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
     split_string_by_char(input, ',')
 }
 
 /// Splits a string by whitespace, but respects parentheses/braces
 ///
 /// E.g. `translateX(10px) rotate(90deg)` becomes `["translateX(10px)", "rotate(90deg)"]`
-pub fn split_string_respect_whitespace<'a>(input: &'a str) -> Vec<&'a str> {
+pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
     let mut items = Vec::<&str>::new();
     let mut current_start = 0;
     let mut depth = 0;
@@ -44,13 +44,13 @@ pub fn split_string_respect_whitespace<'a>(input: &'a str) -> Vec<&'a str> {
     items
 }
 
-fn split_string_by_char<'a>(input: &'a str, target_char: char) -> Vec<&'a str> {
+fn split_string_by_char(input: &str, target_char: char) -> Vec<&str> {
     let mut comma_separated_items = Vec::<&str>::new();
-    let mut current_input = &input[..];
+    let mut current_input = input;
 
     'outer: loop {
         let (skip_next_braces_result, character_was_found) =
-            match skip_next_braces(&current_input, target_char) {
+            match skip_next_braces(current_input, target_char) {
                 Some(s) => s,
                 None => break 'outer,
             };
@@ -58,7 +58,7 @@ fn split_string_by_char<'a>(input: &'a str, target_char: char) -> Vec<&'a str> {
             comma_separated_items.push(&current_input[..skip_next_braces_result]);
             current_input = &current_input[(skip_next_braces_result + 1)..];
         } else {
-            comma_separated_items.push(&current_input[..]);
+            comma_separated_items.push(current_input);
             break 'outer;
         }
     }

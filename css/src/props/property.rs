@@ -45,7 +45,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 27] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -76,7 +76,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 177] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 177] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -516,8 +516,7 @@ impl fmt::Display for CombinedCssPropertyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let key = COMBINED_CSS_PROPERTIES_KEY_MAP
             .iter()
-            .find(|(v, _)| *v == *self)
-            .and_then(|(k, _)| Some(k))
+            .find(|(v, _)| *v == *self).map(|(k, _)| k)
             .unwrap();
         write!(f, "{}", key)
     }
@@ -538,7 +537,7 @@ impl CombinedCssPropertyType {
     /// ```
     pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
         let input = input.trim();
-        map.shorthands.get(input).map(|x| *x)
+        map.shorthands.get(input).copied()
     }
 
     /// Returns the original string that was used to construct this `CssPropertyType`.
@@ -778,9 +777,11 @@ pub enum CssPropertyCategory {
 /// sizing-only recomputation, and paint-only updates without full subtree relayout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum RelayoutScope {
     /// No relayout needed — repaint only (e.g., color, background, opacity, transform).
     /// The node's size and position are unchanged.
+    #[default]
     None,
     /// Only the IFC (Inline Formatting Context) containing this node needs re-shaping.
     /// Block-level siblings are unaffected unless the IFC height changes,
@@ -793,11 +794,6 @@ pub enum RelayoutScope {
     Full,
 }
 
-impl Default for RelayoutScope {
-    fn default() -> Self {
-        RelayoutScope::None
-    }
-}
 
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
@@ -1016,7 +1012,7 @@ impl CssPropertyType {
     /// ```
     pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
         let input = input.trim();
-        map.non_shorthands.get(input).and_then(|x| Some(*x))
+        map.non_shorthands.get(input).copied()
     }
 
     /// Returns the original string that was used to construct this `CssPropertyType`.
@@ -2996,12 +2992,12 @@ pub fn parse_css_property<'a>(
             ),
             CssPropertyType::ListStyleType => CssProperty::ListStyleType(
                 parse_style_list_style_type(value)
-                    .map_err(|e| CssParsingError::ListStyleType(e))?
+                    .map_err(CssParsingError::ListStyleType)?
                     .into(),
             ),
             CssPropertyType::ListStylePosition => CssProperty::ListStylePosition(
                 parse_style_list_style_position(value)
-                    .map_err(|e| CssParsingError::ListStylePosition(e))?
+                    .map_err(CssParsingError::ListStylePosition)?
                     .into(),
             ),
             CssPropertyType::StringSet => CssProperty::StringSet(
@@ -3261,21 +3257,21 @@ pub fn parse_combined_css_property<'a>(
 
     match value {
         "auto" if !has_typed_auto => {
-            return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect())
+            return Ok(keys.into_iter().map(CssProperty::auto).collect())
         }
         "none" if !has_typed_none => {
-            return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect())
+            return Ok(keys.into_iter().map(CssProperty::none).collect())
         }
         "initial" => {
             return Ok(keys
                 .into_iter()
-                .map(|ty| CssProperty::initial(ty))
+                .map(CssProperty::initial)
                 .collect());
         }
         "inherit" => {
             return Ok(keys
                 .into_iter()
-                .map(|ty| CssProperty::inherit(ty))
+                .map(CssProperty::inherit)
                 .collect());
         }
         _ => {}
@@ -3672,7 +3668,7 @@ pub fn parse_combined_css_property<'a>(
                     CssProperty::FlexBasis(b.into()),
                 ]);
             }
-            return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+            Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
         }
         Grid => {
             // minimal: try to parse as grid-template and set both columns and rows
@@ -3686,38 +3682,38 @@ pub fn parse_combined_css_property<'a>(
             let parts: Vec<&str> = value.split_whitespace().collect();
             if parts.len() == 1 {
                 let g = parse_layout_gap(parts[0])?;
-                return Ok(vec![
+                Ok(vec![
                     CssProperty::RowGap(LayoutRowGap { inner: g.inner }.into()),
                     CssProperty::ColumnGap(LayoutColumnGap { inner: g.inner }.into()),
-                ]);
+                ])
             } else if parts.len() == 2 {
                 let row = parse_layout_gap(parts[0])?;
                 let col = parse_layout_gap(parts[1])?;
-                return Ok(vec![
+                Ok(vec![
                     CssProperty::RowGap(LayoutRowGap { inner: row.inner }.into()),
                     CssProperty::ColumnGap(LayoutColumnGap { inner: col.inner }.into()),
-                ]);
+                ])
             } else {
-                return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+                Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
             }
         }
         GridGap => {
             let parts: Vec<&str> = value.split_whitespace().collect();
             if parts.len() == 1 {
                 let g = parse_layout_gap(parts[0])?;
-                return Ok(vec![
+                Ok(vec![
                     CssProperty::RowGap(LayoutRowGap { inner: g.inner }.into()),
                     CssProperty::ColumnGap(LayoutColumnGap { inner: g.inner }.into()),
-                ]);
+                ])
             } else if parts.len() == 2 {
                 let row = parse_layout_gap(parts[0])?;
                 let col = parse_layout_gap(parts[1])?;
-                return Ok(vec![
+                Ok(vec![
                     CssProperty::RowGap(LayoutRowGap { inner: row.inner }.into()),
                     CssProperty::ColumnGap(LayoutColumnGap { inner: col.inner }.into()),
-                ]);
+                ])
             } else {
-                return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+                Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
             }
         }
         Font => {
@@ -3824,7 +3820,7 @@ pub fn parse_combined_css_property<'a>(
         // if omitted, second defaults to first. Maps to top/bottom in horizontal-tb.
         InsetBlock => {
             let parts: Vec<&str> = value.split_whitespace().collect();
-            let start_val = parts.get(0).ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+            let start_val = parts.first().ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
             let end_val = parts.get(1).unwrap_or(start_val);
             let start = parse_layout_top(start_val)?;
             let end = parse_layout_bottom(end_val)?;
@@ -3837,7 +3833,7 @@ pub fn parse_combined_css_property<'a>(
         // if omitted, second defaults to first. Maps to left/right in horizontal-tb.
         InsetInline => {
             let parts: Vec<&str> = value.split_whitespace().collect();
-            let start_val = parts.get(0).ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+            let start_val = parts.first().ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
             let end_val = parts.get(1).unwrap_or(start_val);
             let start = parse_layout_left(start_val)?;
             let end = parse_layout_right(end_val)?;

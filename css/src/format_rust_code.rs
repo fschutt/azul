@@ -93,7 +93,7 @@ impl VecContents {
         for (key, item) in self.style_background_sizes.iter() {
             let val = item
                 .iter()
-                .map(|bgs| format_style_background_size(bgs))
+                .map(format_style_background_size)
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{}", t));
 
@@ -869,7 +869,7 @@ fn format_linear_color_stops(stops: &[NormalizedLinearColorStop], tabs: usize) -
     let t = String::from("    ").repeat(tabs);
     stops
         .iter()
-        .map(|s| format_linear_color_stop(s))
+        .map(format_linear_color_stop)
         .collect::<Vec<_>>()
         .join(&format!(",\r\n{}", t))
 }
@@ -886,7 +886,7 @@ fn format_radial_color_stops(stops: &[NormalizedRadialColorStop], tabs: usize) -
     let t = String::from("    ").repeat(tabs);
     stops
         .iter()
-        .map(|s| format_radial_color_stop(s))
+        .map(format_radial_color_stop)
         .collect::<Vec<_>>()
         .join(&format!(",\r\n{}", t))
 }
@@ -939,29 +939,29 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
         StyleFilter::DropShadow(m) => {
             format!("StyleFilter::DropShadow({})", m.format_as_rust_code(tabs))
         }
-        StyleFilter::ComponentTransfer => format!("StyleFilter::ComponentTransfer"),
+        StyleFilter::ComponentTransfer => "StyleFilter::ComponentTransfer".to_string(),
         StyleFilter::Offset(o) => format!(
             "StyleFilter::Offset(StyleFilterOffset {{ x: {}, y: {} }})",
             format_pixel_value(&o.x),
             format_pixel_value(&o.y)
         ),
         StyleFilter::Composite(StyleCompositeFilter::Over) => {
-            format!("StyleFilter::Composite(StyleCompositeFilter::Over)")
+            "StyleFilter::Composite(StyleCompositeFilter::Over)".to_string()
         }
         StyleFilter::Composite(StyleCompositeFilter::In) => {
-            format!("StyleFilter::Composite(StyleCompositeFilter::In)")
+            "StyleFilter::Composite(StyleCompositeFilter::In)".to_string()
         }
         StyleFilter::Composite(StyleCompositeFilter::Atop) => {
-            format!("StyleFilter::Composite(StyleCompositeFilter::Atop)")
+            "StyleFilter::Composite(StyleCompositeFilter::Atop)".to_string()
         }
         StyleFilter::Composite(StyleCompositeFilter::Out) => {
-            format!("StyleFilter::Composite(StyleCompositeFilter::Out)")
+            "StyleFilter::Composite(StyleCompositeFilter::Out)".to_string()
         }
         StyleFilter::Composite(StyleCompositeFilter::Xor) => {
-            format!("StyleFilter::Composite(StyleCompositeFilter::Xor)")
+            "StyleFilter::Composite(StyleCompositeFilter::Xor)".to_string()
         }
         StyleFilter::Composite(StyleCompositeFilter::Lighter) => {
-            format!("StyleFilter::Composite(StyleCompositeFilter::Lighter)")
+            "StyleFilter::Composite(StyleCompositeFilter::Lighter)".to_string()
         }
         StyleFilter::Composite(StyleCompositeFilter::Arithmetic(fv)) => format!(
             "StyleFilter::Composite(StyleCompositeFilter::Arithmetic(ArithmeticCoefficients {{ \
@@ -1041,15 +1041,15 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
             format_pixel_value(&t.z)
         ),
         StyleTransform::TranslateX(x) => {
-            format!("StyleTransform::TranslateX({})", format_pixel_value(&x))
+            format!("StyleTransform::TranslateX({})", format_pixel_value(x))
         }
         StyleTransform::TranslateY(y) => {
-            format!("StyleTransform::TranslateY({})", format_pixel_value(&y))
+            format!("StyleTransform::TranslateY({})", format_pixel_value(y))
         }
         StyleTransform::TranslateZ(z) => {
-            format!("StyleTransform::TranslateZ({})", format_pixel_value(&z))
+            format!("StyleTransform::TranslateZ({})", format_pixel_value(z))
         }
-        StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_angle_value(&r)),
+        StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_angle_value(r)),
         StyleTransform::Rotate3D(r) => format!(
             "StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})",
             format_float_value(&r.x),
@@ -1058,13 +1058,13 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
             format_angle_value(&r.angle)
         ),
         StyleTransform::RotateX(x) => {
-            format!("StyleTransform::RotateX({})", format_angle_value(&x))
+            format!("StyleTransform::RotateX({})", format_angle_value(x))
         }
         StyleTransform::RotateY(y) => {
-            format!("StyleTransform::RotateY({})", format_angle_value(&y))
+            format!("StyleTransform::RotateY({})", format_angle_value(y))
         }
         StyleTransform::RotateZ(z) => {
-            format!("StyleTransform::RotateZ({})", format_angle_value(&z))
+            format!("StyleTransform::RotateZ({})", format_angle_value(z))
         }
         StyleTransform::Scale(s) => format!(
             "StyleTransform::Scale(StyleTransformScale2D {{ x: {}, y: {} }})",
@@ -1078,13 +1078,13 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
             format_float_value(&s.z)
         ),
         StyleTransform::ScaleX(x) => {
-            format!("StyleTransform::ScaleX({})", format_percentage_value(&x))
+            format!("StyleTransform::ScaleX({})", format_percentage_value(x))
         }
         StyleTransform::ScaleY(y) => {
-            format!("StyleTransform::ScaleY({})", format_percentage_value(&y))
+            format!("StyleTransform::ScaleY({})", format_percentage_value(y))
         }
         StyleTransform::ScaleZ(z) => {
-            format!("StyleTransform::ScaleZ({})", format_percentage_value(&z))
+            format!("StyleTransform::ScaleZ({})", format_percentage_value(z))
         }
         StyleTransform::Skew(sk) => format!(
             "StyleTransform::Skew(StyleTransformSkew2D {{ x: {}, y: {} }})",
@@ -1092,13 +1092,13 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
             format_angle_value(&sk.y)
         ),
         StyleTransform::SkewX(x) => {
-            format!("StyleTransform::SkewX({})", format_angle_value(&x))
+            format!("StyleTransform::SkewX({})", format_angle_value(x))
         }
         StyleTransform::SkewY(y) => {
-            format!("StyleTransform::SkewY({})", format_angle_value(&y))
+            format!("StyleTransform::SkewY({})", format_angle_value(y))
         }
         StyleTransform::Perspective(dist) => {
-            format!("StyleTransform::Perspective({})", format_pixel_value(&dist))
+            format!("StyleTransform::Perspective({})", format_pixel_value(dist))
         }
     }
 }
@@ -1107,7 +1107,7 @@ fn format_font_ids(font_ids: &[StyleFontFamily], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     font_ids
         .iter()
-        .map(|s| format!("{}", s.format_as_rust_code(tabs + 1)))
+        .map(|s| s.format_as_rust_code(tabs + 1).to_string())
         .collect::<Vec<_>>()
         .join(&format!(",\r\n{}", t))
 }
@@ -1127,9 +1127,9 @@ fn format_style_background_position(b: &StyleBackgroundPosition, tabs: usize) ->
 
 fn format_background_position_horizontal(b: &BackgroundPositionHorizontal) -> String {
     match b {
-        BackgroundPositionHorizontal::Left => format!("BackgroundPositionHorizontal::Left"),
-        BackgroundPositionHorizontal::Center => format!("BackgroundPositionHorizontal::Center"),
-        BackgroundPositionHorizontal::Right => format!("BackgroundPositionHorizontal::Right"),
+        BackgroundPositionHorizontal::Left => "BackgroundPositionHorizontal::Left".to_string(),
+        BackgroundPositionHorizontal::Center => "BackgroundPositionHorizontal::Center".to_string(),
+        BackgroundPositionHorizontal::Right => "BackgroundPositionHorizontal::Right".to_string(),
         BackgroundPositionHorizontal::Exact(p) => format!(
             "BackgroundPositionHorizontal::Exact({})",
             format_pixel_value(p)
@@ -1139,9 +1139,9 @@ fn format_background_position_horizontal(b: &BackgroundPositionHorizontal) -> St
 
 fn format_background_position_vertical(b: &BackgroundPositionVertical) -> String {
     match b {
-        BackgroundPositionVertical::Top => format!("BackgroundPositionVertical::Top"),
-        BackgroundPositionVertical::Center => format!("BackgroundPositionVertical::Center"),
-        BackgroundPositionVertical::Bottom => format!("BackgroundPositionVertical::Bottom"),
+        BackgroundPositionVertical::Top => "BackgroundPositionVertical::Top".to_string(),
+        BackgroundPositionVertical::Center => "BackgroundPositionVertical::Center".to_string(),
+        BackgroundPositionVertical::Bottom => "BackgroundPositionVertical::Bottom".to_string(),
         BackgroundPositionVertical::Exact(p) => format!(
             "BackgroundPositionVertical::Exact({})",
             format_pixel_value(p)

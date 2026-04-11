@@ -926,7 +926,7 @@ pub fn encode_pixel_value_u32(pv: &PixelValue) -> u32 {
     let metric = size_metric_to_u8(pv.metric) as u32;
     let raw = pv.number.number; // already × 1000 (FloatValue internal repr)
     // 28-bit signed range: -134_217_728 ..= +134_217_727
-    if raw < -134_217_728 || raw > 134_217_727 {
+    if !(-134_217_728..=134_217_727).contains(&raw) {
         return U32_SENTINEL; // overflow → tier 3
     }
     // Pack: low 4 bits = metric, upper 28 bits = value (as unsigned offset)

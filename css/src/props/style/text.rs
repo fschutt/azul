@@ -215,8 +215,10 @@ impl PrintAsCssValue for StyleTabSize {
 /// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#white-space-property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleWhiteSpace {
     /// Collapse whitespace, wrap lines
+    #[default]
     Normal,
     /// Preserve whitespace, no wrap (except for explicit breaks)
     Pre,
@@ -228,11 +230,6 @@ pub enum StyleWhiteSpace {
     PreLine,
     /// Preserve whitespace, allow breaking at spaces
     BreakSpaces,
-}
-impl Default for StyleWhiteSpace {
-    fn default() -> Self {
-        StyleWhiteSpace::Normal
-    }
 }
 impl_option!(
     StyleWhiteSpace,
@@ -257,21 +254,18 @@ impl PrintAsCssValue for StyleWhiteSpace {
 /// Hyphenation rules.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleHyphens {
     /// No hyphenation: words are not broken at hyphenation opportunities.
     None,
     /// Manual hyphenation: words are only broken at explicit soft hyphens (U+00AD)
     /// or unconditional hyphens (U+2010).
+    #[default]
     Manual,
     /// Automatic hyphenation: words may be broken at automatic hyphenation
     /// opportunities determined by a language-appropriate hyphenation resource,
     /// in addition to explicit opportunities.
     Auto,
-}
-impl Default for StyleHyphens {
-    fn default() -> Self {
-        StyleHyphens::Manual
-    }
 }
 impl_option!(
     StyleHyphens,
@@ -295,8 +289,10 @@ impl PrintAsCssValue for StyleHyphens {
 /// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#line-break-property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleLineBreak {
     /// The browser determines the set of line-breaking restrictions to use.
+    #[default]
     Auto,
     /// Breaks text using the least restrictive set of line-breaking rules.
     Loose,
@@ -308,11 +304,6 @@ pub enum StyleLineBreak {
     /// including around any punctuation character or preserved white spaces,
     /// or in the middle of words, disregarding any prohibition against line breaks.
     Anywhere,
-}
-impl Default for StyleLineBreak {
-    fn default() -> Self {
-        StyleLineBreak::Auto
-    }
 }
 impl_option!(
     StyleLineBreak,
@@ -338,8 +329,10 @@ impl PrintAsCssValue for StyleLineBreak {
 /// CSS Text Level 3 §5.2: https://www.w3.org/TR/css-text-3/#word-break-property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleWordBreak {
     /// Use default line break rules.
+    #[default]
     Normal,
     /// Allow break opportunities between any two characters (CJK and non-CJK).
     BreakAll,
@@ -348,11 +341,6 @@ pub enum StyleWordBreak {
     // +spec:line-breaking:815882 - deprecated break-word keyword: same as normal + overflow-wrap: anywhere
     /// Deprecated: equivalent to word-break: normal and overflow-wrap: anywhere.
     BreakWord,
-}
-impl Default for StyleWordBreak {
-    fn default() -> Self {
-        StyleWordBreak::Normal
-    }
 }
 impl_option!(
     StyleWordBreak,
@@ -378,8 +366,10 @@ impl PrintAsCssValue for StyleWordBreak {
 /// CSS Text Level 3 §3.3: https://www.w3.org/TR/css-text-3/#overflow-wrap-property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleOverflowWrap {
     /// Lines may only break at allowed break points.
+    #[default]
     Normal,
     /// An otherwise unbreakable sequence may be broken at an arbitrary point
     /// if there are no otherwise acceptable break points.
@@ -387,11 +377,6 @@ pub enum StyleOverflowWrap {
     /// Same as `anywhere` but soft wrap opportunities introduced are not
     /// considered when calculating min-content intrinsic sizes.
     BreakWord,
-}
-impl Default for StyleOverflowWrap {
-    fn default() -> Self {
-        StyleOverflowWrap::Normal
-    }
 }
 impl_option!(
     StyleOverflowWrap,
@@ -416,8 +401,10 @@ impl PrintAsCssValue for StyleOverflowWrap {
 /// CSS Text Level 3 §7.2: https://www.w3.org/TR/css-text-3/#text-align-last-property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleTextAlignLast {
     /// Alignment of the last line is determined by text-align (or start if justify).
+    #[default]
     Auto,
     /// Align to the start edge of the line box.
     Start,
@@ -431,11 +418,6 @@ pub enum StyleTextAlignLast {
     Center,
     /// Justify the content.
     Justify,
-}
-impl Default for StyleTextAlignLast {
-    fn default() -> Self {
-        StyleTextAlignLast::Auto
-    }
 }
 impl_option!(
     StyleTextAlignLast,
@@ -462,16 +444,13 @@ impl PrintAsCssValue for StyleTextAlignLast {
 // +spec:writing-modes:46fed3 - direction property provides explicit bidi controls in CSS
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleDirection {
     /// Left-to-right text direction
+    #[default]
     Ltr,
     /// Right-to-left text direction
     Rtl,
-}
-impl Default for StyleDirection {
-    fn default() -> Self {
-        StyleDirection::Ltr
-    }
 }
 impl_option!(
     StyleDirection,
@@ -493,8 +472,10 @@ impl PrintAsCssValue for StyleDirection {
 /// Used to prevent accidental text selection on UI controls like buttons.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleUserSelect {
     /// Browser determines selectability (default)
+    #[default]
     Auto,
     /// Text is selectable
     Text,
@@ -502,11 +483,6 @@ pub enum StyleUserSelect {
     None,
     /// User can select all text with a single action
     All,
-}
-impl Default for StyleUserSelect {
-    fn default() -> Self {
-        StyleUserSelect::Auto
-    }
 }
 impl_option!(
     StyleUserSelect,
@@ -529,8 +505,10 @@ impl PrintAsCssValue for StyleUserSelect {
 /// Text decoration (underline, overline, line-through).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleTextDecoration {
     /// No decoration
+    #[default]
     None,
     /// Underline
     Underline,
@@ -538,11 +516,6 @@ pub enum StyleTextDecoration {
     Overline,
     /// Strike-through line
     LineThrough,
-}
-impl Default for StyleTextDecoration {
-    fn default() -> Self {
-        StyleTextDecoration::None
-    }
 }
 impl_option!(
     StyleTextDecoration,
@@ -565,8 +538,10 @@ impl PrintAsCssValue for StyleTextDecoration {
 /// CSS 2.2 §10.8.1 vertical-align property values
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum StyleVerticalAlign {
     /// CSS default - align baselines
+    #[default]
     Baseline,
     /// Align top of element with top of line box
     Top,
@@ -594,11 +569,6 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl Default for StyleVerticalAlign {
-    fn default() -> Self {
-        StyleVerticalAlign::Baseline
-    }
-}
 impl PrintAsCssValue for StyleVerticalAlign {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -686,10 +656,10 @@ impl StyleTextColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextColorParseError> {
+pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextColorParseError<'_>> {
     parse_css_color(input)
         .map(|inner| StyleTextColor { inner })
-        .map_err(|e| StyleTextColorParseError::ColorParseError(e))
+        .map_err(StyleTextColorParseError::ColorParseError)
 }
 
 #[cfg(feature = "parser")]
@@ -732,7 +702,7 @@ impl StyleTextAlignParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_align(input: &str) -> Result<StyleTextAlign, StyleTextAlignParseError> {
+pub fn parse_style_text_align(input: &str) -> Result<StyleTextAlign, StyleTextAlignParseError<'_>> {
     match input.trim() {
         "left" => Ok(StyleTextAlign::Left),
         "center" => Ok(StyleTextAlign::Center),
@@ -791,10 +761,10 @@ impl StyleLetterSpacingParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_style_letter_spacing(
     input: &str,
-) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError> {
+) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError<'_>> {
     crate::props::basic::pixel::parse_pixel_value(input)
         .map(|inner| StyleLetterSpacing { inner })
-        .map_err(|e| StyleLetterSpacingParseError::PixelValue(e))
+        .map_err(StyleLetterSpacingParseError::PixelValue)
 }
 
 // -- StyleTextIndent (text-indent property) --
@@ -945,7 +915,7 @@ impl StyleTextIndentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError> {
+pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError<'_>> {
     let mut each_line = false;
     let mut hanging = false;
     let mut pixel_part: Option<&str> = None;
@@ -964,7 +934,7 @@ pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleText
 
     crate::props::basic::pixel::parse_pixel_value(pixel_str)
         .map(|inner| StyleTextIndent { inner, each_line, hanging })
-        .map_err(|e| StyleTextIndentParseError::PixelValue(e))
+        .map_err(StyleTextIndentParseError::PixelValue)
 }
 
 /// initial-letter property for drop caps
@@ -1192,15 +1162,11 @@ pub fn parse_style_line_clamp<'a>(
 /// hanging-punctuation property for hanging punctuation marks
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub struct StyleHangingPunctuation {
     pub enabled: bool,
 }
 
-impl Default for StyleHangingPunctuation {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
 
 impl FormatAsRustCode for StyleHangingPunctuation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
@@ -1285,17 +1251,14 @@ pub fn parse_style_hanging_punctuation<'a>(
 /// text-combine-upright property for combining horizontal text in vertical layout
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum StyleTextCombineUpright {
+    #[default]
     None,
     All,
     Digits(u8),
 }
 
-impl Default for StyleTextCombineUpright {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl FormatAsRustCode for StyleTextCombineUpright {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
@@ -1388,7 +1351,7 @@ pub fn parse_style_text_combine_upright<'a>(
             let n = parts[1]
                 .parse::<u8>()
                 .map_err(|_| StyleTextCombineUprightParseError::InvalidDigits(input))?;
-            if n >= 2 && n <= 4 {
+            if (2..=4).contains(&n) {
                 Ok(StyleTextCombineUpright::Digits(n))
             } else {
                 Err(StyleTextCombineUprightParseError::InvalidDigits(input))
@@ -1447,10 +1410,10 @@ impl StyleWordSpacingParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_style_word_spacing(
     input: &str,
-) -> Result<StyleWordSpacing, StyleWordSpacingParseError> {
+) -> Result<StyleWordSpacing, StyleWordSpacingParseError<'_>> {
     crate::props::basic::pixel::parse_pixel_value(input)
         .map(|inner| StyleWordSpacing { inner })
-        .map_err(|e| StyleWordSpacingParseError::PixelValue(e))
+        .map_err(StyleWordSpacingParseError::PixelValue)
 }
 
 #[cfg(feature = "parser")]
@@ -1557,7 +1520,7 @@ impl StyleTabSizeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizeParseError> {
+pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizeParseError<'_>> {
     if let Ok(number) = input.trim().parse::<f32>() {
         Ok(StyleTabSize {
             inner: PixelValue::em(number),
@@ -1565,7 +1528,7 @@ pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizePar
     } else {
         crate::props::basic::pixel::parse_pixel_value(input)
             .map(|v| StyleTabSize { inner: v })
-            .map_err(|e| StyleTabSizeParseError::PixelValue(e))
+            .map_err(StyleTabSizeParseError::PixelValue)
     }
 }
 
@@ -1609,7 +1572,7 @@ impl StyleWhiteSpaceParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhiteSpaceParseError> {
+pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhiteSpaceParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleWhiteSpace::Normal),
         "pre" => Ok(StyleWhiteSpace::Pre),
@@ -1663,7 +1626,7 @@ impl StyleHyphensParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensParseError> {
+pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleHyphens::None),
         "manual" => Ok(StyleHyphens::Manual),
@@ -1714,7 +1677,7 @@ impl StyleLineBreakParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_line_break(input: &str) -> Result<StyleLineBreak, StyleLineBreakParseError> {
+pub fn parse_style_line_break(input: &str) -> Result<StyleLineBreak, StyleLineBreakParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleLineBreak::Auto),
         "loose" => Ok(StyleLineBreak::Loose),
@@ -1767,7 +1730,7 @@ impl StyleWordBreakParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBreakParseError> {
+pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBreakParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleWordBreak::Normal),
         "break-all" => Ok(StyleWordBreak::BreakAll),
@@ -1819,7 +1782,7 @@ impl StyleOverflowWrapParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_overflow_wrap(input: &str) -> Result<StyleOverflowWrap, StyleOverflowWrapParseError> {
+pub fn parse_style_overflow_wrap(input: &str) -> Result<StyleOverflowWrap, StyleOverflowWrapParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleOverflowWrap::Normal),
         "anywhere" => Ok(StyleOverflowWrap::Anywhere),
@@ -1870,7 +1833,7 @@ impl StyleTextAlignLastParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, StyleTextAlignLastParseError> {
+pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, StyleTextAlignLastParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleTextAlignLast::Auto),
         "start" => Ok(StyleTextAlignLast::Start),
@@ -1923,7 +1886,7 @@ impl StyleDirectionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_direction(input: &str) -> Result<StyleDirection, StyleDirectionParseError> {
+pub fn parse_style_direction(input: &str) -> Result<StyleDirection, StyleDirectionParseError<'_>> {
     match input.trim() {
         "ltr" => Ok(StyleDirection::Ltr),
         "rtl" => Ok(StyleDirection::Rtl),
@@ -1973,7 +1936,7 @@ impl StyleUserSelectParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_user_select(input: &str) -> Result<StyleUserSelect, StyleUserSelectParseError> {
+pub fn parse_style_user_select(input: &str) -> Result<StyleUserSelect, StyleUserSelectParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleUserSelect::Auto),
         "text" => Ok(StyleUserSelect::Text),
@@ -2032,7 +1995,7 @@ impl StyleTextDecorationParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_style_text_decoration(
     input: &str,
-) -> Result<StyleTextDecoration, StyleTextDecorationParseError> {
+) -> Result<StyleTextDecoration, StyleTextDecorationParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleTextDecoration::None),
         "underline" => Ok(StyleTextDecoration::Underline),
@@ -2091,7 +2054,7 @@ impl StyleVerticalAlignParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_style_vertical_align(
     input: &str,
-) -> Result<StyleVerticalAlign, StyleVerticalAlignParseError> {
+) -> Result<StyleVerticalAlign, StyleVerticalAlignParseError<'_>> {
     match input.trim() {
         "baseline" => Ok(StyleVerticalAlign::Baseline),
         "top" => Ok(StyleVerticalAlign::Top),
@@ -2149,7 +2112,7 @@ impl crate::format_rust_code::FormatAsRustCode for CaretColor {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_caret_color(input: &str) -> Result<CaretColor, CssColorParseError> {
+pub fn parse_caret_color(input: &str) -> Result<CaretColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| CaretColor { inner })
 }
 
@@ -2187,7 +2150,7 @@ impl crate::format_rust_code::FormatAsRustCode for CaretAnimationDuration {
 #[cfg(feature = "parser")]
 pub fn parse_caret_animation_duration(
     input: &str,
-) -> Result<CaretAnimationDuration, DurationParseError> {
+) -> Result<CaretAnimationDuration, DurationParseError<'_>> {
     use crate::props::basic::parse_duration;
 
     parse_duration(input).map(|inner| CaretAnimationDuration { inner })
@@ -2227,7 +2190,7 @@ impl crate::format_rust_code::FormatAsRustCode for CaretWidth {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_caret_width(input: &str) -> Result<CaretWidth, CssPixelValueParseError> {
+pub fn parse_caret_width(input: &str) -> Result<CaretWidth, CssPixelValueParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
     parse_pixel_value(input).map(|inner| CaretWidth { inner })
@@ -2367,8 +2330,10 @@ mod tests {
 /// Controls how bidirectional text is handled within an element.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleUnicodeBidi {
     /// No additional level of embedding
+    #[default]
     Normal,
     /// Open an additional level of embedding
     Embed,
@@ -2380,11 +2345,6 @@ pub enum StyleUnicodeBidi {
     IsolateOverride,
     /// Determine paragraph direction from content without bidi algorithm
     Plaintext,
-}
-impl Default for StyleUnicodeBidi {
-    fn default() -> Self {
-        StyleUnicodeBidi::Normal
-    }
 }
 impl_option!(
     StyleUnicodeBidi,
@@ -2444,7 +2404,7 @@ impl StyleUnicodeBidiParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUnicodeBidiParseError> {
+pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUnicodeBidiParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleUnicodeBidi::Normal),
         "embed" => Ok(StyleUnicodeBidi::Embed),
@@ -2463,8 +2423,10 @@ pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUn
 /// Controls whether the leading is trimmed at the start/end of a block container.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleTextBoxTrim {
     /// No trimming
+    #[default]
     None,
     /// Trim leading over the first formatted line
     TrimStart,
@@ -2472,11 +2434,6 @@ pub enum StyleTextBoxTrim {
     TrimEnd,
     /// Trim both start and end
     TrimBoth,
-}
-impl Default for StyleTextBoxTrim {
-    fn default() -> Self {
-        StyleTextBoxTrim::None
-    }
 }
 impl_option!(
     StyleTextBoxTrim,
@@ -2534,7 +2491,7 @@ impl StyleTextBoxTrimParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleTextBoxTrimParseError> {
+pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleTextBoxTrimParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleTextBoxTrim::None),
         "trim-start" => Ok(StyleTextBoxTrim::TrimStart),
@@ -2553,9 +2510,11 @@ pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleT
 // +spec:writing-modes:daad86 - first value = over edge, second = under edge; single value applies to both (else "text" assumed for missing)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleTextBoxEdge {
     // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as text
     /// Use the line-fit-edge value (initial: text)
+    #[default]
     Auto,
     /// Use the text-over / text-under baselines
     TextEdge,
@@ -2563,11 +2522,6 @@ pub enum StyleTextBoxEdge {
     CapHeight,
     /// Use the x-height baseline
     ExHeight,
-}
-impl Default for StyleTextBoxEdge {
-    fn default() -> Self {
-        StyleTextBoxEdge::Auto
-    }
 }
 impl_option!(
     StyleTextBoxEdge,
@@ -2625,7 +2579,7 @@ impl StyleTextBoxEdgeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError> {
+pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleTextBoxEdge::Auto),
         "text" => Ok(StyleTextBoxEdge::TextEdge),
@@ -2642,8 +2596,10 @@ pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleT
 /// Specifies the dominant baseline used to align inline-level contents.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleDominantBaseline {
     /// Use the dominant baseline of the parent
+    #[default]
     Auto,
     /// Use the text-under baseline
     TextBottom,
@@ -2661,11 +2617,6 @@ pub enum StyleDominantBaseline {
     Hanging,
     /// Use the text-over baseline
     TextTop,
-}
-impl Default for StyleDominantBaseline {
-    fn default() -> Self {
-        StyleDominantBaseline::Auto
-    }
 }
 impl_option!(
     StyleDominantBaseline,
@@ -2728,7 +2679,7 @@ impl StyleDominantBaselineParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaseline, StyleDominantBaselineParseError> {
+pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaseline, StyleDominantBaselineParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleDominantBaseline::Auto),
         "text-bottom" => Ok(StyleDominantBaseline::TextBottom),
@@ -2754,8 +2705,10 @@ pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaselin
 // +spec:writing-modes:cc8e70 - alignment-baseline values for inline baseline alignment
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleAlignmentBaseline {
     /// Use the dominant baseline of the parent
+    #[default]
     Baseline,
     /// Align to the text-under baseline
     TextBottom,
@@ -2771,11 +2724,6 @@ pub enum StyleAlignmentBaseline {
     Mathematical,
     /// Align to the text-over baseline
     TextTop,
-}
-impl Default for StyleAlignmentBaseline {
-    fn default() -> Self {
-        StyleAlignmentBaseline::Baseline
-    }
 }
 impl_option!(
     StyleAlignmentBaseline,
@@ -2837,7 +2785,7 @@ impl StyleAlignmentBaselineParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBaseline, StyleAlignmentBaselineParseError> {
+pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBaseline, StyleAlignmentBaselineParseError<'_>> {
     match input.trim() {
         "baseline" => Ok(StyleAlignmentBaseline::Baseline),
         "text-bottom" => Ok(StyleAlignmentBaseline::TextBottom),
@@ -2858,8 +2806,10 @@ pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBasel
 /// Specifies the alignment points used to align an initial letter.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleInitialLetterAlign {
     /// Automatically determine alignment based on script
+    #[default]
     Auto,
     /// Align to the alphabetic baseline
     Alphabetic,
@@ -2867,11 +2817,6 @@ pub enum StyleInitialLetterAlign {
     Hanging,
     /// Align to the ideographic baseline
     Ideographic,
-}
-impl Default for StyleInitialLetterAlign {
-    fn default() -> Self {
-        StyleInitialLetterAlign::Auto
-    }
 }
 impl_option!(
     StyleInitialLetterAlign,
@@ -2929,7 +2874,7 @@ impl StyleInitialLetterAlignParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLetterAlign, StyleInitialLetterAlignParseError> {
+pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLetterAlign, StyleInitialLetterAlignParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleInitialLetterAlign::Auto),
         "alphabetic" => Ok(StyleInitialLetterAlign::Alphabetic),
@@ -2946,8 +2891,10 @@ pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLette
 /// Specifies how text adjacent to an initial letter wraps.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleInitialLetterWrap {
     /// No special wrapping around the initial letter
+    #[default]
     None,
     /// Wrap only the first line adjacent to the initial letter
     First,
@@ -2955,11 +2902,6 @@ pub enum StyleInitialLetterWrap {
     All,
     /// Wrap using a grid-based layout
     Grid,
-}
-impl Default for StyleInitialLetterWrap {
-    fn default() -> Self {
-        StyleInitialLetterWrap::None
-    }
 }
 impl_option!(
     StyleInitialLetterWrap,
@@ -3017,7 +2959,7 @@ impl StyleInitialLetterWrapParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_initial_letter_wrap(input: &str) -> Result<StyleInitialLetterWrap, StyleInitialLetterWrapParseError> {
+pub fn parse_style_initial_letter_wrap(input: &str) -> Result<StyleInitialLetterWrap, StyleInitialLetterWrapParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleInitialLetterWrap::None),
         "first" => Ok(StyleInitialLetterWrap::First),

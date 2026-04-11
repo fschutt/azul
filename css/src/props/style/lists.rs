@@ -16,8 +16,10 @@ use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValu
 /// CSS `list-style-type` property — controls the marker style for list items.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleListStyleType {
     None,
+    #[default]
     Disc,
     Circle,
     Square,
@@ -31,11 +33,6 @@ pub enum StyleListStyleType {
     UpperAlpha,
 }
 
-impl Default for StyleListStyleType {
-    fn default() -> Self {
-        Self::Disc // Default for <ul>
-    }
-}
 
 impl PrintAsCssValue for StyleListStyleType {
     fn print_as_css_value(&self) -> String {
@@ -91,16 +88,13 @@ impl fmt::Display for StyleListStyleType {
 /// CSS `list-style-position` property — controls whether the marker is inside or outside the list item box.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleListStylePosition {
     Inside,
+    #[default]
     Outside,
 }
 
-impl Default for StyleListStylePosition {
-    fn default() -> Self {
-        Self::Outside
-    }
-}
 
 impl PrintAsCssValue for StyleListStylePosition {
     fn print_as_css_value(&self) -> String {

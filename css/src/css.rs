@@ -919,7 +919,7 @@ impl NodeTypeTagParseErrorOwned {
 
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
-    pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError> {
+    pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError<'_>> {
         match css_key {
             // Document structure
             "html" => Ok(NodeTypeTag::Html),
@@ -1423,8 +1423,10 @@ impl fmt::Debug for CssPath {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum CssPathSelector {
     /// Represents the `*` selector
+    #[default]
     Global,
     /// `div`, `p`, etc.
     Type(NodeTypeTag),
@@ -1451,11 +1453,6 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl Default for CssPathSelector {
-    fn default() -> Self {
-        CssPathSelector::Global
-    }
-}
 
 impl fmt::Display for CssPathSelector {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1674,9 +1671,9 @@ pub fn css_to_rust_code(css: &Css) -> String {
     output.push_str("\t]\r\n");
     output.push_str("};");
 
-    let output = output.replace("\t", "    ");
+    
 
-    output
+    output.replace("\t", "    ")
 }
 
 pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
@@ -1931,7 +1928,7 @@ pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
 
 pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
     match p {
-        CssPathSelector::Global => format!("CssPathSelector::Global"),
+        CssPathSelector::Global => "CssPathSelector::Global".to_string(),
         CssPathSelector::Type(ntp) => format!("CssPathSelector::Type({})", format_node_type(ntp)),
         CssPathSelector::Class(class) => {
             format!("CssPathSelector::Class(String::from({:?}))", class)
@@ -1941,39 +1938,39 @@ pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
             "CssPathSelector::PseudoSelector({})",
             format_pseudo_selector_type(cps)
         ),
-        CssPathSelector::DirectChildren => format!("CssPathSelector::DirectChildren"),
-        CssPathSelector::Children => format!("CssPathSelector::Children"),
-        CssPathSelector::AdjacentSibling => format!("CssPathSelector::AdjacentSibling"),
-        CssPathSelector::GeneralSibling => format!("CssPathSelector::GeneralSibling"),
+        CssPathSelector::DirectChildren => "CssPathSelector::DirectChildren".to_string(),
+        CssPathSelector::Children => "CssPathSelector::Children".to_string(),
+        CssPathSelector::AdjacentSibling => "CssPathSelector::AdjacentSibling".to_string(),
+        CssPathSelector::GeneralSibling => "CssPathSelector::GeneralSibling".to_string(),
     }
 }
 
 pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
     match p {
-        CssPathPseudoSelector::First => format!("CssPathPseudoSelector::First"),
-        CssPathPseudoSelector::Last => format!("CssPathPseudoSelector::Last"),
+        CssPathPseudoSelector::First => "CssPathPseudoSelector::First".to_string(),
+        CssPathPseudoSelector::Last => "CssPathPseudoSelector::Last".to_string(),
         CssPathPseudoSelector::NthChild(n) => format!(
             "CssPathPseudoSelector::NthChild({})",
             format_nth_child_selector(n)
         ),
-        CssPathPseudoSelector::Hover => format!("CssPathPseudoSelector::Hover"),
-        CssPathPseudoSelector::Active => format!("CssPathPseudoSelector::Active"),
-        CssPathPseudoSelector::Focus => format!("CssPathPseudoSelector::Focus"),
-        CssPathPseudoSelector::Backdrop => format!("CssPathPseudoSelector::Backdrop"),
+        CssPathPseudoSelector::Hover => "CssPathPseudoSelector::Hover".to_string(),
+        CssPathPseudoSelector::Active => "CssPathPseudoSelector::Active".to_string(),
+        CssPathPseudoSelector::Focus => "CssPathPseudoSelector::Focus".to_string(),
+        CssPathPseudoSelector::Backdrop => "CssPathPseudoSelector::Backdrop".to_string(),
         CssPathPseudoSelector::Lang(lang) => format!(
             "CssPathPseudoSelector::Lang(AzString::from_const_str(\"{}\"))",
             lang.as_str()
         ),
-        CssPathPseudoSelector::Dragging => format!("CssPathPseudoSelector::Dragging"),
-        CssPathPseudoSelector::DragOver => format!("CssPathPseudoSelector::DragOver"),
+        CssPathPseudoSelector::Dragging => "CssPathPseudoSelector::Dragging".to_string(),
+        CssPathPseudoSelector::DragOver => "CssPathPseudoSelector::DragOver".to_string(),
     }
 }
 
 pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
     match n {
         CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
-        CssNthChildSelector::Even => format!("CssNthChildSelector::Even"),
-        CssNthChildSelector::Odd => format!("CssNthChildSelector::Odd"),
+        CssNthChildSelector::Even => "CssNthChildSelector::Even".to_string(),
+        CssNthChildSelector::Odd => "CssNthChildSelector::Odd".to_string(),
         CssNthChildSelector::Pattern(CssNthChildPattern {
             pattern_repeat,
             offset,

@@ -18,7 +18,9 @@ use crate::props::{
 /// Represents a `position` attribute - default: `Static`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutPosition {
+    #[default]
     Static,
     Relative,
     Absolute,
@@ -32,11 +34,6 @@ impl LayoutPosition {
     }
 }
 
-impl Default for LayoutPosition {
-    fn default() -> Self {
-        LayoutPosition::Static
-    }
-}
 
 impl PrintAsCssValue for LayoutPosition {
     fn print_as_css_value(&self) -> String {
@@ -326,7 +323,9 @@ pub fn parse_layout_left<'a>(input: &'a str) -> Result<LayoutLeft, LayoutLeftPar
 /// Represents a `z-index` attribute - controls stacking order of positioned elements
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum LayoutZIndex {
+    #[default]
     Auto,
     Integer(i32),
 }
@@ -343,11 +342,6 @@ impl crate::format_rust_code::FormatAsRustCode for LayoutZIndex {
     }
 }
 
-impl Default for LayoutZIndex {
-    fn default() -> Self {
-        LayoutZIndex::Auto
-    }
-}
 
 impl PrintAsCssValue for LayoutZIndex {
     fn print_as_css_value(&self) -> String {

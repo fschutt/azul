@@ -293,13 +293,11 @@ fn parse_path(args: &str) -> Result<CssShape, ShapeParseError> {
 fn parse_length(s: &str) -> Result<f32, ShapeParseError> {
     let s = s.trim();
 
-    if s.ends_with("px") {
-        let num_str = &s[..s.len() - 2];
+    if let Some(num_str) = s.strip_suffix("px") {
         num_str
             .parse::<f32>()
             .map_err(|_| ShapeParseError::InvalidNumber(s.to_string()))
-    } else if s.ends_with('%') {
-        let num_str = &s[..s.len() - 1];
+    } else if let Some(num_str) = s.strip_suffix('%') {
         let percent = num_str
             .parse::<f32>()
             .map_err(|_| ShapeParseError::InvalidNumber(s.to_string()))?;

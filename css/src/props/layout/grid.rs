@@ -38,6 +38,7 @@ impl core::fmt::Debug for GridMinMax {
 /// Represents a single track sizing function for grid
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum GridTrackSizing {
     /// Fixed pixel/percent size
     Fixed(PixelValue),
@@ -49,6 +50,7 @@ pub enum GridTrackSizing {
     /// max-content
     MaxContent,
     /// auto
+    #[default]
     Auto,
     /// minmax(min, max) - uses GridMinMax which contains Box<GridTrackSizing> for each bound
     MinMax(GridMinMax),
@@ -69,11 +71,6 @@ impl core::fmt::Debug for GridTrackSizing {
     }
 }
 
-impl Default for GridTrackSizing {
-    fn default() -> Self {
-        GridTrackSizing::Auto
-    }
-}
 
 impl PrintAsCssValue for GridTrackSizing {
     fn print_as_css_value(&self) -> String {
@@ -226,8 +223,10 @@ impl NamedGridLine {
 /// Represents a grid line position (start or end)
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum GridLine {
     /// auto
+    #[default]
     Auto,
     /// Line number (1-based, negative for counting from end)
     Line(i32),
@@ -243,11 +242,6 @@ impl core::fmt::Debug for GridLine {
     }
 }
 
-impl Default for GridLine {
-    fn default() -> Self {
-        GridLine::Auto
-    }
-}
 
 impl PrintAsCssValue for GridLine {
     fn print_as_css_value(&self) -> String {
@@ -536,18 +530,15 @@ pub fn parse_grid_placement<'a>(input: &'a str) -> Result<GridPlacement, GridPar
 /// Represents the `grid-auto-flow` property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutGridAutoFlow {
+    #[default]
     Row,
     Column,
     RowDense,
     ColumnDense,
 }
 
-impl Default for LayoutGridAutoFlow {
-    fn default() -> Self {
-        LayoutGridAutoFlow::Row
-    }
-}
 
 impl crate::props::formatter::PrintAsCssValue for LayoutGridAutoFlow {
     fn print_as_css_value(&self) -> alloc::string::String {
@@ -621,7 +612,9 @@ pub fn parse_layout_grid_auto_flow<'a>(
 /// Represents `justify-self` for grid items
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutJustifySelf {
+    #[default]
     Auto,
     Start,
     End,
@@ -629,11 +622,6 @@ pub enum LayoutJustifySelf {
     Stretch,
 }
 
-impl Default for LayoutJustifySelf {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl crate::props::formatter::PrintAsCssValue for LayoutJustifySelf {
     fn print_as_css_value(&self) -> alloc::string::String {
@@ -706,18 +694,15 @@ pub fn parse_layout_justify_self<'a>(
 /// Represents `justify-items` for grid containers
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutJustifyItems {
     Start,
     End,
     Center,
+    #[default]
     Stretch,
 }
 
-impl Default for LayoutJustifyItems {
-    fn default() -> Self {
-        Self::Stretch
-    }
-}
 
 impl crate::props::formatter::PrintAsCssValue for LayoutJustifyItems {
     fn print_as_css_value(&self) -> alloc::string::String {

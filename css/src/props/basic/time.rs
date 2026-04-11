@@ -8,16 +8,12 @@ use crate::props::formatter::PrintAsCssValue;
 /// A CSS time duration, stored internally in milliseconds.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub struct CssDuration {
     /// Duration in milliseconds.
     pub inner: u32,
 }
 
-impl Default for CssDuration {
-    fn default() -> Self {
-        Self { inner: 0 }
-    }
-}
 
 impl PrintAsCssValue for CssDuration {
     fn print_as_css_value(&self) -> String {
@@ -83,7 +79,7 @@ pub fn parse_duration<'a>(input: &'a str) -> Result<CssDuration, DurationParseEr
     if let Some(num_str) = trimmed.strip_suffix("ms") {
         let ms = num_str
             .parse::<f32>()
-            .map_err(|e| DurationParseError::ParseFloat(e))?;
+            .map_err(DurationParseError::ParseFloat)?;
         if ms < 0.0 {
             return Err(DurationParseError::InvalidValue(input));
         }
@@ -91,7 +87,7 @@ pub fn parse_duration<'a>(input: &'a str) -> Result<CssDuration, DurationParseEr
     } else if let Some(num_str) = trimmed.strip_suffix('s') {
         let s = num_str
             .parse::<f32>()
-            .map_err(|e| DurationParseError::ParseFloat(e))?;
+            .map_err(DurationParseError::ParseFloat)?;
         if s < 0.0 {
             return Err(DurationParseError::InvalidValue(input));
         }

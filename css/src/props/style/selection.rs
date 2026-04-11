@@ -52,7 +52,7 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionBackgroundColor {
 #[cfg(feature = "parser")]
 pub fn parse_selection_background_color(
     input: &str,
-) -> Result<SelectionBackgroundColor, CssColorParseError> {
+) -> Result<SelectionBackgroundColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| SelectionBackgroundColor { inner })
 }
 
@@ -90,7 +90,7 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionColor {
 
 /// Parses a `-azul-selection-color` CSS value.
 #[cfg(feature = "parser")]
-pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError> {
+pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| SelectionColor { inner })
 }
 
@@ -135,6 +135,6 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionRadius {
 
 /// Parses a `-azul-selection-radius` CSS value.
 #[cfg(feature = "parser")]
-pub fn parse_selection_radius(input: &str) -> Result<SelectionRadius, CssPixelValueParseError> {
+pub fn parse_selection_radius(input: &str) -> Result<SelectionRadius, CssPixelValueParseError<'_>> {
     parse_pixel_value(input).map(|inner| SelectionRadius { inner })
 }

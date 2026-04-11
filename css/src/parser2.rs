@@ -103,7 +103,7 @@ impl<'a> CssParseError<'a> {
         CssParseErrorOwned {
             css_string: self.css_string.to_string().into(),
             error: self.error.to_contained(),
-            location: self.location.clone(),
+            location: self.location,
         }
     }
 }
@@ -113,7 +113,7 @@ impl CssParseErrorOwned {
         CssParseError {
             css_string: self.css_string.as_str(),
             error: self.error.to_shared(),
-            location: self.location.clone(),
+            location: self.location,
         }
     }
 }
@@ -188,7 +188,7 @@ pub enum CssParseErrorInnerOwned {
 impl<'a> CssParseErrorInner<'a> {
     pub fn to_contained(&self) -> CssParseErrorInnerOwned {
         match self {
-            CssParseErrorInner::ParseError(e) => CssParseErrorInnerOwned::ParseError(e.clone()),
+            CssParseErrorInner::ParseError(e) => CssParseErrorInnerOwned::ParseError(*e),
             CssParseErrorInner::UnclosedBlock => CssParseErrorInnerOwned::UnclosedBlock,
             CssParseErrorInner::MalformedCss => CssParseErrorInnerOwned::MalformedCss,
             CssParseErrorInner::DynamicCssParseError(e) => {
@@ -205,7 +205,7 @@ impl<'a> CssParseErrorInner<'a> {
             }
             CssParseErrorInner::VarOnShorthandProperty { key, value } => {
                 CssParseErrorInnerOwned::VarOnShorthandProperty(VarOnShorthandPropertyError {
-                    key: key.clone(),
+                    key: *key,
                     value: value.to_string().into(),
                 })
             }
@@ -216,7 +216,7 @@ impl<'a> CssParseErrorInner<'a> {
 impl CssParseErrorInnerOwned {
     pub fn to_shared<'a>(&'a self) -> CssParseErrorInner<'a> {
         match self {
-            CssParseErrorInnerOwned::ParseError(e) => CssParseErrorInner::ParseError(e.clone()),
+            CssParseErrorInnerOwned::ParseError(e) => CssParseErrorInner::ParseError(*e),
             CssParseErrorInnerOwned::UnclosedBlock => CssParseErrorInner::UnclosedBlock,
             CssParseErrorInnerOwned::MalformedCss => CssParseErrorInner::MalformedCss,
             CssParseErrorInnerOwned::DynamicCssParseError(e) => {
@@ -233,7 +233,7 @@ impl CssParseErrorInnerOwned {
             }
             CssParseErrorInnerOwned::VarOnShorthandProperty(e) => {
                 CssParseErrorInner::VarOnShorthandProperty {
-                    key: e.key.clone(),
+                    key: e.key,
                     value: e.value.as_str(),
                 }
             }
@@ -293,7 +293,7 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     UnknownSelector(selector, value) => {
         let format_str = match value {
             Some(v) => format!("{}({})", selector, v),
-            None => format!("{}", selector),
+            None => selector.to_string(),
         };
         format!("Invalid or unknown CSS pseudo-selector: ':{}'", format_str)
     },
@@ -473,7 +473,7 @@ fn parse_nth_child_selector<'a>(
     }
 
     // If the value is not a number
-    match value.as_ref() {
+    match value {
         "even" => Ok(CssNthChildSelector::Even),
         "odd" => Ok(CssNthChildSelector::Odd),
         _ => parse_nth_child_pattern(value),
@@ -656,7 +656,7 @@ impl<'a> CssPathParseError<'a> {
             CssPathParseError::UnexpectedEndOfStream(s) => {
                 CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string().into())
             }
-            CssPathParseError::SyntaxError(e) => CssPathParseErrorOwned::SyntaxError(e.clone()),
+            CssPathParseError::SyntaxError(e) => CssPathParseErrorOwned::SyntaxError(*e),
             CssPathParseError::NodeTypeTag(e) => {
                 CssPathParseErrorOwned::NodeTypeTag(e.to_contained())
             }
@@ -677,7 +677,7 @@ impl CssPathParseErrorOwned {
             CssPathParseErrorOwned::UnexpectedEndOfStream(s) => {
                 CssPathParseError::UnexpectedEndOfStream(s)
             }
-            CssPathParseErrorOwned::SyntaxError(e) => CssPathParseError::SyntaxError(e.clone()),
+            CssPathParseErrorOwned::SyntaxError(e) => CssPathParseError::SyntaxError(*e),
             CssPathParseErrorOwned::NodeTypeTag(e) => CssPathParseError::NodeTypeTag(e.to_shared()),
             CssPathParseErrorOwned::PseudoSelectorParseError(e) => {
                 CssPathParseError::PseudoSelectorParseError(e.to_shared())
@@ -800,7 +800,7 @@ impl<'a> UnparsedCssRuleBlock<'a> {
             declarations: self
                 .declarations
                 .iter()
-                .map(|(k, (v, loc))| (k.to_string(), (v.to_string(), loc.clone())))
+                .map(|(k, (v, loc))| (k.to_string(), (v.to_string(), *loc)))
                 .collect(),
             conditions: self.conditions.clone(),
         }
@@ -814,7 +814,7 @@ impl UnparsedCssRuleBlockOwned {
             declarations: self
                 .declarations
                 .iter()
-                .map(|(k, (v, loc))| (k.as_str(), (v.as_str(), loc.clone())))
+                .map(|(k, (v, loc))| (k.as_str(), (v.as_str(), *loc)))
                 .collect(),
             conditions: self.conditions.clone(),
         }
@@ -838,7 +838,7 @@ impl<'a> CssParseWarnMsg<'a> {
     pub fn to_contained(&self) -> CssParseWarnMsgOwned {
         CssParseWarnMsgOwned {
             warning: self.warning.to_contained(),
-            location: self.location.clone(),
+            location: self.location,
         }
     }
 }
@@ -847,7 +847,7 @@ impl CssParseWarnMsgOwned {
     pub fn to_shared<'a>(&'a self) -> CssParseWarnMsg<'a> {
         CssParseWarnMsg {
             warning: self.warning.to_shared(),
-            location: self.location.clone(),
+            location: self.location,
         }
     }
 }
@@ -1733,7 +1733,7 @@ fn css_blocks_to_stylesheet<'a>(
         }
 
         parsed_css_blocks.push(CssRuleBlock {
-            path: unparsed_css_block.path.into(),
+            path: unparsed_css_block.path,
             declarations: declarations.into(),
             conditions: unparsed_css_block.conditions.into(),
         });
@@ -1855,7 +1855,7 @@ fn check_if_value_is_css_var<'a>(
 /// "--main-bg-col, blue" => (Some("main-bg-col"), Some("blue"))
 /// "--main-bg-col"       => (Some("main-bg-col"), None)
 /// ```
-fn parse_css_variable_brace_contents<'a>(input: &'a str) -> Option<(&'a str, Option<&'a str>)> {
+fn parse_css_variable_brace_contents(input: &str) -> Option<(&str, Option<&str>)> {
     let input = input.trim();
 
     let mut split_comma_iter = input.splitn(2, ",");

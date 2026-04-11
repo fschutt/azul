@@ -11,7 +11,9 @@ use crate::props::{basic::length::FloatValue, formatter::PrintAsCssValue};
 /// Enum representing the metric associated with an angle (deg, rad, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum AngleMetric {
+    #[default]
     Degree,
     Radians,
     Grad,
@@ -19,11 +21,6 @@ pub enum AngleMetric {
     Percent,
 }
 
-impl Default for AngleMetric {
-    fn default() -> AngleMetric {
-        AngleMetric::Degree
-    }
-}
 
 impl fmt::Display for AngleMetric {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -246,18 +246,15 @@ pub fn parse_layout_flex_shrink<'a>(
 /// Default: `Row`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutFlexDirection {
+    #[default]
     Row,
     RowReverse,
     Column,
     ColumnReverse,
 }
 
-impl Default for LayoutFlexDirection {
-    fn default() -> Self {
-        Self::Row
-    }
-}
 
 /// Represents the main or cross axis of a flex container.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -349,17 +346,14 @@ pub fn parse_layout_flex_direction<'a>(
 /// Default: `NoWrap`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutFlexWrap {
     Wrap,
+    #[default]
     NoWrap,
     WrapReverse,
 }
 
-impl Default for LayoutFlexWrap {
-    fn default() -> Self {
-        Self::NoWrap
-    }
-}
 
 impl PrintAsCssValue for LayoutFlexWrap {
     fn print_as_css_value(&self) -> String {
@@ -428,9 +422,11 @@ pub fn parse_layout_flex_wrap<'a>(
 /// Default: `Start` (flex-start)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutJustifyContent {
     FlexStart,
     FlexEnd,
+    #[default]
     Start,
     End,
     Center,
@@ -439,11 +435,6 @@ pub enum LayoutJustifyContent {
     SpaceEvenly,
 }
 
-impl Default for LayoutJustifyContent {
-    fn default() -> Self {
-        Self::Start
-    }
-}
 
 impl PrintAsCssValue for LayoutJustifyContent {
     fn print_as_css_value(&self) -> String {
@@ -520,7 +511,9 @@ pub fn parse_layout_justify_content<'a>(
 /// Default: `Stretch`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutAlignItems {
+    #[default]
     Stretch,
     Center,
     Start,
@@ -528,11 +521,6 @@ pub enum LayoutAlignItems {
     Baseline,
 }
 
-impl Default for LayoutAlignItems {
-    fn default() -> Self {
-        Self::Stretch
-    }
-}
 
 impl PrintAsCssValue for LayoutAlignItems {
     fn print_as_css_value(&self) -> String {
@@ -605,7 +593,9 @@ pub fn parse_layout_align_items<'a>(
 /// Default: `Stretch`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutAlignContent {
+    #[default]
     Stretch,
     Center,
     Start,
@@ -614,11 +604,6 @@ pub enum LayoutAlignContent {
     SpaceAround,
 }
 
-impl Default for LayoutAlignContent {
-    fn default() -> Self {
-        Self::Stretch
-    }
-}
 
 impl PrintAsCssValue for LayoutAlignContent {
     fn print_as_css_value(&self) -> String {
@@ -693,7 +678,9 @@ pub fn parse_layout_align_content<'a>(
 /// Default: `Auto`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutAlignSelf {
+    #[default]
     Auto,
     Stretch,
     Center,
@@ -702,11 +689,6 @@ pub enum LayoutAlignSelf {
     Baseline,
 }
 
-impl Default for LayoutAlignSelf {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for LayoutAlignSelf {
     fn print_as_css_value(&self) -> String {
@@ -795,8 +777,10 @@ pub fn parse_layout_align_self<'a>(
 /// Represents a `flex-basis` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum LayoutFlexBasis {
     /// auto
+    #[default]
     Auto,
     /// Fixed size
     Exact(crate::props::basic::pixel::PixelValue),
@@ -808,11 +792,6 @@ impl core::fmt::Debug for LayoutFlexBasis {
     }
 }
 
-impl Default for LayoutFlexBasis {
-    fn default() -> Self {
-        LayoutFlexBasis::Auto
-    }
-}
 
 impl PrintAsCssValue for LayoutFlexBasis {
     fn print_as_css_value(&self) -> String {

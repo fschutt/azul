@@ -185,8 +185,10 @@ pub struct IconStyleOptions {
 /// Font variants (bold, italic) can be combined with the base type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum SystemFontType {
     /// UI font for buttons, labels, menus (SF Pro, Segoe UI, Cantarell)
+    #[default]
     Ui,
     /// Bold variant of UI font
     UiBold,
@@ -210,11 +212,6 @@ pub enum SystemFontType {
     SerifBold,
 }
 
-impl Default for SystemFontType {
-    fn default() -> Self {
-        SystemFontType::Ui
-    }
-}
 
 impl SystemFontType {
     /// Parse a SystemFontType from a CSS string.
@@ -2224,7 +2221,7 @@ fn discover_macos_style() -> SystemStyle {
         &["read", "-g", "AppleHighlightColor"],
         Duration::from_secs(1),
     ) {
-        let parts: Vec<&str> = highlight_str.trim().split_whitespace().collect();
+        let parts: Vec<&str> = highlight_str.split_whitespace().collect();
         if parts.len() >= 3 {
             if let (Ok(r), Ok(g), Ok(b)) = (
                 parts[0].parse::<f32>(),

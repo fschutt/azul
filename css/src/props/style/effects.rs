@@ -45,17 +45,14 @@ impl_percentage_value!(StyleOpacity);
 /// Represents a `visibility` attribute, controlling element visibility.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleVisibility {
+    #[default]
     Visible,
     Hidden,
     Collapse,
 }
 
-impl Default for StyleVisibility {
-    fn default() -> StyleVisibility {
-        StyleVisibility::Visible
-    }
-}
 
 impl PrintAsCssValue for StyleVisibility {
     fn print_as_css_value(&self) -> String {
@@ -73,7 +70,9 @@ impl PrintAsCssValue for StyleVisibility {
 /// content should blend with the content of the element's parent.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleMixBlendMode {
+    #[default]
     Normal,
     Multiply,
     Screen,
@@ -92,11 +91,6 @@ pub enum StyleMixBlendMode {
     Luminosity,
 }
 
-impl Default for StyleMixBlendMode {
-    fn default() -> StyleMixBlendMode {
-        StyleMixBlendMode::Normal
-    }
-}
 
 impl fmt::Display for StyleMixBlendMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -137,6 +131,7 @@ impl PrintAsCssValue for StyleMixBlendMode {
 /// when pointing over an element.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleCursor {
     Alias,
     AllScroll,
@@ -145,6 +140,7 @@ pub enum StyleCursor {
     ContextMenu,
     Copy,
     Crosshair,
+    #[default]
     Default,
     EResize,
     EwResize,
@@ -170,11 +166,6 @@ pub enum StyleCursor {
     ZoomOut,
 }
 
-impl Default for StyleCursor {
-    fn default() -> StyleCursor {
-        StyleCursor::Default
-    }
-}
 
 impl PrintAsCssValue for StyleCursor {
     fn print_as_css_value(&self) -> String {
@@ -276,7 +267,7 @@ pub mod parsers {
             .map_err(|e| OpacityParseError::ParsePercentage(e, input))?;
 
         let normalized = val.normalized();
-        if normalized < 0.0 || normalized > 1.0 {
+        if !(0.0..=1.0).contains(&normalized) {
             return Err(OpacityParseError::OutOfRange(input));
         }
 
@@ -544,7 +535,9 @@ mod tests {
 /// CSS Images Level 3 §5.5
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleObjectFit {
+    #[default]
     Fill,
     Contain,
     Cover,
@@ -552,11 +545,6 @@ pub enum StyleObjectFit {
     ScaleDown,
 }
 
-impl Default for StyleObjectFit {
-    fn default() -> Self {
-        StyleObjectFit::Fill
-    }
-}
 
 crate::impl_option!(StyleObjectFit, OptionStyleObjectFit, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
@@ -632,17 +620,14 @@ pub fn parse_style_object_fit<'a>(
 /// CSS Writing Modes Level 4 §5.1
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleTextOrientation {
+    #[default]
     Mixed,
     Upright,
     Sideways,
 }
 
-impl Default for StyleTextOrientation {
-    fn default() -> Self {
-        StyleTextOrientation::Mixed
-    }
-}
 
 crate::impl_option!(StyleTextOrientation, OptionStyleTextOrientation, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
@@ -859,18 +844,15 @@ pub struct AspectRatioValue {
 /// Stored as width/height ratio. Auto means no preferred ratio.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum StyleAspectRatio {
     /// No preferred aspect ratio
+    #[default]
     Auto,
     /// Fixed ratio (width / height), stored as fixed-point (value * 1000)
     Ratio(AspectRatioValue),
 }
 
-impl Default for StyleAspectRatio {
-    fn default() -> Self {
-        StyleAspectRatio::Auto
-    }
-}
 
 crate::impl_option!(StyleAspectRatio, OptionStyleAspectRatio, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 

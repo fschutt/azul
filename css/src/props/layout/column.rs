@@ -27,16 +27,13 @@ use crate::props::{
 /// Values: `auto` or a positive integer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum ColumnCount {
+    #[default]
     Auto,
     Integer(u32),
 }
 
-impl Default for ColumnCount {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for ColumnCount {
     fn print_as_css_value(&self) -> String {
@@ -54,16 +51,13 @@ impl PrintAsCssValue for ColumnCount {
 /// Values: `auto` or a length value (e.g. `200px`, `15em`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum ColumnWidth {
+    #[default]
     Auto,
     Length(PixelValue),
 }
 
-impl Default for ColumnWidth {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for ColumnWidth {
     fn print_as_css_value(&self) -> String {
@@ -81,16 +75,13 @@ impl PrintAsCssValue for ColumnWidth {
 /// Values: `none` (default) or `all`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum ColumnSpan {
+    #[default]
     None,
     All,
 }
 
-impl Default for ColumnSpan {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl PrintAsCssValue for ColumnSpan {
     fn print_as_css_value(&self) -> String {
@@ -108,16 +99,13 @@ impl PrintAsCssValue for ColumnSpan {
 /// Values: `balance` (default) or `auto`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum ColumnFill {
     Auto,
+    #[default]
     Balance,
 }
 
-impl Default for ColumnFill {
-    fn default() -> Self {
-        Self::Balance
-    }
-}
 
 impl PrintAsCssValue for ColumnFill {
     fn print_as_css_value(&self) -> String {
@@ -327,7 +315,7 @@ pub mod parser {
         }
         let val: u32 = trimmed
             .parse()
-            .map_err(|e| ColumnCountParseError::ParseInt(e))?;
+            .map_err(ColumnCountParseError::ParseInt)?;
         Ok(ColumnCount::Integer(val))
     }
 

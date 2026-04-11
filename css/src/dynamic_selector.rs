@@ -265,12 +265,12 @@ impl OsVersion {
     
     /// Check if self >= other (for Min conditions)
     pub fn is_at_least(&self, other: &Self) -> bool {
-        self.compare(other).map_or(false, |o| o != core::cmp::Ordering::Less)
+        self.compare(other).is_some_and(|o| o != core::cmp::Ordering::Less)
     }
     
     /// Check if self <= other (for Max conditions)
     pub fn is_at_most(&self, other: &Self) -> bool {
-        self.compare(other).map_or(false, |o| o != core::cmp::Ordering::Greater)
+        self.compare(other).is_some_and(|o| o != core::cmp::Ordering::Greater)
     }
 }
 
@@ -858,7 +858,7 @@ impl DynamicSelector {
             Self::ContainerHeight(range) => {
                 !ctx.container_height.is_nan() && range.matches(ctx.container_height)
             }
-            Self::ContainerName(name) => ctx.container_name.as_ref().map_or(false, |n| n == name),
+            Self::ContainerName(name) => ctx.container_name.as_ref() == Some(name),
             Self::Theme(theme) => Self::match_theme(theme, &ctx.theme),
             Self::AspectRatio(range) => {
                 let ratio = ctx.viewport_width / ctx.viewport_height.max(1.0);
@@ -894,7 +894,7 @@ impl DynamicSelector {
             OsVersionCondition::Min(ver) => actual.is_at_least(ver),
             OsVersionCondition::Max(ver) => actual.is_at_most(ver),
             OsVersionCondition::DesktopEnvironment(env) => {
-                desktop_env.as_ref().map_or(false, |de| de == env)
+                desktop_env.as_ref() == Some(env)
             }
         }
     }
@@ -1188,7 +1188,7 @@ impl CssPropertyWithConditionsVec {
         let mut current_segment = String::new();
         let mut brace_depth = 0;
         
-        while let Some(c) = chars.next() {
+        for c in chars {
             match c {
                 '{' => {
                     brace_depth += 1;
@@ -1276,8 +1276,7 @@ impl CssPropertyWithConditionsVec {
         let selector = selector.trim();
         
         // Handle pseudo-selectors
-        if selector.starts_with(':') {
-            let pseudo = &selector[1..];
+        if let Some(pseudo) = selector.strip_prefix(':') {
             match pseudo {
                 "hover" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Hover)]),
                 "active" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Active)]),
@@ -1294,9 +1293,7 @@ impl CssPropertyWithConditionsVec {
         }
         
         // Handle @-rules
-        if selector.starts_with('@') {
-            let rule_content = &selector[1..];
-            
+        if let Some(rule_content) = selector.strip_prefix('@') {
             // @os-version windows >= win-11
             // @os-version macos >= monterey
             // @os-version macos = sonoma
@@ -1587,7 +1584,7 @@ impl CssPropertyWithConditionsVec {
 
         // Parse "os_family operator version" e.g. "windows >= win-11"
         // First extract the OS family name
-        let mut parts = query.splitn(2, |c: char| c == '>' || c == '<' || c == '=');
+        let mut parts = query.splitn(2, ['>', '<', '=']);
         let os_str = parts.next()?.trim();
 
         let os_family = match os_str.to_lowercase().as_str() {
@@ -1686,45 +1683,6 @@ impl CssPropertyWithConditionsVec {
         None
     }
 
-    /// Parse CSS properties from a string, all with "normal" (unconditional) state
-    ///
-    /// Deprecated: Use `parse()` instead which supports selectors and nesting
-    #[cfg(feature = "parser")]
-    #[deprecated(note = "Use `parse()` instead which supports selectors and nesting")]
-    pub fn parse_normal(style: &str) -> Self {
-        Self::parse(style)
-    }
-
-    /// Parse CSS properties from a string, all with hover condition
-    ///
-    /// Deprecated: Use `parse(":hover { ... }")` instead
-    #[cfg(feature = "parser")]
-    #[deprecated(note = "Use `parse(\":hover { ... }\")` instead")]
-    pub fn parse_hover(style: &str) -> Self {
-        // Wrap in :hover { } and parse
-        let wrapped = format!(":hover {{ {} }}", style);
-        Self::parse(&wrapped)
-    }
-
-    /// Parse CSS properties from a string, all with active condition
-    ///
-    /// Deprecated: Use `parse(":active { ... }")` instead
-    #[cfg(feature = "parser")]
-    #[deprecated(note = "Use `parse(\":active { ... }\")` instead")]
-    pub fn parse_active(style: &str) -> Self {
-        let wrapped = format!(":active {{ {} }}", style);
-        Self::parse(&wrapped)
-    }
-
-    /// Parse CSS properties from a string, all with focus condition
-    ///
-    /// Deprecated: Use `parse(":focus { ... }")` instead
-    #[cfg(feature = "parser")]
-    #[deprecated(note = "Use `parse(\":focus { ... }\")` instead")]
-    pub fn parse_focus(style: &str) -> Self {
-        let wrapped = format!(":focus {{ {} }}", style);
-        Self::parse(&wrapped)
-    }
 }
 
 #[cfg(test)]

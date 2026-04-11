@@ -1033,10 +1033,10 @@ impl<'a> CssColorParseError<'a> {
                 CssColorParseErrorOwned::InvalidColorComponent(*n)
             }
             CssColorParseError::IntValueParseErr(e) => {
-                CssColorParseErrorOwned::IntValueParseErr(e.clone().into())
+                CssColorParseErrorOwned::IntValueParseErr((*e))
             }
             CssColorParseError::FloatValueParseErr(e) => {
-                CssColorParseErrorOwned::FloatValueParseErr(e.clone().into())
+                CssColorParseErrorOwned::FloatValueParseErr((*e))
             }
             CssColorParseError::FloatValueOutOfRange(n) => {
                 CssColorParseErrorOwned::FloatValueOutOfRange(*n)
@@ -1075,10 +1075,10 @@ impl CssColorParseErrorOwned {
                 CssColorParseError::InvalidColorComponent(*n)
             }
             CssColorParseErrorOwned::IntValueParseErr(e) => {
-                CssColorParseError::IntValueParseErr(e.clone())
+                CssColorParseError::IntValueParseErr(*e)
             }
             CssColorParseErrorOwned::FloatValueParseErr(e) => {
-                CssColorParseError::FloatValueParseErr(e.clone())
+                CssColorParseError::FloatValueParseErr(*e)
             }
             CssColorParseErrorOwned::FloatValueOutOfRange(n) => {
                 CssColorParseError::FloatValueOutOfRange(*n)
@@ -1340,15 +1340,15 @@ fn parse_color_hsl_components<'a>(
         let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
         let h_prime = h / 60.0;
         let x = c * (1.0 - ((h_prime % 2.0) - 1.0).abs());
-        let (r1, g1, b1) = if h_prime >= 0.0 && h_prime < 1.0 {
+        let (r1, g1, b1) = if (0.0..1.0).contains(&h_prime) {
             (c, x, 0.0)
-        } else if h_prime >= 1.0 && h_prime < 2.0 {
+        } else if (1.0..2.0).contains(&h_prime) {
             (x, c, 0.0)
-        } else if h_prime >= 2.0 && h_prime < 3.0 {
+        } else if (2.0..3.0).contains(&h_prime) {
             (0.0, c, x)
-        } else if h_prime >= 3.0 && h_prime < 4.0 {
+        } else if (3.0..4.0).contains(&h_prime) {
             (0.0, x, c)
-        } else if h_prime >= 4.0 && h_prime < 5.0 {
+        } else if (4.0..5.0).contains(&h_prime) {
             (x, 0.0, c)
         } else {
             (c, 0.0, x)
@@ -1386,7 +1386,7 @@ fn parse_alpha_component<'a>(
         ));
     }
     let a = a_str.parse::<f32>()?;
-    if a < 0.0 || a > 1.0 {
+    if !(0.0..=1.0).contains(&a) {
         return Err(CssColorParseError::FloatValueOutOfRange(a));
     }
     Ok((a * 255.0).round() as u8)

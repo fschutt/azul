@@ -18,8 +18,10 @@ use crate::props::formatter::PrintAsCssValue;
 /// Represents a `flex-wrap` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutWrap {
     /// Do not wrap flex items (default).
+    #[default]
     NoWrap,
     /// Wrap flex items onto multiple lines.
     Wrap,
@@ -27,11 +29,6 @@ pub enum LayoutWrap {
     WrapReverse,
 }
 
-impl Default for LayoutWrap {
-    fn default() -> Self {
-        LayoutWrap::NoWrap
-    }
-}
 
 impl core::fmt::Debug for LayoutWrap {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -120,8 +117,10 @@ pub fn parse_layout_wrap<'a>(input: &'a str) -> Result<LayoutWrap, LayoutWrapPar
 // +spec:block-formatting-context:387117 - writing-mode specifies horizontal/vertical line layout and block progression direction
 // +spec:block-formatting-context:3815e7 - vertical-rl writing mode supported via VerticalRl variant
 // +spec:block-formatting-context:9d7cd4 - vertical writing mode support (VerticalRl, VerticalLr)
+#[derive(Default)]
 pub enum LayoutWritingMode {
     /// Top-to-bottom block flow, left-to-right inline direction (Latin, etc.).
+    #[default]
     HorizontalTb,
     /// Right-to-left block flow, top-to-bottom inline direction (CJK vertical).
     VerticalRl,
@@ -130,11 +129,6 @@ pub enum LayoutWritingMode {
     VerticalLr,
 }
 
-impl Default for LayoutWritingMode {
-    fn default() -> Self {
-        LayoutWritingMode::HorizontalTb
-    }
-}
 
 impl LayoutWritingMode {
     /// Returns true if the writing mode is vertical (VerticalRl or VerticalLr)
@@ -226,8 +220,10 @@ pub fn parse_layout_writing_mode<'a>(
 /// Represents a `clear` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutClear {
     /// No clearing; element is not moved below preceding floats.
+    #[default]
     None,
     /// Element is moved below preceding left floats.
     Left,
@@ -237,11 +233,6 @@ pub enum LayoutClear {
     Both,
 }
 
-impl Default for LayoutClear {
-    fn default() -> Self {
-        LayoutClear::None
-    }
-}
 
 impl core::fmt::Debug for LayoutClear {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {

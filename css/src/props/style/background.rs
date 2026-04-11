@@ -47,14 +47,11 @@ use crate::{
 /// Whether a `gradient` should be repeated or clamped to the edges.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum ExtendMode {
+    #[default]
     Clamp,
     Repeat,
-}
-impl Default for ExtendMode {
-    fn default() -> Self {
-        ExtendMode::Clamp
-    }
 }
 
 // -- Main Background Content Type --
@@ -291,14 +288,11 @@ impl PrintAsCssValue for ConicGradient {
 /// The shape of a radial gradient: `circle` or `ellipse`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum Shape {
+    #[default]
     Ellipse,
     Circle,
-}
-impl Default for Shape {
-    fn default() -> Self {
-        Shape::Ellipse
-    }
 }
 impl fmt::Display for Shape {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -316,16 +310,13 @@ impl fmt::Display for Shape {
 /// The sizing keyword for a radial gradient (e.g. `closest-side`, `farthest-corner`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum RadialGradientSize {
     ClosestSide,
     ClosestCorner,
     FarthestSide,
+    #[default]
     FarthestCorner,
-}
-impl Default for RadialGradientSize {
-    fn default() -> Self {
-        RadialGradientSize::FarthestCorner
-    }
 }
 impl fmt::Display for RadialGradientSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -624,8 +615,10 @@ impl PrintAsCssValue for BackgroundPositionVertical {
 /// The `background-size` property: `contain`, `cover`, or an exact size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum StyleBackgroundSize {
     ExactSize(PixelValueSize),
+    #[default]
     Contain,
     Cover,
 }
@@ -658,11 +651,6 @@ impl_vec_clone!(
 impl_vec_partialeq!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_eq!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_hash!(StyleBackgroundSize, StyleBackgroundSizeVec);
-impl Default for StyleBackgroundSize {
-    fn default() -> Self {
-        StyleBackgroundSize::Contain
-    }
-}
 
 impl StyleBackgroundSize {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
@@ -700,8 +688,10 @@ impl PrintAsCssValue for StyleBackgroundSizeVec {
 /// The `background-repeat` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleBackgroundRepeat {
     NoRepeat,
+    #[default]
     PatternRepeat,
     RepeatX,
     RepeatY,
@@ -724,11 +714,6 @@ impl_vec_clone!(
 impl_vec_partialeq!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_eq!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_hash!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
-impl Default for StyleBackgroundRepeat {
-    fn default() -> Self {
-        StyleBackgroundRepeat::PatternRepeat
-    }
-}
 impl PrintAsCssValue for StyleBackgroundRepeat {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -1141,7 +1126,7 @@ pub mod parser {
                     "repeating-conic-gradient" => GradientType::RepeatingConicGradient,
                     "image" | "url" => {
                         return Ok(StyleBackgroundContent::Image(
-                            parse_image(brace_contents)?.into(),
+                            parse_image(brace_contents)?,
                         ))
                     }
                     _ => unreachable!(),
@@ -1319,7 +1304,7 @@ pub mod parser {
                 loop {
                     let mut consumed_in_iteration = false;
                     let mut temp_iter = current_item.split_whitespace();
-                    while let Some(word) = temp_iter.next() {
+                    for word in temp_iter {
                         if let Ok(shape) = parse_shape(word) {
                             radial_gradient.shape = shape;
                             consumed_in_iteration = true;
@@ -1455,7 +1440,7 @@ pub mod parser {
     /// - "red" -> ("red", None, None)
     /// - "red 50%" -> ("red", Some("50%"), None)
     /// - "red 10% 30%" -> ("red", Some("10%"), Some("30%"))
-    fn split_color_and_offsets<'a>(input: &'a str) -> (&'a str, Option<&'a str>, Option<&'a str>) {
+    fn split_color_and_offsets(input: &str) -> (&str, Option<&str>, Option<&str>) {
         // Strategy: scan from the end to find position values (contain digits + % or unit).
         // We need to handle complex colors like "rgba(0, 0, 0, 0.5)" that contain spaces and
         // digits.
@@ -1476,7 +1461,7 @@ pub mod parser {
 
     /// Try to split off the last whitespace-separated token if it looks like a position value.
     /// Returns (remaining, offset_str) if successful.
-    fn try_split_last_offset<'a>(input: &'a str) -> Option<(&'a str, &'a str)> {
+    fn try_split_last_offset(input: &str) -> Option<(&str, &str)> {
         let input = input.trim();
         if let Some(last_ws_idx) = input.rfind(char::is_whitespace) {
             let (potential_color, potential_offset) = input.split_at(last_ws_idx);

@@ -901,8 +901,10 @@ pub fn parse_pixel_value_with_auto<'a>(
 /// CSS syntax: `system:button-padding`, `system:button-radius`, `system:titlebar-height`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum SystemMetricRef {
     /// Button corner radius (system:button-radius)
+    #[default]
     ButtonRadius,
     /// Button horizontal padding (system:button-padding-horizontal)
     ButtonPaddingHorizontal,
@@ -926,11 +928,6 @@ pub enum SystemMetricRef {
     SafeAreaRight,
 }
 
-impl Default for SystemMetricRef {
-    fn default() -> Self {
-        SystemMetricRef::ButtonRadius
-    }
-}
 
 impl SystemMetricRef {
     /// Resolve this system metric reference against actual system metrics.

@@ -24,7 +24,9 @@ use crate::{
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
 // +spec:box-model:28fad6 - Border style variants including groove/ridge/inset/outset for separated/collapsing border models
+#[derive(Default)]
 pub enum BorderStyle {
+    #[default]
     None,
     Solid,
     Double,
@@ -37,11 +39,6 @@ pub enum BorderStyle {
     Outset,
 }
 
-impl Default for BorderStyle {
-    fn default() -> Self {
-        BorderStyle::None
-    }
-}
 
 impl fmt::Display for BorderStyle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

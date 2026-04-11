@@ -41,11 +41,13 @@ use crate::{
 /// Represents the `font-weight` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleFontWeight {
     Lighter,
     W100,
     W200,
     W300,
+    #[default]
     Normal,
     W500,
     W600,
@@ -55,11 +57,6 @@ pub enum StyleFontWeight {
     Bolder,
 }
 
-impl Default for StyleFontWeight {
-    fn default() -> Self {
-        StyleFontWeight::Normal
-    }
-}
 
 impl PrintAsCssValue for StyleFontWeight {
     fn print_as_css_value(&self) -> String {
@@ -125,17 +122,14 @@ impl StyleFontWeight {
 /// Represents the `font-style` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleFontStyle {
+    #[default]
     Normal,
     Italic,
     Oblique,
 }
 
-impl Default for StyleFontStyle {
-    fn default() -> Self {
-        StyleFontStyle::Normal
-    }
-}
 
 impl PrintAsCssValue for StyleFontStyle {
     fn print_as_css_value(&self) -> String {
@@ -252,7 +246,7 @@ unsafe impl Send for FontRef {}
 unsafe impl Sync for FontRef {}
 impl PartialEq for FontRef {
     fn eq(&self, rhs: &Self) -> bool {
-        self.parsed as usize == rhs.parsed as usize
+        std::ptr::eq(self.parsed, rhs.parsed)
     }
 }
 impl PartialOrd for FontRef {
@@ -288,14 +282,13 @@ impl Clone for FontRef {
 }
 impl Drop for FontRef {
     fn drop(&mut self) {
-        if self.run_destructor && !self.copies.is_null() {
-            if unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) } == 1 {
+        if self.run_destructor && !self.copies.is_null()
+            && unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) } == 1 {
                 unsafe {
                     (self.parsed_destructor)(self.parsed as *mut c_void);
                     let _ = Box::from_raw(self.copies as *mut AtomicUsize);
                 }
             }
-        }
     }
 }
 
@@ -642,6 +635,7 @@ use crate::corety::{OptionI16, OptionU16, OptionU32};
 /// See https://learn.microsoft.com/en-us/typography/opentype/spec/os2#panose
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub struct Panose {
     pub family_type: u8,
     pub serif_style: u8,
@@ -655,22 +649,6 @@ pub struct Panose {
     pub x_height: u8,
 }
 
-impl Default for Panose {
-    fn default() -> Self {
-        Panose {
-            family_type: 0,
-            serif_style: 0,
-            weight: 0,
-            proportion: 0,
-            contrast: 0,
-            stroke_variation: 0,
-            arm_style: 0,
-            letterform: 0,
-            midline: 0,
-            x_height: 0,
-        }
-    }
-}
 
 impl Panose {
     pub const fn zero() -> Self {

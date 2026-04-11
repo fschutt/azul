@@ -63,7 +63,7 @@ macro_rules! impl_vec {
 
             /// Returns an iterator over the elements.
             #[inline]
-            pub fn iter(&self) -> core::slice::Iter<$struct_type> {
+            pub fn iter(&self) -> core::slice::Iter<'_, $struct_type> {
                 self.as_slice().iter()
             }
         }
@@ -132,7 +132,7 @@ macro_rules! impl_vec {
             }
 
             #[inline]
-            pub fn iter(&self) -> core::slice::Iter<$struct_type> {
+            pub fn iter(&self) -> core::slice::Iter<'_, $struct_type> {
                 self.as_ref().iter()
             }
 
@@ -531,7 +531,7 @@ macro_rules! impl_vec_mut {
             }
 
             #[inline]
-            pub fn iter_mut(&mut self) -> core::slice::IterMut<$struct_type> {
+            pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, $struct_type> {
                 self.as_mut().iter_mut()
             }
 

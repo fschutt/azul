@@ -27,9 +27,11 @@ use crate::{
 /// - **fixed**: Column widths are determined by the first row (faster and predictable)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutTableLayout {
     /// Use automatic table layout algorithm (content-based, default).
     /// Column width is set by the widest unbreakable content in the cells.
+    #[default]
     Auto,
     /// Use fixed table layout algorithm (first-row-based).
     /// Column width is set by the width property of the column or first-row cell.
@@ -37,11 +39,6 @@ pub enum LayoutTableLayout {
     Fixed,
 }
 
-impl Default for LayoutTableLayout {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for LayoutTableLayout {
     fn print_as_css_value(&self) -> String {
@@ -70,20 +67,17 @@ impl FormatAsRustCode for LayoutTableLayout {
 /// - **collapse**: Adjacent cells share borders (ignores border-spacing)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleBorderCollapse {
     /// Borders are separated (default). Each cell has its own border.
     /// The `border-spacing` property defines the distance between borders.
+    #[default]
     Separate,
     /// Borders are collapsed. Adjacent cells share a single border.
     /// Border conflict resolution rules apply when borders differ.
     Collapse,
 }
 
-impl Default for StyleBorderCollapse {
-    fn default() -> Self {
-        Self::Separate
-    }
-}
 
 impl PrintAsCssValue for StyleBorderCollapse {
     fn print_as_css_value(&self) -> String {
@@ -180,18 +174,15 @@ impl FormatAsRustCode for LayoutBorderSpacing {
 /// The `caption-side` property positions the caption either above or below the table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleCaptionSide {
     /// Caption is placed above the table (default)
+    #[default]
     Top,
     /// Caption is placed below the table
     Bottom,
 }
 
-impl Default for StyleCaptionSide {
-    fn default() -> Self {
-        Self::Top
-    }
-}
 
 impl PrintAsCssValue for StyleCaptionSide {
     fn print_as_css_value(&self) -> String {
@@ -219,18 +210,15 @@ impl FormatAsRustCode for StyleCaptionSide {
 /// A cell is considered empty if it contains no visible content.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum StyleEmptyCells {
     /// Show borders and background on empty cells (default)
+    #[default]
     Show,
     /// Hide borders and background on empty cells
     Hide,
 }
 
-impl Default for StyleEmptyCells {
-    fn default() -> Self {
-        Self::Show
-    }
-}
 
 impl PrintAsCssValue for StyleEmptyCells {
     fn print_as_css_value(&self) -> String {
@@ -300,7 +288,7 @@ pub fn parse_border_spacing<'a>(
 ) -> Result<LayoutBorderSpacing, LayoutBorderSpacingParseError<'a>> {
     use crate::props::basic::parse_pixel_value;
 
-    let parts: Vec<&str> = input.trim().split_whitespace().collect();
+    let parts: Vec<&str> = input.split_whitespace().collect();
 
     match parts.len() {
         1 => {

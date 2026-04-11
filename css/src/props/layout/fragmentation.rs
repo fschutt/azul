@@ -13,7 +13,9 @@ use crate::props::formatter::PrintAsCssValue;
 /// Represents a `break-before` or `break-after` CSS property value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum PageBreak {
+    #[default]
     Auto,
     Avoid,
     Always,
@@ -28,11 +30,6 @@ pub enum PageBreak {
     AvoidColumn,
 }
 
-impl Default for PageBreak {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for PageBreak {
     fn print_as_css_value(&self) -> String {
@@ -58,18 +55,15 @@ impl PrintAsCssValue for PageBreak {
 /// Represents a `break-inside` CSS property value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum BreakInside {
+    #[default]
     Auto,
     Avoid,
     AvoidPage,
     AvoidColumn,
 }
 
-impl Default for BreakInside {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PrintAsCssValue for BreakInside {
     fn print_as_css_value(&self) -> String {
@@ -129,16 +123,13 @@ impl PrintAsCssValue for Orphans {
 /// Represents a `box-decoration-break` CSS property value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum BoxDecorationBreak {
+    #[default]
     Slice,
     Clone,
 }
 
-impl Default for BoxDecorationBreak {
-    fn default() -> Self {
-        Self::Slice
-    }
-}
 
 impl PrintAsCssValue for BoxDecorationBreak {
     fn print_as_css_value(&self) -> String {

@@ -739,8 +739,7 @@ pub fn parse_style_transform<'a>(
             }
 
             let x = parse_pixel_value(
-                components
-                    .get(0)
+                components.first()
                     .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
                         expected: 2,
                         got: 0,
@@ -766,8 +765,7 @@ pub fn parse_style_transform<'a>(
         "translate3d" => {
             let components: Vec<_> = transform_values.split(',').collect();
             let x = parse_pixel_value(
-                components
-                    .get(0)
+                components.first()
                     .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
                         expected: 3,
                         got: 0,
@@ -856,8 +854,7 @@ pub fn parse_style_transform<'a>(
         "skew" => {
             let components: Vec<_> = transform_values.split(',').collect();
             let x = parse_angle_value(
-                components
-                    .get(0)
+                components.first()
                     .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
                         expected: 2,
                         got: 0,
@@ -890,7 +887,7 @@ pub fn parse_style_transform<'a>(
 pub fn parse_style_transform_origin<'a>(
     input: &'a str,
 ) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'a>> {
-    let components: Vec<_> = input.trim().split_whitespace().collect();
+    let components: Vec<_> = input.split_whitespace().collect();
     if components.len() != 2 {
         return Err(CssStyleTransformOriginParseError::WrongNumberOfComponents {
             expected: 2,
@@ -903,7 +900,7 @@ pub fn parse_style_transform_origin<'a>(
     fn parse_position_component(
         s: &str,
         is_horizontal: bool,
-    ) -> Result<PixelValue, CssPixelValueParseError> {
+    ) -> Result<PixelValue, CssPixelValueParseError<'_>> {
         match s.trim() {
             "left" if is_horizontal => Ok(PixelValue::percent(0.0)),
             "center" => Ok(PixelValue::percent(50.0)),
@@ -923,7 +920,7 @@ pub fn parse_style_transform_origin<'a>(
 pub fn parse_style_perspective_origin<'a>(
     input: &'a str,
 ) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'a>> {
-    let components: Vec<_> = input.trim().split_whitespace().collect();
+    let components: Vec<_> = input.split_whitespace().collect();
     if components.len() != 2 {
         return Err(
             CssStylePerspectiveOriginParseError::WrongNumberOfComponents {

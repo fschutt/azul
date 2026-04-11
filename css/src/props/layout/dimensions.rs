@@ -242,7 +242,9 @@ macro_rules! define_dimension_property {
 // Custom implementation for LayoutWidth to support min-content, max-content, and calc()
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum LayoutWidth {
+    #[default]
     Auto,
     Px(PixelValue),
     MinContent,
@@ -253,11 +255,6 @@ pub enum LayoutWidth {
     Calc(CalcAstItemVec),
 }
 
-impl Default for LayoutWidth {
-    fn default() -> Self {
-        LayoutWidth::Auto
-    }
-}
 
 impl PixelValueTaker for LayoutWidth {
     fn from_pixel_value(inner: PixelValue) -> Self {
@@ -303,7 +300,9 @@ impl LayoutWidth {
 // Custom implementation for LayoutHeight to support min-content, max-content, and calc()
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum LayoutHeight {
+    #[default]
     Auto,
     Px(PixelValue),
     MinContent,
@@ -314,11 +313,6 @@ pub enum LayoutHeight {
     Calc(CalcAstItemVec),
 }
 
-impl Default for LayoutHeight {
-    fn default() -> Self {
-        LayoutHeight::Auto
-    }
-}
 
 impl PixelValueTaker for LayoutHeight {
     fn from_pixel_value(inner: PixelValue) -> Self {
@@ -387,16 +381,13 @@ define_dimension_property!(LayoutMaxHeight, || Self {
 /// Represents a `box-sizing` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum LayoutBoxSizing {
+    #[default]
     ContentBox,
     BorderBox,
 }
 
-impl Default for LayoutBoxSizing {
-    fn default() -> Self {
-        LayoutBoxSizing::ContentBox
-    }
-}
 
 impl PrintAsCssValue for LayoutBoxSizing {
     fn print_as_css_value(&self) -> String {

@@ -23,7 +23,9 @@ use crate::{
 /// CSS shape-outside property for wrapping text around shapes
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum ShapeOutside {
+    #[default]
     None,
     Shape(CssShape),
 }
@@ -53,11 +55,6 @@ impl Ord for ShapeOutside {
     }
 }
 
-impl Default for ShapeOutside {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl PrintAsCssValue for ShapeOutside {
     fn print_as_css_value(&self) -> String {
@@ -71,7 +68,9 @@ impl PrintAsCssValue for ShapeOutside {
 /// CSS shape-inside property for flowing text within shapes
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum ShapeInside {
+    #[default]
     None,
     Shape(CssShape),
 }
@@ -101,11 +100,6 @@ impl Ord for ShapeInside {
     }
 }
 
-impl Default for ShapeInside {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl PrintAsCssValue for ShapeInside {
     fn print_as_css_value(&self) -> String {
@@ -119,7 +113,9 @@ impl PrintAsCssValue for ShapeInside {
 /// CSS clip-path property for clipping element rendering
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum ClipPath {
+    #[default]
     None,
     Shape(CssShape),
 }
@@ -149,11 +145,6 @@ impl Ord for ClipPath {
     }
 }
 
-impl Default for ClipPath {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl PrintAsCssValue for ClipPath {
     fn print_as_css_value(&self) -> String {
@@ -294,7 +285,7 @@ pub mod parser {
     }
 
     /// Parser for shape-margin property
-    pub fn parse_shape_margin(input: &str) -> Result<ShapeMargin, CssPixelValueParseError> {
+    pub fn parse_shape_margin(input: &str) -> Result<ShapeMargin, CssPixelValueParseError<'_>> {
         Ok(ShapeMargin {
             inner: parse_pixel_value(input)?,
         })

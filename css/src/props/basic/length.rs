@@ -236,7 +236,9 @@ impl From<f32> for FloatValue {
 /// Enum representing the metric associated with a number (px, pt, em, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum SizeMetric {
+    #[default]
     Px,
     Pt,
     Em,
@@ -255,11 +257,6 @@ pub enum SizeMetric {
     Vmax,
 }
 
-impl Default for SizeMetric {
-    fn default() -> Self {
-        SizeMetric::Px
-    }
-}
 
 impl fmt::Display for SizeMetric {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
