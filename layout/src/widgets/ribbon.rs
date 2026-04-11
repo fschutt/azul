@@ -1,3 +1,11 @@
+//! Microsoft Office-style ribbon widget.
+//!
+//! A [`Ribbon`] organizes controls into a tabbed toolbar where each tab
+//! contains one or more [`RibbonSection`]s, each with a title and arbitrary
+//! content.  Unlike the simpler [`super::tabs`] widget, each tab is further
+//! subdivided into titled, visually separated sections — matching the ribbon
+//! pattern found in Office applications.
+
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
@@ -20,6 +28,7 @@ use crate::callbacks::{Callback, CallbackInfo};
 
 // -- Callback --
 
+/// Callback signature invoked when a ribbon tab is clicked.
 pub type RibbonOnTabClickCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
     RibbonOnTabClick, OptionRibbonOnTabClick,
@@ -115,25 +124,35 @@ static SECTION_TITLE_STYLE: &[Cond] = &[
     Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(2))),
 ];
 
+/// Top-level ribbon widget containing multiple tabs.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Ribbon {
+    /// Tabs displayed in the ribbon tab bar.
     pub tabs: RibbonTabVec,
+    /// Index of the currently active tab.
     pub active_tab: usize,
+    /// Optional callback fired when a tab is clicked.
     pub on_tab_click: OptionRibbonOnTabClick,
 }
 
+/// A single tab within a [`Ribbon`], containing a label and sections.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RibbonTab {
+    /// Display label shown in the tab bar.
     pub label: AzString,
+    /// Sections rendered when this tab is active.
     pub sections: RibbonSectionVec,
 }
 
+/// A titled section within a [`RibbonTab`], holding arbitrary content.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RibbonSection {
+    /// Title displayed below the section content.
     pub title: AzString,
+    /// Content DOM rendered inside this section.
     pub content: Dom,
 }
 
@@ -150,14 +169,17 @@ impl_vec_debug!(RibbonTab, RibbonTabVec);
 impl_vec_mut!(RibbonTab, RibbonTabVec);
 
 impl RibbonTab {
+    /// Creates a new tab with the given label and no sections.
     pub fn new(label: AzString) -> Self {
         Self { label, sections: RibbonSectionVec::from_const_slice(&[]) }
     }
 
+    /// Appends a section to this tab.
     pub fn add_section(&mut self, section: RibbonSection) {
         self.sections.push(section);
     }
 
+    /// Builder method: appends a section and returns `self`.
     pub fn with_section(mut self, section: RibbonSection) -> Self {
         self.add_section(section);
         self
@@ -165,31 +187,37 @@ impl RibbonTab {
 }
 
 impl RibbonSection {
+    /// Creates a new section with the given title and content DOM.
     pub fn new(title: AzString, content: Dom) -> Self {
         Self { title, content }
     }
 }
 
 impl Ribbon {
+    /// Creates a new ribbon with the given tabs, defaulting to the first tab active.
     pub fn new(tabs: RibbonTabVec) -> Self {
         Self { tabs, active_tab: 0, on_tab_click: None.into() }
     }
 
+    /// Sets the active tab by index.
     pub fn set_active_tab(&mut self, index: usize) {
         self.active_tab = index;
     }
 
+    /// Registers a callback invoked when a tab is clicked.
     pub fn set_on_tab_click<C: Into<RibbonOnTabClickCallback>>(&mut self, data: RefAny, cb: C) {
         self.on_tab_click = Some(RibbonOnTabClick {
             callback: cb.into(), refany: data,
         }).into();
     }
 
+    /// Builder method: registers a tab-click callback and returns `self`.
     pub fn with_on_tab_click<C: Into<RibbonOnTabClickCallback>>(mut self, data: RefAny, cb: C) -> Self {
         self.set_on_tab_click(data, cb);
         self
     }
 
+    /// Builds the ribbon DOM, rendering the tab bar and the active tab's sections.
     pub fn dom(self) -> Dom {
         let active_tab = self.active_tab;
         let has_callback = self.on_tab_click.is_some();
